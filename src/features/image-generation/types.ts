@@ -17,3 +17,15 @@ export interface ApiConfig {
   apiKey: string;
   model?: string;
 }
+
+export interface GenerationRecord {
+  id: string;
+  prompt: string;
+  revisedPrompt: string | null;
+  model: string;
+  size: string;
+  status: "pending" | "completed" | "failed";
+  imageUrl: string | null;
+  creditsConsumed: number;
+  createdAt: Date;
+}
