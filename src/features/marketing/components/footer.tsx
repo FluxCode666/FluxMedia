@@ -19,12 +19,11 @@ export function Footer() {
         <div className="grid gap-12 lg:grid-cols-[1fr_1fr]">
           {/* 品牌区 */}
           <div>
-            <Link href="/" className="mb-4 inline-block text-xl font-bold">
-              {siteConfig.name}
+            <Link href="/" className="mb-4 inline-block">
+              <span className="font-serif text-xl font-medium">GPT2IMAGE</span>
             </Link>
             <p className="text-sm text-muted-foreground">
-              Production-ready Next.js SaaS template with auth, payments,
-              credits, i18n, and more.
+              AI-powered chat-to-image generation platform.
             </p>
           </div>
 

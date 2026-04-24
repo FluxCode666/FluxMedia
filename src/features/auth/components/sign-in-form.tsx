@@ -223,7 +223,7 @@ export function SignInForm() {
         {/* 提交按钮 */}
         <Button
           type="submit"
-          className="w-full"
+          className="w-full bg-foreground text-background hover:bg-foreground/90"
           disabled={isLoading}
         >
           {isLoading ? t("loading") : t("submit")}

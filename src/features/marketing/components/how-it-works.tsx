@@ -1,26 +1,27 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Check, FileUp, Sparkles, Download } from "lucide-react";
+import { Check, Download, MessageSquare, Settings, Sparkles } from "lucide-react";
 
 const stepConfig = [
-  { key: "upload" as const, icon: FileUp, step: "01" },
-  { key: "generate" as const, icon: Sparkles, step: "02" },
-  { key: "export" as const, icon: Download, step: "03" },
+  { key: "configure" as const, icon: Settings, step: "01" },
+  { key: "chat" as const, icon: MessageSquare, step: "02" },
+  { key: "generate" as const, icon: Sparkles, step: "03" },
+  { key: "download" as const, icon: Download, step: "04" },
 ];
 
 export function HowItWorks() {
   const t = useTranslations("HowItWorks");
 
   return (
-    <section id="how-it-works" className="container py-24 bg-muted/30">
+    <section id="how-it-works" className="container bg-muted/30 py-24">
       <div className="mx-auto max-w-4xl">
         {/* Header */}
         <div className="mb-16 text-center">
-          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-primary">
+          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-foreground">
             {t("label")}
           </p>
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-medium tracking-tight md:text-4xl">
             {t("title")}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">
@@ -41,17 +42,17 @@ export function HowItWorks() {
 
                 {/* Icon */}
                 <div className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm md:h-20 md:w-20">
-                  <Icon className="h-5 w-5 text-primary md:h-8 md:w-8" />
+                  <Icon className="h-5 w-5 text-foreground md:h-8 md:w-8" />
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 pb-8">
                   <div className="mb-2 flex items-center gap-3">
-                    <span className="text-sm font-medium text-primary">
+                    <span className="text-sm font-medium text-foreground">
                       Step {step.step}
                     </span>
                   </div>
-                  <h3 className="mb-2 text-xl font-semibold">
+                  <h3 className="mb-2 font-serif text-xl font-medium">
                     {t(`steps.${step.key}.title`)}
                   </h3>
                   <p className="text-muted-foreground">
@@ -65,7 +66,7 @@ export function HowItWorks() {
 
         {/* Completion */}
         <div className="mt-8 flex items-center justify-center gap-3 rounded-xl border bg-card p-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground/10 text-foreground">
             <Check className="h-5 w-5" />
           </div>
           <div>

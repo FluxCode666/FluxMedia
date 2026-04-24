@@ -75,7 +75,7 @@ export function ModeToggle({ variant = "dropdown", className }: ModeToggleProps)
           className={cn(
             "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
             theme === "system"
-              ? "bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary"
+              ? "bg-muted text-foreground"
               : "text-muted-foreground hover:bg-muted hover:text-foreground"
           )}
           title="跟随系统"

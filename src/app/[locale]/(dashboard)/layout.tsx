@@ -8,7 +8,7 @@ export default function DashboardLayout({
 }) {
   return (
     <SidebarProvider>
-      <div className="min-h-screen bg-[#f5f5f5]">
+      <div className="min-h-screen bg-muted">
         <DashboardSidebar />
         <DashboardMainWrapper>{children}</DashboardMainWrapper>
       </div>

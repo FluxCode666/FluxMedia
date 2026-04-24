@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -132,23 +133,20 @@ export function DashboardSidebar() {
               }
             }}
           >
-            <svg
-              className="h-6 w-6 shrink-0 text-primary"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <rect x="2" y="2" width="9" height="9" rx="2" />
-              <rect x="13" y="2" width="9" height="9" rx="2" opacity="0.5" />
-              <rect x="2" y="13" width="9" height="9" rx="2" opacity="0.5" />
-              <rect x="13" y="13" width="9" height="9" rx="2" />
-            </svg>
+            <Image
+              src="/assets/logo.png"
+              alt="GPT2IMAGE"
+              width={24}
+              height={24}
+              className="shrink-0"
+            />
             <span
               className={cn(
-                "text-lg font-bold tracking-tight transition-opacity",
+                "font-serif text-lg font-medium tracking-tight transition-opacity",
                 collapsed && "opacity-0",
               )}
             >
-              NextDev<span className="text-primary">Tpl</span>
+              GPT2IMAGE
             </span>
           </Link>
         </div>
@@ -180,7 +178,7 @@ export function DashboardSidebar() {
                       className={cn(
                         "flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
                         isActive
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-accent text-foreground"
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
                         collapsed && "justify-center px-0",
                       )}
@@ -211,7 +209,7 @@ export function DashboardSidebar() {
                 >
                   <Avatar className="h-8 w-8 shrink-0">
                     <AvatarImage src={user.image || undefined} alt={user.name} />
-                    <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                    <AvatarFallback className="bg-foreground text-background text-xs">
                       {getInitials(user.name)}
                     </AvatarFallback>
                   </Avatar>
@@ -242,7 +240,7 @@ export function DashboardSidebar() {
                 <div className="flex items-center gap-3 p-4">
                   <Avatar className="h-10 w-10">
                     <AvatarImage src={user.image || undefined} alt={user.name} />
-                    <AvatarFallback className="bg-primary text-primary-foreground">
+                    <AvatarFallback className="bg-foreground text-background">
                       {getInitials(user.name)}
                     </AvatarFallback>
                   </Avatar>

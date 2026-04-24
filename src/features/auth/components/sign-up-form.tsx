@@ -140,7 +140,7 @@ export function SignUpForm() {
     return (
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center space-y-4 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 text-green-600">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-foreground">
             <Mail className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -289,7 +289,7 @@ export function SignUpForm() {
         {/* 提交按钮 */}
         <Button
           type="submit"
-          className="w-full"
+          className="w-full bg-foreground text-background hover:bg-foreground/90"
           disabled={isLoading}
         >
           {isLoading ? t("loading") : t("submit")}

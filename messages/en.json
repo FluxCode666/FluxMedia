@@ -1,173 +1,173 @@
 {
   "HomePage": {
-    "title": "NextDevTpl",
-    "subtitle": "Production-Ready Next.js SaaS Template",
-    "description": "Ship your SaaS product faster with a production-ready full-stack template."
+    "title": "GPT2IMAGE",
+    "subtitle": "AI-Powered Chat-to-Image Generation Platform",
+    "description": "Transform your ideas into stunning visuals through natural conversation, powered by state-of-the-art AI models."
   },
   "Hero": {
-    "badge": "New: AI Model Integration",
-    "title1": "The Ultimate Next.js",
-    "titleHighlight": "Starter Template",
-    "subtitle": "Build and ship faster with production-ready infrastructure. Authentication, payments, and beautiful UI components out of the box.",
-    "getStarted": "Get Started",
-    "seeDemo": "View Demo",
-    "trustLine": "Trusted by developers worldwide",
+    "badge": "AI Image Generation",
+    "title1": "Transform Words",
+    "titleHighlight": "into Stunning Art",
+    "subtitle": "Generate beautiful images through natural conversation. Powered by state-of-the-art AI models.",
+    "getStarted": "Start Creating",
+    "seeDemo": "See Examples",
+    "trustLine": "Trusted by creators worldwide",
     "stats": {
-      "cards": "Projects Built",
-      "users": "Developers",
-      "rating": "Satisfaction"
+      "cards": "Images Generated",
+      "users": "Active Users",
+      "rating": "Satisfaction Rate"
     }
   },
   "Features": {
     "label": "Core Features",
-    "title": "Everything You Need to Launch",
-    "subtitle": "Every essential SaaS feature, pre-built and production-ready, so you can focus on what makes your product unique.",
+    "title": "Everything You Need to Create",
+    "subtitle": "A complete toolkit for turning imagination into reality — from conversational prompts to batch generation and API access.",
     "items": {
       "ai": {
-        "title": "Auth & Security",
-        "description": "Better Auth with email/password, Google and GitHub OAuth, email verification, and role-based access control out of the box."
+        "title": "Chat-to-Image",
+        "description": "Describe your vision in natural language and watch AI bring it to life. No complex prompt engineering required — just conversation."
       },
       "multiSource": {
-        "title": "Payment & Subscription",
-        "description": "Creem integration for subscriptions and one-time purchases. Four plan tiers with automatic billing cycle management."
+        "title": "Visual Gallery",
+        "description": "Organize, browse, and revisit every image you've created. Powerful filters, tags, and collections keep your work at your fingertips."
       },
       "outline": {
-        "title": "Credits System",
-        "description": "Double-entry bookkeeping with FIFO batch expiration. Grant, consume, and track credits with full transaction history."
+        "title": "Batch Generation",
+        "description": "Generate multiple variations in a single request. Perfect for exploring concepts, iterating on designs, or producing content at scale."
       },
       "export": {
-        "title": "Async Processing",
-        "description": "Inngest-powered background jobs that bypass serverless timeouts. Built-in task queue with status polling and progress tracking."
+        "title": "API Access",
+        "description": "Integrate image generation directly into your products and workflows with a clean, well-documented REST API."
       },
       "batch": {
-        "title": "Internationalization",
-        "description": "Full i18n support via next-intl with locale-prefixed routes. Ship in multiple languages from day one."
+        "title": "Credits System",
+        "description": "Flexible pay-as-you-go credits that never expire. Track usage, monitor consumption, and top up whenever you need."
       },
       "multilingual": {
-        "title": "Admin Dashboard",
-        "description": "Built-in admin panel for user management, support tickets, and platform statistics. Role-based access with admin-only routes."
+        "title": "Dark Mode",
+        "description": "A polished dark theme designed for long creative sessions. Switch effortlessly between light and dark to match your mood."
       }
     }
   },
   "HowItWorks": {
     "label": "How It Works",
-    "title": "From Zero to Production in Three Steps",
-    "subtitle": "Get your SaaS up and running in minutes, not months.",
+    "title": "From Idea to Image in Four Steps",
+    "subtitle": "Start generating in minutes — no design skills, no prompt expertise required.",
     "steps": {
       "upload": {
-        "title": "Clone & Configure",
-        "description": "Clone the repository, install dependencies with pnpm, and set your environment variables. Database, auth, and payments are ready to connect."
+        "title": "Configure API",
+        "description": "Connect your preferred AI image model by adding your API credentials. We support the leading providers out of the box."
       },
       "generate": {
-        "title": "Customize & Build",
-        "description": "Replace the example features with your own business logic. The modular architecture keeps everything organized by feature domain."
+        "title": "Describe Your Vision",
+        "description": "Start a conversation and describe the image you want — a scene, a character, a mood. Refine iteratively until it feels right."
       },
       "export": {
-        "title": "Deploy & Launch",
-        "description": "Deploy to Vercel, your own server, or any Node.js host. Push your Drizzle schema, configure webhooks, and go live."
+        "title": "AI Generates",
+        "description": "Our AI interprets your prompt and produces high-quality images in seconds. Generate variations to explore every creative direction."
       }
     },
     "completion": {
-      "title": "That's it!",
-      "description": "Your SaaS is live. Focus on growing your product and acquiring customers."
+      "title": "Download & Share",
+      "description": "Save your favorites in high resolution or share them directly. Every image stays in your gallery for future reference."
     }
   },
   "UseCases": {
     "label": "Use Cases",
-    "title": "Build Any SaaS Product",
-    "subtitle": "NextDevTpl provides the foundation for a wide range of SaaS applications.",
+    "title": "Made for Every Creator",
+    "subtitle": "GPT2IMAGE fits the workflows of designers, marketers, developers, and storytellers alike.",
     "items": {
       "students": {
-        "title": "AI Products",
-        "subtitle": "AI-Powered Applications",
-        "description": "Build AI wrappers, content generators, or intelligent assistants. The credits system and async processing handle LLM calls and usage metering out of the box.",
-        "examples": ["AI content tools", "Chatbot platforms", "Image generators"]
+        "title": "Designers & Artists",
+        "subtitle": "Visual Ideation",
+        "description": "Sketch concepts, explore styles, and generate reference images to accelerate your creative process.",
+        "examples": ["Mood boards", "Concept art", "Style exploration"]
       },
       "professionals": {
-        "title": "Productivity Tools",
-        "subtitle": "Workflow & Collaboration",
-        "description": "Create project management, note-taking, or team collaboration tools. Auth, roles, and subscription tiers are already wired up.",
-        "examples": ["Task managers", "Document editors", "Scheduling apps"]
+        "title": "Marketers",
+        "subtitle": "Content at Scale",
+        "description": "Produce on-brand visuals for campaigns, social posts, and blog headers without waiting on stock photos or design queues.",
+        "examples": ["Social graphics", "Ad creative", "Blog images"]
       },
       "language": {
-        "title": "Creator Platforms",
-        "subtitle": "Content & Community",
-        "description": "Launch platforms for creators, educators, or communities. Payment processing, user dashboards, and file storage are ready to use.",
-        "examples": ["Course platforms", "Newsletter tools", "Membership sites"]
+        "title": "Creators & Storytellers",
+        "subtitle": "Visual Narratives",
+        "description": "Illustrate stories, build worlds, and visualize characters. Turn ideas into imagery that draws your audience in.",
+        "examples": ["Story illustrations", "Character art", "World-building"]
       },
       "knowledge": {
-        "title": "Internal Tools",
-        "subtitle": "Business Operations",
-        "description": "Build internal dashboards, admin panels, or data management tools. The admin module and role-based access provide a solid starting point.",
-        "examples": ["Admin dashboards", "CRM systems", "Reporting tools"]
+        "title": "Developers",
+        "subtitle": "API-Driven Workflows",
+        "description": "Embed image generation into your applications with a clean API. Build product features that leverage AI visuals natively.",
+        "examples": ["App integrations", "Automated pipelines", "Custom tools"]
       }
     }
   },
   "Testimonials": {
     "label": "Testimonials",
-    "title": "What Developers Say",
-    "subtitle": "Developers around the world are using NextDevTpl to ship their SaaS products faster.",
+    "title": "What Creators Say",
+    "subtitle": "Designers, marketers, and developers around the world are using GPT2IMAGE every day.",
     "items": [
       {
-        "content": "I went from idea to paying customers in under a week. The auth, payments, and credits system saved me at least a month of development time.",
+        "content": "The chat interface makes image generation feel effortless. I can describe what I'm imagining in plain language and iterate until it's perfect.",
         "author": "Sarah Lin",
-        "role": "Indie Hacker · AI Tools"
+        "role": "Product Designer"
       },
       {
-        "content": "The Inngest integration for background jobs is a game-changer. I no longer worry about serverless timeouts when processing large tasks for my users.",
+        "content": "Batch generation saves me hours every week. I can produce a dozen hero image variations for A/B testing without breaking a sweat.",
         "author": "Michael Zhang",
+        "role": "Marketing Lead"
+      },
+      {
+        "content": "I wired up the API in an afternoon and now my product auto-generates visuals for user content. The docs are clear and the endpoints just work.",
+        "author": "Emily Chen",
         "role": "Full-Stack Developer"
       },
       {
-        "content": "Having i18n baked in from the start made expanding to international markets seamless. We launched in English and Chinese simultaneously.",
-        "author": "Emily Chen",
-        "role": "Startup Founder"
-      },
-      {
-        "content": "The credits system with double-entry bookkeeping is incredibly well-designed. It took me five minutes to wire up usage metering for my API product.",
+        "content": "The gallery is how I stay organized. Every image I've ever generated is searchable, taggable, and a click away from being reused.",
         "author": "David Wang",
-        "role": "Senior Engineer · API Platform"
+        "role": "Content Creator"
       },
       {
-        "content": "The modular feature architecture is exactly what I needed. Each domain is self-contained, so onboarding new developers to the codebase is effortless.",
+        "content": "Credits that never expire is a huge win. I can generate when inspiration strikes without worrying about a monthly clock running out.",
         "author": "Lisa Li",
-        "role": "Tech Lead · SaaS Startup"
+        "role": "Illustrator"
       },
       {
-        "content": "I've tried dozens of SaaS boilerplates. This one stands out because it doesn't cut corners — the admin panel, support tickets, and subscription management all work end-to-end.",
+        "content": "GPT2IMAGE replaced three other tools in my workflow. Chat-based prompting, batch runs, and API access — it's everything in one place.",
         "author": "Kevin Zhao",
-        "role": "Solo Developer · Productivity Tools"
+        "role": "Creative Director"
       }
     ]
   },
   "FAQ": {
     "label": "FAQ",
     "title": "Questions You Might Have",
-    "subtitle": "Common questions and answers about NextDevTpl.",
+    "subtitle": "Common questions about GPT2IMAGE and how it works.",
     "items": [
       {
-        "question": "What is NextDevTpl?",
-        "answer": "NextDevTpl is a production-ready Next.js SaaS starter template. It includes authentication, payment processing, a credits system, background job processing, internationalization, an admin dashboard, and more — everything you need to launch a SaaS product quickly."
+        "question": "What is GPT2IMAGE?",
+        "answer": "GPT2IMAGE is an AI-powered platform that turns natural-language conversations into high-quality images. Describe what you want, and our AI generates it — no prompt engineering required. Features include chat-to-image generation, a visual gallery, batch generation, API access, and a flexible credits system."
       },
       {
-        "question": "What tech stack does it use?",
-        "answer": "Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 4, Shadcn/UI, Drizzle ORM with PostgreSQL, Better Auth for authentication, Creem for payments, Inngest for async processing, next-intl for i18n, and Biome for linting and formatting."
+        "question": "Which AI image models are supported?",
+        "answer": "GPT2IMAGE supports the leading image generation models on the market. You configure your API credentials once, and the platform handles the rest — routing your prompts to the model you've chosen and returning the results in a unified interface."
       },
       {
-        "question": "How is the credits system designed?",
-        "answer": "The credits system uses double-entry bookkeeping with FIFO batch expiration. Every credit movement creates a transaction with debit and credit accounts. Credits can be granted via subscriptions, purchases, or admin actions, and consumed by any feature you build."
+        "question": "How does the credits system work?",
+        "answer": "Every image generation consumes a small number of credits based on the model and parameters you choose. Credits never expire, so unused credits are never wasted. You can subscribe to a monthly plan for recurring credits or top up whenever you need more."
       },
       {
-        "question": "Can I customize the subscription plans?",
-        "answer": "Absolutely. The subscription plan configuration is centralized in a single config file. You can adjust plan names, pricing, credit allocations, feature limits, and billing cycles to match your product's needs."
+        "question": "Can I use the API in my own products?",
+        "answer": "Yes. GPT2IMAGE offers a clean REST API for integrating image generation into your applications, workflows, or automation pipelines. API access is available on the Pro and Ultra plans, with generous rate limits and full documentation."
       },
       {
-        "question": "Does it support background processing?",
-        "answer": "Yes. Inngest handles all background jobs, solving the serverless timeout problem. Tasks run asynchronously with status polling and progress tracking built in. You can easily add your own Inngest functions for any long-running work."
+        "question": "Does batch generation cost more?",
+        "answer": "Batch generation consumes credits per image generated, the same as single generation. It's a convenience feature that lets you produce multiple variations in one request — perfect for exploring concepts or iterating on designs quickly."
       },
       {
-        "question": "Is it ready for production?",
-        "answer": "Yes. The template includes rate limiting, error monitoring (Sentry), structured logging (Pino + Axiom), secure file storage (Cloudflare R2), and graceful degradation for optional services. It's designed to run on a VPS or any Node.js hosting platform."
+        "question": "Can I download and use the images commercially?",
+        "answer": "Yes. Images you generate on GPT2IMAGE are yours to use — for personal, editorial, or commercial projects. Downloads are available in high resolution, and your full generation history stays in your gallery."
       }
     ]
   },
@@ -189,7 +189,7 @@
       "success": "Signed in successfully!",
       "resendVerification": "Resend verification email",
       "resendCooldown": "Resend in {seconds}s",
-      "noAccount": "Don\u0027t have an account?",
+      "noAccount": "Don't have an account?",
       "signUpLink": "Sign up",
       "errors": {
         "google": "Google sign-in failed. Please try again.",
@@ -201,7 +201,7 @@
     },
     "signUp": {
       "title": "Create an account",
-      "subtitle": "Enter your details to get started.",
+      "subtitle": "Enter your details to start generating images.",
       "nameLabel": "Full name",
       "namePlaceholder": "Jane Doe",
       "emailLabel": "Email address",
@@ -233,7 +233,7 @@
       }
     },
     "footer": {
-      "copyright": "\u00a9 {year} {name}. All rights reserved.",
+      "copyright": "© {year} {name}. All rights reserved.",
       "privacy": "Privacy Policy",
       "terms": "Terms of Service",
       "cookies": "Cookie Settings"
@@ -241,10 +241,10 @@
   },
   "CTA": {
     "badge": "Start free, no credit card required",
-    "title": "Ready to Launch Your SaaS?",
-    "subtitle": "Get started with a production-ready template and ship your product in days, not months. Everything you need is already built in.",
+    "title": "Start generating stunning images today",
+    "subtitle": "Sign up in seconds and get free credits to try GPT2IMAGE. Bring your ideas to life with AI-powered image generation.",
     "getStarted": "Get Started Free",
-    "seeDemo": "Live Demo"
+    "seeDemo": "See Examples"
   },
   "DashboardPages": {
     "dashboard": {
@@ -268,8 +268,8 @@
   "AnonymousGenerate": {},
   "Solutions": {},
   "CreditTransactions": {
-    "anonymous_migration": "Migrated {cardCount} items from anonymous session",
-    "anonymous_migration_bonus": "New user bonus: Saved {cardCount} items for free"
+    "anonymous_migration": "Migrated {cardCount} images from anonymous session",
+    "anonymous_migration_bonus": "New user bonus: Saved {cardCount} images for free"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -278,7 +278,7 @@
     "docs": "Docs"
   },
   "Navigation": {
-    "products": "Products",
+    "products": "Features",
     "docs": "Docs",
     "pseo": "PSEO",
     "pricing": "Pricing",
@@ -286,31 +286,31 @@
     "about": "About",
     "productsMenu": {
       "core": {
-        "title": "Core",
-        "auth": "Authentication",
-        "authDesc": "Multi-provider auth with session management",
-        "payments": "Payments",
-        "paymentsDesc": "Subscriptions and one-time purchases",
-        "credits": "Credits",
-        "creditsDesc": "Double-entry bookkeeping with FIFO expiration"
+        "title": "Generation",
+        "auth": "Chat-to-Image",
+        "authDesc": "Generate images through natural conversation",
+        "payments": "Batch Generation",
+        "paymentsDesc": "Produce multiple variations in one request",
+        "credits": "Visual Gallery",
+        "creditsDesc": "Browse, organize, and revisit your creations"
       },
       "dx": {
-        "title": "DX Platform",
-        "jobs": "Background Jobs",
-        "jobsDesc": "Async processing with Inngest",
+        "title": "Developer",
+        "jobs": "API Access",
+        "jobsDesc": "Integrate image generation into your apps",
         "i18n": "Internationalization",
-        "i18nDesc": "Multi-language with next-intl",
-        "ai": "AI Integration",
-        "aiDesc": "Multi-model LLM abstraction"
+        "i18nDesc": "Prompt and UI support in multiple languages",
+        "ai": "Model Support",
+        "aiDesc": "Leading image generation models in one place"
       },
       "infra": {
-        "title": "Infrastructure",
-        "admin": "Admin Panel",
-        "adminDesc": "User and ticket management",
-        "storage": "File Storage",
-        "storageDesc": "S3/R2 cloud storage",
-        "monitoring": "Monitoring",
-        "monitoringDesc": "Logging and error tracking"
+        "title": "Platform",
+        "admin": "Credits",
+        "adminDesc": "Flexible credits that never expire",
+        "storage": "Image Storage",
+        "storageDesc": "Secure cloud storage for every generation",
+        "monitoring": "Dark Mode",
+        "monitoringDesc": "Polished dark theme for long sessions"
       }
     }
   },
@@ -318,7 +318,7 @@
     "getStarted": "Get Started",
     "login": "Log in",
     "dashboard": "Dashboard",
-    "products": "Products",
+    "products": "Features",
     "pricing": "Pricing",
     "blog": "Blog",
     "docs": "Documentation",
@@ -378,7 +378,7 @@
   },
   "Pricing": {
     "title": "Simple, transparent pricing",
-    "subtitle": "Pay by credits — <strong>never expire</strong>, so unused credits aren't wasted. Use credits for any metered feature in your app. Save 40% with yearly billing.",
+    "subtitle": "Pay by credits — <strong>never expire</strong>, so unused credits aren't wasted. Generate images whenever inspiration strikes. Save 40% with yearly billing.",
     "creditsUpfront": "all at once",
     "creditsPerYear": "credits / year",
     "monthly": "Monthly",
@@ -388,12 +388,12 @@
     "currentPlan": "Current Plan",
     "alreadySubscribed": "Already Subscribed",
     "manageSubscription": "Manage Subscription",
-    "booksNote": "≈ {count} units of usage",
-    "cardsNote": "≈ {count} operations",
+    "booksNote": "≈ {count} images generated",
+    "cardsNote": "≈ {count} API calls",
     "plans": {
       "free": {
         "name": "Free",
-        "description": "Try the platform with no commitment",
+        "description": "Try GPT2IMAGE with no commitment",
         "cta": "Get Started",
         "creditsAmount": "200",
         "creditsLabel": "credits",
@@ -401,16 +401,16 @@
         "features": {
           "creditsNeverExpire": "Credits never expire",
           "credits": "200 credits (one-time)",
-          "input": "Core features access",
-          "characters": "Standard usage limits",
-          "fileSize": "Max 5MB file size",
-          "export": "Data export",
-          "history": "History saved forever"
+          "input": "Chat-to-image generation",
+          "characters": "Standard image resolutions",
+          "fileSize": "Up to 5 images per batch",
+          "export": "Download & share",
+          "history": "Gallery history saved forever"
         }
       },
       "starter": {
         "name": "Starter",
-        "description": "Great for getting started",
+        "description": "Perfect for casual creators",
         "cta": "Subscribe",
         "creditsAmount": "3,000",
         "creditsLabel": "credits / month",
@@ -418,17 +418,17 @@
         "features": {
           "creditsNeverExpire": "Credits never expire",
           "credits": "3,000 credits / month",
-          "input": "Core features access",
-          "characters": "Standard usage limits",
-          "fileSize": "Max 20MB file size",
-          "export": "Data export",
-          "history": "History saved forever",
+          "input": "Chat-to-image generation",
+          "characters": "Standard image resolutions",
+          "fileSize": "Up to 10 images per batch",
+          "export": "Download & share",
+          "history": "Gallery history saved forever",
           "support": "Email support"
         }
       },
       "pro": {
         "name": "Pro",
-        "description": "Best value for growing projects",
+        "description": "Best value for active creators",
         "cta": "Subscribe",
         "creditsAmount": "8,000",
         "creditsLabel": "credits / month",
@@ -436,13 +436,13 @@
         "features": {
           "creditsNeverExpire": "Credits never expire",
           "credits": "8,000 credits / month",
-          "input": "All features unlocked",
-          "characters": "Extended usage limits",
-          "fileSize": "Max 50MB file size",
-          "queue": "Priority processing queue",
-          "export": "Data export",
-          "history": "History saved forever",
-          "customCards": "Custom integrations (coming soon)",
+          "input": "All generation features",
+          "characters": "High-resolution outputs",
+          "fileSize": "Up to 25 images per batch",
+          "queue": "Priority generation queue",
+          "export": "Download & share",
+          "history": "Gallery history saved forever",
+          "customCards": "API access included",
           "support": "Priority support"
         }
       },
@@ -456,14 +456,14 @@
         "features": {
           "creditsNeverExpire": "Credits never expire",
           "credits": "16,000 credits / month",
-          "input": "All features unlocked",
-          "characters": "Maximum usage limits",
-          "fileSize": "Max 100MB file size",
+          "input": "All generation features",
+          "characters": "Maximum-resolution outputs",
+          "fileSize": "Up to 50 images per batch",
           "queue": "Highest priority queue",
-          "export": "Data export",
-          "history": "History saved forever",
-          "customCards": "Custom integrations (coming soon)",
-          "aiAssist": "Advanced API access (coming soon)",
+          "export": "Download & share",
+          "history": "Gallery history saved forever",
+          "customCards": "Advanced API access",
+          "aiAssist": "Higher API rate limits",
           "support": "Dedicated support"
         }
       }
@@ -617,8 +617,8 @@
       }
     },
     "usage": {
-      "title": "Compute Credit Usage",
-      "description": "Credits used for AI dialogue, image and etc.",
+      "title": "Credit Usage",
+      "description": "Credits used for image generation and API calls.",
       "availableCredits": "Available Credits",
       "creditsAvailable": "credits available",
       "getMoreCredits": {
@@ -656,7 +656,7 @@
           "registration_bonus": "New user registration bonus",
           "monthly_grant": "{plan} monthly subscription credits",
           "yearly_grant": "{plan} yearly subscription credits ({monthly} x 12)",
-          "consumption": "Credit consumption",
+          "consumption": "Image generation",
           "expiration": "Credits expired",
           "admin_grant": "Admin granted credits",
           "refund": "Credits refund"

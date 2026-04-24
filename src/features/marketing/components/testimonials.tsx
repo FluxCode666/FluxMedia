@@ -27,10 +27,10 @@ export function Testimonials() {
       <div className="mx-auto max-w-6xl">
         {/* Header */}
         <div className="mb-16 text-center">
-          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-primary">
+          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-foreground">
             {t("label")}
           </p>
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-medium tracking-tight md:text-4xl">
             {t("title")}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">
@@ -49,7 +49,7 @@ export function Testimonials() {
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarImage src={avatarPaths[index]} />
-                    <AvatarFallback className="bg-primary/10 text-primary">
+                    <AvatarFallback className="bg-foreground/10 text-foreground">
                       {testimonial.author.charAt(0)}
                     </AvatarFallback>
                   </Avatar>

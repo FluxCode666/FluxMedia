@@ -17,10 +17,10 @@ export function FAQSection() {
       <div className="mx-auto max-w-3xl">
         {/* Header */}
         <div className="mb-12 text-center">
-          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-primary">
+          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-foreground">
             {t("label")}
           </p>
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-medium tracking-tight md:text-4xl">
             {t("title")}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">
