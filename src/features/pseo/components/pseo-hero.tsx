@@ -12,8 +12,8 @@ export function PseoHero({ page }: { page: PseoPage }) {
 
   return (
     <section className="container relative overflow-hidden py-20 md:py-28">
-      <div className="absolute -top-20 right-0 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
-      <div className="absolute -bottom-24 left-0 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
+      <div className="absolute -top-20 right-0 h-56 w-56 rounded-full bg-foreground/5 blur-3xl" />
+      <div className="absolute -bottom-24 left-0 h-56 w-56 rounded-full bg-foreground/5 blur-3xl" />
 
       <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
@@ -24,9 +24,9 @@ export function PseoHero({ page }: { page: PseoPage }) {
             {hero.badge}
           </Badge>
 
-          <h1 className="mb-6 text-balance text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
+          <h1 className="mb-6 text-balance font-serif text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
             {hero.title}{" "}
-            <span className="text-primary">{hero.highlight}</span>
+            <span className="text-foreground">{hero.highlight}</span>
           </h1>
 
           <p className="mb-8 text-lg text-muted-foreground md:text-xl">
@@ -61,7 +61,7 @@ export function PseoHero({ page }: { page: PseoPage }) {
         </div>
 
         <div className="relative">
-          <div className="absolute -inset-4 rounded-3xl bg-primary/10 blur-2xl" />
+          <div className="absolute -inset-4 rounded-3xl bg-foreground/5 blur-2xl" />
           <Card className="relative overflow-hidden border bg-background/80">
             <CardContent className="p-6">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -70,7 +70,7 @@ export function PseoHero({ page }: { page: PseoPage }) {
               <ul className="mt-4 space-y-3 text-sm">
                 {hero.summaryItems.map((item) => (
                   <li key={item} className="flex items-start gap-3">
-                    <span className="mt-1 h-2 w-2 rounded-full bg-primary" />
+                    <span className="mt-1 h-2 w-2 rounded-full bg-foreground" />
                     <span>{item}</span>
                   </li>
                 ))}

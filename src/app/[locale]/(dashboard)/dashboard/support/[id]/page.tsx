@@ -177,7 +177,7 @@ export default async function TicketDetailPage({
                   className={
                     msg.isAdminResponse
                       ? "bg-blue-600 text-white"
-                      : "bg-primary text-primary-foreground"
+                      : "bg-foreground text-background"
                   }
                 >
                   {msg.user?.name ? getInitials(msg.user.name) : "U"}

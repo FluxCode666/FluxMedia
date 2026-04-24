@@ -59,7 +59,7 @@ export default async function PseoIndexPage({
         <Badge variant="outline" className="mb-4 rounded-full px-4 py-1">
           PSEO Framework
         </Badge>
-        <h1 className="text-balance text-4xl font-bold tracking-tight md:text-5xl">
+        <h1 className="text-balance font-serif text-4xl font-bold tracking-tight md:text-5xl">
           {isZh ? "PSEO 框架演示库" : "Programmatic SEO Demo Library"}
         </h1>
         <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
@@ -75,7 +75,7 @@ export default async function PseoIndexPage({
           return (
             <Card key={card.title} className="border-0 bg-muted/50">
               <CardContent className="p-6">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-foreground/5 text-foreground">
                   <Icon className="h-5 w-5" />
                 </div>
                 <h3 className="mb-2 text-base font-semibold">{card.title}</h3>
@@ -91,7 +91,7 @@ export default async function PseoIndexPage({
       <div className="mx-auto max-w-6xl">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+            <h2 className="font-serif text-2xl font-bold tracking-tight md:text-3xl">
               {isZh ? "可用模板" : "Available templates"}
             </h2>
             <p className="mt-2 text-muted-foreground">
@@ -122,7 +122,7 @@ export default async function PseoIndexPage({
                 <div className="mt-auto">
                   <Link
                     href={`/pseo/${page.slug}`}
-                    className="text-sm font-semibold text-primary hover:underline"
+                    className="text-sm font-semibold text-foreground hover:underline"
                   >
                     {isZh ? "查看模板" : "View template"}
                   </Link>

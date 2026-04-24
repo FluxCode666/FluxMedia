@@ -21,7 +21,7 @@ export function PseoRelated({ pages, title, subtitle }: PseoRelatedProps) {
     <section className="container py-24" id="related">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-bold tracking-tight md:text-4xl">
             {title}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">{subtitle}</p>
@@ -47,7 +47,7 @@ export function PseoRelated({ pages, title, subtitle }: PseoRelatedProps) {
                 <div className="mt-auto">
                   <Link
                     href={`/pseo/${page.slug}`}
-                    className="text-sm font-semibold text-primary hover:underline"
+                    className="text-sm font-semibold text-foreground hover:underline"
                   >
                     View template
                   </Link>

@@ -198,7 +198,7 @@ export default async function AdminTicketsPage() {
                               src={t.user?.image || undefined}
                               alt={t.user?.name || "用户"}
                             />
-                            <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                            <AvatarFallback className="bg-foreground text-background text-xs">
                               {t.user?.name ? getInitials(t.user.name) : "U"}
                             </AvatarFallback>
                           </Avatar>

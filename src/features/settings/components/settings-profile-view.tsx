@@ -56,6 +56,7 @@ import {
 import { usePathname, useRouter } from "@/i18n/routing";
 import { signOut } from "@/lib/auth/client";
 
+import { ApiConfigForm } from "./api-config-form";
 import { BillingSection } from "./billing-section";
 import { SecuritySection } from "./security-section";
 
@@ -256,27 +257,33 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
           <TabsList className="h-auto gap-1 bg-transparent p-0">
             <TabsTrigger
               value="account"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-primary/20 data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none"
+              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               {tTabs("account")}
             </TabsTrigger>
             <TabsTrigger
               value="security"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-primary/20 data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none"
+              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               {tTabs("security")}
             </TabsTrigger>
             <TabsTrigger
               value="billing"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-primary/20 data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none"
+              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               {tTabs("billing")}
             </TabsTrigger>
             <TabsTrigger
               value="usage"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-primary/20 data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none"
+              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               {tTabs("usage")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="advanced"
+              className="rounded-md border border-transparent px-4 py-2 text-muted-foreground data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {tTabs("advanced") || "Advanced"}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -379,7 +386,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
               >
                 <Avatar className="h-24 w-24 transition-opacity group-hover:opacity-80 group-disabled:opacity-60">
                   <AvatarImage src={currentAvatarUrl} alt={user.name} />
-                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
+                  <AvatarFallback className="bg-foreground text-background text-2xl">
                     {getInitials(user.name)}
                   </AvatarFallback>
                 </Avatar>

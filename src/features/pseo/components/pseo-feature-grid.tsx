@@ -37,7 +37,7 @@ export function PseoFeatureGrid({ page }: { page: PseoPage }) {
           <Badge variant="secondary" className="mb-4">
             {page.category}
           </Badge>
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-bold tracking-tight md:text-4xl">
             {sections.features.title}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">
@@ -54,7 +54,7 @@ export function PseoFeatureGrid({ page }: { page: PseoPage }) {
                 className="group rounded-2xl border-0 bg-muted/50 transition-colors hover:bg-muted"
               >
                 <CardContent className="p-6">
-                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                  <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-foreground/5 text-foreground transition-colors group-hover:bg-foreground group-hover:text-background">
                     <Icon className="h-6 w-6" />
                   </div>
                   <h3 className="mb-2 text-base font-semibold">

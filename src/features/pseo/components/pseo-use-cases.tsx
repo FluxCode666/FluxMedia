@@ -9,7 +9,7 @@ export function PseoUseCases({ page }: { page: PseoPage }) {
     <section className="container py-24" id="use-cases">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="mb-4 text-balance text-3xl font-bold tracking-tight md:text-4xl">
+          <h2 className="mb-4 text-balance font-serif text-3xl font-bold tracking-tight md:text-4xl">
             {sections.useCases.title}
           </h2>
           <p className="mx-auto max-w-2xl text-muted-foreground">
@@ -32,7 +32,7 @@ export function PseoUseCases({ page }: { page: PseoPage }) {
                 </p>
                 <div className="mt-auto pt-6">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold text-primary">
+                    <span className="text-3xl font-semibold text-foreground">
                       {useCase.metric}
                     </span>
                     <span className="text-sm text-muted-foreground">
