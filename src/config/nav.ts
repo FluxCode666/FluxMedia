@@ -1,7 +1,6 @@
 import {
   Bot,
   Clock,
-  Code,
   Coins,
   GalleryHorizontalEnd,
   Headset,
@@ -88,10 +87,10 @@ export const productsNav: ProductNavGroup[] = [
     title: "Platform",
     items: [
       {
-        title: "API Access",
-        href: "/docs",
-        description: "Integrate via our REST API",
-        icon: Code,
+        title: "GPT Image 2",
+        href: "/#features",
+        description: "Next-generation image model with stunning quality",
+        icon: Bot,
       },
       {
         title: "Multi-model Support",

@@ -26,7 +26,7 @@ const productsTitleMap: Record<string, string> = {
   "Chat to Image": "productsMenu.core.chatToImage",
   Gallery: "productsMenu.core.gallery",
   "Batch Generation": "productsMenu.core.batch",
-  "API Access": "productsMenu.platform.api",
+  "GPT Image 2": "productsMenu.platform.api",
   "Multi-model Support": "productsMenu.platform.multiModel",
   "Credits System": "productsMenu.platform.credits",
 };
@@ -35,7 +35,7 @@ const productsDescMap: Record<string, string> = {
   "Chat to Image": "productsMenu.core.chatToImageDesc",
   Gallery: "productsMenu.core.galleryDesc",
   "Batch Generation": "productsMenu.core.batchDesc",
-  "API Access": "productsMenu.platform.apiDesc",
+  "GPT Image 2": "productsMenu.platform.apiDesc",
   "Multi-model Support": "productsMenu.platform.multiModelDesc",
   "Credits System": "productsMenu.platform.creditsDesc",
 };

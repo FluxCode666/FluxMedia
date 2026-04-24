@@ -2,10 +2,10 @@
 
 import {
   Images,
-  KeyRound,
   Layers,
   MessageSquare,
   Moon,
+  Sparkles,
   Wallet,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -15,7 +15,7 @@ const featureConfig = [
   { key: "ai" as const, icon: MessageSquare },
   { key: "multiSource" as const, icon: Images },
   { key: "outline" as const, icon: Layers },
-  { key: "export" as const, icon: KeyRound },
+  { key: "export" as const, icon: Sparkles },
   { key: "batch" as const, icon: Wallet },
   { key: "multilingual" as const, icon: Moon },
 ];

@@ -21,7 +21,7 @@
   "Features": {
     "label": "Core Features",
     "title": "Everything You Need to Create",
-    "subtitle": "A complete toolkit for turning imagination into reality — from conversational prompts to batch generation and API access.",
+    "subtitle": "A complete toolkit for turning imagination into reality — from conversational prompts to batch generation, powered by cutting-edge AI.",
     "items": {
       "ai": {
         "title": "Chat-to-Image",
@@ -55,8 +55,8 @@
     "subtitle": "Start generating in minutes — no design skills, no prompt expertise required.",
     "steps": {
       "upload": {
-        "title": "Configure API",
-        "description": "Connect your preferred AI image model by adding your API credentials. We support the leading providers out of the box."
+        "title": "Sign Up",
+        "description": "Create your free account in seconds. No credit card required — just sign up and you're ready to start generating."
       },
       "generate": {
         "title": "Describe Your Vision",
@@ -97,8 +97,8 @@
       },
       "developers": {
         "title": "Developers",
-        "subtitle": "API-Driven Workflows",
-        "description": "Embed image generation into your applications with a clean API. Build product features that leverage AI visuals natively.",
+        "subtitle": "Automated Workflows",
+        "description": "Integrate image generation into your applications and workflows. Build product features that leverage AI visuals natively.",
         "examples": ["App integrations", "Automated pipelines", "Custom tools"]
       }
     }
@@ -119,7 +119,7 @@
         "role": "Marketing Lead"
       },
       {
-        "content": "I wired up the API in an afternoon and now my product auto-generates visuals for user content. The docs are clear and the endpoints just work.",
+        "content": "I signed up and had my first batch of images within minutes. The interface is incredibly intuitive — just describe what you want and the AI nails it.",
         "author": "Emily Chen",
         "role": "Full-Stack Developer"
       },
@@ -134,7 +134,7 @@
         "role": "Illustrator"
       },
       {
-        "content": "GPT2IMAGE replaced three other tools in my workflow. Chat-based prompting, batch runs, and API access — it's everything in one place.",
+        "content": "GPT2IMAGE replaced three other tools in my workflow. Chat-based prompting, batch runs, and a stunning gallery — it's everything in one place.",
         "author": "Kevin Zhao",
         "role": "Creative Director"
       }
@@ -147,19 +147,19 @@
     "items": [
       {
         "question": "What is GPT2IMAGE?",
-        "answer": "GPT2IMAGE is an AI-powered platform that turns natural-language conversations into high-quality images. Describe what you want, and our AI generates it — no prompt engineering required. Features include chat-to-image generation, a visual gallery, batch generation, API access, and a flexible credits system."
+        "answer": "GPT2IMAGE is an AI-powered platform that turns natural-language conversations into high-quality images. Describe what you want, and our AI generates it — no prompt engineering required. Features include chat-to-image generation, a visual gallery, batch generation, and a flexible credits system."
       },
       {
         "question": "Which AI image models are supported?",
-        "answer": "GPT2IMAGE supports the leading image generation models on the market. You configure your API credentials once, and the platform handles the rest — routing your prompts to the model you've chosen and returning the results in a unified interface."
+        "answer": "GPT2IMAGE supports the leading image generation models on the market, including GPT Image 2. Just sign up, choose a plan, and start generating — the platform handles model routing and delivers results in a unified interface."
       },
       {
         "question": "How does the credits system work?",
         "answer": "Every image generation consumes a small number of credits based on the model and parameters you choose. Credits never expire, so unused credits are never wasted. You can subscribe to a monthly plan for recurring credits or top up whenever you need more."
       },
       {
-        "question": "Can I use the API in my own products?",
-        "answer": "Yes. GPT2IMAGE offers a clean REST API for integrating image generation into your applications, workflows, or automation pipelines. API access is available on the Pro and Ultra plans, with generous rate limits and full documentation."
+        "question": "How do I get started?",
+        "answer": "Just sign up for a free account — no credit card required. You'll receive starter credits to try out image generation immediately. When you're ready for more, choose a subscription plan that fits your needs."
       },
       {
         "question": "Does batch generation cost more?",
@@ -296,9 +296,9 @@
         "creditsDesc": "Browse, organize, and revisit your creations"
       },
       "dx": {
-        "title": "Developer",
-        "jobs": "API Access",
-        "jobsDesc": "Integrate image generation into your apps",
+        "title": "Advanced",
+        "jobs": "GPT Image 2",
+        "jobsDesc": "Next-generation image model with stunning quality",
         "i18n": "Internationalization",
         "i18nDesc": "Prompt and UI support in multiple languages",
         "ai": "Model Support",
@@ -390,7 +390,7 @@
     "alreadySubscribed": "Already Subscribed",
     "manageSubscription": "Manage Subscription",
     "booksNote": "≈ {count} images generated",
-    "cardsNote": "≈ {count} API calls",
+    "cardsNote": "≈ {count} image generations",
     "plans": {
       "free": {
         "name": "Free",
@@ -443,7 +443,7 @@
           "queue": "Priority generation queue",
           "export": "Download & share",
           "history": "Gallery history saved forever",
-          "customCards": "API access included",
+          "customCards": "Advanced model access",
           "support": "Priority support"
         }
       },
@@ -463,8 +463,8 @@
           "queue": "Highest priority queue",
           "export": "Download & share",
           "history": "Gallery history saved forever",
-          "customCards": "Advanced API access",
-          "aiAssist": "Higher API rate limits",
+          "customCards": "Premium model access",
+          "aiAssist": "Higher generation limits",
           "support": "Dedicated support"
         }
       }
@@ -619,7 +619,7 @@
     },
     "usage": {
       "title": "Credit Usage",
-      "description": "Credits used for image generation and API calls.",
+      "description": "Credits used for image generation.",
       "availableCredits": "Available Credits",
       "creditsAvailable": "credits available",
       "getMoreCredits": {
