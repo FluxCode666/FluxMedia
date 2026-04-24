@@ -288,30 +288,21 @@
     "productsMenu": {
       "core": {
         "title": "Generation",
-        "auth": "Chat-to-Image",
-        "authDesc": "Generate images through natural conversation",
-        "payments": "Batch Generation",
-        "paymentsDesc": "Produce multiple variations in one request",
-        "credits": "Visual Gallery",
-        "creditsDesc": "Browse, organize, and revisit your creations"
+        "chatToImage": "Chat-to-Image",
+        "chatToImageDesc": "Generate images through natural conversation",
+        "gallery": "Visual Gallery",
+        "galleryDesc": "Browse, organize, and revisit your creations",
+        "batch": "Batch Generation",
+        "batchDesc": "Produce multiple variations in one request"
       },
-      "dx": {
-        "title": "Advanced",
-        "jobs": "GPT Image 2",
-        "jobsDesc": "Next-generation image model with stunning quality",
-        "i18n": "Internationalization",
-        "i18nDesc": "Prompt and UI support in multiple languages",
-        "ai": "Model Support",
-        "aiDesc": "Leading image generation models in one place"
-      },
-      "infra": {
+      "platform": {
         "title": "Platform",
-        "admin": "Credits",
-        "adminDesc": "Flexible credits that never expire",
-        "storage": "Image Storage",
-        "storageDesc": "Secure cloud storage for every generation",
-        "monitoring": "Dark Mode",
-        "monitoringDesc": "Polished dark theme for long sessions"
+        "api": "GPT Image 2",
+        "apiDesc": "Next-generation image model with stunning quality",
+        "multiModel": "Multi-model Support",
+        "multiModelDesc": "Leading image generation models in one place",
+        "credits": "Credits System",
+        "creditsDesc": "Flexible credits that never expire"
       }
     }
   },

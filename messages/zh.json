@@ -443,30 +443,21 @@
     "productsMenu": {
       "core": {
         "title": "生成能力",
-        "auth": "对话生图",
-        "authDesc": "通过自然对话生成图片",
-        "payments": "批量生成",
-        "paymentsDesc": "一次请求产出多个变体",
-        "credits": "视觉画廊",
-        "creditsDesc": "浏览、整理并回看所有作品"
+        "chatToImage": "对话生图",
+        "chatToImageDesc": "通过自然对话生成图片",
+        "gallery": "视觉画廊",
+        "galleryDesc": "浏览、整理并回看所有作品",
+        "batch": "批量生成",
+        "batchDesc": "一次请求产出多个变体"
       },
-      "dx": {
-        "title": "进阶",
-        "jobs": "GPT Image 2",
-        "jobsDesc": "新一代图像模型，品质惊艳",
-        "i18n": "国际化",
-        "i18nDesc": "多语言提示词与界面支持",
-        "ai": "模型支持",
-        "aiDesc": "主流图像生成模型一站集成"
-      },
-      "infra": {
+      "platform": {
         "title": "平台",
-        "admin": "积分管理",
-        "adminDesc": "灵活的积分体系，永不过期",
-        "storage": "图片存储",
-        "storageDesc": "为每次生成提供安全云存储",
-        "monitoring": "深色模式",
-        "monitoringDesc": "为长时间创作打造的深色主题"
+        "api": "GPT Image 2",
+        "apiDesc": "新一代图像模型，品质惊艳",
+        "multiModel": "多模型支持",
+        "multiModelDesc": "主流图像生成模型一站集成",
+        "credits": "积分系统",
+        "creditsDesc": "灵活的积分体系，永不过期"
       }
     }
   },
