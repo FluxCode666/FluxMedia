@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, Menu } from "lucide-react";
+import Image from "next/image";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -22,18 +23,14 @@ import { NavMenu } from "./nav-menu";
  * Products 下拉菜单翻译映射 key (移动端复用)
  */
 const productsTitleMap: Record<string, string> = {
-  Core: "productsMenu.core.title",
-  "DX Platform": "productsMenu.dx.title",
-  Infrastructure: "productsMenu.infra.title",
-  Authentication: "productsMenu.core.auth",
-  Payments: "productsMenu.core.payments",
-  Credits: "productsMenu.core.credits",
-  "Background Jobs": "productsMenu.dx.jobs",
-  Internationalization: "productsMenu.dx.i18n",
-  "AI Integration": "productsMenu.dx.ai",
-  "Admin Panel": "productsMenu.infra.admin",
-  "File Storage": "productsMenu.infra.storage",
-  Monitoring: "productsMenu.infra.monitoring",
+  "Core features": "productsMenu.core.title",
+  Platform: "productsMenu.platform.title",
+  "Chat to Image": "productsMenu.core.chatToImage",
+  Gallery: "productsMenu.core.gallery",
+  "Batch Generation": "productsMenu.core.batch",
+  "API Access": "productsMenu.platform.api",
+  "Multi-model Support": "productsMenu.platform.multiModel",
+  "Credits System": "productsMenu.platform.credits",
 };
 
 /**
@@ -67,6 +64,7 @@ export function Header() {
    */
   const navTitleMap: Record<string, string> = {
     Products: tNav("products"),
+    Features: tNav("features"),
     Docs: tNav("docs"),
     Pricing: tNav("pricing"),
     Blog: tNav("blog"),
@@ -79,32 +77,14 @@ export function Header() {
         <div className="flex items-center gap-8">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2">
-            <svg
-              className="h-6 w-6 text-primary"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <rect x="2" y="2" width="9" height="9" rx="2" />
-              <rect
-                x="13"
-                y="2"
-                width="9"
-                height="9"
-                rx="2"
-                opacity="0.5"
-              />
-              <rect
-                x="2"
-                y="13"
-                width="9"
-                height="9"
-                rx="2"
-                opacity="0.5"
-              />
-              <rect x="13" y="13" width="9" height="9" rx="2" />
-            </svg>
-            <span className="text-xl font-bold tracking-tight">
-              NextDev<span className="text-primary">Tpl</span>
+            <Image
+              src="/assets/logo.png"
+              alt="GPT2IMAGE"
+              width={28}
+              height={28}
+            />
+            <span className="font-serif text-xl font-medium tracking-tight">
+              GPT2IMAGE
             </span>
           </Link>
 
@@ -141,7 +121,7 @@ export function Header() {
                     src={user.image || undefined}
                     alt={user.name}
                   />
-                  <AvatarFallback className="bg-primary text-xs text-primary-foreground">
+                  <AvatarFallback className="bg-foreground text-xs text-background">
                     {getInitials(user.name)}
                   </AvatarFallback>
                 </Avatar>
@@ -157,7 +137,10 @@ export function Header() {
               >
                 <Link href="/sign-in">{t("login")}</Link>
               </Button>
-              <Button asChild className="hidden md:inline-flex">
+              <Button
+                asChild
+                className="hidden md:inline-flex bg-foreground text-background hover:bg-foreground/90"
+              >
                 <Link href="/sign-up">{t("getStarted")}</Link>
               </Button>
             </>
@@ -211,7 +194,7 @@ export function Header() {
                               onClick={() => setMobileOpen(false)}
                               className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
                             >
-                              <Icon className="h-3.5 w-3.5 text-primary" />
+                              <Icon className="h-3.5 w-3.5 text-foreground" />
                               {tNav(
                                 productsTitleMap[item.title] || item.title,
                               )}

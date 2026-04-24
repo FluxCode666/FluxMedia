@@ -1,19 +1,18 @@
 import {
-  Activity,
   Bot,
+  Clock,
+  Code,
   Coins,
-  CreditCard,
-  Globe,
-  HardDrive,
+  GalleryHorizontalEnd,
   Headset,
+  Image,
+  ImagePlus,
+  Layers,
   LayoutDashboard,
   type LucideIcon,
   Settings,
-  Shield,
   Ticket,
-  UserCog,
   Users,
-  Zap,
 } from "lucide-react";
 
 /**
@@ -63,71 +62,48 @@ export interface ProductNavGroup {
  */
 export const productsNav: ProductNavGroup[] = [
   {
-    title: "Core",
+    title: "Core features",
     items: [
       {
-        title: "Authentication",
-        href: "/#features",
-        description: "Multi-provider auth with session management",
-        icon: Shield,
+        title: "Chat to Image",
+        href: "/dashboard",
+        description: "Generate images from natural language",
+        icon: Image,
       },
       {
-        title: "Payments",
-        href: "/#features",
-        description: "Subscriptions and one-time purchases",
-        icon: CreditCard,
+        title: "Gallery",
+        href: "/dashboard",
+        description: "Browse and manage your creations",
+        icon: GalleryHorizontalEnd,
       },
       {
-        title: "Credits",
-        href: "/#features",
-        description: "Double-entry bookkeeping with FIFO expiration",
-        icon: Coins,
+        title: "Batch Generation",
+        href: "/dashboard",
+        description: "Generate multiple images at once",
+        icon: Layers,
       },
     ],
   },
   {
-    title: "DX Platform",
+    title: "Platform",
     items: [
       {
-        title: "Background Jobs",
-        href: "/#features",
-        description: "Async processing with Inngest",
-        icon: Zap,
+        title: "API Access",
+        href: "/docs",
+        description: "Integrate via our REST API",
+        icon: Code,
       },
       {
-        title: "Internationalization",
+        title: "Multi-model Support",
         href: "/#features",
-        description: "Multi-language with next-intl",
-        icon: Globe,
-      },
-      {
-        title: "AI Integration",
-        href: "/#features",
-        description: "Multi-model LLM abstraction",
+        description: "Access multiple image generation models",
         icon: Bot,
       },
-    ],
-  },
-  {
-    title: "Infrastructure",
-    items: [
       {
-        title: "Admin Panel",
-        href: "/#features",
-        description: "User and ticket management",
-        icon: UserCog,
-      },
-      {
-        title: "File Storage",
-        href: "/#features",
-        description: "S3/R2 cloud storage",
-        icon: HardDrive,
-      },
-      {
-        title: "Monitoring",
-        href: "/#features",
-        description: "Logging and error tracking",
-        icon: Activity,
+        title: "Credits System",
+        href: "/#pricing",
+        description: "Flexible pay-as-you-go credits",
+        icon: Coins,
       },
     ],
   },
@@ -137,9 +113,9 @@ export const productsNav: ProductNavGroup[] = [
  * 主导航链接 (Header)
  */
 export const mainNav: NavItem[] = [
-  { title: "Docs", href: "/docs" },
-  { title: "PSEO", href: "/pseo" },
+  { title: "Features", href: "/#features" },
   { title: "Pricing", href: "/#pricing" },
+  { title: "Docs", href: "/docs" },
   { title: "Blog", href: "/blog" },
 ];
 
@@ -150,7 +126,7 @@ export const footerNav = {
   /** 产品 (Product) */
   product: [
     { title: "Pricing", href: "/#pricing" },
-    { title: "Changelog", href: "/blog" },
+    { title: "Docs", href: "/docs" },
     { title: "Contact Us", href: "mailto:hello@example.com" },
   ] as NavItem[],
 
@@ -179,9 +155,19 @@ export const dashboardNav: NavGroup[] = [
         icon: LayoutDashboard,
       },
       {
-        title: "Credits",
-        href: "/dashboard/credits",
-        icon: Coins,
+        title: "Create",
+        href: "/dashboard/create",
+        icon: ImagePlus,
+      },
+      {
+        title: "Gallery",
+        href: "/dashboard/gallery",
+        icon: GalleryHorizontalEnd,
+      },
+      {
+        title: "History",
+        href: "/dashboard/history",
+        icon: Clock,
       },
       {
         title: "Settings",

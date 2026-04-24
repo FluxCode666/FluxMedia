@@ -21,30 +21,23 @@ import { cn } from "@/lib/utils";
  * 用 i18n key 映射标题和描述
  */
 const productsTitleMap: Record<string, string> = {
-  Core: "productsMenu.core.title",
-  "DX Platform": "productsMenu.dx.title",
-  Infrastructure: "productsMenu.infra.title",
-  Authentication: "productsMenu.core.auth",
-  Payments: "productsMenu.core.payments",
-  Credits: "productsMenu.core.credits",
-  "Background Jobs": "productsMenu.dx.jobs",
-  Internationalization: "productsMenu.dx.i18n",
-  "AI Integration": "productsMenu.dx.ai",
-  "Admin Panel": "productsMenu.infra.admin",
-  "File Storage": "productsMenu.infra.storage",
-  Monitoring: "productsMenu.infra.monitoring",
+  "Core features": "productsMenu.core.title",
+  Platform: "productsMenu.platform.title",
+  "Chat to Image": "productsMenu.core.chatToImage",
+  Gallery: "productsMenu.core.gallery",
+  "Batch Generation": "productsMenu.core.batch",
+  "API Access": "productsMenu.platform.api",
+  "Multi-model Support": "productsMenu.platform.multiModel",
+  "Credits System": "productsMenu.platform.credits",
 };
 
 const productsDescMap: Record<string, string> = {
-  Authentication: "productsMenu.core.authDesc",
-  Payments: "productsMenu.core.paymentsDesc",
-  Credits: "productsMenu.core.creditsDesc",
-  "Background Jobs": "productsMenu.dx.jobsDesc",
-  Internationalization: "productsMenu.dx.i18nDesc",
-  "AI Integration": "productsMenu.dx.aiDesc",
-  "Admin Panel": "productsMenu.infra.adminDesc",
-  "File Storage": "productsMenu.infra.storageDesc",
-  Monitoring: "productsMenu.infra.monitoringDesc",
+  "Chat to Image": "productsMenu.core.chatToImageDesc",
+  Gallery: "productsMenu.core.galleryDesc",
+  "Batch Generation": "productsMenu.core.batchDesc",
+  "API Access": "productsMenu.platform.apiDesc",
+  "Multi-model Support": "productsMenu.platform.multiModelDesc",
+  "Credits System": "productsMenu.platform.creditsDesc",
 };
 
 /**
@@ -60,8 +53,8 @@ export function NavMenu() {
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const navTitleMap: Record<string, string> = {
+    Features: t("features"),
     Docs: t("docs"),
-    PSEO: t("pseo"),
     Pricing: t("pricing"),
     Blog: t("blog"),
   };
@@ -169,7 +162,7 @@ export function NavMenu() {
                                 onClick={() => setProductsOpen(false)}
                                 className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted"
                               >
-                                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-foreground" />
                                 <div>
                                   <div className="text-sm font-medium">
                                     {t(
