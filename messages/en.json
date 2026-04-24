@@ -36,8 +36,8 @@
         "description": "Generate multiple variations in a single request. Perfect for exploring concepts, iterating on designs, or producing content at scale."
       },
       "export": {
-        "title": "API Access",
-        "description": "Integrate image generation directly into your products and workflows with a clean, well-documented REST API."
+        "title": "Cutting-Edge Models",
+        "description": "Powered by the latest AI models including GPT Image 2. Get stunning photorealistic images, artistic renders, and creative compositions with state-of-the-art quality."
       },
       "batch": {
         "title": "Credits System",
