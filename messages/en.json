@@ -77,25 +77,25 @@
     "title": "Made for Every Creator",
     "subtitle": "GPT2IMAGE fits the workflows of designers, marketers, developers, and storytellers alike.",
     "items": {
-      "students": {
+      "designers": {
         "title": "Designers & Artists",
         "subtitle": "Visual Ideation",
         "description": "Sketch concepts, explore styles, and generate reference images to accelerate your creative process.",
         "examples": ["Mood boards", "Concept art", "Style exploration"]
       },
-      "professionals": {
+      "marketers": {
         "title": "Marketers",
         "subtitle": "Content at Scale",
         "description": "Produce on-brand visuals for campaigns, social posts, and blog headers without waiting on stock photos or design queues.",
         "examples": ["Social graphics", "Ad creative", "Blog images"]
       },
-      "language": {
+      "creators": {
         "title": "Creators & Storytellers",
         "subtitle": "Visual Narratives",
         "description": "Illustrate stories, build worlds, and visualize characters. Turn ideas into imagery that draws your audience in.",
         "examples": ["Story illustrations", "Character art", "World-building"]
       },
-      "knowledge": {
+      "developers": {
         "title": "Developers",
         "subtitle": "API-Driven Workflows",
         "description": "Embed image generation into your applications with a clean API. Build product features that leverage AI visuals natively.",
@@ -279,6 +279,7 @@
   },
   "Navigation": {
     "products": "Features",
+    "features": "Features",
     "docs": "Docs",
     "pseo": "PSEO",
     "pricing": "Pricing",

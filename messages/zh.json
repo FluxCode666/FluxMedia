@@ -77,25 +77,25 @@
     "title": "为每一位创作者而生",
     "subtitle": "GPT2IMAGE 契合设计师、营销人员、开发者与内容创作者的日常工作流。",
     "items": {
-      "students": {
+      "designers": {
         "title": "设计师与艺术家",
         "subtitle": "视觉创意",
         "description": "勾勒概念、探索风格、生成参考图，加速你的创作流程。",
         "examples": ["情绪板", "概念设计", "风格探索"]
       },
-      "professionals": {
+      "marketers": {
         "title": "营销人员",
         "subtitle": "规模化内容",
         "description": "为营销活动、社交媒体与博客头图生产符合品牌调性的视觉素材，无需等待素材库或设计排期。",
         "examples": ["社交图像", "广告创意", "博客配图"]
       },
-      "language": {
+      "creators": {
         "title": "创作者与讲故事的人",
         "subtitle": "视觉叙事",
         "description": "为故事绘制插图、构建世界观、呈现角色形象。把想法变成能吸引读者的画面。",
         "examples": ["故事插画", "角色设定", "世界构建"]
       },
-      "knowledge": {
+      "developers": {
         "title": "开发者",
         "subtitle": "API 驱动工作流",
         "description": "通过简洁的 API 将图像生成能力嵌入你的应用。打造原生集成 AI 视觉的产品功能。",
@@ -434,6 +434,7 @@
   },
   "Navigation": {
     "products": "功能",
+    "features": "功能",
     "docs": "文档",
     "pseo": "PSEO",
     "pricing": "定价",
