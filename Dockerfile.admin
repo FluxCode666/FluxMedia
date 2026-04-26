@@ -23,6 +23,7 @@ WORKDIR /app
 COPY --from=deps /app/ .
 COPY --from=pruner /app/out/full/ .
 COPY .env.local ./apps/admin/.env.local
+COPY tsconfig.base.json ./tsconfig.base.json
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm turbo build --filter=@repo/admin
