@@ -1,6 +1,6 @@
-# NextDevTpl
+# GPT2Image-Pro
 
-一个现代化的 SaaS 全栈开发模板，基于 Next.js 15 构建，包含认证、支付、积分、邮件、存储、工单、API 限流、日志、错误监控等完整的 SaaS 功能模块。
+AI-powered image generation platform，基于 Next.js 15 构建，包含认证、支付、积分、邮件、存储、工单、API 限流、日志、错误监控等完整的 SaaS 功能模块。
 
 > **开箱即用**：所有可选服务（限流、日志、监控）在未配置时自动降级为本地模式，不影响使用。配置对应环境变量即可启用完整功能。
 
@@ -45,8 +45,8 @@
 只需 3 个环境变量即可启动。详见 **[Quick Start 文档](./docs/quick-start.md)**。
 
 ```bash
-git clone git@github.com:evepupil/NextDevTpl.git
-cd NextDevTpl
+git clone git@github.com:MoYeRanqianzhi/GPT2Image-Pro.git
+cd GPT2Image-Pro
 pnpm install
 cp .env.example .env.local
 # 编辑 .env.local 填入 DATABASE_URL、BETTER_AUTH_SECRET、BETTER_AUTH_URL
@@ -188,7 +188,7 @@ src/
 set "REMOTE_USER=ubuntu"          # 服务器用户名
 set "REMOTE_HOST=<your-server>"   # 服务器 IP 或域名
 set "REMOTE_PORT=22"              # SSH 端口
-set "REMOTE_DIR=/home/ubuntu/NextjsTpl"  # 服务器上的项目目录
+set "REMOTE_DIR=/home/ubuntu/GPT2Image-Pro"  # 服务器上的项目目录
 set "SSH_KEY=%USERPROFILE%\.ssh\id_ed25519"  # SSH 私钥路径
 set "PORT=3303"                   # 应用运行端口
 ```
@@ -210,7 +210,7 @@ cp .env.example .env.prod
 # - PM2: npm install -g pm2
 
 # 创建项目目录
-mkdir -p /home/ubuntu/NextjsTpl
+mkdir -p /home/ubuntu/GPT2Image-Pro
 ```
 
 #### 4. 执行部署
@@ -225,10 +225,10 @@ deploy-build.bat
 #### 5. 服务器管理
 
 ```bash
-pm2 status              # 查看应用状态
-pm2 logs NextjsTpl      # 查看日志
-pm2 restart NextjsTpl   # 重启应用
-pm2 stop NextjsTpl      # 停止应用
+pm2 status                  # 查看应用状态
+pm2 logs GPT2Image-Pro      # 查看日志
+pm2 restart GPT2Image-Pro   # 重启应用
+pm2 stop GPT2Image-Pro      # 停止应用
 ```
 
 > 服务器端通常还需要配置 Nginx 反向代理（将 80/443 端口转发到应用端口）和 SSL 证书。

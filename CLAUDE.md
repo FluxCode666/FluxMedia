@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NextDevTpl is a production-ready Next.js SaaS template. It provides a complete foundation for building SaaS products with authentication, payments, credits system, background job processing, i18n, admin panel, support tickets, and more. Clone, customize, and ship.
+GPT2Image-Pro is an AI-powered image generation platform built on Next.js. It provides a complete SaaS foundation with authentication, payments, credits system, background job processing, i18n, admin panel, support tickets, and more.
 
 **Deployment:** Self-hosted or Vercel + Neon PostgreSQL + Cloudflare R2 (storage)
 

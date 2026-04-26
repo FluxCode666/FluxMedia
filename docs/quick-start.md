@@ -1,6 +1,6 @@
 # Quick Start
 
-5 分钟快速启动 NextDevTpl 开发环境。
+5 分钟快速启动 GPT2Image-Pro 开发环境。
 
 ## 前置要求
 
@@ -13,8 +13,8 @@
 ## 第一步：安装项目
 
 ```bash
-git clone git@github.com:evepupil/NextDevTpl.git
-cd NextDevTpl
+git clone git@github.com:MoYeRanqianzhi/GPT2Image-Pro.git
+cd GPT2Image-Pro
 pnpm install
 ```
 
@@ -32,7 +32,7 @@ cp .env.example .env.local
 
 ```env
 # 数据库连接
-DATABASE_URL="postgresql://postgres:password@localhost:5432/nextdevtpl"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/gpt2image"
 
 # 认证密钥（用于签名 session cookie）
 # 生成命令: openssl rand -base64 32
@@ -60,7 +60,7 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 # Resend 邮件 — https://resend.com
 # 配置后邮箱验证和密码重置才能发送邮件
 RESEND_API_KEY="re_your-api-key"
-EMAIL_FROM="NextDevTpl <noreply@your-domain.com>"
+EMAIL_FROM="GPT2IMAGE <noreply@your-domain.com>"
 ```
 
 ### 可选配置（按需启用）
