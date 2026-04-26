@@ -74,7 +74,10 @@ export const generateImageAction = protectedAction
             userId: ctx.userId,
             amount: creditsPerImage,
             sourceType: "refund",
+            debitAccount: "SYSTEM:generation_refund",
+            transactionType: "refund",
             sourceRef: generationId,
+            description: `Refund for failed generation: ${parsedInput.prompt.substring(0, 50)}`,
           });
         } catch {
           /* best effort refund */
@@ -107,7 +110,10 @@ export const generateImageAction = protectedAction
             userId: ctx.userId,
             amount: creditsPerImage,
             sourceType: "refund",
+            debitAccount: "SYSTEM:generation_refund",
+            transactionType: "refund",
             sourceRef: generationId,
+            description: `Refund for storage failure: ${parsedInput.prompt.substring(0, 50)}`,
           });
         } catch {
           /* best effort */

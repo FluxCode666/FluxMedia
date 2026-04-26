@@ -23,15 +23,14 @@ export async function getUserApiConfig(userId: string): Promise<ApiConfig | null
     .where(eq(userApiConfig.userId, userId))
     .limit(1);
 
-  if (config.length === 0 || !config[0].isActive) {
+  const row = config[0];
+  if (!row?.isActive || !row.baseUrl || !row.apiKey) {
     return null;
   }
 
-  return {
-    baseUrl: config[0].baseUrl,
-    apiKey: config[0].apiKey,
-    model: config[0].model || undefined,
-  };
+  const result: ApiConfig = { baseUrl: row.baseUrl, apiKey: row.apiKey };
+  if (row.model) result.model = row.model;
+  return result;
 }
 
 export function getEffectiveConfig(
@@ -75,11 +74,11 @@ export async function generateImage(
     };
     const image = data.data?.[0];
 
-    return {
-      imageBase64: image?.b64_json,
-      imageUrl: image?.url,
-      revisedPrompt: image?.revised_prompt,
-    };
+    const result: GenerateImageResult = {};
+    if (image?.b64_json) result.imageBase64 = image.b64_json;
+    if (image?.url) result.imageUrl = image.url;
+    if (image?.revised_prompt) result.revisedPrompt = image.revised_prompt;
+    return result;
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Unknown error occurred",

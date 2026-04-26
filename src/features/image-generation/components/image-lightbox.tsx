@@ -75,7 +75,7 @@ export function ImageLightbox({
       setConfirmDelete(true);
       return;
     }
-    executeDelete({ id: generation.id });
+    executeDelete({ generationId: generation.id });
   };
 
   return (

@@ -52,7 +52,7 @@ export function ApiConfigForm() {
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const result = await getApiConfig({});
+        const result = await getApiConfig();
         if (result?.data) {
           setBaseUrl(result.data.baseUrl);
           setApiKey(result.data.apiKey);
@@ -186,7 +186,7 @@ export function ApiConfigForm() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => executeDelete({})}
+                onClick={() => executeDelete()}
                 disabled={isDeleting}
                 className="text-destructive"
               >

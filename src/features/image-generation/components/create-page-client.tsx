@@ -75,8 +75,8 @@ export function CreatePageClient({
           generationId: data.generationId,
           imageUrl: data.imageUrl,
           prompt,
-          revisedPrompt: data.revisedPrompt,
         };
+        if (data.revisedPrompt) newResult.revisedPrompt = data.revisedPrompt;
         setResult(newResult);
         setBalance((b) => Math.max(0, b - (data.creditsConsumed || 0)));
         setRecent((prev) => [
