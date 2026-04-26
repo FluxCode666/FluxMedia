@@ -47,7 +47,7 @@ export async function forgetPassword(
   email: string,
   redirectTo = "/reset-password"
 ) {
-  const baseURL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseURL = window.location.origin;
 
   const response = await fetch(`${baseURL}/api/auth/forget-password`, {
     method: "POST",
@@ -73,7 +73,7 @@ export async function forgetPassword(
  * @param token - 重置令牌 (从 URL 获取)
  */
 export async function resetPassword(newPassword: string, token: string) {
-  const baseURL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseURL = window.location.origin;
 
   const response = await fetch(`${baseURL}/api/auth/reset-password`, {
     method: "POST",
@@ -164,7 +164,7 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string
 ) {
-  const baseURL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseURL = window.location.origin;
 
   const response = await fetch(`${baseURL}/api/auth/change-password`, {
     method: "POST",
@@ -192,7 +192,7 @@ export async function changePassword(
  * @param email - 用户邮箱
  */
 export async function resendVerificationEmail(email: string) {
-  const baseURL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const baseURL = window.location.origin;
 
   const response = await fetch(`${baseURL}/api/auth/send-verification-email`, {
     method: "POST",

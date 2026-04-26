@@ -144,6 +144,15 @@
         "noTickets": "No tickets yet",
         "unknownUser": "Unknown User",
         "userFallback": "User"
+      },
+      "detail": {
+        "userInfo": "User Info",
+        "ticketStatus": "Ticket Status",
+        "conversation": "Conversation",
+        "support": "Support",
+        "unknownUser": "Unknown User",
+        "createdAt": "Created at",
+        "userFallback": "User"
       }
     }
   }

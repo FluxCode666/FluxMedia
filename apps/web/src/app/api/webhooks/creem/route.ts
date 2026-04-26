@@ -11,7 +11,7 @@ import {
   type CreemCheckoutCompletedData,
   type CreemSubscription,
   constructCreemEvent,
-} from "@/features/payment/creem";
+} from "@repo/shared/payment/creem";
 import { withApiLogging } from "@repo/shared/api-logger";
 import { logError, logEvent } from "@repo/shared/logger";
 

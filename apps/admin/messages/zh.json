@@ -144,6 +144,15 @@
         "noTickets": "暂无工单",
         "unknownUser": "未知用户",
         "userFallback": "用户"
+      },
+      "detail": {
+        "userInfo": "用户信息",
+        "ticketStatus": "工单状态",
+        "conversation": "对话记录",
+        "support": "客服",
+        "unknownUser": "未知用户",
+        "createdAt": "创建于",
+        "userFallback": "用户"
       }
     }
   }

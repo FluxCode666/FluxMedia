@@ -22,6 +22,19 @@ function isPrivateUrl(urlString: string): boolean {
     if (hostname === "metadata.google.internal") return true;
     if (hostname.endsWith(".internal")) return true;
 
+    // Check IPv6-mapped IPv4 addresses (e.g., ::ffff:127.0.0.1)
+    const ipv6MappedMatch = hostname.match(/^::ffff:(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipv6MappedMatch) {
+      const a = Number(ipv6MappedMatch[1]);
+      const b = Number(ipv6MappedMatch[2]);
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 127) return true;
+      if (a === 169 && b === 254) return true;
+      if (a === 0) return true;
+    }
+
     // 检查私有 IP 地址范围
     const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
     if (ipMatch) {

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { getTranslations } from "next-intl/server";
 
+import { Link } from "@/i18n/routing";
 import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
 import { db } from "@repo/database";
 import {
@@ -434,7 +435,7 @@ export default async function AdminDashboardPage() {
             <CardTitle>{t("dashboard.quickActions.title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <a
+            <Link
               href="/dashboard/users"
               className="flex items-center gap-2 rounded-md p-2 hover:bg-muted transition-colors"
             >
@@ -445,8 +446,8 @@ export default async function AdminDashboardPage() {
                   count: stats.users.total,
                 })}
               </span>
-            </a>
-            <a
+            </Link>
+            <Link
               href="/dashboard/tickets"
               className="flex items-center gap-2 rounded-md p-2 hover:bg-muted transition-colors"
             >
@@ -459,7 +460,7 @@ export default async function AdminDashboardPage() {
                   })}
                 </span>
               )}
-            </a>
+            </Link>
           </CardContent>
         </Card>
 

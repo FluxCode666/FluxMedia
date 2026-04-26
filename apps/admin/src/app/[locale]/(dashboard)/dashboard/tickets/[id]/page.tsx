@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
 import { Badge } from "@repo/ui/components/badge";
@@ -32,6 +33,7 @@ export default async function AdminTicketDetailPage({
   params,
 }: AdminTicketDetailPageProps) {
   const { id } = await params;
+  const t = await getTranslations("Admin.tickets.detail");
 
   // 获取工单信息（包含用户信息）
   const ticketResult = await db
@@ -150,8 +152,8 @@ export default async function AdminTicketDetailPage({
             {ticketData.subject}
           </h2>
           <p className="text-muted-foreground">
-            {getCategoryLabel(ticketData.category)} · 创建于{" "}
-            {new Date(ticketData.createdAt).toLocaleDateString("zh-CN")}
+            {getCategoryLabel(ticketData.category)} · {t("createdAt")}{" "}
+            {new Date(ticketData.createdAt).toLocaleDateString()}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -164,21 +166,21 @@ export default async function AdminTicketDetailPage({
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>用户信息</CardTitle>
+            <CardTitle>{t("userInfo")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">
               <Avatar className="h-12 w-12">
                 <AvatarImage
                   src={ticketUser?.image || undefined}
-                  alt={ticketUser?.name || "用户"}
+                  alt={ticketUser?.name || t("userFallback")}
                 />
                 <AvatarFallback className="bg-foreground text-background">
                   {ticketUser?.name ? getInitials(ticketUser.name) : "U"}
                 </AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-medium">{ticketUser?.name || "未知用户"}</p>
+                <p className="font-medium">{ticketUser?.name || t("unknownUser")}</p>
                 <p className="text-sm text-muted-foreground">
                   {ticketUser?.email}
                 </p>
@@ -189,7 +191,7 @@ export default async function AdminTicketDetailPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>工单状态</CardTitle>
+            <CardTitle>{t("ticketStatus")}</CardTitle>
           </CardHeader>
           <CardContent>
             <AdminTicketStatusSelect
@@ -203,7 +205,7 @@ export default async function AdminTicketDetailPage({
       {/* 消息列表 */}
       <Card>
         <CardHeader>
-          <CardTitle>对话记录</CardTitle>
+          <CardTitle>{t("conversation")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {messages.map((msg) => (
@@ -218,7 +220,7 @@ export default async function AdminTicketDetailPage({
               <Avatar className="h-10 w-10">
                 <AvatarImage
                   src={msg.user?.image || undefined}
-                  alt={msg.user?.name || "用户"}
+                  alt={msg.user?.name || t("userFallback")}
                 />
                 <AvatarFallback
                   className={
@@ -233,18 +235,18 @@ export default async function AdminTicketDetailPage({
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">
-                    {msg.user?.name || "用户"}
+                    {msg.user?.name || t("userFallback")}
                   </span>
                   {msg.isAdminResponse && (
                     <Badge
                       variant="secondary"
                       className="text-xs bg-background/20 text-background border-0"
                     >
-                      客服
+                      {t("support")}
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    {new Date(msg.createdAt).toLocaleString("zh-CN")}
+                    {new Date(msg.createdAt).toLocaleString()}
                   </span>
                 </div>
                 <p className="text-sm whitespace-pre-wrap">{msg.content}</p>

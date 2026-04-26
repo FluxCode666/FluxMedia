@@ -40,12 +40,11 @@ function validateCronSecret(authHeader: string | null): boolean {
     ? authHeader.slice(7)
     : authHeader;
 
-  if (!token || token.length !== cronSecret.length) return false;
+  if (!token) return false;
 
-  return crypto.timingSafeEqual(
-    Buffer.from(token),
-    Buffer.from(cronSecret)
-  );
+  const tokenHash = crypto.createHash("sha256").update(Buffer.from(token)).digest();
+  const secretHash = crypto.createHash("sha256").update(Buffer.from(cronSecret)).digest();
+  return crypto.timingSafeEqual(tokenHash, secretHash);
 }
 
 /**

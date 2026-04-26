@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { db, user } from "@repo/database";
 import { subscription } from "@repo/database/schema";
-import { creem } from "@/features/payment/creem";
+import { creem } from "@repo/shared/payment/creem";
 import { protectedAction } from "@repo/shared/safe-action";
 
 export const deleteAccountAction = protectedAction
