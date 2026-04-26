@@ -8,15 +8,22 @@
 
 import { z } from "zod";
 
-import { getBaseUrl } from "../config/payment";
-import { creem } from "@/features/payment/creem";
+import { eq } from "drizzle-orm";
+
+import { db } from "@repo/database";
+import { subscription } from "@repo/database/schema";
+import {
+  getBaseUrl,
+  SUBSCRIPTION_MONTHLY_CREDITS,
+  findPlanByPriceId,
+} from "../config/payment";
+import { creem } from "../payment/creem";
 import { logEvent } from "../logger/index";
 import { actionClient, protectedAction } from "../safe-action";
 
 import {
   CREDIT_PACKAGES,
   CREDITS_EXPIRY_DAYS,
-  MONTHLY_SUBSCRIPTION_CREDITS,
   REGISTRATION_BONUS_CREDITS,
 } from "./config";
 import {
@@ -276,13 +283,30 @@ export const grantMonthlySubscriptionCredits = withPublicCreditsAction(
   )
   .action(async ({ parsedInput }) => {
     const { userId, subscriptionId } = parsedInput;
+
+    // 查询用户订阅以获取 priceId，根据套餐档位确定积分数量
+    const [sub] = await db
+      .select({ priceId: subscription.priceId })
+      .from(subscription)
+      .where(eq(subscription.userId, userId))
+      .limit(1);
+
+    let creditsAmount: number = SUBSCRIPTION_MONTHLY_CREDITS.starter;
+    if (sub?.priceId) {
+      const { plan } = findPlanByPriceId(sub.priceId);
+      const planId = plan?.id as keyof typeof SUBSCRIPTION_MONTHLY_CREDITS | undefined;
+      if (planId && planId in SUBSCRIPTION_MONTHLY_CREDITS) {
+        creditsAmount = SUBSCRIPTION_MONTHLY_CREDITS[planId];
+      }
+    }
+
     // 月度积分，下个月过期
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + 1);
 
     const result = await grantCredits({
       userId,
-      amount: MONTHLY_SUBSCRIPTION_CREDITS,
+      amount: creditsAmount,
       sourceType: "subscription",
       debitAccount: `SUBSCRIPTION:${subscriptionId}`,
       transactionType: "monthly_grant",
@@ -292,6 +316,8 @@ export const grantMonthlySubscriptionCredits = withPublicCreditsAction(
       metadata: {
         subscriptionId,
         grantType: "monthly",
+        planId: sub?.priceId ?? "unknown",
+        creditsAmount,
       },
     });
 

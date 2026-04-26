@@ -303,7 +303,7 @@ export const adminReplyTicketAction = withAdminTicketAction("replyTicket")
     }
 
     // 刷新缓存
-    revalidatePath(`/admin/tickets/${data.ticketId}`);
+    revalidatePath(`/dashboard/tickets/${data.ticketId}`);
 
     return {
       message: "回复成功",
@@ -336,8 +336,8 @@ export const updateTicketStatusAction = withAdminTicketAction(
       .where(eq(ticket.id, data.ticketId));
 
     // 刷新缓存
-    revalidatePath(`/admin/tickets/${data.ticketId}`);
-    revalidatePath("/admin/tickets");
+    revalidatePath(`/dashboard/tickets/${data.ticketId}`);
+    revalidatePath("/dashboard/tickets");
 
     return {
       message: "状态更新成功",

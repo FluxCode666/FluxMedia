@@ -9,7 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar"
 import { Button } from "@repo/ui/components/button";
 import { Sheet, SheetContent, SheetTitle } from "@repo/ui/components/sheet";
 import { mainNav, productsNav } from "@repo/shared/config/nav";
-import { LanguageSwitcher, ModeToggle } from "@repo/shared/components";
+import { ModeToggle } from "@repo/shared/components";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Link } from "@/i18n/routing";
 import { useSession } from "@repo/shared/auth/client";
 

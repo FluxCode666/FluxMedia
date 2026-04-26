@@ -15,7 +15,19 @@ async function safePath(bucket: string, key: string): Promise<string> {
     throw new Error("Invalid path: directory traversal not allowed");
   }
   const path = await getPath();
-  return path.join(BASE_DIR, bucket, key);
+  const filePath = path.join(BASE_DIR, bucket, key);
+
+  // 防止路径遍历攻击：确保解析后的路径在允许的目录范围内
+  const resolvedPath = path.resolve(filePath);
+  const resolvedBase = path.resolve(BASE_DIR, bucket);
+  if (
+    !resolvedPath.startsWith(resolvedBase + path.sep) &&
+    resolvedPath !== resolvedBase
+  ) {
+    throw new Error("Invalid path: directory traversal not allowed");
+  }
+
+  return filePath;
 }
 
 export const localProvider: StorageProvider = {

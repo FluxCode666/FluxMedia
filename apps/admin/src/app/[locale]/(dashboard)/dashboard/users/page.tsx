@@ -29,6 +29,8 @@ import { UserRoleSelect } from "@repo/shared/support/components";
 
 /**
  * 用户类型定义
+ *
+ * 匹配 getAllUsersAction 返回的扁平化字段
  */
 interface UserWithDetails {
   id: string;
@@ -40,17 +42,9 @@ interface UserWithDetails {
   bannedReason: string | null;
   emailVerified: boolean;
   createdAt: Date;
-  credits: {
-    balance: number;
-    totalEarned: number;
-    totalSpent: number;
-    status: "active" | "frozen";
-  } | null;
-  subscription: {
-    status: string;
-    priceId: string;
-    currentPeriodEnd: Date | null;
-  } | null;
+  creditsBalance: number;
+  subscriptionStatus: string | null;
+  subscriptionPriceId: string | null;
 }
 
 /**
@@ -220,8 +214,8 @@ export default function AdminUsersPage() {
   /**
    * 获取订阅状态显示
    */
-  const getSubscriptionBadge = (sub: UserWithDetails["subscription"]) => {
-    if (!sub) {
+  const getSubscriptionBadge = (status: string | null) => {
+    if (!status) {
       return (
         <Badge variant="secondary" className="bg-muted text-muted-foreground">
           {t("users.subscriptionLabels.none")}
@@ -253,7 +247,7 @@ export default function AdminUsersPage() {
       labelKey: "users.subscriptionLabels.incomplete",
       color: "bg-muted text-muted-foreground",
     };
-    const config = statusMap[sub.status] ?? defaultConfig;
+    const config = statusMap[status] ?? defaultConfig;
     return (
       <Badge variant="secondary" className={config.color}>
         {t(config.labelKey)}
@@ -266,7 +260,7 @@ export default function AdminUsersPage() {
   const adminCount = users.filter((u) => u.role === "admin").length;
   const bannedCount = users.filter((u) => u.banned).length;
   const activeSubscriptions = users.filter(
-    (u) => u.subscription?.status === "active"
+    (u) => u.subscriptionStatus === "active"
   ).length;
 
   return (
@@ -451,12 +445,12 @@ export default function AdminUsersPage() {
                         <div className="flex items-center gap-2">
                           <Coins className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium">
-                            {u.credits?.balance ?? 0}
+                            {u.creditsBalance ?? 0}
                           </span>
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {getSubscriptionBadge(u.subscription)}
+                        {getSubscriptionBadge(u.subscriptionStatus)}
                       </td>
                       <td className="px-4 py-3">
                         <UserRoleSelect userId={u.id} currentRole={u.role} />

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { siteConfig } from "@repo/shared/config";
 
+import "fumadocs-ui/style.css";
 import "@repo/ui/globals.css";
 
 export const metadata: Metadata = {

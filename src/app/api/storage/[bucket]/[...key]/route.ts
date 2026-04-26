@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
+import path, { resolve, sep } from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
 
 const BASE_DIR = process.env.LOCAL_STORAGE_PATH || "./storage";
@@ -33,6 +33,17 @@ export async function GET(
   }
 
   const filePath = path.join(BASE_DIR, bucket, fileKey);
+
+  // 防止路径遍历攻击：确保解析后的路径在允许的目录范围内
+  const resolvedPath = resolve(filePath);
+  const resolvedBase = resolve(BASE_DIR, bucket);
+  if (
+    !resolvedPath.startsWith(resolvedBase + sep) &&
+    resolvedPath !== resolvedBase
+  ) {
+    return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+  }
+
   const ext = path.extname(fileKey).toLowerCase();
   const contentType = CONTENT_TYPES[ext] || "application/octet-stream";
 

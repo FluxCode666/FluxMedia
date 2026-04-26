@@ -8,8 +8,44 @@ import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
 import { protectedAction } from "@repo/shared/safe-action";
 
+/**
+ * 检查 URL 是否指向私有/内部网络地址
+ * 用于防止 SSRF（服务端请求伪造）攻击
+ */
+function isPrivateUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+
+    if (url.protocol !== "https:") return true;
+    if (hostname === "localhost" || hostname === "::1") return true;
+    if (hostname === "metadata.google.internal") return true;
+    if (hostname.endsWith(".internal")) return true;
+
+    // 检查私有 IP 地址范围
+    const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipMatch) {
+      const a = Number(ipMatch[1]);
+      const b = Number(ipMatch[2]);
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 127) return true;
+      if (a === 169 && b === 254) return true;
+      if (a === 0) return true;
+    }
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 const apiConfigSchema = z.object({
-  baseUrl: z.string().url(),
+  baseUrl: z
+    .string()
+    .url()
+    .refine((url) => !isPrivateUrl(url), "Invalid API base URL"),
   apiKey: z.string().min(1),
   model: z.string().optional(),
 });

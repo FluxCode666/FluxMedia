@@ -24,7 +24,7 @@ import {
   COOKIE_PREFERENCES_KEY,
   type CookieConsentType,
   type CookiePreferences,
-} from "@/features/marketing/constants";
+} from "../../config/cookie";
 import { cn } from "@repo/ui/utils";
 
 /**

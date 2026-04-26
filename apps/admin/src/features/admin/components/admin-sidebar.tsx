@@ -10,7 +10,7 @@ import {
   Ticket,
   Users,
 } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
@@ -23,11 +23,8 @@ import { Separator } from "@repo/ui/components/separator";
 import { siteConfig } from "@repo/shared/config";
 import { signOut, useSession } from "@repo/shared/auth/client";
 import { cn } from "@repo/ui/utils";
+import { useTheme } from "next-themes";
 
-/**
- * 主题类型
- */
-type Theme = "light" | "dark" | "system";
 
 /**
  * Admin 侧边栏导航配置（本地覆盖，使用 /dashboard 路径）
@@ -76,8 +73,8 @@ export function AdminSidebar() {
   const { data: session } = useSession();
   const user = session?.user;
 
-  // 主题状态 (简化版，实际应使用 next-themes)
-  const [theme, setTheme] = useState<Theme>("system");
+  // 主题状态 (使用 next-themes)
+  const { theme, setTheme } = useTheme();
 
   // Popover 开关状态
   const [open, setOpen] = useState(false);
@@ -112,7 +109,7 @@ export function AdminSidebar() {
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background text-foreground">
       {/* Logo - Admin 标识 */}
       <div className="flex h-14 items-center border-b px-4">
-        <a
+        <Link
           href="/dashboard"
           className="flex items-center gap-2 text-lg font-serif font-bold tracking-tight"
         >
@@ -121,7 +118,7 @@ export function AdminSidebar() {
             Admin
           </span>
           {siteConfig.name}
-        </a>
+        </Link>
       </div>
 
       {/* 导航菜单 */}
@@ -136,7 +133,7 @@ export function AdminSidebar() {
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
                 return (
-                  <a
+                  <Link
                     key={item.href}
                     href={item.href}
                     className={cn(
@@ -148,7 +145,7 @@ export function AdminSidebar() {
                   >
                     {Icon && <Icon className="h-4 w-4" />}
                     {item.title}
-                  </a>
+                  </Link>
                 );
               })}
             </div>

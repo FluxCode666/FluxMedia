@@ -181,7 +181,7 @@ export const updateUserRoleAction = withAdminUsersAction("updateUserRole")
       })
       .where(eq(user.id, data.userId));
 
-    revalidatePath("/admin/users");
+    revalidatePath("/dashboard/users");
     return { message: `用户角色已更新为 ${data.role}` };
   });
 
@@ -200,7 +200,7 @@ export const banUserAction = withAdminUsersAction("banUser")
       })
       .where(eq(user.id, data.userId));
 
-    revalidatePath("/admin/users");
+    revalidatePath("/dashboard/users");
     return {
       message: data.banned ? "用户已被封禁" : "用户已被解封",
     };
@@ -230,7 +230,7 @@ export const adminGrantCreditsAction = withAdminUsersAction("grantCredits")
       },
     });
 
-    revalidatePath("/admin/users");
+    revalidatePath("/dashboard/users");
     return {
       message: `已为用户充值 ${data.amount} 积分`,
       ...result,

@@ -3,7 +3,8 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "passThroughEnv": ["DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "NEXT_PUBLIC_APP_URL", "CREEM_API_KEY", "CREEM_WEBHOOK_SECRET", "NEXT_PUBLIC_SENTRY_DSN", "CRON_SECRET"]
     },
     "dev": {
       "cache": false,

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -39,7 +40,12 @@ function validateCronSecret(authHeader: string | null): boolean {
     ? authHeader.slice(7)
     : authHeader;
 
-  return token === cronSecret;
+  if (!token || token.length !== cronSecret.length) return false;
+
+  return crypto.timingSafeEqual(
+    Buffer.from(token),
+    Buffer.from(cronSecret)
+  );
 }
 
 /**

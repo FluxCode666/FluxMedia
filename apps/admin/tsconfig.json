@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "exactOptionalPropertyTypes": false,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]

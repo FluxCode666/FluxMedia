@@ -297,6 +297,8 @@ export async function grantCredits(params: GrantCreditsParams) {
       })
       .where(eq(creditsBalance.userId, userId));
 
+    // 注意: newBalance 是基于事务开始时快照的预估值，在并发事务下可能不精确。
+    // 需要精确余额的调用方应在事务完成后调用 getCreditsBalance()。
     return {
       batchId,
       transactionId,

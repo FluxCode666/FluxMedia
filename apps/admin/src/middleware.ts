@@ -5,6 +5,10 @@ import { routing } from "@/i18n/routing";
 
 const intlMiddleware = createIntlMiddleware(routing);
 
+// NOTE: Middleware checks cookie presence only (not session validity)
+// for performance. Actual session + admin role validation happens in
+// the (dashboard) layout via checkAdmin(). All /dashboard routes
+// MUST be under this layout.
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 

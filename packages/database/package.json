@@ -18,7 +18,8 @@
     "@neondatabase/serverless": "^1.0.2",
     "drizzle-orm": "^0.45.1",
     "nanoid": "^5.1.6",
-    "pg": "^8.17.2"
+    "pg": "^8.17.2",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/pg": "^8.16.0",

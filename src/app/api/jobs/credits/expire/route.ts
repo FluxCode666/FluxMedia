@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -39,7 +40,12 @@ function validateCronSecret(authHeader: string | null): boolean {
     ? authHeader.slice(7)
     : authHeader;
 
-  return token === cronSecret;
+  if (!token || token.length !== cronSecret.length) return false;
+
+  return crypto.timingSafeEqual(
+    Buffer.from(token),
+    Buffer.from(cronSecret)
+  );
 }
 
 /**
@@ -53,10 +59,7 @@ export const POST = withApiLogging(async () => {
 
   // 验证身份
   if (!validateCronSecret(authHeader)) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
