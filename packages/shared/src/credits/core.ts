@@ -4,7 +4,7 @@
  * 实现企业级双重记账和 FIFO 过期机制
  */
 
-import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, gt, isNull, lt, or, sql } from "drizzle-orm";
 
 import { db } from "@repo/database";
 import {
@@ -416,20 +416,29 @@ export async function consumeCredits(
       },
     });
 
-    const newBalance = balanceRecord.balance - amount;
-    await tx
+    const [updatedBalance] = await tx
       .update(creditsBalance)
       .set({
-        balance: newBalance,
+        balance: sql`${creditsBalance.balance} - ${amount}`,
         totalSpent: sql`${creditsBalance.totalSpent} + ${amount}`,
         updatedAt: new Date(),
       })
-      .where(eq(creditsBalance.userId, userId));
+      .where(
+        and(
+          eq(creditsBalance.userId, userId),
+          gte(creditsBalance.balance, amount)
+        )
+      )
+      .returning({ newBalance: creditsBalance.balance });
+
+    if (!updatedBalance) {
+      throw new InsufficientCreditsError(amount, balanceRecord.balance);
+    }
 
     return {
       success: true,
       consumedAmount: amount,
-      remainingBalance: newBalance,
+      remainingBalance: updatedBalance.newBalance,
       transactionId,
       consumedBatches,
     };
@@ -511,7 +520,7 @@ export async function processExpiredBatches() {
       await tx
         .update(creditsBalance)
         .set({
-          balance: sql`${creditsBalance.balance} - ${expiredBatch.remaining}`,
+          balance: sql`GREATEST(0, ${creditsBalance.balance} - ${expiredBatch.remaining})`,
           updatedAt: new Date(),
         })
         .where(eq(creditsBalance.userId, expiredBatch.userId));

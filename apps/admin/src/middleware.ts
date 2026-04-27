@@ -13,6 +13,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/")) {
+    // TODO: Add rate limiting for admin API routes when Upstash Redis is configured
     return NextResponse.next();
   }
 
@@ -45,8 +46,13 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isAuthRoute && sessionToken) {
+    // Validate callbackUrl to prevent open redirect attacks
+    const callbackUrl = request.nextUrl.searchParams.get("callbackUrl");
+    const safeCallback = callbackUrl?.startsWith("/")
+      ? callbackUrl
+      : "/dashboard";
     return NextResponse.redirect(
-      new URL(`/${locale}/dashboard`, request.url)
+      new URL(`/${locale}${safeCallback}`, request.url)
     );
   }
 

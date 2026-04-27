@@ -219,10 +219,10 @@ export const s3Provider: StorageProvider = {
 // ============================================
 
 /**
- * 获取默认存储提供者
+ * 获取 S3 存储提供者
  *
  * 当前默认使用 S3 兼容存储
  */
-export function getStorageProvider(): StorageProvider {
+export function getS3StorageProvider(): StorageProvider {
   return s3Provider;
 }

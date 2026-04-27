@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      secrets:
+        - env_local
     container_name: gpt2image-web
     restart: unless-stopped
     ports:
@@ -20,13 +22,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.admin
+      secrets:
+        - env_local
     container_name: gpt2image-admin
     restart: unless-stopped
     ports:
       - "3001:3000"
+    volumes:
+      - ./storage:/app/storage
     env_file:
       - .env.local
     environment:
       - NODE_ENV=production
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+secrets:
+  env_local:
+    file: .env.local

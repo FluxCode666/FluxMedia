@@ -7,9 +7,14 @@
 
 import crypto from "crypto";
 
-const CREEM_API_BASE = process.env.CREEM_API_KEY?.startsWith("creem_test_")
-  ? "https://test-api.creem.io/v1"
-  : "https://api.creem.io/v1";
+/**
+ * 获取 Creem API 基础 URL（运行时求值，避免构建时固化）
+ */
+function getCreemApiBase(): string {
+  return process.env.CREEM_API_KEY?.startsWith("creem_test_")
+    ? "https://test-api.creem.io/v1"
+    : "https://api.creem.io/v1";
+}
 
 // ============================================
 // 类型定义
@@ -150,7 +155,7 @@ export const creem = {
   async createCheckout(
     params: CreemCheckoutParams
   ): Promise<CreemCheckoutResponse> {
-    const res = await fetch(`${CREEM_API_BASE}/checkouts`, {
+    const res = await fetch(`${getCreemApiBase()}/checkouts`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -175,7 +180,7 @@ export const creem = {
    */
   async getSubscription(subscriptionId: string): Promise<CreemSubscription> {
     const res = await fetch(
-      `${CREEM_API_BASE}/subscriptions/${subscriptionId}`,
+      `${getCreemApiBase()}/subscriptions/${subscriptionId}`,
       {
         headers: {
           "x-api-key": process.env.CREEM_API_KEY ?? "",
@@ -199,7 +204,7 @@ export const creem = {
    */
   async cancelSubscription(subscriptionId: string): Promise<CreemSubscription> {
     const res = await fetch(
-      `${CREEM_API_BASE}/subscriptions/${subscriptionId}/cancel`,
+      `${getCreemApiBase()}/subscriptions/${subscriptionId}/cancel`,
       {
         method: "POST",
         headers: {
@@ -223,7 +228,7 @@ export const creem = {
    * @returns 客户信息
    */
   async getCustomer(customerId: string): Promise<CreemCustomer> {
-    const res = await fetch(`${CREEM_API_BASE}/customers/${customerId}`, {
+    const res = await fetch(`${getCreemApiBase()}/customers/${customerId}`, {
       headers: {
         "x-api-key": process.env.CREEM_API_KEY ?? "",
       },
@@ -260,10 +265,10 @@ export function verifyCreemWebhookSignature(
     .update(payload)
     .digest("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
+  const computedBuf = Buffer.from(expectedSignature);
+  const receivedBuf = Buffer.from(signature);
+  if (computedBuf.length !== receivedBuf.length) return false;
+  return crypto.timingSafeEqual(computedBuf, receivedBuf);
 }
 
 /**
@@ -278,7 +283,8 @@ export function constructCreemEvent(
   payload: string,
   signature: string
 ): CreemWebhookEvent {
-  const secret = process.env.CREEM_WEBHOOK_SECRET ?? "";
+  const secret = process.env.CREEM_WEBHOOK_SECRET;
+  if (!secret) throw new Error("CREEM_WEBHOOK_SECRET is not configured");
 
   if (!verifyCreemWebhookSignature(payload, signature, secret)) {
     throw new Error("Invalid webhook signature");

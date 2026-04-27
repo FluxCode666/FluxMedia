@@ -1,7 +1,7 @@
 FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 RUN apk add --no-cache libc6-compat
 
 # --- Prune monorepo for web app ---
@@ -22,11 +22,11 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/ .
 COPY --from=pruner /app/out/full/ .
-COPY .env.local ./apps/web/.env.local
 COPY tsconfig.base.json ./tsconfig.base.json
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm turbo build --filter=@repo/web
+RUN --mount=type=secret,id=env,target=/app/apps/web/.env.local \
+    pnpm turbo build --filter=@repo/web
 
 # --- Runner ---
 FROM node:22-alpine AS runner

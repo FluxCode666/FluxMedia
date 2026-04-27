@@ -8,15 +8,16 @@
 
 import { z } from "zod";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@repo/database";
-import { subscription } from "@repo/database/schema";
+import { creditsTransaction, subscription } from "@repo/database/schema";
+import { getBaseUrl } from "../config/payment";
 import {
-  getBaseUrl,
-  SUBSCRIPTION_MONTHLY_CREDITS,
-  findPlanByPriceId,
-} from "../config/payment";
+  getPlanFromPriceId,
+  PLAN_PRIVILEGES,
+  type SubscriptionPlan,
+} from "../config/subscription-plan";
 import { creem } from "../payment/creem";
 import { logEvent } from "../logger/index";
 import { actionClient, protectedAction } from "../safe-action";
@@ -44,24 +45,37 @@ const withProtectedCreditsAction = (name: string) =>
   protectedAction.metadata({ action: `credits.${name}` });
 
 // ============================================
-// 公开 Actions
+// 受保护 Actions（需要登录）
 // ============================================
 
 /**
  * 注册奖励积分
  *
- * 新用户注册时调用，赠送初始积分
+ * 需要登录，且每个用户只能领取一次
  */
-export const grantRegistrationBonus = withPublicCreditsAction(
+export const grantRegistrationBonus = withProtectedCreditsAction(
   "grantRegistrationBonus"
 )
-  .schema(
-    z.object({
-      userId: z.string().min(1),
-    })
-  )
-  .action(async ({ parsedInput }) => {
-    const { userId } = parsedInput;
+  .schema(z.object({}))
+  .action(async ({ ctx }) => {
+    const { userId } = ctx;
+
+    // 幂等性检查：查询是否已发放过注册奖励
+    const existing = await db
+      .select({ id: creditsTransaction.id })
+      .from(creditsTransaction)
+      .where(
+        and(
+          eq(creditsTransaction.userId, userId),
+          eq(creditsTransaction.description, "新用户注册奖励")
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      return { success: true, alreadyGranted: true };
+    }
+
     const expiresAt = CREDITS_EXPIRY_DAYS
       ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
       : null;
@@ -84,10 +98,6 @@ export const grantRegistrationBonus = withPublicCreditsAction(
       ...result,
     };
   });
-
-// ============================================
-// 受保护 Actions（需要登录）
-// ============================================
 
 /**
  * 获取当前用户积分余额
@@ -291,14 +301,15 @@ export const grantMonthlySubscriptionCredits = withPublicCreditsAction(
       .where(eq(subscription.userId, userId))
       .limit(1);
 
-    let creditsAmount: number = SUBSCRIPTION_MONTHLY_CREDITS.starter;
+    // 使用 subscription-plan.ts 作为单一事实来源
+    let plan: SubscriptionPlan = "starter";
     if (sub?.priceId) {
-      const { plan } = findPlanByPriceId(sub.priceId);
-      const planId = plan?.id as keyof typeof SUBSCRIPTION_MONTHLY_CREDITS | undefined;
-      if (planId && planId in SUBSCRIPTION_MONTHLY_CREDITS) {
-        creditsAmount = SUBSCRIPTION_MONTHLY_CREDITS[planId];
+      const resolved = getPlanFromPriceId(sub.priceId);
+      if (resolved) {
+        plan = resolved;
       }
     }
+    const creditsAmount = PLAN_PRIVILEGES[plan].monthlyCredits;
 
     // 月度积分，下个月过期
     const expiresAt = new Date();

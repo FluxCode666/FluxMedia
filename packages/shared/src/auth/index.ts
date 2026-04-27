@@ -31,7 +31,10 @@ export const auth = betterAuth({
    * 信任的来源
    * 允许从这些来源发起认证请求
    */
-  trustedOrigins: [process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"],
+  trustedOrigins: [
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001",
+  ].filter(Boolean),
 
   /**
    * 数据库配置

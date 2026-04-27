@@ -1,7 +1,7 @@
 FROM node:22-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 RUN apk add --no-cache libc6-compat
 
 # --- Prune monorepo for admin app ---
@@ -22,11 +22,11 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/ .
 COPY --from=pruner /app/out/full/ .
-COPY .env.local ./apps/admin/.env.local
 COPY tsconfig.base.json ./tsconfig.base.json
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm turbo build --filter=@repo/admin
+RUN --mount=type=secret,id=env,target=/app/apps/admin/.env.local \
+    pnpm turbo build --filter=@repo/admin
 
 # --- Runner ---
 FROM node:22-alpine AS runner
@@ -40,6 +40,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/apps/admin/.next/standalone ./
 COPY --from=builder /app/apps/admin/.next/static ./apps/admin/.next/static
 COPY --from=builder /app/apps/admin/public ./apps/admin/public
+
+RUN mkdir -p /app/storage && chown -R nextjs:nodejs /app/storage
 
 USER nextjs
 EXPOSE 3000

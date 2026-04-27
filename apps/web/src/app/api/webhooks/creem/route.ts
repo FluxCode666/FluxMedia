@@ -5,7 +5,7 @@ import { SUBSCRIPTION_MONTHLY_CREDITS } from "@repo/shared/config/payment";
 import { getPlanFromPriceId } from "@repo/shared/config/subscription-plan";
 import { db } from "@repo/database";
 import { creditsBatch, subscription, user } from "@repo/database/schema";
-import { CREDITS_EXPIRY_DAYS } from "@repo/shared/credits/config";
+import { CREDITS_EXPIRY_DAYS, CREDIT_PACKAGES } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
 import {
   type CreemCheckoutCompletedData,
@@ -13,7 +13,7 @@ import {
   constructCreemEvent,
 } from "@repo/shared/payment/creem";
 import { withApiLogging } from "@repo/shared/api-logger";
-import { logError, logEvent } from "@repo/shared/logger";
+import { logger, logError, logEvent } from "@repo/shared/logger";
 
 /** 从 CreemSubscription 中安全提取产品 ID */
 function getProductId(sub: CreemSubscription): string {
@@ -97,7 +97,7 @@ export const POST = withApiLogging(async (req: Request) => {
       }
 
       default:
-        console.log(`Unhandled event type: ${event.eventType}`);
+        logger.info({ eventType: event.eventType }, "Unhandled event type");
     }
 
     return NextResponse.json({ received: true });
@@ -128,7 +128,7 @@ async function handleCheckoutCompleted(data: CreemCheckoutCompletedData) {
   const checkoutType = data.metadata?.type ?? "subscription";
 
   if (!userId) {
-    console.error("Missing userId in checkout metadata");
+    logger.error({ source: "creem-webhook" }, "Missing userId in checkout metadata");
     return;
   }
 
@@ -157,26 +157,35 @@ async function handleCheckoutCompleted(data: CreemCheckoutCompletedData) {
 /**
  * 处理积分包购买
  *
- * 在一次性支付完成后，根据 metadata 中的积分数量发放积分
+ * 在一次性支付完成后，根据服务端积分包配置发放积分
+ * 安全: 不信任 metadata.credits，从 CREDIT_PACKAGES 配置查找真实积分数量
  */
 async function handleCreditPurchase(
   userId: string,
   data: CreemCheckoutCompletedData
 ) {
-  const creditsStr = data.metadata?.credits;
   const packageId = data.metadata?.packageId;
   const orderId = data.order?.id ?? data.id;
 
-  if (!creditsStr) {
-    console.error("Missing credits in credit_purchase metadata");
+  if (!packageId) {
+    logger.error(
+      { source: "creem-webhook", userId, orderId },
+      "Missing packageId in credit_purchase metadata"
+    );
     return;
   }
 
-  const creditsAmount = parseInt(creditsStr, 10);
-  if (Number.isNaN(creditsAmount) || creditsAmount <= 0) {
-    console.error(`Invalid credits amount: ${creditsStr}`);
+  // 从服务端配置查找积分数量（不信任客户端 metadata.credits）
+  const pkg = CREDIT_PACKAGES.find((p) => p.id === packageId);
+  if (!pkg) {
+    logger.error(
+      { source: "creem-webhook", packageId, userId },
+      "Unknown credit package ID"
+    );
     return;
   }
+
+  const creditsAmount = pkg.credits;
 
   // 幂等性检查：同一订单只发放一次积分
   const sourceRef = `credit_purchase:${orderId}`;
@@ -192,7 +201,10 @@ async function handleCreditPurchase(
     .limit(1);
 
   if (existingBatch) {
-    console.log(`Credits already granted for purchase: ${sourceRef}, skipping`);
+    logger.info(
+      { sourceRef },
+      "Credits already granted for purchase, skipping"
+    );
     return;
   }
 
@@ -210,20 +222,26 @@ async function handleCreditPurchase(
       transactionType: "purchase",
       expiresAt,
       sourceRef,
-      description: `Credit pack purchase: ${creditsAmount} credits (${packageId ?? "unknown"})`,
+      description: `Credit pack purchase: ${creditsAmount} credits (${packageId})`,
       metadata: {
         orderId,
-        packageId: packageId ?? "unknown",
+        packageId,
         checkoutId: data.id,
         paymentType: "one-time",
       },
     });
 
-    console.log(
-      `Credits granted for user ${userId}: ${creditsAmount} credits (package: ${packageId}), batch ${result.batchId}`
+    logger.info(
+      { userId, creditsAmount, packageId, batchId: result.batchId },
+      "Credits granted for credit pack purchase"
     );
   } catch (error) {
-    console.error("Failed to grant credit purchase:", error);
+    logError(error, {
+      source: "creem-webhook",
+      stage: "grant-credit-purchase",
+      userId,
+      packageId,
+    });
     // 不抛出错误，让 webhook 返回成功
     // 积分发放失败可通过日志追踪，手动补发
   }
@@ -250,7 +268,7 @@ async function handleSubscriptionActive(sub: CreemSubscription) {
       .limit(1);
 
     if (!existingSub) {
-      console.error("Cannot find userId for subscription:", sub.id);
+      logger.error({ subscriptionId: sub.id }, "Cannot find userId for subscription");
       return;
     }
 
@@ -295,7 +313,7 @@ async function handleSubscriptionRenewed(sub: CreemSubscription) {
     .limit(1);
 
   if (!existingSub) {
-    console.error("Subscription not found for renewal:", sub.id);
+    logger.error({ subscriptionId: sub.id }, "Subscription not found for renewal");
     return;
   }
 
@@ -360,7 +378,7 @@ async function handleSubscriptionPastDue(sub: CreemSubscription) {
     })
     .where(eq(subscription.subscriptionId, sub.id));
 
-  console.log(`Subscription past due: ${sub.id}`);
+  logger.info({ subscriptionId: sub.id }, "Subscription past due");
 }
 
 /**
@@ -375,7 +393,7 @@ async function handleSubscriptionPaused(sub: CreemSubscription) {
     })
     .where(eq(subscription.subscriptionId, sub.id));
 
-  console.log(`Subscription paused: ${sub.id}`);
+  logger.info({ subscriptionId: sub.id }, "Subscription paused");
 }
 
 // ============================================
@@ -418,7 +436,7 @@ async function createOrUpdateSubscription(
     });
   }
 
-  console.log(`Subscription created/updated for user ${userId}`);
+  logger.info({ userId }, "Subscription created/updated");
 }
 
 /**
@@ -453,7 +471,7 @@ async function grantSubscriptionCredits(
   const planType = getPlanFromPriceId(priceId);
 
   if (!planType) {
-    console.error(`Unknown priceId: ${priceId}`);
+    logger.error({ priceId }, "Unknown priceId");
     return;
   }
 
@@ -471,8 +489,9 @@ async function grantSubscriptionCredits(
     .limit(1);
 
   if (existingBatch) {
-    console.log(
-      `Credits already granted for subscription period: ${periodKey}, skipping`
+    logger.info(
+      { periodKey },
+      "Credits already granted for subscription period, skipping"
     );
     return;
   }
@@ -483,7 +502,7 @@ async function grantSubscriptionCredits(
       planType as keyof typeof SUBSCRIPTION_MONTHLY_CREDITS
     ];
   if (!monthlyCredits) {
-    console.error(`No monthly credits configured for plan: ${planType}`);
+    logger.error({ planType }, "No monthly credits configured for plan");
     return;
   }
 
@@ -527,11 +546,12 @@ async function grantSubscriptionCredits(
       },
     });
 
-    console.log(
-      `Credits granted for user ${userId}: ${creditsToGrant} credits (${planType} ${isYearly ? "yearly" : "monthly"}), batch ${result.batchId}`
+    logger.info(
+      { userId, creditsToGrant, planType, interval: isYearly ? "yearly" : "monthly", batchId: result.batchId },
+      "Subscription credits granted"
     );
   } catch (error) {
-    console.error("Failed to grant subscription credits:", error);
+    logError(error, { source: "creem-webhook", stage: "grant-subscription-credits", userId });
     // 不抛出错误，让 webhook 返回成功
     // 积分发放失败可通过日志追踪，手动补发
   }

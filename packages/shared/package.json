@@ -36,7 +36,6 @@
     "./monitoring": "./src/monitoring/index.ts",
     "./components": "./src/components/index.ts",
     "./components/icons": "./src/components/icons/index.ts",
-    "./components/components/og-image-template": "./src/components/components/og-image-template.tsx",
     "./components/og-image-template": "./src/components/components/og-image-template.tsx"
   },
   "scripts": {

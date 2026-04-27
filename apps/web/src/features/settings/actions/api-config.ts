@@ -17,10 +17,37 @@ function isPrivateUrl(urlString: string): boolean {
     const url = new URL(urlString);
     const hostname = url.hostname.toLowerCase();
 
+    // NOTE: DNS rebinding attacks remain a limitation — a domain can resolve to
+    // a public IP at validation time and then to a private IP on the actual
+    // request. A true fix requires performing DNS resolution at validation time
+    // and pinning the resolved IP for the subsequent request.
+
+    // Reject URLs with embedded credentials (can bypass hostname checks in some parsers)
+    if (url.username || url.password) return true;
+
     if (url.protocol !== "https:") return true;
     if (hostname === "localhost" || hostname === "::1") return true;
+    // IPv6 loopback with brackets (as parsed by URL constructor)
+    if (hostname === "[::1]") return true;
     if (hostname === "metadata.google.internal") return true;
     if (hostname.endsWith(".internal")) return true;
+
+    // Reject IPv6 shorthand hex-encoded private/loopback ranges
+    // e.g., ::ffff:7f00:1 (127.0.0.1), ::ffff:a00:0 (10.0.0.0), ::ffff:c0a8:0 (192.168.0.0)
+    const ipv6HexMatch = hostname.replace(/^\[|\]$/g, "").match(
+      /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
+    );
+    if (ipv6HexMatch?.[1] && ipv6HexMatch[2]) {
+      const high = Number.parseInt(ipv6HexMatch[1], 16);
+      const a = (high >> 8) & 0xff;
+      const b = high & 0xff;
+      if (a === 10) return true; // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a === 192 && b === 168) return true; // 192.168.0.0/16
+      if (a === 127) return true; // 127.0.0.0/8
+      if (a === 169 && b === 254) return true; // 169.254.0.0/16
+      if (a === 0) return true; // 0.0.0.0/8
+    }
 
     // Check IPv6-mapped IPv4 addresses (e.g., ::ffff:127.0.0.1)
     const ipv6MappedMatch = hostname.match(/^::ffff:(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
@@ -40,6 +67,11 @@ function isPrivateUrl(urlString: string): boolean {
     if (ipMatch) {
       const a = Number(ipMatch[1]);
       const b = Number(ipMatch[2]);
+
+      // Reject octal IP notation (e.g., 0177.0.0.1 = 127.0.0.1)
+      const octets = hostname.split(".");
+      if (octets.some((o) => o.length > 1 && o.startsWith("0"))) return true;
+
       if (a === 10) return true;
       if (a === 172 && b >= 16 && b <= 31) return true;
       if (a === 192 && b === 168) return true;

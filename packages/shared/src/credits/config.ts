@@ -14,12 +14,6 @@
 export const REGISTRATION_BONUS_CREDITS = 200;
 
 /**
- * 订阅用户每月赠送积分数量（默认值，实际按套餐档位）
- * @deprecated 使用 SUBSCRIPTION_MONTHLY_CREDITS from payment.ts
- */
-export const MONTHLY_SUBSCRIPTION_CREDITS = 7500;
-
-/**
  * 积分过期天数（从发放日起）
  * null 表示永不过期
  *

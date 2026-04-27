@@ -4,144 +4,149 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GPT2Image-Pro is an AI-powered image generation platform built on Next.js. It provides a complete SaaS foundation with authentication, payments, credits system, background job processing, i18n, admin panel, support tickets, and more.
+GPT2Image-Pro is an AI-powered image generation platform. **Turborepo monorepo** with two Next.js apps and three shared packages.
 
-**Deployment:** Self-hosted or Vercel + Neon PostgreSQL + Cloudflare R2 (storage)
+**Architecture:**
+```
+gpt2image-pro/
+├── apps/
+│   ├── web/          # 用户站 (gpt2image.pro:3000)
+│   └── admin/        # 管理站 (admin.gpt2image.pro:3001)
+├── packages/
+│   ├── database/     # Drizzle ORM schema + DB connection
+│   ├── ui/           # Shadcn/UI components + theme
+│   └── shared/       # 共享业务逻辑 (auth, credits, storage, payment, etc.)
+├── docker-compose.yml
+├── Dockerfile.web / Dockerfile.admin
+└── turbo.json
+```
+
+**Deployment:** Docker Compose + Nginx reverse proxy + Certbot SSL on DigitalOcean
 
 ## Commands
 
 ```bash
-pnpm dev              # Dev server (Turbopack)
-pnpm build            # Production build
-pnpm lint             # Biome lint
-pnpm format           # Biome format
-pnpm check            # Biome check + autofix
-pnpm typecheck        # tsc --noEmit
-pnpm db:push          # Push Drizzle schema to database
-pnpm db:generate      # Generate Drizzle migrations
-pnpm db:studio        # Open Drizzle Studio GUI
-pnpm test             # Vitest (watch mode)
-pnpm test:run         # Vitest (single run)
-pnpm test:run -- src/test/path/to/file.test.ts  # Run single test file
-```
+# Monorepo (root)
+turbo dev                    # 启动所有 apps (Turbopack)
+turbo build                  # 生产构建
+turbo typecheck              # 类型检查
+turbo lint                   # Biome lint
 
-Tests live in `src/test/` (not colocated), run sequentially to avoid DB race conditions, with 30s timeout for integration tests. Test env vars loaded from `.env.test`.
+# 单个 app
+pnpm --filter @repo/web dev  # 仅用户站 (port 3000)
+pnpm --filter @repo/admin dev # 仅管理站 (port 3001)
+
+# 数据库
+pnpm --filter @repo/database db:push     # Push schema
+pnpm --filter @repo/database db:generate # Generate migrations
+pnpm --filter @repo/database db:studio   # Drizzle Studio
+
+# Docker 部署
+docker compose build          # 构建镜像
+docker compose up -d          # 启动服务
+docker compose logs -f web    # 查看日志
+```
 
 ## Tech Stack
 
-- **Framework:** Next.js 15 (App Router only, no `pages/`), React 19, TypeScript (strict, no `any`)
+- **Framework:** Next.js 16 (App Router), React 19, TypeScript (strict)
+- **Build:** Turborepo, pnpm workspaces
 - **Styling:** Tailwind CSS 4, Shadcn/UI, Radix UI, Framer Motion
-- **Database:** PostgreSQL (Neon) via Drizzle ORM (edge compatible)
-- **Auth:** Better Auth (email/password + Google + GitHub OAuth)
+- **Database:** PostgreSQL via Drizzle ORM
+- **Auth:** Better Auth (email/password + GitHub + Google OAuth)
 - **Validation:** Zod, React Hook Form, next-safe-action
-- **Async Processing:** Inngest (solves Vercel 60s timeout)
-- **AI:** OpenAI / DeepSeek / Xiaomi MiMo (switchable via `AI_PROVIDER` env var), optional Cloudflare AI Gateway proxy
 - **Storage:** Cloudflare R2 / S3 via `@aws-sdk/client-s3`
 - **Payment:** Creem (subscriptions + one-time purchases)
-- **Rate Limiting:** Upstash Redis (gracefully disabled when not configured)
-- **Logging:** Pino + optional Axiom cloud logging
-- **Monitoring:** Optional Sentry integration
 - **i18n:** next-intl (locales: `en`, `zh`)
-- **Content:** Fumadocs MDX (docs, blog, legal pages)
-- **Linting:** Biome (replaces ESLint + Prettier)
-- **Package Manager:** pnpm
-- **Testing:** Vitest
+- **Content:** Fumadocs MDX (docs, blog, legal)
+- **Logging:** Pino + optional Axiom
+- **Monitoring:** Optional Sentry
+- **Linting:** Biome
 
 ## Architecture
 
-### Route Groups (`src/app/[locale]/`)
+### apps/web — 用户站
 
-All routes are under `[locale]` for i18n:
+**Route Groups** (`apps/web/src/app/[locale]/`):
+- `(marketing)/` — 公开页面 (首页, 定价, 博客, 法律)
+- `(dashboard)/` — 用户面板 (图片生成, 画廊, 设置, 工单). 需要认证
+- `(auth)/` — 登录/注册/忘记密码
+- `docs/` — Fumadocs 文档
 
-- **`(marketing)/`** — Public pages (home, pricing, blog, legal). Layout: Header + Footer.
-- **`(dashboard)/`** — Authenticated area (dashboard overview, credits, settings, support). Layout: Sidebar + Topbar. Requires session token in middleware.
-- **`(auth)/`** — Sign-in, sign-up, forgot/reset password. Redirects to dashboard if already logged in.
-- **`(admin)/`** — Admin panel (users, tickets, stats). Requires admin role.
+**API Routes** (`apps/web/src/app/api/`):
+- `auth/[...all]/` — Better Auth
+- `webhooks/creem/` — 支付回调
+- `storage/[bucket]/[...key]/` — 图片代理
+- `upload/presigned/` — 预签名上传
+- `search/` — 搜索 API
+- `jobs/credits/expire/` — 积分过期 cron
+- `inngest/` — 异步任务
 
-### API Routes (`src/app/api/`)
+**Feature Modules** (`apps/web/src/features/`):
+- `image-generation/` — 图片生成核心
+- `dashboard/` — 面板组件
+- `marketing/` — 营销组件
+- `settings/` — 用户设置
+- `auth/` — 认证表单
+- `blog/`, `analytics/`, `pseo/`
 
-- `inngest/route.ts` — Inngest webhook (GET/POST/PUT)
-- `upload/presigned/route.ts` — Presigned S3/R2 upload URLs
-- `webhooks/creem/route.ts` — Creem payment webhook
-- `auth/[...all]/route.ts` — Better Auth catch-all
-- `search/route.ts` — Search API
-- `jobs/credits/expire/route.ts` — Credits expiration cron
+### apps/admin — 管理站
 
-### Feature Modules (`src/features/`)
+**Route Groups** (`apps/admin/src/app/[locale]/`):
+- `(dashboard)/dashboard/` — 管理面板 (用户管理, 工单管理)
+- `(auth)/` — 管理员登录
 
-Each feature is self-contained:
-```
-src/features/[name]/
-├── components/   # UI components
-├── actions/      # Server Actions ("use server")
-├── hooks/        # Custom React hooks
-├── types/        # TypeScript types
-└── index.ts      # Public exports
-```
+### packages/shared — 共享业务逻辑
 
-Key modules: `credits/`, `payment/`, `subscription/`, `storage/`, `marketing/`, `dashboard/`, `admin/`, `auth/`, `support/`, `settings/`, `mail/`, `shared/`, `blog/`, `analytics/`
+Import pattern: `@repo/shared/<module>`
 
-### Async Processing (Inngest)
+- `auth/` — Better Auth 配置 (client, server, admin)
+- `credits/` — 积分系统 (core, actions, config, components)
+- `storage/` — 存储 providers (S3/R2/local)
+- `payment/` — Creem API 客户端
+- `support/` — 工单系统
+- `subscription/` — 订阅管理
+- `mail/` — 邮件模板
+- `config/` — 站点配置, 支付配置, 订阅计划
+- `components/` — 共享组件 (Providers, ModeToggle, etc.)
+- `safe-action.ts` — next-safe-action tiers
+- `logger/` — Pino logger
+- `rate-limit/` — Upstash 限流
+- `monitoring/` — Sentry
 
-Inngest handles background job processing. A hello-world example function is provided in `src/inngest/functions.ts` as a template for adding custom async workflows. The pattern is: server action sends event → Inngest function processes in background.
+### packages/database
 
-### Server Action Tiers (`src/lib/safe-action.ts`)
+Import: `@repo/database` (db), `@repo/database/schema` (tables)
 
-Three `next-safe-action` client levels:
-- **`actionClient`** — Base with logging middleware
-- **`protectedAction`** — Adds auth check, provides `ctx.user` and `ctx.userId`
-- **`adminAction`** — Adds admin role check on top of protected
+### packages/ui
 
-Pattern for defining actions:
-```typescript
-const withFeatureAction = (name: string) =>
-  protectedAction.metadata({ action: `feature.${name}` });
+Import: `@repo/ui/components/<name>`, `@repo/ui/utils` (cn), `@repo/ui/globals.css`
 
-export const myAction = withFeatureAction("myAction")
-  .schema(zodSchema)
-  .action(async ({ parsedInput, ctx }) => { /* ... */ });
-```
+### Server Action Tiers (`packages/shared/src/safe-action.ts`)
 
-### Credits System (`src/features/credits/core.ts`)
+- `actionClient` — Base with logging
+- `protectedAction` — Requires auth, provides `ctx.userId`
+- `adminAction` — Requires admin role
 
-Double-entry bookkeeping with FIFO batch expiration:
-- Every credit movement creates a transaction with debit/credit accounts
-- `grantCredits()` — Creates batch + transaction + updates balance
-- `consumeCredits()` — FIFO consumption (earliest-expiring batch first)
+### Credits System (`packages/shared/src/credits/core.ts`)
 
-### Subscription Plans (`src/config/subscription-plan.ts`)
+Double-entry bookkeeping with FIFO batch expiration. Atomic balance updates prevent double-spend.
 
-4 tiers (Free, Starter, Pro, Ultra) with per-plan limits on: file size, queue priority, monthly credits. `getUserPlan()` in `src/features/subscription/services/user-plan.ts` maps Creem `priceId` to plan.
+### Subscription Plans (`packages/shared/src/config/subscription-plan.ts`)
 
-### Database Schema (`src/db/schema.ts`)
-
-Uses Drizzle ORM with typed enums. Key tables: `user`, `session`, `account`, `verification`, `subscription`, `creditsBalance`, `creditsBatch`, `creditsTransaction`, `ticket`, `ticketMessage`, `newsletterSubscriber`.
-
-All tables use `text` primary keys with `nanoid()` defaults.
-
-### Middleware (`src/middleware.ts`)
-
-Handles three concerns in order:
-1. **API rate limiting** — Pattern-matched per-route (auth, upload)
-2. **Auth protection** — `/dashboard/**` requires session token cookie, auth routes redirect if logged in
-3. **i18n routing** — next-intl locale prefix handling
-
-### AI Provider Abstraction (`src/lib/ai/openai.ts`)
-
-Switchable between OpenAI, DeepSeek, and MiMo via `AI_PROVIDER` env var. Optional Cloudflare AI Gateway proxying. Provides a generic `chatCompletion()` function for LLM calls.
+4 tiers (Free, Starter, Pro, Ultra). Single source of truth for monthly credits and plan limits.
 
 ## Coding Conventions
 
-- **Language:** Chinese comments throughout the codebase (code itself in English)
-- **Path alias:** `@/*` maps to `src/*`
-- **Formatting:** Biome — double quotes, semicolons, trailing commas (ES5), 2-space indent, 80 char line width
-- **Lint rules:** `noExplicitAny: error`, `noUnusedImports: error`, `noUnusedVariables: error`, `useImportType: error`
-- **Server Components by default** — only add `'use client'` when interactivity is needed
-- **Data fetching in RSC** — Server Components call Drizzle directly; mutations use Server Actions
-- **i18n navigation** — Import `Link`, `redirect`, `usePathname`, `useRouter` from `@/i18n/routing` (not `next/link` or `next/navigation`)
-- **API route wrapping** — Use `withApiLogging(handler)` from `@/lib/api-logger.ts`
-- **Optional services degrade gracefully** — Rate limiting, Axiom logging, Sentry monitoring all check env vars and silently skip when unconfigured
+- **Language:** Chinese comments, English code
+- **Path alias:** `@/*` maps to `src/*` (within each app)
+- **Cross-package imports:** `@repo/database`, `@repo/ui/*`, `@repo/shared/*`
+- **Formatting:** Biome — double quotes, semicolons, 2-space indent
+- **Lint rules:** `noExplicitAny: error`, `noUnusedImports: error`
+- **Server Components by default** — `'use client'` only when needed
+- **i18n navigation** — `Link`, `redirect`, `useRouter` from `@/i18n/routing`
+- **Optional services degrade gracefully** — Redis, Axiom, Sentry skip when unconfigured
 
 ## Environment Variables
 
-See `.env.example` for the full list. Key pattern: only `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and at least one AI provider key are required. Everything else (OAuth, Creem, storage, Redis, Axiom, Sentry) is optional with graceful degradation.
+See `.env.example`. Required: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `PLATFORM_API_KEY`. Everything else is optional.

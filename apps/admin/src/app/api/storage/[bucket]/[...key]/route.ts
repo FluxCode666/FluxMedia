@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path, { resolve, sep } from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { auth } from "@repo/shared/auth";
 
 const BASE_DIR = process.env.LOCAL_STORAGE_PATH || "./storage";
 
@@ -21,6 +23,12 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ bucket: string; key: string[] }> }
 ) {
+  // Auth check: admin middleware skips /api/ routes, so we must verify here
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.role !== "admin") {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const { bucket, key } = await params;
   const fileKey = key.join("/");
 

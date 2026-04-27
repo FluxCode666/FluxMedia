@@ -11,6 +11,8 @@ async function getPath() {
 }
 
 async function safePath(bucket: string, key: string): Promise<string> {
+  // Defense-in-depth: fast substring check rejects obvious traversal attempts early,
+  // while the path.resolve + startsWith check below is the authoritative guard.
   if (key.includes("..") || bucket.includes("..")) {
     throw new Error("Invalid path: directory traversal not allowed");
   }
