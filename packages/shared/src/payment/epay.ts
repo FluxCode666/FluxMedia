@@ -75,6 +75,11 @@ export function getEpayDefaultPaymentType(): string {
   ).trim();
 }
 
+function getEpayNotifyUrl(): string | undefined {
+  const notifyUrl = process.env.EPAY_NOTIFY_URL?.trim();
+  return notifyUrl || undefined;
+}
+
 function getEpayConfig() {
   const pid = process.env.EPAY_PID?.trim() ?? "";
   const key = process.env.EPAY_KEY?.trim() ?? "";
@@ -154,7 +159,8 @@ export function createEpayPurchase(
     pid,
     type: input.type || getEpayDefaultPaymentType(),
     out_trade_no: input.outTradeNo,
-    notify_url: input.notifyUrl ?? `${baseUrl}/api/webhooks/epay`,
+    notify_url:
+      input.notifyUrl ?? getEpayNotifyUrl() ?? `${baseUrl}/api/webhooks/epay`,
     return_url: input.returnUrl ?? `${baseUrl}/api/payments/epay/return`,
     name: input.name,
     money: formatMoney(input.money),
