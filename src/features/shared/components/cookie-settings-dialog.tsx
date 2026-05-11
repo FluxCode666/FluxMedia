@@ -2,7 +2,15 @@
 
 import { ChevronDown } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useState,
+  type MouseEventHandler,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +18,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -40,8 +47,12 @@ const DEFAULT_PREFERENCES: CookiePreferences = {
  */
 interface CookieSettingsDialogProps {
   /** 触发按钮的子元素 */
-  children: React.ReactNode;
+  children: ReactNode;
 }
+
+type DialogTriggerChildProps = {
+  onClick?: MouseEventHandler<HTMLElement>;
+};
 
 /**
  * Cookie Settings Dialog 组件
@@ -176,9 +187,24 @@ export function CookieSettingsDialog({ children }: CookieSettingsDialogProps) {
     if (id === "marketing") updatePreference("marketing", value);
   };
 
+  const trigger = isValidElement<DialogTriggerChildProps>(children)
+    ? cloneElement(children, {
+        onClick: (event) => {
+          children.props.onClick?.(event);
+          if (!event.defaultPrevented) {
+            setOpen(true);
+          }
+        },
+      } satisfies DialogTriggerChildProps)
+    : (
+        <button type="button" onClick={() => setOpen(true)}>
+          {children}
+        </button>
+      );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {trigger}
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-hidden p-0 [&>button]:hidden" overlayClassName="bg-black/30">
         {/* Header */}
         <DialogHeader className="border-b px-6 py-4">
