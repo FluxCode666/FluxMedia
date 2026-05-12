@@ -1,7 +1,3 @@
-import { type NextRequest, NextResponse } from "next/server";
-import createIntlMiddleware from "next-intl/middleware";
-
-import { routing } from "@/i18n/routing";
 import {
   checkRateLimit,
   createRateLimitResponse,
@@ -9,6 +5,9 @@ import {
   getRateLimitHeaders,
   type RateLimitType,
 } from "@repo/shared/rate-limit";
+import { type NextRequest, NextResponse } from "next/server";
+import createIntlMiddleware from "next-intl/middleware";
+import { routing } from "@/i18n/routing";
 
 /**
  * 创建国际化中间件
@@ -151,12 +150,13 @@ export const config = {
     /*
      * 匹配所有路径除了:
      * - _next/static (static files)
+     * - gpt2-assets-* (versioned static files behind Cloudflare)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder files
      *
      * 注意: 现在包含 /api 路由以便进行限流
      */
-    "/((?!_next/static|_next/image|favicon.ico|site\\.webmanifest|sitemap\\.xml|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|gpt2-assets-[^/]+/_next/static|_next/image|favicon.ico|site\\.webmanifest|sitemap\\.xml|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

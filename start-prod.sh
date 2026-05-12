@@ -13,11 +13,13 @@ SKIP_INSTALL="${SKIP_INSTALL:-0}"
 SKIP_BUILD="${SKIP_BUILD:-1}"
 TAR_FILE="${TAR_FILE:-deploy.tgz}"
 FORCE_EXTRACT="${FORCE_EXTRACT:-1}"
+ASSET_PREFIX="${ASSET_PREFIX:-${NEXT_PUBLIC_ASSET_PREFIX:-}}"
 STANDALONE_APP_DIR="${STANDALONE_APP_DIR:-apps/web/.next/standalone/GPT2Image-Pro/apps/web}"
 
 cd "$APP_DIR"
 export NODE_ENV=production
 export PORT="$PORT"
+[ -n "$ASSET_PREFIX" ] && export NEXT_PUBLIC_ASSET_PREFIX="$ASSET_PREFIX"
 
 if [ "$SKIP_INSTALL" != "1" ]; then
   if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
