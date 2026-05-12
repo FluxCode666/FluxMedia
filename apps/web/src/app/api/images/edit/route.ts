@@ -3,7 +3,10 @@ import { withApiLogging } from "@repo/shared/api-logger";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
-import { DEFAULT_IMAGE_SIZE, validateImageSize } from "@/features/image-generation/resolution";
+import {
+  parseImageSize,
+  validateImageSize,
+} from "@/features/image-generation/resolution";
 import type {
   ImageInputFile,
   ImageQuality,
@@ -93,10 +96,12 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse("Prompt exceeds the 4000 character limit.");
   }
 
-  const size = getText(formData, "size") || DEFAULT_IMAGE_SIZE;
-  const sizeCheck = validateImageSize(size);
-  if (!sizeCheck.valid) {
-    return errorResponse(sizeCheck.message);
+  const size = getText(formData, "size") || undefined;
+  if (size) {
+    const sizeCheck = validateImageSize(size);
+    if (!sizeCheck.valid) {
+      return errorResponse(sizeCheck.message);
+    }
   }
 
   const qualityValue = getText(formData, "quality") || "auto";
@@ -106,6 +111,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   const quality = qualityValue as ImageQuality;
 
   const model = getText(formData, "model") || undefined;
+  const displaySize = getText(formData, "displaySize") || undefined;
+  if (displaySize && !parseImageSize(displaySize)) {
+    return errorResponse("Invalid display size.");
+  }
   const sourceFiles = getImageFiles(formData);
   if (sourceFiles.length === 0) {
     return errorResponse("At least one source image is required.");
@@ -131,7 +140,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       mode: "edit",
       userId: session.user.id,
       prompt,
-      size,
+      size: displaySize || size,
       model,
       quality,
       images: await Promise.all(sourceFiles.map(toImageInput)),

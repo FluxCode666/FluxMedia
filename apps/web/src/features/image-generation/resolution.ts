@@ -3,7 +3,8 @@ export const LEGACY_IMAGE_MODEL = "gpt-image-1";
 export const DEFAULT_IMAGE_SIZE = "1024x1024";
 export const IMAGE_DIMENSION_STEP = 16;
 export const MIN_IMAGE_DIMENSION = 256;
-export const MAX_IMAGE_DIMENSION = 4096;
+export const MAX_IMAGE_DIMENSION = 3840;
+export const MAX_IMAGE_PIXELS = 3840 * 2160;
 
 export type ImageDimensions = {
   width: number;
@@ -23,7 +24,6 @@ export const IMAGE_RESOLUTION_PRESETS = [
   { value: "2048x1152", label: "2K Wide", detail: "2048 × 1152" },
   { value: "3840x2160", label: "4K Wide", detail: "3840 × 2160" },
   { value: "2160x3840", label: "4K Tall", detail: "2160 × 3840" },
-  { value: "4096x4096", label: "4K Square", detail: "4096 × 4096" },
 ] as const;
 
 export function parseImageSize(size: string): ImageDimensions | null {
@@ -70,6 +70,13 @@ export function validateImageSize(
     return {
       valid: false,
       message: `Width and height must be between ${MIN_IMAGE_DIMENSION} and ${MAX_IMAGE_DIMENSION}px and divisible by ${IMAGE_DIMENSION_STEP}.`,
+    };
+  }
+
+  if (dimensions.width * dimensions.height > MAX_IMAGE_PIXELS) {
+    return {
+      valid: false,
+      message: `Total pixels must be no more than ${MAX_IMAGE_PIXELS.toLocaleString()}.`,
     };
   }
 

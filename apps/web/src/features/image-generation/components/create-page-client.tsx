@@ -18,6 +18,7 @@ import {
   Eraser,
   ImagePlus,
   Loader2,
+  RefreshCcw,
   Save,
   Upload,
   Wand2,
@@ -69,6 +70,8 @@ type MaskPoint = {
 
 type ImageQuality = "auto" | "low" | "medium" | "high";
 
+type ActiveMode = "text" | "image";
+
 const defaultDimensions = parseImageSize(DEFAULT_IMAGE_SIZE) || {
   width: 1024,
   height: 1024,
@@ -77,6 +80,12 @@ const defaultDimensions = parseImageSize(DEFAULT_IMAGE_SIZE) || {
 const MAX_EDIT_IMAGES = 16;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
+const EDIT_MODEL_OPTIONS = [
+  { value: "default", label: "Default" },
+  { value: "gpt-image-2", label: "GPT Image 2" },
+  { value: "gpt-image-1.5", label: "GPT Image 1.5" },
+  { value: "gpt-image-1-mini", label: "GPT Image 1 Mini" },
+] as const;
 
 const QUALITY_OPTIONS: Array<{ value: ImageQuality; label: string }> = [
   { value: "auto", label: "Auto" },
@@ -101,16 +110,38 @@ function revokePreview(url: string) {
   }
 }
 
+async function urlToEditImageFile(
+  imageUrl: string,
+  name: string
+): Promise<EditImageFile> {
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to load image: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const type = blob.type.startsWith("image/") ? blob.type : "image/png";
+  const extension =
+    type === "image/jpeg" ? "jpg" : type === "image/webp" ? "webp" : "png";
+  const file = new File([blob], `${name}.${extension}`, { type });
+  return {
+    file,
+    previewUrl: URL.createObjectURL(file),
+  };
+}
+
 export function CreatePageClient({
   balance: initialBalance,
   creditsPerImage,
   recentGenerations: initialRecent,
 }: CreatePageClientProps) {
+  const [activeMode, setActiveMode] = useState<ActiveMode>("text");
   const [prompt, setPrompt] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
   const [width, setWidth] = useState(defaultDimensions.width);
   const [height, setHeight] = useState(defaultDimensions.height);
   const [quality, setQuality] = useState<ImageQuality>("auto");
+  const [editModel, setEditModel] = useState("default");
   const [editImages, setEditImages] = useState<EditImageFile[]>([]);
   const [maskFile, setMaskFile] = useState<EditImageFile | null>(null);
   const [maskEditorOpen, setMaskEditorOpen] = useState(false);
@@ -137,6 +168,9 @@ export function CreatePageClient({
   const sizeCheck = useMemo(() => validateImageSize(size), [size]);
   const busy = isEditing;
   const firstPreviewUrl = editImages[0]?.previewUrl || null;
+  const editDisplaySize = firstImageSize
+    ? normalizeImageSize(firstImageSize.width, firstImageSize.height)
+    : "Reference image";
 
   useEffect(() => {
     if (!firstPreviewUrl) {
@@ -292,15 +326,19 @@ export function CreatePageClient({
       showGenerationError("Insufficient credits");
       return;
     }
-    if (!sizeCheck.valid) {
-      toast.error("Invalid resolution", { description: sizeCheck.message });
-      return;
-    }
 
     const formData = new FormData();
     formData.append("prompt", editPrompt.trim());
-    formData.append("size", size);
     formData.append("quality", quality);
+    if (editModel !== "default") {
+      formData.append("model", editModel);
+    }
+    if (firstImageSize) {
+      formData.append(
+        "displaySize",
+        normalizeImageSize(firstImageSize.width, firstImageSize.height)
+      );
+    }
     editImages.forEach(({ file }) => {
       formData.append(editImages.length === 1 ? "image" : "image[]", file);
     });
@@ -398,6 +436,18 @@ export function CreatePageClient({
       if (target) revokePreview(target.previewUrl);
       return prev.filter((_, itemIndex) => itemIndex !== index);
     });
+  };
+
+  const clearEditImages = () => {
+    setEditImages((prev) => {
+      for (const item of prev) {
+        revokePreview(item.previewUrl);
+      }
+      return [];
+    });
+    setMaskEditorOpen(false);
+    setMaskPoints([]);
+    clearMask();
   };
 
   const setMask = (files: FileList | null) => {
@@ -559,6 +609,27 @@ export function CreatePageClient({
     }, "image/png");
   };
 
+  const useResultAsReference = async () => {
+    if (!result?.imageUrl) return;
+
+    try {
+      const item = await urlToEditImageFile(
+        result.imageUrl,
+        `gpt2image-${result.generationId}`
+      );
+      clearEditImages();
+      setEditImages([item]);
+      setActiveMode("image");
+      setEditPrompt("");
+      toast.success("Result added as reference image");
+    } catch (error) {
+      toast.error("Failed to use result as reference", {
+        description:
+          error instanceof Error ? error.message : "Could not load image.",
+      });
+    }
+  };
+
   const resolutionControls = (
     <div className="space-y-4 rounded-lg border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -674,7 +745,11 @@ export function CreatePageClient({
         </p>
       </header>
 
-      <Tabs defaultValue="text" className="mb-10">
+      <Tabs
+        value={activeMode}
+        onValueChange={(value) => setActiveMode(value as ActiveMode)}
+        className="mb-10"
+      >
         <TabsList className="mb-4 border border-border bg-muted/40">
           <TabsTrigger value="text">
             <Wand2 className="h-4 w-4" />
@@ -745,6 +820,16 @@ export function CreatePageClient({
                   <Upload className="mr-2 h-4 w-4" />
                   Upload images
                 </Button>
+                {editImages.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={clearEditImages}
+                    disabled={isEditing}
+                  >
+                    Clear all
+                  </Button>
+                )}
                 <input
                   ref={imageInputRef}
                   type="file"
@@ -765,6 +850,9 @@ export function CreatePageClient({
                       key={`${item.file.name}-${item.previewUrl}`}
                       className="group relative aspect-square overflow-hidden rounded-md border bg-muted"
                     >
+                      <span className="absolute left-1 top-1 z-10 rounded bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
+                        {index + 1}
+                      </span>
                       <Image
                         src={item.previewUrl}
                         alt={item.file.name || `Source image ${index + 1}`}
@@ -788,7 +876,7 @@ export function CreatePageClient({
               )}
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+            <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
               <div className="space-y-4 rounded-lg border border-border bg-background p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -933,33 +1021,65 @@ export function CreatePageClient({
                 )}
               </div>
 
-              <div className="space-y-2 rounded-lg border border-border bg-background p-4">
-                <label
-                  htmlFor="edit-quality"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Quality
-                </label>
-                <Select
-                  value={quality}
-                  onValueChange={(value) => setQuality(value as ImageQuality)}
-                  disabled={isEditing}
-                >
-                  <SelectTrigger id="edit-quality" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {QUALITY_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+                <div className="space-y-2">
+                  <label
+                    htmlFor="edit-model"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Model
+                  </label>
+                  <Select
+                    value={editModel}
+                    onValueChange={setEditModel}
+                    disabled={isEditing}
+                  >
+                    <SelectTrigger id="edit-model" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EDIT_MODEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="edit-quality"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Quality
+                  </label>
+                  <Select
+                    value={quality}
+                    onValueChange={(value) => setQuality(value as ImageQuality)}
+                    disabled={isEditing}
+                  >
+                    <SelectTrigger id="edit-quality" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUALITY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Output size follows the first reference image:{" "}
+                  <span className="font-medium text-foreground">
+                    {editDisplaySize}
+                  </span>
+                </div>
               </div>
             </div>
-
-            {resolutionControls}
 
             <div className="flex justify-end">
               <Button
@@ -1040,6 +1160,15 @@ export function CreatePageClient({
                   <Download className="mr-2 h-4 w-4" />
                   Download
                 </a>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={useResultAsReference}
+              >
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Edit this
               </Button>
             </div>
           </div>

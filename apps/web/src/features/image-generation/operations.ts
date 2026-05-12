@@ -122,7 +122,7 @@ export async function runImageGenerationForUser(
           prompt: input.prompt,
           images: input.images,
           mask: input.mask,
-          size,
+          size: input.size,
           model,
           quality: input.quality,
           n: input.n,

@@ -216,7 +216,7 @@ export async function editImage(
       prompt: params.prompt,
       model: params.model,
       n: params.n,
-      size: params.size || DEFAULT_IMAGE_SIZE,
+      size: params.size,
       quality: params.quality,
     });
 
