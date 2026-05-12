@@ -17,10 +17,19 @@ const nextConfig = {
   assetPrefix: process.env.NEXT_PUBLIC_ASSET_PREFIX || "",
   // Enable standalone output for Docker deployment
   output: "standalone",
+  experimental: {
+    proxyClientMaxBodySize: "80mb",
+  },
   // Transpile monorepo packages
   transpilePackages: ["@repo/ui", "@repo/database", "@repo/shared"],
   // Exclude packages with webpack-specific syntax from server bundling
-  serverExternalPackages: ["anki-apkg-export", "sql.js", "pino", "pino-pretty", "@axiomhq/pino"],
+  serverExternalPackages: [
+    "anki-apkg-export",
+    "sql.js",
+    "pino",
+    "pino-pretty",
+    "@axiomhq/pino",
+  ],
 };
 
 // 组合插件: MDX -> NextIntl -> NextConfig

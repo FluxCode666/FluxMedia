@@ -92,6 +92,7 @@ const defaultDimensions = parseImageSize(DEFAULT_IMAGE_SIZE) || {
 
 const MAX_EDIT_IMAGES = 16;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_EDIT_REQUEST_BYTES = 75 * 1024 * 1024;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 const EDIT_MODEL_OPTIONS = [
   { value: "default", label: "Default" },
@@ -121,6 +122,10 @@ function revokePreview(url: string) {
   if (url.startsWith("blob:")) {
     URL.revokeObjectURL(url);
   }
+}
+
+function formatMegabytes(bytes: number) {
+  return `${Math.ceil(bytes / 1024 / 1024)}MB`;
 }
 
 async function urlToEditImageFile(
@@ -345,6 +350,15 @@ export function CreatePageClient({
     }
     if (balance < creditsPerImage) {
       showGenerationError("Insufficient credits");
+      return;
+    }
+    const totalUploadSize =
+      editImages.reduce((total, item) => total + item.file.size, 0) +
+      (maskFile?.file.size || 0);
+    if (totalUploadSize > MAX_EDIT_REQUEST_BYTES) {
+      toast.error("Upload is too large", {
+        description: `Source images and mask total ${formatMegabytes(totalUploadSize)}. Keep the total under ${formatMegabytes(MAX_EDIT_REQUEST_BYTES)}.`,
+      });
       return;
     }
 
@@ -887,7 +901,8 @@ export function CreatePageClient({
                     Source images
                   </span>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Upload PNG, JPEG, or WebP. Up to {MAX_EDIT_IMAGES} images.
+                    Upload PNG, JPEG, or WebP. Up to {MAX_EDIT_IMAGES} images,
+                    {` ${formatMegabytes(MAX_EDIT_REQUEST_BYTES)} total.`}
                   </p>
                 </div>
                 <Button

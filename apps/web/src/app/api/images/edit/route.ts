@@ -1,5 +1,5 @@
-import { auth } from "@repo/shared/auth";
 import { withApiLogging } from "@repo/shared/api-logger";
+import { auth } from "@repo/shared/auth";
 import { type NextRequest, NextResponse } from "next/server";
 
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
@@ -14,6 +14,7 @@ import type {
 
 const MAX_EDIT_IMAGES = 16;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_EDIT_REQUEST_BYTES = 75 * 1024 * 1024;
 const VALID_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const VALID_QUALITIES = new Set<ImageQuality>([
   "auto",
@@ -69,6 +70,12 @@ function validateImageFile(file: File, options?: { mask?: boolean }) {
   }
 }
 
+function getTotalUploadSize(files: File[], maskFile?: File) {
+  return (
+    files.reduce((total, file) => total + file.size, 0) + (maskFile?.size || 0)
+  );
+}
+
 async function toImageInput(file: File): Promise<ImageInputFile> {
   return {
     data: Buffer.from(await file.arrayBuffer()),
@@ -86,7 +93,15 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse("Unauthorized", 401);
   }
 
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return errorResponse(
+      "Upload is too large or incomplete. Use smaller source images and try again.",
+      413
+    );
+  }
   const prompt = getText(formData, "prompt");
   if (!prompt) {
     return errorResponse("Prompt is required.");
@@ -134,6 +149,17 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     }
     if (maskFile instanceof File) {
       validateImageFile(maskFile, { mask: true });
+    }
+    if (
+      getTotalUploadSize(
+        sourceFiles,
+        maskFile instanceof File ? maskFile : undefined
+      ) > MAX_EDIT_REQUEST_BYTES
+    ) {
+      return errorResponse(
+        `Total upload size must be no more than ${MAX_EDIT_REQUEST_BYTES / 1024 / 1024}MB.`,
+        413
+      );
     }
 
     const result = await runImageGenerationForUser({
