@@ -5,6 +5,10 @@ export const IMAGE_DIMENSION_STEP = 16;
 export const MIN_IMAGE_DIMENSION = 256;
 export const MAX_IMAGE_DIMENSION = 3840;
 export const MAX_IMAGE_PIXELS = 3840 * 2160;
+export const STANDARD_IMAGE_CREDIT_COST = 1;
+export const IMAGE_2K_CREDIT_COST = 3;
+export const IMAGE_4K_CREDIT_COST = 10;
+export const CUSTOM_IMAGE_CREDIT_COST = 10;
 
 export type ImageDimensions = {
   width: number;
@@ -25,6 +29,30 @@ export const IMAGE_RESOLUTION_PRESETS = [
   { value: "3840x2160", label: "4K Wide", detail: "3840 × 2160" },
   { value: "2160x3840", label: "4K Tall", detail: "2160 × 3840" },
 ] as const;
+
+const TWO_K_PRESET_VALUES: Set<string> = new Set(["2048x2048", "2048x1152"]);
+const FOUR_K_PRESET_VALUES: Set<string> = new Set(["3840x2160", "2160x3840"]);
+const PRESET_VALUES: Set<string> = new Set(
+  IMAGE_RESOLUTION_PRESETS.map((preset) => preset.value)
+);
+
+export function getImageCreditCost(size?: string | null) {
+  const normalizedSize = size || DEFAULT_IMAGE_SIZE;
+
+  if (!PRESET_VALUES.has(normalizedSize)) {
+    return CUSTOM_IMAGE_CREDIT_COST;
+  }
+
+  if (FOUR_K_PRESET_VALUES.has(normalizedSize)) {
+    return IMAGE_4K_CREDIT_COST;
+  }
+
+  if (TWO_K_PRESET_VALUES.has(normalizedSize)) {
+    return IMAGE_2K_CREDIT_COST;
+  }
+
+  return STANDARD_IMAGE_CREDIT_COST;
+}
 
 export function parseImageSize(size: string): ImageDimensions | null {
   const match = size

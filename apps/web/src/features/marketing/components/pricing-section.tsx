@@ -1,22 +1,25 @@
 "use client";
 
-import { Check, Coins, ImageIcon, Layers, Loader2 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useEffect, useState, useTransition } from "react";
+import { useSession } from "@repo/shared/auth/client";
+import { getPlanPrice, paymentConfig } from "@repo/shared/config/payment";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
-import { Label } from "@repo/ui/components/label";
-import { Switch } from "@repo/ui/components/switch";
-import { getPlanPrice, paymentConfig } from "@repo/shared/config/payment";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@repo/ui/components/card";
+import { cn } from "@repo/ui/utils";
+import { Check, Coins, ImageIcon, Loader2 } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useEffect, useState, useTransition } from "react";
 import {
   createCheckoutSession,
   getUserSubscription,
 } from "@/features/payment/actions";
 import { PlanInterval } from "@/features/payment/types";
 import { useRouter } from "@/i18n/routing";
-import { useSession } from "@repo/shared/auth/client";
-import { cn } from "@repo/ui/utils";
 
 import { AnimatedPrice } from "./animated-price";
 
@@ -24,6 +27,10 @@ import { AnimatedPrice } from "./animated-price";
  * 计划配置（用于获取价格等非翻译数据）
  */
 const PLAN_IDS = ["free", "starter", "pro", "ultra"] as const;
+
+function parsePlanNumber(value: string) {
+  return Number.parseInt(value.replace(/,/g, ""), 10);
+}
 
 /**
  * 计划功能 keys（按顺序显示，credits 单独突出显示）
@@ -84,7 +91,6 @@ interface PricingSectionProps {
  */
 export function PricingSection({ currentPriceId }: PricingSectionProps) {
   const t = useTranslations("Pricing");
-  const [isYearly, setIsYearly] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const router = useRouter();
@@ -107,8 +113,6 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
     });
   }, [session?.user, currentPriceId]);
 
-  const { yearlyDiscount } = paymentConfig;
-
   /**
    * 获取计划配置
    */
@@ -122,10 +126,9 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
   const getCurrentPrice = (planId: string) => {
     const config = getPlanConfig(planId);
     if (!config || !("prices" in config) || !config.prices) return null;
-    const interval = isYearly ? PlanInterval.YEAR : PlanInterval.MONTH;
     return getPlanPrice(
       { ...config, name: "", description: "", features: [], cta: "" },
-      interval
+      PlanInterval.MONTH
     );
   };
 
@@ -143,7 +146,7 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
    */
   const getPriceSuffix = (planId: string): string => {
     if (planId === "free") return "";
-    return isYearly ? "/year" : "/month";
+    return "/month";
   };
 
   /**
@@ -231,38 +234,6 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
           </p>
         </div>
 
-        {/* Toggle */}
-        <div className="mb-12 flex items-center justify-center gap-4">
-          <Label
-            htmlFor="billing-toggle"
-            className={cn(
-              "text-sm font-medium",
-              !isYearly && "text-foreground",
-              isYearly && "text-muted-foreground"
-            )}
-          >
-            {t("monthly")}
-          </Label>
-          <Switch
-            id="billing-toggle"
-            checked={isYearly}
-            onCheckedChange={setIsYearly}
-          />
-          <Label
-            htmlFor="billing-toggle"
-            className={cn(
-              "text-sm font-medium",
-              isYearly && "text-foreground",
-              !isYearly && "text-muted-foreground"
-            )}
-          >
-            {t("yearly")}
-            <Badge variant="secondary" className="ml-2 text-xs">
-              {t("save")} {yearlyDiscount}%
-            </Badge>
-          </Label>
-        </div>
-
         {/* Cards */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {PLAN_IDS.map((planId) => {
@@ -302,7 +273,7 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
                 <CardContent className="flex flex-1 flex-col">
                   <div className="mb-4">
                     <span className="text-4xl font-bold">
-                      $<AnimatedPrice value={price} />
+                      ¥<AnimatedPrice value={price} />
                     </span>
                     <span className="text-sm text-muted-foreground">
                       {getPriceSuffix(planId)}
@@ -318,15 +289,9 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
                           t(`plans.${planId}.creditsAmount`)
                         ) : (
                           <AnimatedPrice
-                            value={
-                              parseInt(
-                                t(`plans.${planId}.creditsAmount`).replace(
-                                  /,/g,
-                                  ""
-                                ),
-                                10
-                              ) * (isYearly ? 12 : 1)
-                            }
+                            value={parsePlanNumber(
+                              t(`plans.${planId}.creditsAmount`)
+                            )}
                             formatOptions={{
                               useGrouping: true,
                               maximumFractionDigits: 0,
@@ -335,20 +300,8 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
                         )}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {planId === "free"
-                          ? t(`plans.${planId}.creditsLabel`)
-                          : isYearly
-                            ? t("creditsPerYear")
-                            : t(`plans.${planId}.creditsLabel`)}
+                        {t(`plans.${planId}.creditsLabel`)}
                       </span>
-                      {planId !== "free" && isYearly && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-1 text-[10px] px-1.5 py-0"
-                        >
-                          {t("creditsUpfront")}
-                        </Badge>
-                      )}
                     </div>
                     {t.has(`plans.${planId}.booksCount`) && (
                       <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
@@ -356,23 +309,10 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
                         <span>
                           {t("booksNote", {
                             count: String(
-                              parseInt(t(`plans.${planId}.booksCount`), 10) *
-                                (isYearly ? 12 : 1)
+                              parsePlanNumber(
+                                t(`plans.${planId}.booksCount`)
+                              ).toLocaleString("en-US")
                             ),
-                          })}
-                        </span>
-                      </div>
-                    )}
-                    {t.has(`plans.${planId}.booksCount`) && (
-                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Layers className="size-3" />
-                        <span>
-                          {t("cardsNote", {
-                            count: (
-                              parseInt(t(`plans.${planId}.booksCount`), 10) *
-                              300 *
-                              (isYearly ? 12 : 1)
-                            ).toLocaleString("en-US"),
                           })}
                         </span>
                       </div>

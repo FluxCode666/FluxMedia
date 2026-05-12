@@ -5,7 +5,12 @@ import { getStorageProvider } from "@repo/shared/storage/providers";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_SIZE, normalizeImageModel } from "./resolution";
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_SIZE,
+  getImageCreditCost,
+  normalizeImageModel,
+} from "./resolution";
 import {
   editImage,
   generateImage,
@@ -64,8 +69,8 @@ export async function runImageGenerationForUser(
   input: RunImageGenerationInput
 ): Promise<ImageGenerationOperationResult> {
   const generationId = nanoid();
-  const creditsPerImage = Number(process.env.CREDITS_PER_IMAGE) || 1;
   const size = input.size || DEFAULT_IMAGE_SIZE;
+  const creditsPerImage = getImageCreditCost(size);
   const bucket =
     process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
 
@@ -103,7 +108,7 @@ export async function runImageGenerationForUser(
         amount: creditsPerImage,
         serviceName: "image-generation",
         description: `Image generation: ${input.prompt.substring(0, 50)}`,
-        metadata: { generationId, mode: input.mode },
+        metadata: { generationId, mode: input.mode, size },
       });
     } catch (error: unknown) {
       const message =

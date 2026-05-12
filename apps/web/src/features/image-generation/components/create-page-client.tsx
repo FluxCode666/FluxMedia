@@ -40,8 +40,10 @@ import { generateImageAction } from "../actions";
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageCreditCost,
   IMAGE_DIMENSION_STEP,
   IMAGE_RESOLUTION_PRESETS,
+  MAX_IMAGE_DIMENSION,
   normalizeImageSize,
   parseImageSize,
   validateImageSize,
@@ -110,7 +112,6 @@ const QUALITY_OPTIONS: Array<{ value: ImageQuality; label: string }> = [
 
 interface CreatePageClientProps {
   balance: number;
-  creditsPerImage: number;
   recentGenerations: RecentGeneration[];
 }
 
@@ -152,7 +153,6 @@ async function urlToEditImageFile(
 
 export function CreatePageClient({
   balance: initialBalance,
-  creditsPerImage,
   recentGenerations: initialRecent,
 }: CreatePageClientProps) {
   const [activeMode, setActiveMode] = useState<ActiveMode>("text");
@@ -186,6 +186,12 @@ export function CreatePageClient({
     () => normalizeImageSize(width, height),
     [width, height]
   );
+  const textImageCreditCost = useMemo(() => getImageCreditCost(size), [size]);
+  const editImageCreditCost = firstImageSize
+    ? getImageCreditCost(
+        normalizeImageSize(firstImageSize.width, firstImageSize.height)
+      )
+    : getImageCreditCost();
   const sizeCheck = useMemo(() => validateImageSize(size), [size]);
   const busy = isEditing;
   const firstPreviewUrl = editImages[0]?.previewUrl || null;
@@ -322,7 +328,7 @@ export function CreatePageClient({
       toast.error("Please enter a prompt");
       return;
     }
-    if (balance < creditsPerImage) {
+    if (balance < textImageCreditCost) {
       showGenerationError("Insufficient credits");
       return;
     }
@@ -348,7 +354,7 @@ export function CreatePageClient({
       toast.error("Save the mask before editing");
       return;
     }
-    if (balance < creditsPerImage) {
+    if (balance < editImageCreditCost) {
       showGenerationError("Insufficient credits");
       return;
     }
@@ -773,7 +779,7 @@ export function CreatePageClient({
                 id="image-width"
                 type="number"
                 min={256}
-                max={4096}
+                max={MAX_IMAGE_DIMENSION}
                 step={IMAGE_DIMENSION_STEP}
                 value={width}
                 onChange={(e) => setWidth(Number(e.target.value) || 0)}
@@ -793,7 +799,7 @@ export function CreatePageClient({
                 id="image-height"
                 type="number"
                 min={256}
-                max={4096}
+                max={MAX_IMAGE_DIMENSION}
                 step={IMAGE_DIMENSION_STEP}
                 value={height}
                 onChange={(e) => setHeight(Number(e.target.value) || 0)}
@@ -812,7 +818,7 @@ export function CreatePageClient({
             <span className="font-medium text-foreground">{balance}</span> ·
             Cost:{" "}
             <span className="font-medium text-foreground">
-              {creditsPerImage}
+              {textImageCreditCost}
             </span>
             /image
           </span>
@@ -1167,10 +1173,19 @@ export function CreatePageClient({
                 </div>
 
                 <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Output size follows the first reference image:{" "}
-                  <span className="font-medium text-foreground">
-                    {editDisplaySize}
-                  </span>
+                  <p>
+                    Output size follows the first reference image:{" "}
+                    <span className="font-medium text-foreground">
+                      {editDisplaySize}
+                    </span>
+                  </p>
+                  <p className="mt-1">
+                    Cost:{" "}
+                    <span className="font-medium text-foreground">
+                      {editImageCreditCost}
+                    </span>
+                    /image
+                  </p>
                 </div>
               </div>
             </div>

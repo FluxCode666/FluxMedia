@@ -46,25 +46,25 @@ export const PLAN_PRIVILEGES: Record<SubscriptionPlan, PlanPrivileges> = {
     name: "Free",
     maxFileSizeBytes: 5 * 1024 * 1024, // 5MB
     queuePriority: "normal",
-    monthlyCredits: 200, // 一次性
+    monthlyCredits: 20, // 一次性
   },
   starter: {
     name: "Starter",
     maxFileSizeBytes: 20 * 1024 * 1024, // 20MB
     queuePriority: "normal",
-    monthlyCredits: 3_000,
+    monthlyCredits: 5_000,
   },
   pro: {
     name: "Pro",
     maxFileSizeBytes: 50 * 1024 * 1024, // 50MB
     queuePriority: "priority",
-    monthlyCredits: 8_000,
+    monthlyCredits: 20_000,
   },
   ultra: {
     name: "Ultra",
     maxFileSizeBytes: 100 * 1024 * 1024, // 100MB
     queuePriority: "highest",
-    monthlyCredits: 16_000,
+    monthlyCredits: 80_000,
   },
 };
 

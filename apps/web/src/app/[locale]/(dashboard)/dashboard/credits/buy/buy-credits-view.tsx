@@ -7,12 +7,8 @@
  * 设计风格：GPT2IMAGE 黑白简约
  */
 
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useAction } from "next-safe-action/hooks";
-import { useEffect } from "react";
-import { toast } from "sonner";
-
+import { createCreditsPurchaseCheckout } from "@repo/shared/credits/actions";
+import { CREDIT_PACKAGES } from "@repo/shared/credits/config";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -22,9 +18,12 @@ import {
   CardHeader,
 } from "@repo/ui/components/card";
 import { Separator } from "@repo/ui/components/separator";
-import { createCreditsPurchaseCheckout } from "@repo/shared/credits/actions";
-import { CREDIT_PACKAGES } from "@repo/shared/credits/config";
 import { cn } from "@repo/ui/utils";
+import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAction } from "next-safe-action/hooks";
+import { useEffect } from "react";
+import { toast } from "sonner";
 
 /**
  * 购买积分套餐视图
@@ -118,9 +117,9 @@ export function BuyCreditPackagesView() {
 
                 {/* 价格 */}
                 <div className="text-center">
-                  <span className="text-3xl font-semibold">${pkg.price}</span>
+                  <span className="text-3xl font-semibold">¥{pkg.price}</span>
                   <span className="ml-1 text-sm text-muted-foreground">
-                    USD
+                    CNY
                   </span>
                 </div>
 
@@ -140,7 +139,7 @@ export function BuyCreditPackagesView() {
                     Credits never expire
                   </li>
                   <li className="flex items-center gap-2 text-muted-foreground">
-                    <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />$
+                    <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />¥
                     {perCredit} per credit
                   </li>
                 </ul>

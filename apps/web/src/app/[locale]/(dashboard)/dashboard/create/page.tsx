@@ -15,7 +15,6 @@ export default async function CreatePage() {
   ]);
 
   const balance = creditsData?.balance || 0;
-  const creditsPerImage = Number(process.env.CREDITS_PER_IMAGE) || 1;
 
   const recents = recentGenerations.map((g) => ({
     id: g.id,
@@ -33,11 +32,5 @@ export default async function CreatePage() {
     createdAt: g.createdAt.toISOString(),
   }));
 
-  return (
-    <CreatePageClient
-      balance={balance}
-      creditsPerImage={creditsPerImage}
-      recentGenerations={recents}
-    />
-  );
+  return <CreatePageClient balance={balance} recentGenerations={recents} />;
 }

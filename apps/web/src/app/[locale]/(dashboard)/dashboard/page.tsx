@@ -14,8 +14,6 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Link } from "@/i18n/routing";
 
-const CREDITS_PER_IMAGE = 1;
-
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user) {
@@ -45,7 +43,6 @@ export default async function DashboardPage() {
     ]);
 
   const balance = Math.floor(balanceData?.balance ?? 0).toLocaleString("en-US");
-  const creditsPerImage = CREDITS_PER_IMAGE;
   const totalGenerations = totalGenerationsResult[0]?.count ?? 0;
 
   const generationsWithUrls = recentGenerations.map((gen) => ({
@@ -79,7 +76,7 @@ export default async function DashboardPage() {
             <CardContent>
               <div className="text-2xl font-bold">{balance}</div>
               <p className="text-xs text-muted-foreground">
-                {creditsPerImage} credit per image
+                2K: 3 credits · 4K/custom: 10 credits
               </p>
             </CardContent>
           </Card>

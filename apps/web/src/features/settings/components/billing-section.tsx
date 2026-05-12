@@ -10,10 +10,18 @@
  * - 账单历史
  */
 
-import { Loader2, Receipt, Sparkles } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
-import { useAction } from "next-safe-action/hooks";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { findPlanByPriceId, paymentConfig } from "@repo/shared/config/payment";
+import {
+  PLAN_PRIVILEGES,
+  type SubscriptionPlan,
+} from "@repo/shared/config/subscription-plan";
+import { getMyTransactions } from "@repo/shared/credits/actions";
+import { CREDIT_PACKAGES } from "@repo/shared/credits/config";
+import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
+import {
+  PlanBadge,
+  type PlanType,
+} from "@repo/shared/subscription/components/plan-badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,18 +36,101 @@ import {
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Separator } from "@repo/ui/components/separator";
-import { findPlanByPriceId } from "@repo/shared/config/payment";
-import {
-  PLAN_PRIVILEGES,
-  type SubscriptionPlan,
-} from "@repo/shared/config/subscription-plan";
+import { Loader2, Receipt, Sparkles } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { useAction } from "next-safe-action/hooks";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { cancelSubscription } from "@/features/payment/actions";
-import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
-import {
-  PlanBadge,
-  type PlanType,
-} from "@repo/shared/subscription/components/plan-badge";
 import { Link } from "@/i18n/routing";
+
+type BillingTransaction = {
+  id: string;
+  type: string;
+  amount: number;
+  description: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date | string;
+};
+
+function formatCurrency(amount: number | string | undefined) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount)) return "-";
+
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: paymentConfig.currency,
+    maximumFractionDigits: 2,
+  }).format(numericAmount);
+}
+
+function formatDate(date: Date | string, locale: string) {
+  return new Date(date).toLocaleDateString(
+    locale === "zh" ? "zh-CN" : "en-US",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }
+  );
+}
+
+function getBillingAmount(tx: BillingTransaction) {
+  const meta = tx.metadata;
+  const paidMoney = meta?.paidMoney;
+  if (typeof paidMoney === "string" || typeof paidMoney === "number") {
+    return formatCurrency(paidMoney);
+  }
+
+  const priceId = typeof meta?.priceId === "string" ? meta.priceId : "";
+  if (priceId) {
+    const { price } = findPlanByPriceId(priceId);
+    if (price) return formatCurrency(price.amount);
+  }
+
+  const packageId = typeof meta?.packageId === "string" ? meta.packageId : "";
+  if (packageId) {
+    const pkg = CREDIT_PACKAGES.find((item) => item.id === packageId);
+    if (pkg) return formatCurrency(pkg.price);
+  }
+
+  return `${tx.amount.toLocaleString("en-US")} credits`;
+}
+
+function getBillingDescription(tx: BillingTransaction, locale: string) {
+  const meta = tx.metadata;
+  const provider = typeof meta?.provider === "string" ? meta.provider : "";
+  const paymentProvider = provider ? provider.toUpperCase() : "Payment";
+
+  if (tx.type === "purchase") {
+    const packageId =
+      typeof meta?.packageId === "string" ? ` (${meta.packageId})` : "";
+    return locale === "zh"
+      ? `${paymentProvider} 积分包购买${packageId}`
+      : `${paymentProvider} credit pack purchase${packageId}`;
+  }
+
+  if (tx.type === "monthly_grant") {
+    const planType = typeof meta?.planType === "string" ? meta.planType : "";
+    const interval = meta?.interval === "year" ? "yearly" : "monthly";
+    const plan = planType
+      ? `${planType.charAt(0).toUpperCase()}${planType.slice(1)}`
+      : "Subscription";
+    return locale === "zh"
+      ? `${paymentProvider} ${plan} ${interval === "yearly" ? "年付" : "月付"}订阅`
+      : `${paymentProvider} ${plan} ${interval} subscription`;
+  }
+
+  return tx.description ?? "-";
+}
+
+function getReceiptReference(tx: BillingTransaction) {
+  const meta = tx.metadata;
+  const value =
+    meta?.outTradeNo ?? meta?.tradeNo ?? meta?.orderId ?? meta?.subscriptionId;
+  if (typeof value !== "string" || !value) return "-";
+  return value.slice(-8);
+}
 
 /**
  * 账单设置组件
@@ -50,6 +141,11 @@ export function BillingSection() {
 
   // 获取用户订阅计划
   const { execute: fetchPlan, result: planResult } = useAction(getMyPlanAction);
+  const {
+    execute: fetchTransactions,
+    result: transactionsResult,
+    isPending: isTransactionsPending,
+  } = useAction(getMyTransactions);
   const userPlan = (planResult.data?.plan as PlanType) || "free";
   const planConfig = PLAN_PRIVILEGES[userPlan as SubscriptionPlan];
   const isCancelPending = planResult.data?.cancelAtPeriodEnd ?? false;
@@ -75,12 +171,12 @@ export function BillingSection() {
     : null;
 
   const priceDisplay = useMemo(() => {
-    if (userPlan === "free") return "$0";
+    if (userPlan === "free") return formatCurrency(0);
     const priceId = planResult.data?.priceId;
     if (!priceId) return "-";
     const { price } = findPlanByPriceId(priceId);
     if (!price) return "-";
-    return `$${price.amount}`;
+    return formatCurrency(price.amount);
   }, [userPlan, planResult.data?.priceId]);
 
   const priceInterval = useMemo(() => {
@@ -97,7 +193,16 @@ export function BillingSection() {
   // 组件挂载时获取计划
   useEffect(() => {
     fetchPlan();
-  }, [fetchPlan]);
+    fetchTransactions({ limit: 50 });
+  }, [fetchPlan, fetchTransactions]);
+
+  const billingTransactions = useMemo(
+    () =>
+      (transactionsResult.data?.transactions ?? []).filter((tx) =>
+        ["purchase", "monthly_grant"].includes(tx.type)
+      ),
+    [transactionsResult.data?.transactions]
+  );
 
   // 处理取消订阅
   const handleCancelSubscription = () => {
@@ -272,14 +377,48 @@ export function BillingSection() {
 
           <Separator />
 
-          {/* 空状态 */}
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Receipt className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">{t("history.noHistory")}</p>
-            <p className="text-sm text-muted-foreground/70">
-              {t("history.noHistoryHint")}
-            </p>
-          </div>
+          {isTransactionsPending ? (
+            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t("history.loading")}
+            </div>
+          ) : billingTransactions.length > 0 ? (
+            <div className="divide-y">
+              {billingTransactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="grid grid-cols-12 gap-4 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
+                >
+                  <div className="col-span-3 text-muted-foreground">
+                    {formatDate(tx.createdAt, locale)}
+                  </div>
+                  <div
+                    className="col-span-4 truncate"
+                    title={getBillingDescription(tx, locale)}
+                  >
+                    {getBillingDescription(tx, locale)}
+                  </div>
+                  <div className="col-span-2 text-right font-medium">
+                    {getBillingAmount(tx)}
+                  </div>
+                  <div className="col-span-2 text-center">
+                    <Badge variant="secondary">{t("history.paid")}</Badge>
+                  </div>
+                  <div className="col-span-1 text-center text-xs text-muted-foreground">
+                    {getReceiptReference(tx)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Receipt className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              <p className="text-muted-foreground">{t("history.noHistory")}</p>
+              <p className="text-sm text-muted-foreground/70">
+                {t("history.noHistoryHint")}
+              </p>
+            </div>
+          )}
         </div>
       </section>
     </div>

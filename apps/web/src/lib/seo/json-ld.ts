@@ -181,7 +181,7 @@ export function generateSoftwareApplicationSchema(locale: LocaleType) {
     offers: {
       "@type": "Offer",
       price: "0",
-      priceCurrency: "USD",
+      priceCurrency: "CNY",
       description: locale === "en" ? "Free tier available" : "提供免费版本",
     },
   };

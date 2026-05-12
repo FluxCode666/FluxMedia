@@ -55,9 +55,9 @@ export const PRICE_IDS = {
 // ============================================
 
 export const SUBSCRIPTION_MONTHLY_CREDITS = {
-  starter: 3000,
-  pro: 8000,
-  ultra: 16000,
+  starter: 5000,
+  pro: 20000,
+  ultra: 80000,
 } as const;
 
 // ============================================
@@ -72,7 +72,7 @@ export const paymentConfig: PaymentConfig = {
   provider: paymentProvider,
 
   /** 货币 */
-  currency: "USD",
+  currency: "CNY",
 
   /** 年付折扣百分比（约等于送 5 个月） */
   yearlyDiscount: 40,
@@ -96,13 +96,13 @@ export const paymentConfig: PaymentConfig = {
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.STARTER_MONTHLY,
-          amount: 5,
+          amount: 20,
           interval: PlanInterval.MONTH,
         },
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.STARTER_YEARLY,
-          amount: 35,
+          amount: 144,
           interval: PlanInterval.YEAR,
         },
       ],
@@ -115,13 +115,13 @@ export const paymentConfig: PaymentConfig = {
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.PRO_MONTHLY,
-          amount: 9,
+          amount: 60,
           interval: PlanInterval.MONTH,
         },
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.PRO_YEARLY,
-          amount: 65,
+          amount: 432,
           interval: PlanInterval.YEAR,
         },
       ],
@@ -133,13 +133,13 @@ export const paymentConfig: PaymentConfig = {
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.ULTRA_MONTHLY,
-          amount: 15,
+          amount: 200,
           interval: PlanInterval.MONTH,
         },
         {
           type: PaymentType.SUBSCRIPTION,
           priceId: PRICE_IDS.ULTRA_YEARLY,
-          amount: 109,
+          amount: 1440,
           interval: PlanInterval.YEAR,
         },
       ],
@@ -167,7 +167,7 @@ export function getPricingPlans(_t?: (key: string) => string): Plan[] {
       name: "Free",
       description: "Try GPT2IMAGE with no commitment",
       features: [
-        "200 credits (one-time)",
+        "20 credits (one-time)",
         "Chat-to-image generation",
         "Standard image resolution",
         "Up to 5 images per batch",
@@ -185,7 +185,7 @@ export function getPricingPlans(_t?: (key: string) => string): Plan[] {
       name: "Starter",
       description: "For casual creators",
       features: [
-        "3,000 credits / month",
+        "5,000 credits / month",
         "Chat-to-image generation",
         "Standard image resolution",
         "Up to 10 images per batch",
@@ -204,7 +204,7 @@ export function getPricingPlans(_t?: (key: string) => string): Plan[] {
       name: "Pro",
       description: "For active creators",
       features: [
-        "8,000 credits / month",
+        "20,000 credits / month",
         "All generation features",
         "High resolution output",
         "Up to 25 images per batch",
@@ -225,7 +225,7 @@ export function getPricingPlans(_t?: (key: string) => string): Plan[] {
       name: "Ultra",
       description: "For power users & teams",
       features: [
-        "16,000 credits / month",
+        "80,000 credits / month",
         "All generation features",
         "Maximum resolution output",
         "Up to 50 images per batch",
@@ -249,8 +249,7 @@ export function getPricingPlans(_t?: (key: string) => string): Plan[] {
 export function getPricingConfig(): PricingConfig {
   return {
     title: "Simple, transparent pricing",
-    subtitle:
-      "Start free, upgrade when you need more. Save 40% with yearly billing.",
+    subtitle: "Start free, upgrade when you need more credits.",
     frequencies: ["Monthly", "Yearly"],
     yearlyDiscount: paymentConfig.yearlyDiscount,
     plans: getPricingPlans(),

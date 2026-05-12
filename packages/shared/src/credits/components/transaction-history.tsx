@@ -6,17 +6,7 @@
  * 显示用户的积分交易记录表格
  */
 
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Inbox,
-} from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
-import { useAction } from "next-safe-action/hooks";
-import { useEffect, useState } from "react";
-
+import { SUBSCRIPTION_MONTHLY_CREDITS } from "@repo/shared/config/payment";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -27,8 +17,18 @@ import {
   SelectValue,
 } from "@repo/ui/components/select";
 import { Separator } from "@repo/ui/components/separator";
-import { getMyTransactions } from "../actions";
 import { cn } from "@repo/ui/utils";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Inbox,
+} from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { useAction } from "next-safe-action/hooks";
+import { useEffect, useState } from "react";
+import { getMyTransactions } from "../actions";
 
 /**
  * 交易类型键
@@ -132,9 +132,12 @@ export function TransactionHistory() {
         const planType = (meta?.planType as string) ?? "";
         const plan = planType.charAt(0).toUpperCase() + planType.slice(1);
         const interval = meta?.interval as string;
-        const monthlyCredits = meta?.planType
-          ? ({ starter: "3000", pro: "8000", ultra: "16000" }[planType] ?? "")
-          : "";
+        const monthlyCredits =
+          planType in SUBSCRIPTION_MONTHLY_CREDITS
+            ? SUBSCRIPTION_MONTHLY_CREDITS[
+                planType as keyof typeof SUBSCRIPTION_MONTHLY_CREDITS
+              ].toLocaleString("en-US")
+            : "";
         if (interval === "year") {
           return t("descriptions.yearly_grant", {
             plan,
