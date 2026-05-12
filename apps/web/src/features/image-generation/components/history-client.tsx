@@ -1,5 +1,7 @@
 "use client";
 
+import { Badge } from "@repo/ui/components/badge";
+import { Button } from "@repo/ui/components/button";
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,8 +12,6 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { Badge } from "@repo/ui/components/badge";
-import { Button } from "@repo/ui/components/button";
 import {
   ImageLightbox,
   type LightboxGeneration,

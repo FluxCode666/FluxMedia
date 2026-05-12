@@ -9,7 +9,9 @@ export async function getUserRecentGenerations(userId: string, limit = 5) {
   return db
     .select()
     .from(generation)
-    .where(and(eq(generation.userId, userId), eq(generation.status, "completed")))
+    .where(
+      and(eq(generation.userId, userId), eq(generation.status, "completed"))
+    )
     .orderBy(desc(generation.createdAt))
     .limit(limit);
 }
@@ -29,7 +31,9 @@ export async function getUserGenerations(
 ) {
   const conditions = [eq(generation.userId, userId)];
   if (opts?.status) {
-    conditions.push(eq(generation.status, opts.status as "pending" | "completed" | "failed"));
+    conditions.push(
+      eq(generation.status, opts.status as "pending" | "completed" | "failed")
+    );
   }
 
   return db
@@ -44,7 +48,9 @@ export async function getUserGenerations(
 export async function getUserGenerationsCount(userId: string, status?: string) {
   const conditions = [eq(generation.userId, userId)];
   if (status) {
-    conditions.push(eq(generation.status, status as "pending" | "completed" | "failed"));
+    conditions.push(
+      eq(generation.status, status as "pending" | "completed" | "failed")
+    );
   }
 
   const result = await db
@@ -58,12 +64,19 @@ export async function getGenerationStats() {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const [totalResult, todayResult, completedResult, creditsResult] = await Promise.all([
-    db.select({ count: count() }).from(generation),
-    db.select({ count: count() }).from(generation).where(gte(generation.createdAt, todayStart)),
-    db.select({ count: count() }).from(generation).where(eq(generation.status, "completed")),
-    db.select({ total: sum(generation.creditsConsumed) }).from(generation),
-  ]);
+  const [totalResult, todayResult, completedResult, creditsResult] =
+    await Promise.all([
+      db.select({ count: count() }).from(generation),
+      db
+        .select({ count: count() })
+        .from(generation)
+        .where(gte(generation.createdAt, todayStart)),
+      db
+        .select({ count: count() })
+        .from(generation)
+        .where(eq(generation.status, "completed")),
+      db.select({ total: sum(generation.creditsConsumed) }).from(generation),
+    ]);
 
   return {
     total: totalResult[0]?.count || 0,

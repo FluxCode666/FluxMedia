@@ -36,11 +36,7 @@ export function HeroSection() {
 
         {/* CTAs */}
         <div className="mb-16 flex flex-col gap-4 sm:flex-row">
-          <Button
-            size="lg"
-            className="gap-2 px-8 bg-foreground text-background hover:bg-foreground/90"
-            asChild
-          >
+          <Button size="lg" className="gap-2 px-8" asChild>
             <Link href="/sign-up">
               {t("getStarted")}
               <ArrowRight className="h-4 w-4" />
@@ -60,9 +56,9 @@ export function HeroSection() {
               "bg-foreground/30",
               "bg-foreground/40",
               "bg-foreground/50",
-            ].map((shade, i) => (
+            ].map((shade) => (
               <div
-                key={i}
+                key={shade}
                 className={`h-8 w-8 rounded-full border-2 border-background ${shade}`}
               />
             ))}
@@ -73,15 +69,21 @@ export function HeroSection() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-8 text-center md:gap-16">
           <div>
-            <p className="font-serif text-3xl font-medium text-foreground">10K+</p>
+            <p className="font-serif text-3xl font-medium text-foreground">
+              10K+
+            </p>
             <p className="text-sm text-muted-foreground">{t("stats.cards")}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-medium text-foreground">500+</p>
+            <p className="font-serif text-3xl font-medium text-foreground">
+              500+
+            </p>
             <p className="text-sm text-muted-foreground">{t("stats.users")}</p>
           </div>
           <div>
-            <p className="font-serif text-3xl font-medium text-foreground">95%</p>
+            <p className="font-serif text-3xl font-medium text-foreground">
+              95%
+            </p>
             <p className="text-sm text-muted-foreground">{t("stats.rating")}</p>
           </div>
         </div>

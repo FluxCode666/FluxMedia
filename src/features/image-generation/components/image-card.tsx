@@ -47,9 +47,7 @@ export function ImageCard({
     <Card
       onClick={onClick}
       className={`group overflow-hidden rounded-lg border border-border bg-background shadow-none transition-all duration-200 ${
-        clickable
-          ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md"
-          : ""
+        clickable ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : ""
       }`}
     >
       <div className="relative aspect-square w-full overflow-hidden bg-muted">

@@ -1,9 +1,9 @@
 "use client";
 
+import { Button } from "@repo/ui/components/button";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { Button } from "@repo/ui/components/button";
 
 export function CTASection() {
   const t = useTranslations("CTA");
@@ -25,11 +25,7 @@ export function CTASection() {
             </p>
 
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Button
-                size="lg"
-                className="gap-2 bg-foreground text-background hover:bg-foreground/90"
-                asChild
-              >
+              <Button size="lg" className="gap-2" asChild>
                 <Link href="/sign-up">
                   {t("getStarted")}
                   <ArrowRight className="h-4 w-4" />

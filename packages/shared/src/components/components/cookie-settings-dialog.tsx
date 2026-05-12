@@ -1,17 +1,5 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { useTranslations } from "next-intl";
-import {
-  cloneElement,
-  isValidElement,
-  useCallback,
-  useEffect,
-  useState,
-  type MouseEventHandler,
-  type ReactNode,
-} from "react";
-
 import { Button } from "@repo/ui/components/button";
 import {
   Collapsible,
@@ -23,8 +11,13 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@repo/ui/components/dialog";
 import { Switch } from "@repo/ui/components/switch";
+import { cn } from "@repo/ui/utils";
+import { ChevronDown } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   COOKIE_CONSENT_CHANGE_EVENT,
   COOKIE_CONSENT_KEY,
@@ -32,7 +25,6 @@ import {
   type CookieConsentType,
   type CookiePreferences,
 } from "../../config/cookie";
-import { cn } from "@repo/ui/utils";
 
 /**
  * 默认 Cookie 偏好
@@ -49,10 +41,6 @@ interface CookieSettingsDialogProps {
   /** 触发按钮的子元素 */
   children: ReactNode;
 }
-
-type DialogTriggerChildProps = {
-  onClick?: MouseEventHandler<HTMLElement>;
-};
 
 /**
  * Cookie Settings Dialog 组件
@@ -192,28 +180,13 @@ export function CookieSettingsDialog({ children }: CookieSettingsDialogProps) {
     if (id === "marketing") updatePreference("marketing", value);
   };
 
-  const trigger = isValidElement<DialogTriggerChildProps>(children)
-    ? cloneElement(children, {
-        onClick: (event) => {
-          children.props.onClick?.(event);
-          if (!event.defaultPrevented) {
-            setOpen(true);
-          }
-        },
-      } satisfies DialogTriggerChildProps)
-    : (
-        <button type="button" onClick={() => setOpen(true)}>
-          {children}
-        </button>
-      );
-
   if (!mounted) {
     return <>{children}</>;
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {trigger}
+      <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent
         className="max-h-[90vh] max-w-2xl overflow-hidden p-0 [&>button]:hidden"
         overlayClassName="bg-black/30"

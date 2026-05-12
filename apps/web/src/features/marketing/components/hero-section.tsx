@@ -1,10 +1,9 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
-import { useTranslations } from "next-intl";
-
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
+import { ArrowRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
 
 export function HeroSection() {
@@ -36,11 +35,7 @@ export function HeroSection() {
 
         {/* CTAs */}
         <div className="mb-16 flex flex-col gap-4 sm:flex-row">
-          <Button
-            size="lg"
-            className="gap-2 px-8 bg-foreground text-background hover:bg-foreground/90"
-            asChild
-          >
+          <Button size="lg" className="gap-2 px-8" asChild>
             <Link href="/sign-up">
               {t("getStarted")}
               <ArrowRight className="h-4 w-4" />
@@ -60,9 +55,9 @@ export function HeroSection() {
               "bg-foreground/30",
               "bg-foreground/40",
               "bg-foreground/50",
-            ].map((shade, i) => (
+            ].map((shade) => (
               <div
-                key={i}
+                key={shade}
                 className={`h-8 w-8 rounded-full border-2 border-background ${shade}`}
               />
             ))}

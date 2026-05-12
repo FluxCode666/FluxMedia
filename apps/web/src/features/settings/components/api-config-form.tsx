@@ -1,5 +1,9 @@
 "use client";
 
+import { Button } from "@repo/ui/components/button";
+import { Input } from "@repo/ui/components/input";
+import { Label } from "@repo/ui/components/label";
+import { Switch } from "@repo/ui/components/switch";
 import {
   AlertTriangle,
   ChevronDown,
@@ -11,11 +15,6 @@ import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-
-import { Button } from "@repo/ui/components/button";
-import { Input } from "@repo/ui/components/input";
-import { Label } from "@repo/ui/components/label";
-import { Switch } from "@repo/ui/components/switch";
 
 import {
   deleteApiConfig,
@@ -185,7 +184,7 @@ export function ApiConfigForm() {
             </Label>
             <Input
               id="api-model"
-              placeholder="gpt-image-1"
+              placeholder="gpt-image-2"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
@@ -200,7 +199,6 @@ export function ApiConfigForm() {
             <Button
               onClick={handleSave}
               disabled={!baseUrl || !apiKey || isSaving}
-              className="bg-foreground text-background hover:bg-foreground/90"
               size="sm"
             >
               {isSaving && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}

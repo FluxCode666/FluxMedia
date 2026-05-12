@@ -3,12 +3,7 @@ import { Coins, Image as ImageIcon, ImagePlus } from "lucide-react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
 import { creditsBalance, generation } from "@/db/schema";
 import { Link } from "@/i18n/routing";
@@ -34,10 +29,7 @@ export default async function DashboardPage() {
         .select()
         .from(generation)
         .where(
-          and(
-            eq(generation.userId, userId),
-            eq(generation.status, "completed"),
-          ),
+          and(eq(generation.userId, userId), eq(generation.status, "completed"))
         )
         .orderBy(desc(generation.createdAt))
         .limit(4),
@@ -74,7 +66,9 @@ export default async function DashboardPage() {
           {/* Credits Balance Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Credits Balance</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Credits Balance
+              </CardTitle>
               <Coins className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -88,12 +82,16 @@ export default async function DashboardPage() {
           {/* Images Generated Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Images Generated</CardTitle>
+              <CardTitle className="text-sm font-medium">
+                Images Generated
+              </CardTitle>
               <ImageIcon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalGenerations}</div>
-              <p className="text-xs text-muted-foreground">total images created</p>
+              <p className="text-xs text-muted-foreground">
+                total images created
+              </p>
             </CardContent>
           </Card>
 
@@ -101,7 +99,7 @@ export default async function DashboardPage() {
           <Card className="border-dashed">
             <CardContent className="flex h-full flex-col items-center justify-center gap-3 p-6">
               <ImagePlus className="h-8 w-8 text-muted-foreground" />
-              <Button asChild className="bg-foreground text-background hover:bg-foreground/90">
+              <Button asChild>
                 <Link href="/dashboard/create">Start Creating</Link>
               </Button>
             </CardContent>
@@ -112,7 +110,9 @@ export default async function DashboardPage() {
         {generationsWithUrls.length > 0 && (
           <div>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-serif text-lg font-medium">Recent Creations</h2>
+              <h2 className="font-serif text-lg font-medium">
+                Recent Creations
+              </h2>
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/dashboard/gallery">View All</Link>
               </Button>
@@ -124,7 +124,11 @@ export default async function DashboardPage() {
                     <div className="relative aspect-square">
                       {gen.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={gen.imageUrl} alt={gen.prompt} className="h-full w-full object-cover" />
+                        <img
+                          src={gen.imageUrl}
+                          alt={gen.prompt}
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center bg-muted">
                           <ImageIcon className="h-8 w-8 text-muted-foreground" />
@@ -132,7 +136,9 @@ export default async function DashboardPage() {
                       )}
                     </div>
                     <CardContent className="p-3">
-                      <p className="truncate text-sm text-muted-foreground">{gen.prompt}</p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {gen.prompt}
+                      </p>
                     </CardContent>
                   </Card>
                 </Link>

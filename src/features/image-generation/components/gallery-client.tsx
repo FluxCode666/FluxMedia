@@ -4,9 +4,7 @@ import { ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  ImageCard,
-} from "@/features/image-generation/components/image-card";
+import { ImageCard } from "@/features/image-generation/components/image-card";
 import {
   ImageLightbox,
   type LightboxGeneration,

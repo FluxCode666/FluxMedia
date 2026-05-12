@@ -1,20 +1,29 @@
 "use server";
 
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { z } from "zod";
-
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { consumeCredits, grantCredits } from "@repo/shared/credits/core";
-import { getStorageProvider } from "@repo/shared/storage/providers";
 import { protectedAction } from "@repo/shared/safe-action";
-
+import { getStorageProvider } from "@repo/shared/storage/providers";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_SIZE,
+  normalizeImageModel,
+  validateImageSize,
+} from "./resolution";
 import { generateImage, getEffectiveConfig, getUserApiConfig } from "./service";
 
 const generateImageSchema = z.object({
   prompt: z.string().min(1).max(4000),
-  size: z.string().optional(),
+  size: z
+    .string()
+    .optional()
+    .refine((value) => !value || validateImageSize(value).valid, {
+      message: "Invalid image size",
+    }),
   model: z.string().optional(),
 });
 
@@ -24,14 +33,16 @@ export const generateImageAction = protectedAction
   .action(async ({ parsedInput, ctx }) => {
     const generationId = nanoid();
     const creditsPerImage = Number(process.env.CREDITS_PER_IMAGE) || 1;
-    const model =
-      parsedInput.model || process.env.PLATFORM_IMAGE_MODEL || "gpt-image-1";
-    const size = parsedInput.size || "1024x1024";
+    const size = parsedInput.size || DEFAULT_IMAGE_SIZE;
     const bucket =
       process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
 
     const userConfig = await getUserApiConfig(ctx.userId);
     const { config, useCredits } = getEffectiveConfig(userConfig);
+    const model =
+      normalizeImageModel(parsedInput.model) ||
+      normalizeImageModel(config.model) ||
+      DEFAULT_IMAGE_MODEL;
 
     await db.insert(generation).values({
       id: generationId,
@@ -96,7 +107,10 @@ export const generateImageAction = protectedAction
     let storageKey = "";
     let fileSize = 0;
     try {
-      const imageBuffer = Buffer.from(result.imageBase64!, "base64");
+      if (!result.imageBase64) {
+        throw new Error("Missing image data");
+      }
+      const imageBuffer = Buffer.from(result.imageBase64, "base64");
       storageKey = `${ctx.userId}/${generationId}.png`;
       fileSize = imageBuffer.length;
       const storage = await getStorageProvider();
@@ -146,6 +160,8 @@ export const generateImageAction = protectedAction
     return {
       generationId,
       imageUrl,
+      model,
+      size,
       revisedPrompt: result.revisedPrompt,
       creditsConsumed: useCredits ? creditsPerImage : 0,
     };

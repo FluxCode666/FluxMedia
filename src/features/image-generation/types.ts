@@ -1,6 +1,8 @@
 export interface GenerateImageParams {
   prompt: string;
   size?: string;
+  width?: number;
+  height?: number;
   model?: string;
   n?: number;
 }

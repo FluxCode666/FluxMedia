@@ -1,21 +1,20 @@
 "use client";
 
-import { Eye, EyeOff, Mail } from "lucide-react";
-import Link from "next/link";
-import { useTranslations } from "next-intl";
-import { useState } from "react";
-import { toast } from "sonner";
-
-import { Button } from "@repo/ui/components/button";
-import { Input } from "@repo/ui/components/input";
-import { Label } from "@repo/ui/components/label";
-import { Separator } from "@repo/ui/components/separator";
-import { GoogleIcon } from "@repo/shared/components/icons";
 import {
   resendVerificationEmail,
   signInWithGoogle,
   signUpWithEmail,
 } from "@repo/shared/auth/client";
+import { GoogleIcon } from "@repo/shared/components/icons";
+import { Button } from "@repo/ui/components/button";
+import { Input } from "@repo/ui/components/input";
+import { Label } from "@repo/ui/components/label";
+import { Separator } from "@repo/ui/components/separator";
+import { Eye, EyeOff, Mail } from "lucide-react";
+import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import { AuthErrorAlert } from "./auth-error-alert";
 import { AuthLogo } from "./auth-logo";
@@ -287,11 +286,7 @@ export function SignUpForm() {
         </div>
 
         {/* 提交按钮 */}
-        <Button
-          type="submit"
-          className="w-full bg-foreground text-background hover:bg-foreground/90"
-          disabled={isLoading}
-        >
+        <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? t("loading") : t("submit")}
         </Button>
       </form>

@@ -2,20 +2,16 @@
 
 import { ChevronDown, Menu } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { mainNav, productsNav } from "@/config/nav";
+import { LanguageSwitcher, ModeToggle } from "@/features/shared";
 import { Link } from "@/i18n/routing";
 import { useSession } from "@/lib/auth/client";
-import { LanguageSwitcher, ModeToggle } from "@/features/shared";
 
 import { NavMenu } from "./nav-menu";
 
@@ -117,10 +113,7 @@ export function Header() {
               </Button>
               <Link href="/dashboard" className="hidden md:block">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage
-                    src={user.image || undefined}
-                    alt={user.name}
-                  />
+                  <AvatarImage src={user.image || undefined} alt={user.name} />
                   <AvatarFallback className="bg-foreground text-xs text-background">
                     {getInitials(user.name)}
                   </AvatarFallback>
@@ -137,10 +130,7 @@ export function Header() {
               >
                 <Link href="/sign-in">{t("login")}</Link>
               </Button>
-              <Button
-                asChild
-                className="hidden md:inline-flex bg-foreground text-background hover:bg-foreground/90"
-              >
+              <Button asChild className="hidden md:inline-flex">
                 <Link href="/sign-up">{t("getStarted")}</Link>
               </Button>
             </>
@@ -181,9 +171,7 @@ export function Header() {
                     {productsNav.map((group) => (
                       <div key={group.title} className="py-1">
                         <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                          {tNav(
-                            productsTitleMap[group.title] || group.title,
-                          )}
+                          {tNav(productsTitleMap[group.title] || group.title)}
                         </div>
                         {group.items.map((item) => {
                           const Icon = item.icon;
@@ -195,9 +183,7 @@ export function Header() {
                               className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-foreground/70 hover:bg-accent hover:text-foreground transition-colors"
                             >
                               <Icon className="h-3.5 w-3.5 text-foreground" />
-                              {tNav(
-                                productsTitleMap[item.title] || item.title,
-                              )}
+                              {tNav(productsTitleMap[item.title] || item.title)}
                             </Link>
                           );
                         })}
@@ -226,28 +212,19 @@ export function Header() {
             <div className="border-t border-border p-4 space-y-2">
               {user ? (
                 <Button asChild className="w-full">
-                  <Link
-                    href="/dashboard"
-                    onClick={() => setMobileOpen(false)}
-                  >
+                  <Link href="/dashboard" onClick={() => setMobileOpen(false)}>
                     {t("dashboard")}
                   </Link>
                 </Button>
               ) : (
                 <>
                   <Button asChild variant="outline" className="w-full">
-                    <Link
-                      href="/sign-in"
-                      onClick={() => setMobileOpen(false)}
-                    >
+                    <Link href="/sign-in" onClick={() => setMobileOpen(false)}>
                       {t("login")}
                     </Link>
                   </Button>
                   <Button asChild className="w-full">
-                    <Link
-                      href="/sign-up"
-                      onClick={() => setMobileOpen(false)}
-                    >
+                    <Link href="/sign-up" onClick={() => setMobileOpen(false)}>
                       {t("getStarted")}
                     </Link>
                   </Button>

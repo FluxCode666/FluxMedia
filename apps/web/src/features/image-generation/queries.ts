@@ -1,9 +1,8 @@
 import "server-only";
 
-import { and, count, desc, eq, gte, sum } from "drizzle-orm";
-
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
+import { and, count, desc, eq, gte, sum } from "drizzle-orm";
 
 export async function getUserRecentGenerations(userId: string, limit = 5) {
   return db

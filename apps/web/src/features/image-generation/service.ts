@@ -1,6 +1,12 @@
-import { eq } from "drizzle-orm";
 import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
+import { eq } from "drizzle-orm";
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_SIZE,
+  normalizeImageModel,
+  parseImageSize,
+} from "./resolution";
 import type {
   ApiConfig,
   GenerateImageParams,
@@ -16,7 +22,9 @@ function getPlatformConfig(): ApiConfig {
   return {
     baseUrl,
     apiKey,
-    model: process.env.PLATFORM_IMAGE_MODEL || "gpt-image-1",
+    model:
+      normalizeImageModel(process.env.PLATFORM_IMAGE_MODEL) ||
+      DEFAULT_IMAGE_MODEL,
   };
 }
 
@@ -35,7 +43,8 @@ export async function getUserApiConfig(
   }
 
   const result: ApiConfig = { baseUrl: row.baseUrl, apiKey: row.apiKey };
-  if (row.model) result.model = row.model;
+  const normalizedModel = normalizeImageModel(row.model);
+  if (normalizedModel) result.model = normalizedModel;
   return result;
 }
 
@@ -54,6 +63,8 @@ export async function generateImage(
   params: GenerateImageParams
 ): Promise<GenerateImageResult> {
   try {
+    const size = params.size || DEFAULT_IMAGE_SIZE;
+    const dimensions = parseImageSize(size);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
       method: "POST",
       headers: {
@@ -61,10 +72,16 @@ export async function generateImage(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: params.model || config.model || "gpt-image-1",
+        model:
+          normalizeImageModel(params.model) ||
+          normalizeImageModel(config.model) ||
+          DEFAULT_IMAGE_MODEL,
         prompt: params.prompt,
         n: params.n || 1,
-        size: params.size || "1024x1024",
+        size,
+        ...(dimensions
+          ? { width: dimensions.width, height: dimensions.height }
+          : {}),
         response_format: "b64_json",
       }),
     });

@@ -1,6 +1,12 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ExternalLink,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
@@ -11,7 +17,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-import { deleteApiConfig, getApiConfig, saveApiConfig, toggleApiConfig } from "../actions";
+import {
+  deleteApiConfig,
+  getApiConfig,
+  saveApiConfig,
+  toggleApiConfig,
+} from "../actions";
 
 export function ApiConfigForm() {
   const t = useTranslations("Settings");
@@ -23,25 +34,31 @@ export function ApiConfigForm() {
   const [hasConfig, setHasConfig] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const { execute: executeSave, isPending: isSaving } = useAction(saveApiConfig, {
-    onSuccess: () => {
-      toast.success("API configuration saved");
-      setHasConfig(true);
-    },
-    onError: (err) => {
-      toast.error(err.error?.serverError || "Failed to save");
-    },
-  });
+  const { execute: executeSave, isPending: isSaving } = useAction(
+    saveApiConfig,
+    {
+      onSuccess: () => {
+        toast.success("API configuration saved");
+        setHasConfig(true);
+      },
+      onError: (err) => {
+        toast.error(err.error?.serverError || "Failed to save");
+      },
+    }
+  );
 
-  const { execute: executeDelete, isPending: isDeleting } = useAction(deleteApiConfig, {
-    onSuccess: () => {
-      toast.success("API configuration removed");
-      setBaseUrl("");
-      setApiKey("");
-      setModel("");
-      setHasConfig(false);
-    },
-  });
+  const { execute: executeDelete, isPending: isDeleting } = useAction(
+    deleteApiConfig,
+    {
+      onSuccess: () => {
+        toast.success("API configuration removed");
+        setBaseUrl("");
+        setApiKey("");
+        setModel("");
+        setHasConfig(false);
+      },
+    }
+  );
 
   const { execute: executeToggle } = useAction(toggleApiConfig, {
     onSuccess: () => {
@@ -92,7 +109,8 @@ export function ApiConfigForm() {
               {t("apiConfig.warning.title") || "Advanced Configuration"}
             </p>
             <p className="mt-1">
-              {t("apiConfig.warning.description") || "Configure your own OpenAI-compatible API endpoint. When active, image generation will use your API key instead of platform credits."}
+              {t("apiConfig.warning.description") ||
+                "Configure your own OpenAI-compatible API endpoint. When active, image generation will use your API key instead of platform credits."}
             </p>
           </div>
         </div>
@@ -116,14 +134,19 @@ export function ApiConfigForm() {
           {hasConfig && (
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm">{t("apiConfig.enabled") || "Use Custom API"}</Label>
+                <Label className="text-sm">
+                  {t("apiConfig.enabled") || "Use Custom API"}
+                </Label>
                 <p className="text-xs text-muted-foreground">
-                  {t("apiConfig.enabledDescription") || "When enabled, bypasses platform credits"}
+                  {t("apiConfig.enabledDescription") ||
+                    "When enabled, bypasses platform credits"}
                 </p>
               </div>
               <Switch
                 checked={isActive}
-                onCheckedChange={(checked) => executeToggle({ isActive: checked })}
+                onCheckedChange={(checked) =>
+                  executeToggle({ isActive: checked })
+                }
               />
             </div>
           )}
@@ -162,12 +185,13 @@ export function ApiConfigForm() {
             </Label>
             <Input
               id="api-model"
-              placeholder="gpt-image-1"
+              placeholder="gpt-image-2"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              {t("apiConfig.modelHint") || "Leave blank to use the default model"}
+              {t("apiConfig.modelHint") ||
+                "Leave blank to use the default model"}
             </p>
           </div>
 
@@ -176,7 +200,6 @@ export function ApiConfigForm() {
             <Button
               onClick={handleSave}
               disabled={!baseUrl || !apiKey || isSaving}
-              className="bg-foreground text-background hover:bg-foreground/90"
               size="sm"
             >
               {isSaving && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}

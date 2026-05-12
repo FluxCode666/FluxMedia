@@ -9,12 +9,22 @@ import { generation } from "@/db/schema";
 import { consumeCredits, grantCredits } from "@/features/credits/core";
 import { getStorageProvider } from "@/features/storage/providers";
 import { protectedAction } from "@/lib/safe-action";
-
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_SIZE,
+  normalizeImageModel,
+  validateImageSize,
+} from "./resolution";
 import { generateImage, getEffectiveConfig, getUserApiConfig } from "./service";
 
 const generateImageSchema = z.object({
   prompt: z.string().min(1).max(4000),
-  size: z.string().optional(),
+  size: z
+    .string()
+    .optional()
+    .refine((value) => !value || validateImageSize(value).valid, {
+      message: "Invalid image size",
+    }),
   model: z.string().optional(),
 });
 
@@ -24,12 +34,16 @@ export const generateImageAction = protectedAction
   .action(async ({ parsedInput, ctx }) => {
     const generationId = nanoid();
     const creditsPerImage = Number(process.env.CREDITS_PER_IMAGE) || 1;
-    const model = parsedInput.model || process.env.PLATFORM_IMAGE_MODEL || "gpt-image-1";
-    const size = parsedInput.size || "1024x1024";
-    const bucket = process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
+    const size = parsedInput.size || DEFAULT_IMAGE_SIZE;
+    const bucket =
+      process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
 
     const userConfig = await getUserApiConfig(ctx.userId);
     const { config, useCredits } = getEffectiveConfig(userConfig);
+    const model =
+      normalizeImageModel(parsedInput.model) ||
+      normalizeImageModel(config.model) ||
+      DEFAULT_IMAGE_MODEL;
 
     await db.insert(generation).values({
       id: generationId,
@@ -52,7 +66,8 @@ export const generateImageAction = protectedAction
           metadata: { generationId },
         });
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "Insufficient credits";
+        const message =
+          error instanceof Error ? error.message : "Insufficient credits";
         await db
           .update(generation)
           .set({ status: "failed", error: message })
@@ -93,13 +108,19 @@ export const generateImageAction = protectedAction
     let storageKey = "";
     let fileSize = 0;
     try {
-      const imageBuffer = Buffer.from(result.imageBase64!, "base64");
+      if (!result.imageBase64) {
+        throw new Error("Missing image data");
+      }
+      const imageBuffer = Buffer.from(result.imageBase64, "base64");
       storageKey = `${ctx.userId}/${generationId}.png`;
       fileSize = imageBuffer.length;
       const storage = await getStorageProvider();
       await storage.putObject(storageKey, bucket, imageBuffer, "image/png");
     } catch (storageError: unknown) {
-      const message = storageError instanceof Error ? storageError.message : "Unknown storage error";
+      const message =
+        storageError instanceof Error
+          ? storageError.message
+          : "Unknown storage error";
       await db
         .update(generation)
         .set({ status: "failed", error: `Storage error: ${message}` })
@@ -140,6 +161,8 @@ export const generateImageAction = protectedAction
     return {
       generationId,
       imageUrl,
+      model,
+      size,
       revisedPrompt: result.revisedPrompt,
       creditsConsumed: useCredits ? creditsPerImage : 0,
     };
@@ -168,6 +191,8 @@ export const deleteGenerationAction = protectedAction
       }
     }
 
-    await db.delete(generation).where(eq(generation.id, parsedInput.generationId));
+    await db
+      .delete(generation)
+      .where(eq(generation.id, parsedInput.generationId));
     return { success: true };
   });

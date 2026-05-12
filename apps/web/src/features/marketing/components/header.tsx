@@ -1,18 +1,21 @@
 "use client";
 
+import { useSession } from "@repo/shared/auth/client";
+import { ModeToggle } from "@repo/shared/components";
+import { mainNav, productsNav } from "@repo/shared/config/nav";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@repo/ui/components/avatar";
+import { Button } from "@repo/ui/components/button";
+import { Sheet, SheetContent, SheetTitle } from "@repo/ui/components/sheet";
 import { ChevronDown, Menu } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
-import { Button } from "@repo/ui/components/button";
-import { Sheet, SheetContent, SheetTitle } from "@repo/ui/components/sheet";
-import { mainNav, productsNav } from "@repo/shared/config/nav";
-import { ModeToggle } from "@repo/shared/components";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { Link } from "@/i18n/routing";
-import { useSession } from "@repo/shared/auth/client";
 
 import { NavMenu } from "./nav-menu";
 
@@ -131,10 +134,7 @@ export function Header() {
               >
                 <Link href="/sign-in">{t("login")}</Link>
               </Button>
-              <Button
-                asChild
-                className="hidden md:inline-flex bg-foreground text-background hover:bg-foreground/90"
-              >
+              <Button asChild className="hidden md:inline-flex">
                 <Link href="/sign-up">{t("getStarted")}</Link>
               </Button>
             </>

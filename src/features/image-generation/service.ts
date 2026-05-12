@@ -1,7 +1,17 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { userApiConfig } from "@/db/schema";
-import type { ApiConfig, GenerateImageParams, GenerateImageResult } from "./types";
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_SIZE,
+  normalizeImageModel,
+  parseImageSize,
+} from "./resolution";
+import type {
+  ApiConfig,
+  GenerateImageParams,
+  GenerateImageResult,
+} from "./types";
 
 function getPlatformConfig(): ApiConfig {
   const baseUrl = process.env.PLATFORM_API_BASE_URL;
@@ -12,11 +22,15 @@ function getPlatformConfig(): ApiConfig {
   return {
     baseUrl,
     apiKey,
-    model: process.env.PLATFORM_IMAGE_MODEL || "gpt-image-1",
+    model:
+      normalizeImageModel(process.env.PLATFORM_IMAGE_MODEL) ||
+      DEFAULT_IMAGE_MODEL,
   };
 }
 
-export async function getUserApiConfig(userId: string): Promise<ApiConfig | null> {
+export async function getUserApiConfig(
+  userId: string
+): Promise<ApiConfig | null> {
   const config = await db
     .select()
     .from(userApiConfig)
@@ -29,13 +43,15 @@ export async function getUserApiConfig(userId: string): Promise<ApiConfig | null
   }
 
   const result: ApiConfig = { baseUrl: row.baseUrl, apiKey: row.apiKey };
-  if (row.model) result.model = row.model;
+  const normalizedModel = normalizeImageModel(row.model);
+  if (normalizedModel) result.model = normalizedModel;
   return result;
 }
 
-export function getEffectiveConfig(
-  userConfig: ApiConfig | null
-): { config: ApiConfig; useCredits: boolean } {
+export function getEffectiveConfig(userConfig: ApiConfig | null): {
+  config: ApiConfig;
+  useCredits: boolean;
+} {
   if (userConfig) {
     return { config: userConfig, useCredits: false };
   }
@@ -47,6 +63,8 @@ export async function generateImage(
   params: GenerateImageParams
 ): Promise<GenerateImageResult> {
   try {
+    const size = params.size || DEFAULT_IMAGE_SIZE;
+    const dimensions = parseImageSize(size);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
       method: "POST",
       headers: {
@@ -54,10 +72,16 @@ export async function generateImage(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: params.model || config.model || "gpt-image-1",
+        model:
+          normalizeImageModel(params.model) ||
+          normalizeImageModel(config.model) ||
+          DEFAULT_IMAGE_MODEL,
         prompt: params.prompt,
         n: params.n || 1,
-        size: params.size || "1024x1024",
+        size,
+        ...(dimensions
+          ? { width: dimensions.width, height: dimensions.height }
+          : {}),
         response_format: "b64_json",
       }),
     });
@@ -65,11 +89,13 @@ export async function generateImage(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       return {
-        error: (errorData as Record<string, Record<string, string>>)?.error?.message || `API error: ${response.status}`,
+        error:
+          (errorData as Record<string, Record<string, string>>)?.error
+            ?.message || `API error: ${response.status}`,
       };
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
     };
     const image = data.data?.[0];

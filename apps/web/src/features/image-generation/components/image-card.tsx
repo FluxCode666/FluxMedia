@@ -1,9 +1,9 @@
 "use client";
 
-import { Clock, ImageIcon } from "lucide-react";
-import Image from "next/image";
 import { Badge } from "@repo/ui/components/badge";
 import { Card } from "@repo/ui/components/card";
+import { Clock, ImageIcon } from "lucide-react";
+import Image from "next/image";
 
 export interface ImageCardProps {
   id: string;

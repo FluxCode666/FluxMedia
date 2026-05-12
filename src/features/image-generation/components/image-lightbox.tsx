@@ -7,11 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { deleteGenerationAction } from "@/features/image-generation/actions";
 
@@ -63,11 +59,14 @@ export function ImageLightbox({
       },
       onError: ({ error }) => {
         const message =
-          error?.serverError || error?.validationErrors?._errors?.[0] ||
+          error?.serverError ||
+          error?.validationErrors?._errors?.[0] ||
           "Failed to delete image";
-        toast.error(typeof message === "string" ? message : "Failed to delete image");
+        toast.error(
+          typeof message === "string" ? message : "Failed to delete image"
+        );
       },
-    },
+    }
   );
 
   const handleDelete = () => {

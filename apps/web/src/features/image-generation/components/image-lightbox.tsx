@@ -1,14 +1,14 @@
 "use client";
 
+import { Badge } from "@repo/ui/components/badge";
+import { Button } from "@repo/ui/components/button";
+import { Dialog, DialogContent, DialogTitle } from "@repo/ui/components/dialog";
+import { Separator } from "@repo/ui/components/separator";
 import { Download, ImageIcon, Loader2, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@repo/ui/components/badge";
-import { Button } from "@repo/ui/components/button";
-import { Dialog, DialogContent, DialogTitle } from "@repo/ui/components/dialog";
-import { Separator } from "@repo/ui/components/separator";
 import { deleteGenerationAction } from "@/features/image-generation/actions";
 
 export interface LightboxGeneration {

@@ -1,13 +1,18 @@
+import { db } from "@repo/database";
+import { creditsBalance, generation } from "@repo/database/schema";
+import { auth } from "@repo/shared/auth";
+import { Button } from "@repo/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@repo/ui/components/card";
 import { and, count, desc, eq } from "drizzle-orm";
 import { Coins, Image as ImageIcon, ImagePlus } from "lucide-react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { Button } from "@repo/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
-import { db } from "@repo/database";
-import { creditsBalance, generation } from "@repo/database/schema";
 import { Link } from "@/i18n/routing";
-import { auth } from "@repo/shared/auth";
 
 const CREDITS_PER_IMAGE = 1;
 
@@ -99,10 +104,7 @@ export default async function DashboardPage() {
           <Card className="border-dashed">
             <CardContent className="flex h-full flex-col items-center justify-center gap-3 p-6">
               <ImagePlus className="h-8 w-8 text-muted-foreground" />
-              <Button
-                asChild
-                className="bg-foreground text-background hover:bg-foreground/90"
-              >
+              <Button asChild>
                 <Link href="/dashboard/create">Start Creating</Link>
               </Button>
             </CardContent>

@@ -335,11 +335,7 @@ export default function AdminUsersPage() {
                 className="pl-10"
               />
             </div>
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="bg-foreground text-background hover:bg-foreground/90"
-            >
+            <Button type="submit" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t("users.search.button")}
             </Button>
@@ -536,11 +532,6 @@ export default function AdminUsersPage() {
               {t("users.ban.cancel")}
             </Button>
             <Button
-              className={
-                selectedUser?.banned
-                  ? "bg-foreground text-background hover:bg-foreground/90"
-                  : ""
-              }
               variant={selectedUser?.banned ? "default" : "outline"}
               onClick={handleBan}
               disabled={isBanning}
@@ -599,11 +590,7 @@ export default function AdminUsersPage() {
             >
               {t("users.grant.cancel")}
             </Button>
-            <Button
-              onClick={handleGrant}
-              disabled={isGranting}
-              className="bg-foreground text-background hover:bg-foreground/90"
-            >
+            <Button onClick={handleGrant} disabled={isGranting}>
               {isGranting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t("users.grant.confirm")}
             </Button>
