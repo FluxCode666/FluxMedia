@@ -16,7 +16,10 @@ export const authClient = createAuthClient({
    * 认证 API 基础 URL
    * 默认指向 /api/auth，与 API 路由匹配
    */
-  baseURL: typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  baseURL:
+    typeof window !== "undefined"
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
 });
 
 /**
@@ -146,13 +149,45 @@ export async function signInWithEmail(
 export async function signUpWithEmail(
   email: string,
   password: string,
-  name: string
+  name: string,
+  verificationCode: string
 ) {
   return signUp.email({
     email,
     password,
     name,
+    fetchOptions: {
+      body: { verificationCode },
+    },
   });
+}
+
+/**
+ * 发送注册邮箱验证码
+ * @param email - 用户邮箱
+ */
+export async function sendRegistrationVerificationCode(email: string) {
+  const baseURL = window.location.origin;
+
+  const response = await fetch(
+    `${baseURL}/api/auth/registration-verification`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ email }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error || "Failed to send verification code");
+  }
+
+  return data;
 }
 
 /**

@@ -203,6 +203,65 @@ export function VerifyEmailEmail({
 }
 
 /**
+ * 注册邮箱验证码邮件
+ */
+export function RegistrationVerificationCodeEmail({
+  code,
+  expiresIn = "10 minutes",
+}: {
+  code: string;
+  expiresIn?: string;
+}) {
+  return (
+    <Html>
+      <Head />
+      <Preview>Your GPT2IMAGE verification code is {code}</Preview>
+      <Tailwind>
+        <Body className="mx-auto my-auto bg-white font-sans">
+          <Container className="mx-auto my-10 max-w-xl rounded-lg border border-solid border-gray-200 p-8">
+            <Section className="mb-8 text-center">
+              <Heading className="m-0 text-2xl font-bold text-gray-900">
+                GPT2IMAGE
+              </Heading>
+            </Section>
+
+            <Section className="mb-6">
+              <Heading className="mb-4 text-xl font-semibold text-gray-900">
+                Verify Your Email
+              </Heading>
+              <Text className="mb-4 text-base leading-relaxed text-gray-600">
+                Enter this code on the sign-up page to finish creating your
+                account.
+              </Text>
+            </Section>
+
+            <Section className="mb-6 rounded-lg bg-gray-50 p-6 text-center">
+              <Text className="m-0 font-mono text-3xl font-bold tracking-widest text-gray-900">
+                {code}
+              </Text>
+            </Section>
+
+            <Text className="mb-4 text-center text-sm text-gray-500">
+              This code will expire in {expiresIn}.
+            </Text>
+
+            <Hr className="my-6 border-gray-200" />
+
+            <Text className="m-0 text-center text-xs text-gray-500">
+              If you didn&apos;t request this email, you can safely ignore it.
+            </Text>
+
+            <Text className="m-0 mt-4 text-center text-xs text-gray-400">
+              &copy; {new Date().getFullYear()} GPT2IMAGE. All rights reserved.
+            </Text>
+          </Container>
+        </Body>
+      </Tailwind>
+    </Html>
+  );
+}
+
+/**
  * 预览 Props
  */
 PrimaryActionEmail.PreviewProps = {

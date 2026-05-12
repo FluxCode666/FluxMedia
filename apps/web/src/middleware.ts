@@ -24,6 +24,7 @@ const API_RATE_LIMITS: Array<{ pattern: RegExp; type: RateLimitType }> = [
   // 认证相关 - 严格限流防暴力破解
   { pattern: /^\/api\/auth\/sign-in/, type: "auth" },
   { pattern: /^\/api\/auth\/sign-up/, type: "auth" },
+  { pattern: /^\/api\/auth\/registration-verification/, type: "auth" },
   { pattern: /^\/api\/auth\/forgot-password/, type: "auth" },
   { pattern: /^\/api\/auth\/reset-password/, type: "auth" },
   // 上传相关

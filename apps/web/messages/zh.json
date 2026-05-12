@@ -210,6 +210,15 @@
       "passwordPlaceholder": "至少 8 个字符",
       "confirmPasswordLabel": "确认密码",
       "confirmPasswordPlaceholder": "再次输入密码",
+      "verificationCode": {
+        "label": "邮箱验证码",
+        "placeholder": "输入 6 位验证码",
+        "send": "发送验证码",
+        "sending": "发送中...",
+        "sent": "验证码已发送，请查收邮件",
+        "cooldown": "{seconds}秒后重发",
+        "hint": "验证码 10 分钟内有效，用于完成注册。"
+      },
       "loading": "正在创建...",
       "submit": "创建账号",
       "success": "注册成功！",
@@ -219,8 +228,11 @@
         "google": "Google 注册失败，请重试",
         "github": "GitHub 注册失败，请重试",
         "missingFields": "请填写所有字段",
+        "missingEmail": "请先填写邮箱",
         "passwordTooShort": "密码至少需要 8 个字符",
         "passwordMismatch": "两次输入的密码不一致",
+        "verificationSendFailed": "验证码发送失败，请稍后重试",
+        "invalidVerificationCode": "验证码错误或已过期，请重新获取",
         "emailInUse": "注册失败，该邮箱可能已被使用"
       },
       "verifyEmail": {

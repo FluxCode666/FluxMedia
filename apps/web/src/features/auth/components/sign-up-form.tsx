@@ -2,6 +2,7 @@
 
 import {
   resendVerificationEmail,
+  sendRegistrationVerificationCode,
   signInWithGoogle,
   signUpWithEmail,
 } from "@repo/shared/auth/client";
@@ -36,11 +37,14 @@ export function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [codeCooldown, setCodeCooldown] = useState(0);
 
   /**
    * 启动重发冷却倒计时
@@ -49,6 +53,22 @@ export function SignUpForm() {
     setResendCooldown(60);
     const timer = setInterval(() => {
       setResendCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  /**
+   * 启动验证码发送冷却倒计时
+   */
+  const startCodeCooldown = () => {
+    setCodeCooldown(60);
+    const timer = setInterval(() => {
+      setCodeCooldown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
           return 0;
@@ -73,6 +93,30 @@ export function SignUpForm() {
   };
 
   /**
+   * 发送注册验证码
+   */
+  const handleSendCode = async () => {
+    if (codeCooldown > 0 || isSendingCode) return;
+
+    if (!email) {
+      setError(t("errors.missingEmail"));
+      return;
+    }
+
+    try {
+      setIsSendingCode(true);
+      setError(null);
+      await sendRegistrationVerificationCode(email);
+      startCodeCooldown();
+      toast.success(t("verificationCode.sent"));
+    } catch {
+      setError(t("errors.verificationSendFailed"));
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
+
+  /**
    * 处理 Google 注册
    */
   const handleGoogleSignUp = async () => {
@@ -93,7 +137,7 @@ export function SignUpForm() {
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !verificationCode) {
       setError(t("errors.missingFields"));
       return;
     }
@@ -111,10 +155,20 @@ export function SignUpForm() {
     try {
       setIsLoading(true);
       setError(null);
-      const result = await signUpWithEmail(email, password, name);
+      const result = await signUpWithEmail(
+        email,
+        password,
+        name,
+        verificationCode
+      );
 
       if (result.error) {
-        setError(t("errors.emailInUse"));
+        setError(
+          result.error.code === "INVALID_VERIFICATION_CODE" ||
+            result.error.code === "VERIFICATION_CODE_REQUIRED"
+            ? t("errors.invalidVerificationCode")
+            : t("errors.emailInUse")
+        );
         setIsLoading(false);
         return;
       }
@@ -240,6 +294,45 @@ export function SignUpForm() {
             disabled={isLoading}
             autoComplete="email"
           />
+        </div>
+
+        {/* 验证码输入 */}
+        <div className="space-y-2">
+          <Label htmlFor="verificationCode">
+            {t("verificationCode.label")}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="verificationCode"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder={t("verificationCode.placeholder")}
+              value={verificationCode}
+              onChange={(e) =>
+                setVerificationCode(e.target.value.replace(/\D/g, ""))
+              }
+              disabled={isLoading}
+              autoComplete="one-time-code"
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSendCode}
+              disabled={isLoading || isSendingCode || codeCooldown > 0}
+              className="shrink-0"
+            >
+              {codeCooldown > 0
+                ? t("verificationCode.cooldown", { seconds: codeCooldown })
+                : isSendingCode
+                  ? t("verificationCode.sending")
+                  : t("verificationCode.send")}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("verificationCode.hint")}
+          </p>
         </div>
 
         {/* 密码输入 */}

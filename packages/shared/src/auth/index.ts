@@ -1,13 +1,13 @@
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-
 import { db } from "@repo/database";
 import * as schema from "@repo/database/schema";
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
   ResetPasswordEmail,
   VerifyEmailEmail,
 } from "../mail/templates/primary-action-email";
 import { sendEmail } from "../mail/utils";
+import { registrationVerificationPlugin } from "./registration-verification-plugin";
 
 const isResendConfigured = Boolean(process.env.RESEND_API_KEY);
 
@@ -21,6 +21,11 @@ const isResendConfigured = Boolean(process.env.RESEND_API_KEY);
  * - 用户自定义字段
  */
 export const auth = betterAuth({
+  /**
+   * 注册扩展插件
+   */
+  plugins: [registrationVerificationPlugin()],
+
   /**
    * 基础 URL 配置
    * 用于 OAuth 回调和邮件链接
@@ -81,7 +86,7 @@ export const auth = betterAuth({
    */
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: isResendConfigured,
+    requireEmailVerification: false,
     sendResetPassword: async ({ user, url }) => {
       await sendEmail({
         to: user.email,
@@ -100,7 +105,7 @@ export const auth = betterAuth({
   ...(isResendConfigured
     ? {
         emailVerification: {
-          sendOnSignUp: true,
+          sendOnSignUp: false,
           sendVerificationEmail: async ({ user, url }) => {
             await sendEmail({
               to: user.email,

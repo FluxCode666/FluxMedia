@@ -8,6 +8,7 @@
     "./auth/client": "./src/auth/client.ts",
     "./auth/server": "./src/auth/server.ts",
     "./auth/admin": "./src/auth/admin.ts",
+    "./auth/registration-verification": "./src/auth/registration-verification.ts",
     "./safe-action": "./src/safe-action.ts",
     "./logger": "./src/logger/index.ts",
     "./rate-limit": "./src/rate-limit/index.ts",
