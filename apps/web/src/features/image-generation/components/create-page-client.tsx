@@ -32,11 +32,9 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useAction } from "next-safe-action/hooks";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { generateImageAction } from "../actions";
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
@@ -70,6 +68,28 @@ type ResultState = {
   size: string;
   revisedPrompt?: string;
 };
+
+type ImageApiResult = {
+  error?: string;
+  generationId?: string;
+  imageUrl?: string;
+  model?: string;
+  size?: string;
+  revisedPrompt?: string;
+  creditsConsumed?: number;
+};
+
+type ImageStreamEvent =
+  | {
+      type: "partial_image";
+      index?: number;
+      partial_image_index?: number;
+      b64_json?: string;
+      url?: string;
+    }
+  | ({ type: "completed" } & ImageApiResult)
+  | ({ type: "error"; error: string } & ImageApiResult)
+  | { type: "done" };
 
 type EditImageFile = {
   file: File;
@@ -129,6 +149,12 @@ function formatMegabytes(bytes: number) {
   return `${Math.ceil(bytes / 1024 / 1024)}MB`;
 }
 
+function imageStreamEventToPreviewUrl(event: ImageStreamEvent) {
+  if (event.type !== "partial_image") return null;
+  if (event.b64_json) return `data:image/png;base64,${event.b64_json}`;
+  return event.url || null;
+}
+
 async function urlToEditImageFile(
   imageUrl: string,
   name: string,
@@ -172,6 +198,10 @@ export function CreatePageClient({
     height: number;
   } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [streamingPreviewUrl, setStreamingPreviewUrl] = useState<string | null>(
+    null
+  );
   const [balance, setBalance] = useState(initialBalance);
   const [result, setResult] = useState<ResultState | null>(null);
   const [recent, setRecent] = useState<RecentGeneration[]>(initialRecent);
@@ -193,11 +223,82 @@ export function CreatePageClient({
       )
     : getImageCreditCost();
   const sizeCheck = useMemo(() => validateImageSize(size), [size]);
-  const busy = isEditing;
+  const busy = isGenerating || isEditing;
   const firstPreviewUrl = editImages[0]?.previewUrl || null;
   const editDisplaySize = firstImageSize
     ? normalizeImageSize(firstImageSize.width, firstImageSize.height)
     : "Reference image";
+
+  const clearStreamingPreview = () => {
+    setStreamingPreviewUrl(null);
+  };
+
+  const readImageStreamResponse = async (response: Response) => {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/event-stream")) {
+      return (await response.json()) as ImageApiResult;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      return { error: "API returned an empty stream" };
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let completed: ImageApiResult | null = null;
+    let failed: ImageApiResult | null = null;
+
+    const processBlock = (block: string) => {
+      const data = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n")
+        .trim();
+
+      if (!data || data === "[DONE]") return;
+
+      let event: ImageStreamEvent;
+      try {
+        event = JSON.parse(data) as ImageStreamEvent;
+      } catch {
+        return;
+      }
+
+      if (event.type === "partial_image") {
+        const previewUrl = imageStreamEventToPreviewUrl(event);
+        if (previewUrl) setStreamingPreviewUrl(previewUrl);
+        return;
+      }
+
+      if (event.type === "completed") {
+        completed = event;
+        return;
+      }
+
+      if (event.type === "error") {
+        failed = event;
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        processBlock(block);
+      }
+      if (done) break;
+    }
+
+    if (buffer.trim()) {
+      processBlock(buffer);
+    }
+
+    return completed || failed || { error: "API returned no image data" };
+  };
 
   useEffect(() => {
     if (!firstPreviewUrl) {
@@ -314,27 +415,7 @@ export function CreatePageClient({
     toast.error("Generation failed", { description: message });
   };
 
-  const { execute, isExecuting } = useAction(generateImageAction, {
-    onSuccess: ({ data }) => {
-      if (!data) return;
-      if (data.error) {
-        showGenerationError(data.error, {
-          creditsConsumed: data.creditsConsumed,
-        });
-        return;
-      }
-
-      addSuccessfulResult(data, prompt);
-      toast.success("Image generated");
-    },
-    onError: ({ error }) => {
-      toast.error("Generation failed", {
-        description: error.serverError || "An unexpected error occurred.",
-      });
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!prompt.trim()) {
       toast.error("Please enter a prompt");
@@ -348,8 +429,45 @@ export function CreatePageClient({
       toast.error("Invalid resolution", { description: sizeCheck.message });
       return;
     }
+    const currentPrompt = prompt.trim();
     setResult(null);
-    execute({ prompt: prompt.trim(), size });
+    clearStreamingPreview();
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: currentPrompt,
+          size,
+          stream: true,
+        }),
+      });
+      const data = await readImageStreamResponse(response);
+
+      if (!response.ok || data.error) {
+        showGenerationError(data.error || `API error: ${response.status}`, {
+          creditsConsumed: data.creditsConsumed,
+        });
+        return;
+      }
+
+      addSuccessfulResult(data, currentPrompt);
+      toast.success("Image generated");
+    } catch (error) {
+      toast.error("Generation failed", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred.",
+      });
+    } finally {
+      setIsGenerating(false);
+      clearStreamingPreview();
+    }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -399,20 +517,17 @@ export function CreatePageClient({
 
     setIsEditing(true);
     setResult(null);
+    clearStreamingPreview();
+    formData.append("stream", "true");
     try {
       const response = await fetch("/api/images/edit", {
         method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+        },
         body: formData,
       });
-      const data = (await response.json()) as {
-        error?: string;
-        generationId?: string;
-        imageUrl?: string;
-        model?: string;
-        size?: string;
-        revisedPrompt?: string;
-        creditsConsumed?: number;
-      };
+      const data = await readImageStreamResponse(response);
 
       if (!response.ok || data.error) {
         showGenerationError(data.error || `API error: ${response.status}`, {
@@ -432,6 +547,7 @@ export function CreatePageClient({
       });
     } finally {
       setIsEditing(false);
+      clearStreamingPreview();
     }
   };
 
@@ -780,7 +896,7 @@ export function CreatePageClient({
                   key={preset.value}
                   type="button"
                   variant={active ? "default" : "outline"}
-                  disabled={isExecuting || busy}
+                  disabled={busy}
                   onClick={() => applyPreset(preset.value)}
                   className="h-auto min-h-14 flex-col items-start justify-center gap-0.5 px-3 py-2 text-left"
                 >
@@ -811,7 +927,7 @@ export function CreatePageClient({
                 step={IMAGE_DIMENSION_STEP}
                 value={width}
                 onChange={(e) => setWidth(Number(e.target.value) || 0)}
-                disabled={isExecuting || busy}
+                disabled={busy}
                 className="w-32"
               />
             </div>
@@ -831,7 +947,7 @@ export function CreatePageClient({
                 step={IMAGE_DIMENSION_STEP}
                 value={height}
                 onChange={(e) => setHeight(Number(e.target.value) || 0)}
-                disabled={isExecuting || busy}
+                disabled={busy}
                 className="w-32"
               />
             </div>
@@ -858,7 +974,7 @@ export function CreatePageClient({
     </div>
   );
 
-  const loading = isExecuting || isEditing;
+  const loading = busy;
 
   return (
     <div className="container mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-12">
@@ -895,13 +1011,16 @@ export function CreatePageClient({
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe the image you want to create..."
               rows={5}
-              disabled={isExecuting}
+              disabled={isGenerating}
               className="resize-none border-input bg-background text-base"
             />
             {resolutionControls}
             <div className="flex justify-end">
-              <Button type="submit" disabled={isExecuting || !prompt.trim()}>
-                {isExecuting ? (
+              <Button
+                type="submit"
+                disabled={isGenerating || !prompt.trim()}
+              >
+                {isGenerating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Generating
@@ -1248,13 +1367,30 @@ export function CreatePageClient({
 
       {loading && (
         <div
-          className="mb-10 flex max-w-2xl items-center justify-center rounded-lg border border-dashed bg-muted/30"
+          className="mb-10 flex max-w-2xl items-center justify-center overflow-hidden rounded-lg border border-dashed bg-muted/30"
           style={{ aspectRatio: `${width} / ${height}` }}
         >
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Generating your image...</p>
-          </div>
+          {streamingPreviewUrl ? (
+            <div className="relative h-full w-full">
+              <Image
+                src={streamingPreviewUrl}
+                alt="Streaming preview"
+                fill
+                sizes="(max-width: 1024px) 100vw, 768px"
+                className="object-contain"
+                unoptimized
+              />
+              <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Previewing stream
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <p className="text-sm">Generating your image...</p>
+            </div>
+          )}
         </div>
       )}
 

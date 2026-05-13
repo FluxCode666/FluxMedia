@@ -15,6 +15,19 @@ export interface GenerateImageResult {
   error?: string;
 }
 
+export interface PartialImageResult {
+  imageBase64?: string;
+  imageUrl?: string;
+  index?: number;
+  partialImageIndex?: number;
+}
+
+export interface ImageGenerationCallbacks {
+  onPartialImage?: (
+    image: PartialImageResult
+  ) => Promise<void> | void;
+}
+
 export type ImageQuality = "auto" | "low" | "medium" | "high";
 
 export interface ImageInputFile {

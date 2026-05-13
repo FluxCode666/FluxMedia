@@ -18,7 +18,11 @@ import {
   getEffectiveConfig,
   getUserApiConfig,
 } from "./service";
-import type { EditImageParams, GenerateImageParams } from "./types";
+import type {
+  EditImageParams,
+  GenerateImageParams,
+  ImageGenerationCallbacks,
+} from "./types";
 
 type RunImageGenerationInput =
   | ({
@@ -69,7 +73,8 @@ async function toImageBuffer(result: {
 }
 
 export async function runImageGenerationForUser(
-  input: RunImageGenerationInput
+  input: RunImageGenerationInput,
+  callbacks?: ImageGenerationCallbacks
 ): Promise<ImageGenerationOperationResult> {
   const generationId = input.generationId || nanoid();
   const size = input.size || DEFAULT_IMAGE_SIZE;
@@ -151,22 +156,30 @@ export async function runImageGenerationForUser(
 
   const result =
     input.mode === "edit"
-      ? await editImage(config, {
-          prompt: input.prompt,
-          images: input.images,
-          mask: input.mask,
-          size: input.size,
-          model,
-          quality: input.quality,
-          n: input.n,
-        })
-      : await generateImage(config, {
-          prompt: input.prompt,
-          size,
-          model,
-          n: input.n,
-          quality: input.quality,
-        });
+      ? await editImage(
+          config,
+          {
+            prompt: input.prompt,
+            images: input.images,
+            mask: input.mask,
+            size: input.size,
+            model,
+            quality: input.quality,
+            n: input.n,
+          },
+          callbacks
+        )
+      : await generateImage(
+          config,
+          {
+            prompt: input.prompt,
+            size,
+            model,
+            n: input.n,
+            quality: input.quality,
+          },
+          callbacks
+        );
 
   if (result.error) {
     if (useCredits) {

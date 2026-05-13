@@ -13,7 +13,9 @@ import type {
   EditImageParams,
   GenerateImageParams,
   GenerateImageResult,
+  ImageGenerationCallbacks,
   ImageQuality,
+  PartialImageResult,
 } from "./types";
 
 const VALID_QUALITIES = new Set<ImageQuality>([
@@ -35,6 +37,8 @@ type ImageResponsePayload = {
   b64_json?: string;
   url?: string;
   revised_prompt?: string;
+  index?: number;
+  partial_image_index?: number;
   error?: { message?: string } | string;
   message?: string;
 };
@@ -117,6 +121,7 @@ function appendImageParams(
 
   if (config.useStream) {
     formData.append("stream", "true");
+    formData.append("partial_images", "2");
   }
 }
 
@@ -159,55 +164,87 @@ function extractImageFromPayload(
   return null;
 }
 
-function parseEventStream(text: string): GenerateImageResult {
-  let currentEvent = "";
-  const dataLines: string[] = [];
-  let completedResult: GenerateImageResult | null = null;
-  let fallbackResult: GenerateImageResult | null = null;
-
-  const processEvent = (eventName: string, lines: string[]) => {
-    if (lines.length === 0) return null;
-
-    const data = lines.join("\n").trim();
-    if (!data || data === "[DONE]") return null;
-
-    let payload: ImageResponsePayload;
-    try {
-      payload = JSON.parse(data) as ImageResponsePayload;
-    } catch {
-      return null;
-    }
-
-    if (eventName === "error" || payload.type === "upstream_error") {
-      return getPayloadError(payload) || "Image generation stream failed";
-    }
-
-    const result = extractImageFromPayload(payload);
-    if (!result) return null;
-
-    if (
-      eventName === "image_generation.completed" ||
-      payload.type === "image_generation.completed"
-    ) {
-      completedResult = result;
-    } else if (!fallbackResult) {
-      fallbackResult = result;
-    }
-
+function extractPartialImage(
+  payload: ImageResponsePayload
+): PartialImageResult | null {
+  if (!payload.b64_json && !payload.url) {
     return null;
-  };
+  }
 
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  for (const line of lines) {
-    if (line === "") {
-      const error = processEvent(currentEvent, dataLines);
-      if (error) return { error };
-      currentEvent = "";
-      dataLines.length = 0;
-      continue;
+  const result: PartialImageResult = {};
+  if (payload.b64_json) result.imageBase64 = payload.b64_json;
+  if (payload.url) result.imageUrl = payload.url;
+  if (typeof payload.index === "number") result.index = payload.index;
+  if (typeof payload.partial_image_index === "number") {
+    result.partialImageIndex = payload.partial_image_index;
+  }
+  return result;
+}
+
+type EventStreamParseState = {
+  completedResult: GenerateImageResult | null;
+  fallbackResult: GenerateImageResult | null;
+};
+
+async function processEventPayload(
+  eventName: string,
+  dataLines: string[],
+  state: EventStreamParseState,
+  callbacks?: ImageGenerationCallbacks
+) {
+  if (dataLines.length === 0) return null;
+
+  const data = dataLines.join("\n").trim();
+  if (!data || data === "[DONE]") return null;
+
+  let payload: ImageResponsePayload;
+  try {
+    payload = JSON.parse(data) as ImageResponsePayload;
+  } catch {
+    return null;
+  }
+
+  if (eventName === "error" || payload.type === "upstream_error") {
+    return getPayloadError(payload) || "Image generation stream failed";
+  }
+
+  if (
+    eventName.includes("partial_image") ||
+    payload.type?.includes("partial_image")
+  ) {
+    const partialImage = extractPartialImage(payload);
+    if (partialImage) {
+      await callbacks?.onPartialImage?.(partialImage);
     }
+    return null;
+  }
 
-    if (line.startsWith(":")) continue;
+  const result = extractImageFromPayload(payload);
+  if (!result) return null;
+
+  if (
+    eventName.endsWith(".completed") ||
+    payload.type?.endsWith(".completed")
+  ) {
+    state.completedResult = result;
+  } else if (!state.fallbackResult) {
+    state.fallbackResult = result;
+  }
+
+  return null;
+}
+
+async function processEventBlock(
+  block: string,
+  state: EventStreamParseState,
+  callbacks?: ImageGenerationCallbacks
+) {
+  let eventName = "";
+  const dataLines: string[] = [];
+  const lines = block.replace(/\r\n/g, "\n").split("\n");
+
+  for (const line of lines) {
+    if (!line || line.startsWith(":")) continue;
 
     const separatorIndex = line.indexOf(":");
     const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
@@ -215,23 +252,86 @@ function parseEventStream(text: string): GenerateImageResult {
     const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
 
     if (field === "event") {
-      currentEvent = value;
+      eventName = value;
     } else if (field === "data") {
       dataLines.push(value);
     }
   }
 
-  const error = processEvent(currentEvent, dataLines);
-  if (error) return { error };
+  return await processEventPayload(eventName, dataLines, state, callbacks);
+}
 
-  const result = completedResult || fallbackResult;
+function finishEventStream(state: EventStreamParseState): GenerateImageResult {
+  const result = state.completedResult || state.fallbackResult;
   if (result) return result;
 
   return { error: "API returned no image data" };
 }
 
+async function parseEventStreamText(
+  text: string,
+  callbacks?: ImageGenerationCallbacks
+): Promise<GenerateImageResult> {
+  const state: EventStreamParseState = {
+    completedResult: null,
+    fallbackResult: null,
+  };
+
+  const blocks = text.replace(/\r\n/g, "\n").split("\n\n");
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+    const error = await processEventBlock(block, state, callbacks);
+    if (error) return { error };
+  }
+
+  return finishEventStream(state);
+}
+
+async function parseEventStreamResponse(
+  response: Response,
+  callbacks?: ImageGenerationCallbacks
+): Promise<GenerateImageResult> {
+  if (!response.body) {
+    return parseEventStreamText(await response.text(), callbacks);
+  }
+
+  const state: EventStreamParseState = {
+    completedResult: null,
+    fallbackResult: null,
+  };
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || "";
+
+    for (const block of blocks) {
+      if (!block.trim()) continue;
+      const error = await processEventBlock(block, state, callbacks);
+      if (error) {
+        await reader.cancel().catch(() => undefined);
+        return { error };
+      }
+    }
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    const error = await processEventBlock(buffer, state, callbacks);
+    if (error) return { error };
+  }
+
+  return finishEventStream(state);
+}
+
 async function parseImageResponse(
-  response: Response
+  response: Response,
+  callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -242,7 +342,7 @@ async function parseImageResponse(
 
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("text/event-stream")) {
-    return parseEventStream(await response.text());
+    return parseEventStreamResponse(response, callbacks);
   }
 
   const data = (await response.json()) as ImageResponsePayload;
@@ -308,7 +408,8 @@ export function getEffectiveConfig(userConfig: ApiConfig | null): {
 
 export async function generateImage(
   config: ApiConfig,
-  params: GenerateImageParams
+  params: GenerateImageParams,
+  callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   try {
     const size = params.size || DEFAULT_IMAGE_SIZE;
@@ -330,12 +431,12 @@ export async function generateImage(
         ...(normalizeQuality(params.quality)
           ? { quality: normalizeQuality(params.quality) }
           : {}),
-        ...(config.useStream ? { stream: true } : {}),
+        ...(config.useStream ? { stream: true, partial_images: 2 } : {}),
         response_format: "b64_json",
       }),
     });
 
-    return await parseImageResponse(response);
+    return await parseImageResponse(response, callbacks);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Unknown error occurred",
@@ -345,7 +446,8 @@ export async function generateImage(
 
 export async function editImage(
   config: ApiConfig,
-  params: EditImageParams
+  params: EditImageParams,
+  callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   try {
     const formData = new FormData();
@@ -381,7 +483,7 @@ export async function editImage(
       body: formData,
     });
 
-    return await parseImageResponse(response);
+    return await parseImageResponse(response, callbacks);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Unknown error occurred",

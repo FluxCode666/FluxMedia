@@ -4,11 +4,13 @@ import { getStorageProvider } from "@repo/shared/storage/providers";
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { getUserApiConfig } from "@/features/image-generation/service";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import {
   parseImageSize,
   validateImageSize,
 } from "@/features/image-generation/resolution";
+import { createImageStreamResponse } from "@/features/image-generation/streaming";
 import type {
   ImageInputFile,
   ImageQuality,
@@ -33,6 +35,11 @@ function errorResponse(message: string, status = 400) {
 function getText(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function wantsStreamResponse(request: NextRequest, formData: FormData) {
+  if (formData.get("stream") === "true") return true;
+  return request.headers.get("accept")?.includes("text/event-stream") ?? false;
 }
 
 function getImageFiles(formData: FormData) {
@@ -237,27 +244,71 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       generationId,
       sourceFiles
     );
-    try {
-      const result = await runImageGenerationForUser({
-        mode: "edit",
-        userId: session.user.id,
-        generationId,
-        prompt,
-        size: displaySize || size,
-        model,
-        quality,
-        images: await Promise.all(
-          sourceFiles.map((file, index) =>
-            toImageInput(file, { publicUrl: moderationImages?.[index]?.url })
-          )
-        ),
-        mask:
-          maskFile instanceof File ? await toImageInput(maskFile) : undefined,
-      });
+    const useStreamResponse =
+      wantsStreamResponse(request, formData) &&
+      Boolean((await getUserApiConfig(session.user.id))?.useStream);
 
+    const runEdit = async (
+      onPartialImage?: Parameters<typeof runImageGenerationForUser>[1]
+    ) =>
+      await runImageGenerationForUser(
+        {
+          mode: "edit",
+          userId: session.user.id,
+          generationId,
+          prompt,
+          size: displaySize || size,
+          model,
+          quality,
+          images: await Promise.all(
+            sourceFiles.map((file, index) =>
+              toImageInput(file, { publicUrl: moderationImages?.[index]?.url })
+            )
+          ),
+          mask:
+            maskFile instanceof File ? await toImageInput(maskFile) : undefined,
+        },
+        onPartialImage
+      );
+
+    try {
+      if (useStreamResponse) {
+        return createImageStreamResponse(async (emit) => {
+          try {
+            const result = await runEdit({
+              onPartialImage: async (image) => {
+                await emit({
+                  type: "partial_image",
+                  index: image.index,
+                  partial_image_index: image.partialImageIndex,
+                  b64_json: image.imageBase64,
+                  url: image.imageUrl,
+                });
+              },
+            });
+
+            if (result.error) {
+              return {
+                type: "error",
+                error: result.error,
+                generationId: result.generationId,
+                creditsConsumed: result.creditsConsumed,
+              };
+            }
+
+            return { type: "completed", ...result };
+          } finally {
+            await deleteModerationImages(moderationImages);
+          }
+        });
+      }
+
+      const result = await runEdit();
       return NextResponse.json(result);
     } finally {
-      await deleteModerationImages(moderationImages);
+      if (!useStreamResponse) {
+        await deleteModerationImages(moderationImages);
+      }
     }
   } catch (error) {
     return errorResponse(
