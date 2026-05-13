@@ -105,8 +105,14 @@ export async function runImageGenerationForUser(
             imageCount: input.images.length,
             hasMask: Boolean(input.mask),
             quality: input.quality || "auto",
+            batchCount: input.n || 1,
           }
-        : { mode: "generate", quality: input.quality || "auto" },
+        : {
+            mode: "generate",
+            quality: input.quality || "auto",
+            moderation: input.moderation || "auto",
+            batchCount: input.n || 1,
+          },
   });
 
   let chargedCredits = 0;
@@ -166,6 +172,7 @@ export async function runImageGenerationForUser(
             model,
             quality: input.quality,
             n: input.n,
+            moderation: input.moderation,
           },
           callbacks
         )
@@ -177,6 +184,7 @@ export async function runImageGenerationForUser(
             model,
             n: input.n,
             quality: input.quality,
+            moderation: input.moderation,
           },
           callbacks
         );

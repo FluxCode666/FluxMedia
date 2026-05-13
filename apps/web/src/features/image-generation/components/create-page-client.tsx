@@ -78,6 +78,7 @@ type ImageApiResult = {
   size?: string;
   revisedPrompt?: string;
   creditsConsumed?: number;
+  results?: ImageApiResult[];
 };
 
 type ImageStreamEvent =
@@ -105,6 +106,7 @@ type MaskPoint = {
 };
 
 type ImageQuality = "auto" | "low" | "medium" | "high";
+type ImageModeration = "auto" | "low";
 
 type ActiveMode = "text" | "image";
 
@@ -130,6 +132,11 @@ const QUALITY_OPTIONS: Array<{ value: ImageQuality; label: string }> = [
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
 ];
+const MODERATION_OPTIONS: Array<{ value: ImageModeration; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Low" },
+];
+const BATCH_OPTIONS = [1, 2, 4, 6, 8, 10] as const;
 
 interface CreatePageClientProps {
   balance: number;
@@ -188,6 +195,9 @@ export function CreatePageClient({
   const [width, setWidth] = useState(defaultDimensions.width);
   const [height, setHeight] = useState(defaultDimensions.height);
   const [quality, setQuality] = useState<ImageQuality>("auto");
+  const [moderation, setModeration] = useState<ImageModeration>("auto");
+  const [batchCount, setBatchCount] = useState(1);
+  const [editBatchCount, setEditBatchCount] = useState(1);
   const [editModel, setEditModel] = useState("default");
   const [useFirstImageSize, setUseFirstImageSize] = useState(true);
   const [editWidth, setEditWidth] = useState(defaultDimensions.width);
@@ -221,6 +231,7 @@ export function CreatePageClient({
     [width, height]
   );
   const textImageCreditCost = useMemo(() => getImageCreditCost(size), [size]);
+  const textBatchCreditCost = textImageCreditCost * batchCount;
   const customEditSize = useMemo(
     () => normalizeImageSize(editWidth, editHeight),
     [editWidth, editHeight]
@@ -236,6 +247,7 @@ export function CreatePageClient({
   const editImageCreditCost = effectiveEditSize
     ? getImageCreditCost(effectiveEditSize)
     : getImageCreditCost();
+  const editBatchCreditCost = editImageCreditCost * editBatchCount;
   const sizeCheck = useMemo(() => validateImageSize(size), [size]);
   const customEditSizeCheck = useMemo(
     () => validateImageSize(customEditSize),
@@ -268,7 +280,7 @@ export function CreatePageClient({
 
     const decoder = new TextDecoder();
     let buffer = "";
-    let completed: ImageApiResult | null = null;
+    const completed: ImageApiResult[] = [];
     let failed: ImageApiResult | null = null;
 
     const processBlock = (block: string) => {
@@ -295,7 +307,7 @@ export function CreatePageClient({
       }
 
       if (event.type === "completed") {
-        completed = event;
+        completed.push(event);
         return;
       }
 
@@ -319,7 +331,15 @@ export function CreatePageClient({
       processBlock(buffer);
     }
 
-    return completed || failed || { error: "API returned no image data" };
+    if (completed.length === 1) {
+      return completed[0] as ImageApiResult;
+    }
+
+    if (completed.length > 1) {
+      return { results: completed };
+    }
+
+    return failed || { error: "API returned no image data" };
   };
 
   useEffect(() => {
@@ -418,6 +438,24 @@ export function CreatePageClient({
     ]);
   };
 
+  const addSuccessfulResults = (
+    data: ImageApiResult,
+    resultPrompt: string,
+    fallbackSize = size
+  ) => {
+    const successfulResults =
+      data.results?.filter((item) => item.imageUrl && item.generationId) ||
+      (data.imageUrl && data.generationId ? [data] : []);
+
+    if (successfulResults.length === 0) return 0;
+
+    for (const item of successfulResults.toReversed()) {
+      addSuccessfulResult(item, resultPrompt, fallbackSize);
+    }
+
+    return successfulResults.length;
+  };
+
   const syncChargedCredits = (creditsConsumed?: number) => {
     if (!creditsConsumed || creditsConsumed <= 0) return;
     setBalance((b) => Math.max(0, b - creditsConsumed));
@@ -451,7 +489,7 @@ export function CreatePageClient({
       toast.error("Please enter a prompt");
       return;
     }
-    if (balance < textImageCreditCost) {
+    if (balance < textBatchCreditCost) {
       showGenerationError("Insufficient credits");
       return;
     }
@@ -474,6 +512,8 @@ export function CreatePageClient({
           prompt: currentPrompt,
           size,
           stream: true,
+          count: batchCount,
+          moderation,
         }),
       });
       const data = await readImageStreamResponse(response);
@@ -485,8 +525,12 @@ export function CreatePageClient({
         return;
       }
 
-      addSuccessfulResult(data, currentPrompt);
-      toast.success("Image generated");
+      const generatedCount = addSuccessfulResults(data, currentPrompt);
+      toast.success(
+        generatedCount > 1
+          ? `${generatedCount} images generated`
+          : "Image generated"
+      );
     } catch (error) {
       toast.error("Generation failed", {
         description:
@@ -526,7 +570,7 @@ export function CreatePageClient({
       });
       return;
     }
-    if (balance < editImageCreditCost) {
+    if (balance < editBatchCreditCost) {
       showGenerationError("Insufficient credits");
       return;
     }
@@ -555,6 +599,7 @@ export function CreatePageClient({
       formData.append(editImages.length === 1 ? "image" : "image[]", file);
     });
     if (maskFile) formData.append("mask", maskFile.file);
+    formData.append("count", String(editBatchCount));
 
     setIsEditing(true);
     setResult(null);
@@ -577,8 +622,14 @@ export function CreatePageClient({
         return;
       }
 
-      addSuccessfulResult(data, editPrompt, effectiveEditSize);
-      toast.success("Image edited");
+      const generatedCount = addSuccessfulResults(
+        data,
+        editPrompt,
+        effectiveEditSize
+      );
+      toast.success(
+        generatedCount > 1 ? `${generatedCount} images edited` : "Image edited"
+      );
     } catch (error) {
       toast.error("Generation failed", {
         description:
@@ -1006,6 +1057,60 @@ export function CreatePageClient({
             </div>
             <div className="text-xs text-muted-foreground sm:pb-2">{size}</div>
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="batch-count"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Batch
+              </label>
+              <Select
+                value={String(batchCount)}
+                onValueChange={(value) => setBatchCount(Number(value))}
+                disabled={busy}
+              >
+                <SelectTrigger id="batch-count" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BATCH_OPTIONS.map((count) => (
+                    <SelectItem key={count} value={String(count)}>
+                      {count} image{count > 1 ? "s" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="image-moderation"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                API moderation
+              </label>
+              <Select
+                value={moderation}
+                onValueChange={(value) =>
+                  setModeration(value as ImageModeration)
+                }
+                disabled={busy}
+              >
+                <SelectTrigger id="image-moderation" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MODERATION_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground lg:justify-end">
@@ -1015,9 +1120,9 @@ export function CreatePageClient({
             <span className="font-medium text-foreground">{balance}</span> ·
             Cost:{" "}
             <span className="font-medium text-foreground">
-              {textImageCreditCost}
+              {textBatchCreditCost}
             </span>
-            /image
+            {batchCount > 1 ? ` for ${batchCount}` : "/image"}
           </span>
         </div>
       </div>
@@ -1376,6 +1481,31 @@ export function CreatePageClient({
                   </Select>
                 </div>
 
+                <div className="space-y-2">
+                  <label
+                    htmlFor="edit-batch-count"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Batch
+                  </label>
+                  <Select
+                    value={String(editBatchCount)}
+                    onValueChange={(value) => setEditBatchCount(Number(value))}
+                    disabled={isEditing}
+                  >
+                    <SelectTrigger id="edit-batch-count" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BATCH_OPTIONS.map((count) => (
+                        <SelectItem key={count} value={String(count)}>
+                          {count} image{count > 1 ? "s" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="space-y-3 rounded-md bg-muted/40 p-3">
                   <label
                     htmlFor="edit-use-source-size"
@@ -1487,9 +1617,9 @@ export function CreatePageClient({
                   <p className="mt-1">
                     Cost:{" "}
                     <span className="font-medium text-foreground">
-                      {editImageCreditCost}
+                      {editBatchCreditCost}
                     </span>
-                    /image
+                    {editBatchCount > 1 ? ` for ${editBatchCount}` : "/image"}
                   </p>
                 </div>
               </div>

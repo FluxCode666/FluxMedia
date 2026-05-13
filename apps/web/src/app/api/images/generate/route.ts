@@ -21,6 +21,8 @@ const generateImageSchema = z.object({
     }),
   model: z.string().optional(),
   stream: z.boolean().optional(),
+  count: z.number().int().min(1).max(10).optional(),
+  moderation: z.enum(["auto", "low"]).optional(),
 });
 
 function errorResponse(message: string, status = 400) {
@@ -59,37 +61,58 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     prompt: parsed.data.prompt,
     size: parsed.data.size || DEFAULT_IMAGE_SIZE,
     model: parsed.data.model,
+    moderation: parsed.data.moderation || "auto",
   };
+  const count = parsed.data.count || 1;
   const useStreamResponse =
     wantsStreamResponse(request, parsed.data.stream) &&
     Boolean((await getUserApiConfig(session.user.id))?.useStream);
 
   if (useStreamResponse) {
     return createImageStreamResponse(async (emit) => {
-      const result = await runImageGenerationForUser(input, {
-        onPartialImage: async (image) => {
-          await emit({
-            type: "partial_image",
-            index: image.index,
-            partial_image_index: image.partialImageIndex,
-            b64_json: image.imageBase64,
-            url: image.imageUrl,
-          });
-        },
-      });
+      for (let index = 0; index < count; index++) {
+        const result = await runImageGenerationForUser(input, {
+          onPartialImage: async (image) => {
+            await emit({
+              type: "partial_image",
+              index,
+              partial_image_index: image.partialImageIndex,
+              b64_json: image.imageBase64,
+              url: image.imageUrl,
+            });
+          },
+        });
 
-      if (result.error) {
-        return {
-          type: "error",
-          error: result.error,
-          generationId: result.generationId,
-          creditsConsumed: result.creditsConsumed,
-        };
+        if (result.error) {
+          await emit({
+            type: "error",
+            error: result.error,
+            generationId: result.generationId,
+            creditsConsumed: result.creditsConsumed,
+          });
+          return null;
+        }
+
+        await emit({ type: "completed", ...result });
       }
 
-      return { type: "completed", ...result };
+      return null;
     });
   }
 
-  return NextResponse.json(await runImageGenerationForUser(input));
+  if (count === 1) {
+    return NextResponse.json(await runImageGenerationForUser(input));
+  }
+
+  const results = [];
+  for (let index = 0; index < count; index++) {
+    const result = await runImageGenerationForUser(input);
+    results.push(result);
+    if (result.error) break;
+  }
+
+  return NextResponse.json({
+    results,
+    error: results.find((result) => result.error)?.error,
+  });
 });

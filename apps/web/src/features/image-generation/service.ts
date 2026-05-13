@@ -1,5 +1,6 @@
 import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
+import { logError } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { eq } from "drizzle-orm";
 import {
@@ -14,6 +15,7 @@ import type {
   GenerateImageParams,
   GenerateImageResult,
   ImageGenerationCallbacks,
+  ImageModeration,
   ImageQuality,
   PartialImageResult,
 } from "./types";
@@ -24,6 +26,7 @@ const VALID_QUALITIES = new Set<ImageQuality>([
   "medium",
   "high",
 ]);
+const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
 
 type ImageOutput = {
   b64_json?: string;
@@ -83,6 +86,43 @@ function normalizeQuality(quality?: string): ImageQuality | undefined {
     : undefined;
 }
 
+function normalizeModeration(
+  moderation?: string
+): ImageModeration | undefined {
+  if (!moderation) return undefined;
+  return VALID_MODERATION.has(moderation as ImageModeration)
+    ? (moderation as ImageModeration)
+    : undefined;
+}
+
+function describeEndpoint(baseUrl: string, path: string) {
+  try {
+    const url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return `${baseUrl.replace(/\/$/, "")}${path}`;
+  }
+}
+
+function logImageRequestError(
+  error: unknown,
+  context: {
+    operation: "generate" | "edit";
+    baseUrl: string;
+    path: string;
+    model?: string;
+    useStream?: boolean;
+  }
+) {
+  logError(error, {
+    source: "image-generation",
+    operation: context.operation,
+    endpoint: describeEndpoint(context.baseUrl, context.path),
+    model: context.model,
+    useStream: Boolean(context.useStream),
+  });
+}
+
 function toBlobPart(buffer: Buffer): BlobPart {
   const arrayBuffer = new ArrayBuffer(buffer.byteLength);
   new Uint8Array(arrayBuffer).set(buffer);
@@ -98,6 +138,7 @@ function appendImageParams(
     n?: number;
     size?: string;
     quality?: ImageQuality;
+    moderation?: ImageModeration;
   }
 ) {
   formData.append("model", getModel(config, params.model));
@@ -117,6 +158,11 @@ function appendImageParams(
   const quality = normalizeQuality(params.quality);
   if (quality) {
     formData.append("quality", quality);
+  }
+
+  const moderation = normalizeModeration(params.moderation);
+  if (moderation) {
+    formData.append("moderation", moderation);
   }
 
   if (config.useStream) {
@@ -334,15 +380,35 @@ async function parseImageResponse(
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
+    const rawBody = await response.text().catch(() => "");
+    let errorData: unknown = {};
+    try {
+      errorData = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      errorData = rawBody;
+    }
     return {
-      error: getApiError(errorData, `API error: ${response.status}`),
+      error: getApiError(
+        errorData,
+        rawBody.trim().startsWith("<")
+          ? "API returned an HTML page instead of an Images API response. Check that the API base URL points to an OpenAI-compatible /v1 endpoint."
+          : `API error: ${response.status}`
+      ),
     };
   }
 
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("text/event-stream")) {
     return parseEventStreamResponse(response, callbacks);
+  }
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text().catch(() => "");
+    return {
+      error: text.trim().startsWith("<")
+        ? "API returned an HTML page instead of an Images API response. Check that the API base URL points to an OpenAI-compatible /v1 endpoint."
+        : "API returned a non-JSON response.",
+    };
   }
 
   const data = (await response.json()) as ImageResponsePayload;
@@ -411,6 +477,7 @@ export async function generateImage(
   params: GenerateImageParams,
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
+  const model = getModel(config, params.model);
   try {
     const size = params.size || DEFAULT_IMAGE_SIZE;
     const dimensions = parseImageSize(size);
@@ -421,7 +488,7 @@ export async function generateImage(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: getModel(config, params.model),
+        model,
         prompt: params.prompt,
         n: params.n || 1,
         size,
@@ -431,6 +498,9 @@ export async function generateImage(
         ...(normalizeQuality(params.quality)
           ? { quality: normalizeQuality(params.quality) }
           : {}),
+        ...(normalizeModeration(params.moderation)
+          ? { moderation: normalizeModeration(params.moderation) }
+          : {}),
         ...(config.useStream ? { stream: true, partial_images: 2 } : {}),
         response_format: "b64_json",
       }),
@@ -438,6 +508,13 @@ export async function generateImage(
 
     return await parseImageResponse(response, callbacks);
   } catch (error) {
+    logImageRequestError(error, {
+      operation: "generate",
+      baseUrl: config.baseUrl,
+      path: "/images/generations",
+      model,
+      useStream: config.useStream,
+    });
     return {
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
@@ -449,14 +526,16 @@ export async function editImage(
   params: EditImageParams,
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
+  const model = getModel(config, params.model);
   try {
     const formData = new FormData();
     appendImageParams(formData, config, {
       prompt: params.prompt,
-      model: params.model,
+      model,
       n: params.n,
       size: params.size,
       quality: params.quality,
+      moderation: params.moderation,
     });
 
     for (const image of params.images) {
@@ -485,6 +564,13 @@ export async function editImage(
 
     return await parseImageResponse(response, callbacks);
   } catch (error) {
+    logImageRequestError(error, {
+      operation: "edit",
+      baseUrl: config.baseUrl,
+      path: "/images/edits",
+      model,
+      useStream: config.useStream,
+    });
     return {
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };

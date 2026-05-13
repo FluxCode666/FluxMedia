@@ -27,6 +27,7 @@ const VALID_QUALITIES = new Set<ImageQuality>([
   "medium",
   "high",
 ]);
+const MAX_BATCH_COUNT = 10;
 
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -35,6 +36,19 @@ function errorResponse(message: string, status = 400) {
 function getText(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function getCount(formData: FormData, key: string) {
+  const value = getText(formData, key);
+  if (!value) return 1;
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${key} must be an integer.`);
+  }
+  const count = Number(value);
+  if (count < 1 || count > MAX_BATCH_COUNT) {
+    throw new Error(`${key} must be between 1 and ${MAX_BATCH_COUNT}.`);
+  }
+  return count;
 }
 
 function wantsStreamResponse(request: NextRequest, formData: FormData) {
@@ -200,6 +214,12 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse("Invalid quality.");
   }
   const quality = qualityValue as ImageQuality;
+  let count = 1;
+  try {
+    count = getCount(formData, "count");
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : "Invalid count.");
+  }
 
   const model = getText(formData, "model") || undefined;
   const displaySize = getText(formData, "displaySize") || undefined;
@@ -238,10 +258,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       );
     }
 
-    const generationId = randomUUID();
+    const batchId = randomUUID();
     const moderationImages = await uploadModerationImages(
       session.user.id,
-      generationId,
+      batchId,
       sourceFiles
     );
     const useStreamResponse =
@@ -249,6 +269,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       Boolean((await getUserApiConfig(session.user.id))?.useStream);
 
     const runEdit = async (
+      generationId: string,
       onPartialImage?: Parameters<typeof runImageGenerationForUser>[1]
     ) =>
       await runImageGenerationForUser(
@@ -260,6 +281,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           size: displaySize || size,
           model,
           quality,
+          n: 1,
           images: await Promise.all(
             sourceFiles.map((file, index) =>
               toImageInput(file, { publicUrl: moderationImages?.[index]?.url })
@@ -275,36 +297,55 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       if (useStreamResponse) {
         return createImageStreamResponse(async (emit) => {
           try {
-            const result = await runEdit({
-              onPartialImage: async (image) => {
-                await emit({
-                  type: "partial_image",
-                  index: image.index,
-                  partial_image_index: image.partialImageIndex,
-                  b64_json: image.imageBase64,
-                  url: image.imageUrl,
-                });
-              },
-            });
+            for (let index = 0; index < count; index++) {
+              const result = await runEdit(randomUUID(), {
+                onPartialImage: async (image) => {
+                  await emit({
+                    type: "partial_image",
+                    index,
+                    partial_image_index: image.partialImageIndex,
+                    b64_json: image.imageBase64,
+                    url: image.imageUrl,
+                  });
+                },
+              });
 
-            if (result.error) {
-              return {
-                type: "error",
-                error: result.error,
-                generationId: result.generationId,
-                creditsConsumed: result.creditsConsumed,
-              };
+              if (result.error) {
+                await emit({
+                  type: "error",
+                  error: result.error,
+                  generationId: result.generationId,
+                  creditsConsumed: result.creditsConsumed,
+                });
+                return null;
+              }
+
+              await emit({ type: "completed", ...result });
             }
 
-            return { type: "completed", ...result };
+            return null;
           } finally {
             await deleteModerationImages(moderationImages);
           }
         });
       }
 
-      const result = await runEdit();
-      return NextResponse.json(result);
+      if (count === 1) {
+        const result = await runEdit(randomUUID());
+        return NextResponse.json(result);
+      }
+
+      const results = [];
+      for (let index = 0; index < count; index++) {
+        const result = await runEdit(randomUUID());
+        results.push(result);
+        if (result.error) break;
+      }
+
+      return NextResponse.json({
+        results,
+        error: results.find((result) => result.error)?.error,
+      });
     } finally {
       if (!useStreamResponse) {
         await deleteModerationImages(moderationImages);

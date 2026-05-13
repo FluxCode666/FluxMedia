@@ -6,6 +6,7 @@ export interface GenerateImageParams {
   model?: string;
   n?: number;
   quality?: ImageQuality;
+  moderation?: ImageModeration;
 }
 
 export interface GenerateImageResult {
@@ -29,6 +30,7 @@ export interface ImageGenerationCallbacks {
 }
 
 export type ImageQuality = "auto" | "low" | "medium" | "high";
+export type ImageModeration = "auto" | "low";
 
 export interface ImageInputFile {
   data: Buffer;
@@ -45,6 +47,7 @@ export interface EditImageParams {
   model?: string;
   quality?: ImageQuality;
   n?: number;
+  moderation?: ImageModeration;
 }
 
 export interface ApiConfig {
