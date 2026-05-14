@@ -20,6 +20,50 @@ import {
 import { AuthErrorAlert } from "./auth-error-alert";
 import { AuthLogo } from "./auth-logo";
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "";
+}
+
+function getAuthErrorCode(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return "";
+}
+
+function isEmailAlreadyRegistered(error: unknown) {
+  const code = getAuthErrorCode(error);
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    code === "EMAIL_ALREADY_REGISTERED" ||
+    code === "USER_ALREADY_EXISTS" ||
+    code === "ACCOUNT_DELETED" ||
+    message.includes("already registered") ||
+    message.includes("already in use") ||
+    message.includes("account has been deleted")
+  );
+}
+
 /**
  * 注册表单组件
  *
@@ -115,7 +159,11 @@ export function SignUpForm() {
       const result = await signUpWithEmail(email, password, name);
 
       if (result.error) {
-        setError(t("errors.emailInUse"));
+        setError(
+          isEmailAlreadyRegistered(result.error)
+            ? t("errors.emailAlreadyRegistered")
+            : t("errors.emailInUse")
+        );
         setIsLoading(false);
         return;
       }
@@ -129,8 +177,12 @@ export function SignUpForm() {
 
       setEmailSent(true);
       startCooldown();
-    } catch {
-      setError(t("errors.emailInUse"));
+    } catch (error) {
+      setError(
+        isEmailAlreadyRegistered(error)
+          ? t("errors.emailAlreadyRegistered")
+          : t("errors.emailInUse")
+      );
       setIsLoading(false);
     }
   };

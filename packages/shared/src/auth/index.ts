@@ -151,10 +151,9 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 7,
     // 刷新阈值: 1 天 (会话剩余不足 1 天时自动刷新)
     updateAge: 60 * 60 * 24,
-    // 使用 Cookie 存储会话
+    // 避免切换账号后客户端短时间读取到上一个账号的用户快照。
     cookieCache: {
-      enabled: true,
-      maxAge: 60 * 5, // 5 分钟缓存
+      enabled: false,
     },
   },
 });

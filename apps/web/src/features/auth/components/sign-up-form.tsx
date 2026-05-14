@@ -21,6 +21,66 @@ import { toast } from "sonner";
 import { AuthErrorAlert } from "./auth-error-alert";
 import { AuthLogo } from "./auth-logo";
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "";
+}
+
+function getAuthErrorCode(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return "";
+}
+
+function isEmailAlreadyRegistered(error: unknown) {
+  const code = getAuthErrorCode(error);
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    code === "EMAIL_ALREADY_REGISTERED" ||
+    code === "USER_ALREADY_EXISTS" ||
+    code === "ACCOUNT_DELETED" ||
+    message.includes("already registered") ||
+    message.includes("already in use") ||
+    message.includes("account has been deleted")
+  );
+}
+
+function isEmailDomainError(error: unknown) {
+  const code = getAuthErrorCode(error);
+  const message = getErrorMessage(error).toLowerCase();
+
+  return code === "EMAIL_DOMAIN_NOT_ALLOWED" || message.includes("email domain");
+}
+
+function isVerificationCodeError(error: unknown) {
+  const code = getAuthErrorCode(error);
+
+  return (
+    code === "INVALID_VERIFICATION_CODE" ||
+    code === "VERIFICATION_CODE_REQUIRED"
+  );
+}
+
 /**
  * 注册表单组件
  *
@@ -118,9 +178,10 @@ export function SignUpForm() {
       toast.success(t("verificationCode.sent"));
     } catch (error) {
       setError(
-        error instanceof Error &&
-          error.message.toLowerCase().includes("email domain")
+        isEmailDomainError(error)
           ? t("errors.emailDomainNotAllowed")
+          : isEmailAlreadyRegistered(error)
+          ? t("errors.emailAlreadyRegistered")
           : t("errors.verificationSendFailed")
       );
     } finally {
@@ -181,11 +242,12 @@ export function SignUpForm() {
 
       if (result.error) {
         setError(
-          result.error.code === "EMAIL_DOMAIN_NOT_ALLOWED"
+          isEmailDomainError(result.error)
             ? t("errors.emailDomainNotAllowed")
-            : result.error.code === "INVALID_VERIFICATION_CODE" ||
-            result.error.code === "VERIFICATION_CODE_REQUIRED"
+            : isVerificationCodeError(result.error)
             ? t("errors.invalidVerificationCode")
+            : isEmailAlreadyRegistered(result.error)
+            ? t("errors.emailAlreadyRegistered")
             : t("errors.emailInUse")
         );
         setIsLoading(false);
@@ -201,8 +263,12 @@ export function SignUpForm() {
 
       setEmailSent(true);
       startCooldown();
-    } catch {
-      setError(t("errors.emailInUse"));
+    } catch (error) {
+      setError(
+        isEmailAlreadyRegistered(error)
+          ? t("errors.emailAlreadyRegistered")
+          : t("errors.emailInUse")
+      );
       setIsLoading(false);
     }
   };

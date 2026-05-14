@@ -221,7 +221,8 @@
         "missingFields": "Please fill in all fields.",
         "passwordTooShort": "Password must be at least 8 characters.",
         "passwordMismatch": "Passwords do not match.",
-        "emailInUse": "Sign-up failed. This email may already be in use."
+        "emailAlreadyRegistered": "This email has already been registered, or was locked after account deletion. Please sign in or use another email.",
+        "emailInUse": "Sign-up failed: this email is already in use. Please sign in or use another email."
       },
       "verifyEmail": {
         "title": "Check your email",

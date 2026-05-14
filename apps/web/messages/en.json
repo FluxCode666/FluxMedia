@@ -234,7 +234,8 @@
         "emailDomainNotAllowed": "Please use an email ending in 163.com, 126.com, qq.com, or gmail.com.",
         "verificationSendFailed": "Failed to send verification code. Please try again later.",
         "invalidVerificationCode": "The verification code is invalid or expired. Please request a new one.",
-        "emailInUse": "Sign-up failed. This email may already be in use."
+        "emailAlreadyRegistered": "This email has already been registered, or was locked after account deletion. Please sign in or use another email.",
+        "emailInUse": "Sign-up failed: this email is already in use. Please sign in or use another email."
       },
       "verifyEmail": {
         "title": "Check your email",
