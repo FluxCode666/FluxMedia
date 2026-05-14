@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 
 import { db, user } from "@/db";
-import { subscription } from "@/db/schema";
+import { account, session, subscription } from "@/db/schema";
 import { creem } from "@/features/payment/creem";
 import { protectedAction } from "@/lib/safe-action";
 
@@ -30,10 +30,23 @@ export const deleteAccountAction = protectedAction
       await creem.cancelSubscription(activeSubscription.subscriptionId);
     }
 
-    const [deletedUser] = await db
-      .delete(user)
-      .where(eq(user.id, ctx.userId))
-      .returning({ id: user.id });
+    const [deletedUser] = await db.transaction(async (tx) => {
+      await tx.delete(session).where(eq(session.userId, ctx.userId));
+      await tx.delete(account).where(eq(account.userId, ctx.userId));
+
+      return tx
+        .update(user)
+        .set({
+          name: "Deleted User",
+          image: null,
+          customerId: null,
+          banned: true,
+          bannedReason: "account_deleted",
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, ctx.userId))
+        .returning({ id: user.id });
+    });
 
     if (!deletedUser) {
       throw new Error("删除账户失败，请稍后重试");

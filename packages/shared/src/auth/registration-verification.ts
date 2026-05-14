@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { db, verification } from "@repo/database";
-import { eq } from "drizzle-orm";
+import { db, user, verification } from "@repo/database";
+import { eq, sql } from "drizzle-orm";
 import {
   getAllowedRegistrationEmailMessage,
   isAllowedRegistrationEmail,
@@ -30,6 +30,16 @@ export async function sendRegistrationVerificationCode(email: string) {
 
   if (!isAllowedRegistrationEmail(normalizedEmail)) {
     throw new Error(getAllowedRegistrationEmailMessage());
+  }
+
+  const [existingUser] = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(sql`lower(${user.email}) = ${normalizedEmail}`)
+    .limit(1);
+
+  if (existingUser) {
+    throw new Error("Email already registered");
   }
 
   const identifier = getIdentifier(normalizedEmail);

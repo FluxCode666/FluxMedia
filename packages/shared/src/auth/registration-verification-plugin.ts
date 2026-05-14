@@ -1,8 +1,11 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { db, user as userTable } from "@repo/database";
+import { sql } from "drizzle-orm";
 import {
   getAllowedRegistrationEmailMessage,
   isAllowedRegistrationEmail,
+  normalizeEmail,
 } from "./email-domain";
 import { verifyRegistrationCode } from "./registration-verification";
 
@@ -11,6 +14,41 @@ function assertAllowedRegistrationEmail(email: string) {
     throw new APIError("BAD_REQUEST", {
       message: getAllowedRegistrationEmailMessage(),
       code: "EMAIL_DOMAIN_NOT_ALLOWED",
+    });
+  }
+}
+
+async function assertEmailNotRegistered(email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  const [existingUser] = await db
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(sql`lower(${userTable.email}) = ${normalizedEmail}`)
+    .limit(1);
+
+  if (existingUser) {
+    throw new APIError("BAD_REQUEST", {
+      message: "Email already registered",
+      code: "EMAIL_ALREADY_REGISTERED",
+    });
+  }
+}
+
+async function assertUserCanAuthenticate(userId: string) {
+  const [existingUser] = await db
+    .select({
+      id: userTable.id,
+      banned: userTable.banned,
+      bannedReason: userTable.bannedReason,
+    })
+    .from(userTable)
+    .where(sql`${userTable.id} = ${userId}`)
+    .limit(1);
+
+  if (existingUser?.banned && existingUser.bannedReason === "account_deleted") {
+    throw new APIError("FORBIDDEN", {
+      message: "Account has been deleted",
+      code: "ACCOUNT_DELETED",
     });
   }
 }
@@ -28,8 +66,10 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
             typeof ctx.body.verificationCode === "string"
               ? ctx.body.verificationCode
               : "";
+          const normalizedEmail = normalizeEmail(email);
 
-          assertAllowedRegistrationEmail(email);
+          assertAllowedRegistrationEmail(normalizedEmail);
+          await assertEmailNotRegistered(normalizedEmail);
 
           if (!verificationCode) {
             throw new APIError("BAD_REQUEST", {
@@ -38,7 +78,10 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
             });
           }
 
-          const valid = await verifyRegistrationCode(email, verificationCode);
+          const valid = await verifyRegistrationCode(
+            normalizedEmail,
+            verificationCode
+          );
 
           if (!valid) {
             throw new APIError("BAD_REQUEST", {
@@ -48,6 +91,7 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
           }
 
           delete ctx.body.verificationCode;
+          ctx.body.email = normalizedEmail;
           ctx.body.emailVerified = true;
         }),
       },
@@ -59,12 +103,16 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
         user: {
           create: {
             before: async (user, context) => {
-              assertAllowedRegistrationEmail(user.email);
+              const normalizedEmail = normalizeEmail(user.email);
+
+              assertAllowedRegistrationEmail(normalizedEmail);
+              await assertEmailNotRegistered(normalizedEmail);
 
               if (context?.path === "/sign-up/email") {
                 return {
                   data: {
                     ...user,
+                    email: normalizedEmail,
                     emailVerified: true,
                   },
                 };
@@ -73,8 +121,25 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
               return {
                 data: {
                   ...user,
+                  email: normalizedEmail,
                 },
               };
+            },
+          },
+        },
+        account: {
+          create: {
+            before: async (account) => {
+              await assertUserCanAuthenticate(account.userId);
+              return { data: account };
+            },
+          },
+        },
+        session: {
+          create: {
+            before: async (session) => {
+              await assertUserCanAuthenticate(session.userId);
+              return { data: session };
             },
           },
         },
