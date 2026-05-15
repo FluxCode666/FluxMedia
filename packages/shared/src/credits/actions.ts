@@ -37,7 +37,7 @@ import {
   AccountFrozenError,
   consumeCredits,
   ensureRegistrationBonus,
-  ensureRegistrationBonusNeverExpires,
+  ensureRegistrationBonusExpiry,
   getCreditsBalance,
   getUserActiveBatches,
   getUserTransactions,
@@ -67,7 +67,15 @@ async function getRuntimeCreditsExpiryDays() {
   );
 }
 
-function getExpiryDate(expiryDays: number | null) {
+async function getRuntimeFreeCreditsExpiryDays() {
+  return getRuntimeSettingNumber(
+    "FREE_CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.freeCreditsExpiryDays,
+    { positive: true }
+  );
+}
+
+function getExpiryDate(expiryDays: number) {
   return expiryDays
     ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
     : null;
@@ -102,11 +110,12 @@ export const grantRegistrationBonus = withProtectedCreditsAction(
       .limit(1);
 
     if (existing.length > 0) {
-      await ensureRegistrationBonusNeverExpires(userId);
+      await ensureRegistrationBonusExpiry(userId);
       return { success: true, alreadyGranted: true };
     }
 
     const bonusCredits = await getRuntimeRegistrationBonusCredits();
+    const freeExpiryDays = await getRuntimeFreeCreditsExpiryDays();
 
     const result = await grantCredits({
       userId,
@@ -114,7 +123,7 @@ export const grantRegistrationBonus = withProtectedCreditsAction(
       sourceType: "bonus",
       debitAccount: "SYSTEM:registration_bonus",
       transactionType: "registration_bonus",
-      expiresAt: null,
+      expiresAt: getExpiryDate(freeExpiryDays),
       sourceRef: `registration_bonus:${userId}`,
       description: "新用户注册奖励",
       metadata: {

@@ -21,12 +21,38 @@ import { CREDIT_CONFIG_DEFAULTS } from "./config";
 const CREDIT_DECIMAL_PLACES = 2;
 const CREDIT_DECIMAL_FACTOR = 10 ** CREDIT_DECIMAL_PLACES;
 
+function creditBatchSourcePriorityOrder() {
+  return sql`CASE ${creditsBatch.sourceType}
+    WHEN 'bonus' THEN 1
+    WHEN 'subscription' THEN 2
+    WHEN 'purchase' THEN 3
+    ELSE 4
+  END`;
+}
+
+function creditBatchExpiryOrder() {
+  return sql`${creditsBatch.expiresAt} IS NULL`;
+}
+
 async function getDefaultCreditsExpiryDate(issuedAt: Date) {
   const expiryDays = await getRuntimeSettingNumber(
     "CREDITS_EXPIRY_DAYS",
     CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
     { positive: true }
   );
+  return new Date(issuedAt.getTime() + expiryDays * 24 * 60 * 60 * 1000);
+}
+
+async function getFreeCreditsExpiryDays() {
+  return getRuntimeSettingNumber(
+    "FREE_CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.freeCreditsExpiryDays,
+    { positive: true }
+  );
+}
+
+async function getFreeCreditsExpiryDate(issuedAt: Date) {
+  const expiryDays = await getFreeCreditsExpiryDays();
   return new Date(issuedAt.getTime() + expiryDays * 24 * 60 * 60 * 1000);
 }
 
@@ -101,6 +127,28 @@ export interface ConsumeCreditsResult {
     batchId: string;
     consumedFromBatch: number;
   }>;
+}
+
+/**
+ * 套餐升级作废旧订阅积分参数
+ */
+export interface VoidSubscriptionCreditsForUpgradeParams {
+  /** 用户 ID */
+  userId: string;
+  /** 新套餐积分批次 sourceRef，避免刚发放的新积分被作废 */
+  newBatchSourceRef?: string;
+  /** 订阅 ID */
+  subscriptionId?: string;
+  /** 旧套餐价格 ID */
+  upgradeFromPriceId?: string;
+  /** 新套餐价格 ID */
+  upgradeToPriceId?: string;
+  /** 只作废此时间之前发放的订阅积分，避免重复回调误扣后续周期积分 */
+  issuedBefore?: Date;
+  /** 描述 */
+  description?: string;
+  /** 元数据 */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -199,22 +247,23 @@ export async function ensureRegistrationBonus(
     .limit(1);
 
   if (existingTransaction) {
-    await ensureRegistrationBonusNeverExpires(userId);
+    await ensureRegistrationBonusExpiry(userId);
     return { granted: false, reason: "Registration bonus already granted" };
   }
 
+  const issuedAt = new Date();
   const result = await grantCredits({
     userId,
     amount: bonusAmount,
     sourceType: "bonus",
     debitAccount: "SYSTEM:registration_bonus",
     transactionType: "registration_bonus",
-    expiresAt: null,
+    expiresAt: await getFreeCreditsExpiryDate(issuedAt),
     sourceRef: `registration_bonus:${userId}`,
     description: "新用户注册奖励",
     metadata: {
       bonusType: "registration",
-      grantedAt: new Date().toISOString(),
+      grantedAt: issuedAt.toISOString(),
     },
   });
 
@@ -225,16 +274,17 @@ export async function ensureRegistrationBonus(
 }
 
 /**
- * 注册奖励积分不应过期。保留这个修正逻辑可以让已有活跃注册奖励批次
- * 在用户下次读取余额时自动移除旧的一年有效期。
+ * 注册奖励积分默认 7 天过期。保留这个修正逻辑可以让之前被设为
+ * 永不过期的活跃注册奖励批次，在用户下次读取余额时自动改回 7 天有效期。
  */
-export async function ensureRegistrationBonusNeverExpires(userId: string) {
+export async function ensureRegistrationBonusExpiry(userId: string) {
   const sourceRef = `registration_bonus:${userId}`;
+  const expiryDays = await getFreeCreditsExpiryDays();
 
-  await db
+  const updatedBatches = await db
     .update(creditsBatch)
     .set({
-      expiresAt: null,
+      expiresAt: sql`${creditsBatch.issuedAt} + (${expiryDays} * interval '1 day')`,
       updatedAt: new Date(),
     })
     .where(
@@ -242,71 +292,14 @@ export async function ensureRegistrationBonusNeverExpires(userId: string) {
         eq(creditsBatch.userId, userId),
         eq(creditsBatch.sourceType, "bonus"),
         eq(creditsBatch.sourceRef, sourceRef),
-        eq(creditsBatch.status, "active")
+        eq(creditsBatch.status, "active"),
+        isNull(creditsBatch.expiresAt)
       )
-    );
+    )
+    .returning({ id: creditsBatch.id });
 
-  const expiredBatches = await db
-    .select({ id: creditsBatch.id })
-    .from(creditsBatch)
-    .where(
-      and(
-        eq(creditsBatch.userId, userId),
-        eq(creditsBatch.sourceType, "bonus"),
-        eq(creditsBatch.sourceRef, sourceRef),
-        eq(creditsBatch.status, "expired"),
-        gt(creditsBatch.remaining, 0)
-      )
-    );
-
-  for (const batch of expiredBatches) {
-    await db.transaction(async (tx) => {
-      const [restoredBatch] = await tx
-        .update(creditsBatch)
-        .set({
-          status: "active",
-          expiresAt: null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(creditsBatch.id, batch.id),
-            eq(creditsBatch.status, "expired"),
-            gt(creditsBatch.remaining, 0)
-          )
-        )
-        .returning({
-          id: creditsBatch.id,
-          remaining: creditsBatch.remaining,
-        });
-
-      if (!restoredBatch) {
-        return;
-      }
-
-      await tx.insert(creditsTransaction).values({
-        id: crypto.randomUUID(),
-        userId,
-        type: "refund",
-        amount: restoredBatch.remaining,
-        debitAccount: "SYSTEM:registration_bonus_expiry_restore",
-        creditAccount: `WALLET:${userId}`,
-        description: "恢复注册奖励积分（取消过期）",
-        metadata: {
-          batchId: restoredBatch.id,
-          sourceRef,
-          reason: "registration_bonus_no_expiry",
-        },
-      });
-
-      await tx
-        .update(creditsBalance)
-        .set({
-          balance: sql`${creditsBalance.balance} + ${restoredBatch.remaining}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(creditsBalance.userId, userId));
-    });
+  if (updatedBatches.length > 0) {
+    await processExpiredBatches();
   }
 }
 
@@ -371,7 +364,9 @@ export async function grantCredits(params: GrantCreditsParams) {
     const issuedAt = new Date();
     const effectiveExpiresAt =
       expiresAt === undefined
-        ? await getDefaultCreditsExpiryDate(issuedAt)
+        ? sourceType === "bonus"
+          ? await getFreeCreditsExpiryDate(issuedAt)
+          : await getDefaultCreditsExpiryDate(issuedAt)
         : expiresAt;
     const batchId = crypto.randomUUID();
     await tx.insert(creditsBatch).values({
@@ -474,7 +469,12 @@ export async function consumeCredits(
           or(isNull(creditsBatch.expiresAt), gt(creditsBatch.expiresAt, now))
         )
       )
-      .orderBy(asc(creditsBatch.expiresAt), asc(creditsBatch.issuedAt));
+      .orderBy(
+        creditBatchSourcePriorityOrder(),
+        creditBatchExpiryOrder(),
+        asc(creditsBatch.expiresAt),
+        asc(creditsBatch.issuedAt)
+      );
 
     let remainingToConsume = amount;
     const consumedBatches: Array<{
@@ -558,6 +558,147 @@ export async function consumeCredits(
       remainingBalance: updatedBalance.newBalance,
       transactionId,
       consumedBatches,
+    };
+  });
+}
+
+/**
+ * 套餐升级后作废旧套餐剩余积分。
+ *
+ * 只处理 sourceType=subscription 的活跃批次，不影响免费积分和按量购买积分。
+ * 重复支付回调不会重复扣减，因为已作废批次不再是 active。
+ */
+export async function voidActiveSubscriptionCreditsForUpgrade(
+  params: VoidSubscriptionCreditsForUpgradeParams
+) {
+  const {
+    userId,
+    newBatchSourceRef,
+    subscriptionId,
+    upgradeFromPriceId,
+    upgradeToPriceId,
+    issuedBefore,
+    description,
+    metadata,
+  } = params;
+
+  return await db.transaction(async (tx) => {
+    const batches = await tx
+      .select({
+        id: creditsBatch.id,
+        amount: creditsBatch.amount,
+        remaining: creditsBatch.remaining,
+        sourceRef: creditsBatch.sourceRef,
+        issuedAt: creditsBatch.issuedAt,
+        expiresAt: creditsBatch.expiresAt,
+      })
+      .from(creditsBatch)
+      .where(
+        and(
+          eq(creditsBatch.userId, userId),
+          eq(creditsBatch.sourceType, "subscription"),
+          eq(creditsBatch.status, "active"),
+          gt(creditsBatch.remaining, 0),
+          issuedBefore
+            ? lt(creditsBatch.issuedAt, issuedBefore)
+            : sql`true`,
+          newBatchSourceRef
+            ? sql`${creditsBatch.sourceRef} IS DISTINCT FROM ${newBatchSourceRef}`
+            : sql`true`
+        )
+      )
+      .orderBy(
+        creditBatchExpiryOrder(),
+        asc(creditsBatch.expiresAt),
+        asc(creditsBatch.issuedAt)
+      );
+
+    const voidedBatches: Array<{
+      batchId: string;
+      voidedAmount: number;
+      sourceRef: string | null;
+    }> = [];
+
+    for (const batch of batches) {
+      const [voidedBatch] = await tx
+        .update(creditsBatch)
+        .set({
+          status: "expired",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(creditsBatch.id, batch.id),
+            eq(creditsBatch.status, "active"),
+            gt(creditsBatch.remaining, 0)
+          )
+        )
+        .returning({
+          id: creditsBatch.id,
+          amount: creditsBatch.amount,
+          remaining: creditsBatch.remaining,
+          sourceRef: creditsBatch.sourceRef,
+          issuedAt: creditsBatch.issuedAt,
+          expiresAt: creditsBatch.expiresAt,
+        });
+
+      if (!voidedBatch) continue;
+
+      await tx.insert(creditsTransaction).values({
+        id: crypto.randomUUID(),
+        userId,
+        type: "expiration",
+        amount: voidedBatch.remaining,
+        debitAccount: `WALLET:${userId}`,
+        creditAccount: "SYSTEM:subscription_upgrade",
+        description:
+          description ?? `套餐升级作废旧订阅积分批次 ${voidedBatch.id}`,
+        metadata: {
+          ...metadata,
+          reason: "subscription_upgrade",
+          batchId: voidedBatch.id,
+          sourceRef: voidedBatch.sourceRef,
+          originalAmount: voidedBatch.amount,
+          voidedAmount: voidedBatch.remaining,
+          issuedAt: voidedBatch.issuedAt,
+          expiresAt: voidedBatch.expiresAt,
+          subscriptionId,
+          upgradeFromPriceId,
+          upgradeToPriceId,
+          newBatchSourceRef,
+          issuedBefore,
+        },
+      });
+
+      voidedBatches.push({
+        batchId: voidedBatch.id,
+        voidedAmount: voidedBatch.remaining,
+        sourceRef: voidedBatch.sourceRef,
+      });
+    }
+
+    if (voidedBatches.length > 0) {
+      const totalVoided = normalizeCreditAmount(
+        voidedBatches.reduce((sum, batch) => sum + batch.voidedAmount, 0)
+      );
+
+      await tx
+        .update(creditsBalance)
+        .set({
+          balance: sql`GREATEST(0, ${creditsBalance.balance} - ${totalVoided})`,
+          updatedAt: new Date(),
+        })
+        .where(eq(creditsBalance.userId, userId));
+
+      return {
+        voidedAmount: totalVoided,
+        voidedBatches,
+      };
+    }
+
+    return {
+      voidedAmount: 0,
+      voidedBatches,
     };
   });
 }
@@ -681,7 +822,12 @@ export async function getUserActiveBatches(userId: string) {
         or(isNull(creditsBatch.expiresAt), gt(creditsBatch.expiresAt, now))
       )
     )
-    .orderBy(asc(creditsBatch.expiresAt), asc(creditsBatch.issuedAt));
+    .orderBy(
+      creditBatchSourcePriorityOrder(),
+      creditBatchExpiryOrder(),
+      asc(creditsBatch.expiresAt),
+      asc(creditsBatch.issuedAt)
+    );
 }
 
 /**

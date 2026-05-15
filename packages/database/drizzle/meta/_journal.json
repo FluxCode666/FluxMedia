@@ -64,6 +64,13 @@
       "when": 1778868000000,
       "tag": "0008_system_settings_and_chat_state",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778889600000,
+      "tag": "0009_free_credits_expiry_and_upgrade_rules",
+      "breakpoints": true
     }
   ]
 }

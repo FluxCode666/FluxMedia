@@ -9,7 +9,10 @@ import {
 } from "@repo/shared/config/payment-runtime";
 import { getPlanFromPriceId } from "@repo/shared/config/subscription-plan";
 import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
-import { grantCredits } from "@repo/shared/credits/core";
+import {
+  grantCredits,
+  voidActiveSubscriptionCreditsForUpgrade,
+} from "@repo/shared/credits/core";
 import { getRuntimeCreditPackageById } from "@repo/shared/credits/packages";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import {
@@ -283,6 +286,7 @@ async function grantSubscriptionCredits(params: {
   source: "epay-webhook" | "epay-return";
 }) {
   const sourceRef = `epay_subscription:${params.outTradeNo}`;
+  const upgradeCutoff = new Date();
 
   const [existingBatch] = await db
     .select({ id: creditsBatch.id })
@@ -296,6 +300,32 @@ async function grantSubscriptionCredits(params: {
     .limit(1);
 
   if (existingBatch) {
+    if (params.checkoutMode === "upgrade") {
+      const voidResult = await voidActiveSubscriptionCreditsForUpgrade({
+        userId: params.userId,
+        newBatchSourceRef: sourceRef,
+        subscriptionId: params.subscriptionId,
+        upgradeFromPriceId: params.upgradeFromPriceId,
+        upgradeToPriceId: params.priceId,
+        issuedBefore: upgradeCutoff,
+        description: `${params.planType} Epay upgrade voided previous subscription credits`,
+        metadata: {
+          provider: "epay",
+          outTradeNo: params.outTradeNo,
+          checkoutMode: params.checkoutMode,
+        },
+      });
+      logger.info(
+        {
+          source: params.source,
+          sourceRef,
+          userId: params.userId,
+          voidedAmount: voidResult.voidedAmount,
+        },
+        "Previous subscription credits voided for existing upgrade fulfillment"
+      );
+    }
+
     logger.info(
       { source: params.source, sourceRef },
       "Subscription credits already fulfilled"
@@ -311,7 +341,7 @@ async function grantSubscriptionCredits(params: {
     ? fallbackExpiresAt
     : params.periodEnd;
 
-  await grantCredits({
+  const result = await grantCredits({
     userId: params.userId,
     amount: creditsToGrant,
     sourceType: "subscription",
@@ -343,4 +373,33 @@ async function grantSubscriptionCredits(params: {
       }),
     },
   });
+
+  if (params.checkoutMode === "upgrade") {
+    const voidResult = await voidActiveSubscriptionCreditsForUpgrade({
+      userId: params.userId,
+      newBatchSourceRef: sourceRef,
+      subscriptionId: params.subscriptionId,
+      upgradeFromPriceId: params.upgradeFromPriceId,
+      upgradeToPriceId: params.priceId,
+      issuedBefore: upgradeCutoff,
+      description: `${params.planType} Epay upgrade voided previous subscription credits`,
+      metadata: {
+        provider: "epay",
+        outTradeNo: params.outTradeNo,
+        checkoutMode: params.checkoutMode,
+        newBatchId: result.batchId,
+      },
+    });
+
+    logger.info(
+      {
+        source: params.source,
+        sourceRef,
+        userId: params.userId,
+        batchId: result.batchId,
+        voidedAmount: voidResult.voidedAmount,
+      },
+      "Previous subscription credits voided for upgrade"
+    );
+  }
 }

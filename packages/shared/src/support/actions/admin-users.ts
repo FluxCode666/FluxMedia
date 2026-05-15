@@ -214,8 +214,8 @@ export const adminGrantCreditsAction = withAdminUsersAction("grantCredits")
   .schema(grantCreditsSchema)
   .action(async ({ parsedInput: data, ctx }) => {
     const expiryDays = await getRuntimeSettingNumber(
-      "CREDITS_EXPIRY_DAYS",
-      CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+      "FREE_CREDITS_EXPIRY_DAYS",
+      CREDIT_CONFIG_DEFAULTS.freeCreditsExpiryDays,
       { positive: true }
     );
     const expiresAt = expiryDays

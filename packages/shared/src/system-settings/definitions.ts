@@ -104,6 +104,7 @@ export type SettingKey =
   | "SMTP_PASS"
   | "RESEND_API_KEY"
   | "REGISTRATION_BONUS_CREDITS"
+  | "FREE_CREDITS_EXPIRY_DAYS"
   | "CREDITS_EXPIRY_DAYS"
   | "NEXT_PUBLIC_GA_ID"
   | "NEXT_PUBLIC_SENTRY_DSN"
@@ -864,9 +865,17 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 100,
   },
   {
+    key: "FREE_CREDITS_EXPIRY_DAYS",
+    label: "免费积分有效期天数",
+    description: "注册奖励和管理员赠送等免费积分的默认有效期。",
+    category: "credits",
+    valueType: "number",
+    defaultValue: 7,
+  },
+  {
     key: "CREDITS_EXPIRY_DAYS",
     label: "积分包有效期天数",
-    description: "非订阅积分默认有效期。订阅积分仍按套餐周期过期。",
+    description: "按量购买积分默认有效期。免费积分和订阅积分使用各自规则。",
     category: "credits",
     valueType: "number",
     defaultValue: 365,
