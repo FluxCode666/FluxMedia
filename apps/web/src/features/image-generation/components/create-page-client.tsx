@@ -40,9 +40,11 @@ import {
   Loader2,
   Maximize2,
   MessageSquare,
+  Plus,
   RefreshCcw,
   Save,
   Send,
+  Trash2,
   Upload,
   Wand2,
   X,
@@ -97,6 +99,10 @@ type ImageApiResult = {
   responseThinking?: string;
   creditsConsumed?: number;
   results?: ImageApiResult[];
+};
+
+type GenerationRequestError = Error & {
+  creditsConsumed?: number;
 };
 
 type ImageStreamEvent =
@@ -184,6 +190,7 @@ type BatchCard = {
   text?: string;
   error?: string;
   model?: string;
+  creditsConsumed?: number;
   saved?: boolean;
 };
 
@@ -226,7 +233,8 @@ const MODERATION_OPTIONS: Array<{ value: ImageModeration; label: string }> = [
   { value: "low", label: "Low" },
 ];
 const BATCH_OPTIONS = [1, 2, 4, 6, 8, 10] as const;
-const CHAT_TIER_OPTIONS = [1, 5, 10, 20] as const;
+const WATERFALL_LOAD_SIZE = 5;
+const WATERFALL_MAX_CONCURRENT = WATERFALL_LOAD_SIZE * 3;
 const CHAT_MODEL_OPTIONS: Array<{
   value: ChatModel;
   label: string;
@@ -464,9 +472,9 @@ export function CreatePageClient({
   >(null);
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchPrompt, setBatchPrompt] = useState("");
-  const [batchTier, setBatchTier] = useState(5);
   const [isBatchActive, setIsBatchActive] = useState(false);
   const [isBatchLoadingMore, setIsBatchLoadingMore] = useState(false);
+  const [waterfallCreditsConsumed, setWaterfallCreditsConsumed] = useState(0);
   const [chatModel, setChatModel] = useState<ChatModel>(GPT54_CHAT_MODEL);
   const [chatThinking, setChatThinking] = useState<ChatThinkingLevel>("low");
   const [chatFirstImageSize, setChatFirstImageSize] = useState<{
@@ -515,6 +523,9 @@ export function CreatePageClient({
   const batchPromptRef = useRef("");
   const batchSizeRef = useRef(DEFAULT_IMAGE_SIZE);
   const batchLoadingMoreRef = useRef(false);
+  const triggerBatchGenerationRef = useRef<
+    ((options?: { retryCardId?: string }) => Promise<void>) | null
+  >(null);
   const maskInputRef = useRef<HTMLInputElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
@@ -569,12 +580,14 @@ export function CreatePageClient({
   const batchSingleCreditCost = getImageCreditCost(batchFallbackSize, {
     imageModerationCount: chatAttachments.length,
   });
-  const batchCreditCost = batchSingleCreditCost * batchTier;
   const formattedBalance = formatCredits(balance);
   const formattedTextBatchCreditCost = formatCredits(textBatchCreditCost);
   const formattedEditBatchCreditCost = formatCredits(editBatchCreditCost);
   const formattedChatSingleCreditCost = formatCredits(chatSingleCreditCost);
-  const formattedBatchCreditCost = formatCredits(batchCreditCost);
+  const formattedBatchSingleCreditCost = formatCredits(batchSingleCreditCost);
+  const formattedWaterfallCreditsConsumed = formatCredits(
+    waterfallCreditsConsumed
+  );
   const sizeCheck = useMemo(() => validateImageSize(size), [size]);
   const customEditSizeCheck = useMemo(
     () => validateImageSize(customEditSize),
@@ -639,6 +652,28 @@ export function CreatePageClient({
 
   const clearStreamingPreview = () => {
     setStreamingPreviewUrl(null);
+  };
+
+  const resetChatConversation = () => {
+    setChatMessages([]);
+    setChatStream(null);
+    setRetryingChatMessageId(null);
+    clearStreamingPreview();
+    window.localStorage.removeItem(CHAT_STORAGE_KEY);
+  };
+
+  const handleNewChat = () => {
+    if (isChatGenerating) return;
+    resetChatConversation();
+    setChatPrompt("");
+    clearChatAttachments();
+    toast.success(copy("New chat started", "已新建对话"));
+  };
+
+  const handleClearChatHistory = () => {
+    if (isChatGenerating) return;
+    resetChatConversation();
+    toast.success(copy("Chat history cleared", "对话记录已清理"));
   };
 
   const scrollChatToBottom = () => {
@@ -769,11 +804,22 @@ export function CreatePageClient({
       body: formData,
     });
 
+    const createRequestError = (message: string, creditsConsumed?: number) => {
+      const error = new Error(message) as GenerationRequestError;
+      if (creditsConsumed !== undefined) {
+        error.creditsConsumed = creditsConsumed;
+      }
+      return error;
+    };
+
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("text/event-stream")) {
       const data = (await response.json()) as ImageApiResult;
       if (!response.ok || data.error) {
-        throw new Error(data.error || `API error: ${response.status}`);
+        throw createRequestError(
+          data.error || `API error: ${response.status}`,
+          data.creditsConsumed
+        );
       }
       return data;
     }
@@ -785,7 +831,7 @@ export function CreatePageClient({
 
     const decoder = new TextDecoder();
     let buffer = "";
-    let failed: string | null = null;
+    let failed: ImageApiResult | null = null;
     let completed: ImageApiResult | undefined;
     let text = "";
     let thinking = "";
@@ -883,7 +929,7 @@ export function CreatePageClient({
       }
 
       if (event.type === "error") {
-        failed = event.error;
+        failed = event;
       }
     };
 
@@ -900,8 +946,12 @@ export function CreatePageClient({
 
     if (buffer.trim()) processBlock(buffer);
 
-    if (!response.ok || failed) {
-      throw new Error(failed || `API error: ${response.status}`);
+    const failedResult = failed as ImageApiResult | null;
+    if (!response.ok || failedResult) {
+      throw createRequestError(
+        failedResult?.error || `API error: ${response.status}`,
+        failedResult?.creditsConsumed
+      );
     }
 
     if (!completed) {
@@ -943,6 +993,10 @@ export function CreatePageClient({
   useEffect(() => {
     if (!didLoadChatRef.current) return;
     try {
+      if (chatMessages.length === 0) {
+        window.localStorage.removeItem(CHAT_STORAGE_KEY);
+        return;
+      }
       const persistedMessages = chatMessages.slice(-80).map((message) => ({
         ...message,
         attachments: message.attachments?.filter(
@@ -1133,6 +1187,13 @@ export function CreatePageClient({
     if (!creditsConsumed || creditsConsumed <= 0) return;
     setBalance(
       (b) => Math.round(Math.max(0, b - creditsConsumed) * 100) / 100
+    );
+  };
+
+  const syncWaterfallCredits = (creditsConsumed?: number) => {
+    if (!creditsConsumed || creditsConsumed <= 0) return;
+    setWaterfallCreditsConsumed(
+      (value) => Math.round((value + creditsConsumed) * 100) / 100
     );
   };
 
@@ -1370,9 +1431,15 @@ export function CreatePageClient({
       );
       toast.success(copy("Variant generated", "新版本已生成"));
     } catch (error) {
-      const message = error instanceof Error
-        ? error.message
-        : copy("Retry failed.", "重试失败。");
+      const message =
+        error instanceof Error
+          ? error.message
+          : copy("Retry failed.", "重试失败。");
+      const creditsConsumed =
+        error instanceof Error
+          ? (error as GenerationRequestError).creditsConsumed
+          : undefined;
+      syncChargedCredits(creditsConsumed);
       toast.error(copy("Retry failed", "重试失败"), { description: message });
     } finally {
       setRetryingChatMessageId(null);
@@ -1803,16 +1870,17 @@ export function CreatePageClient({
     }));
     if (!validateChatAttachments(attachments)) return;
 
-    const requestCount = options?.retryCardId ? 1 : batchTier;
-    const maxConcurrent = batchTier * 3;
-    const available = maxConcurrent - batchActiveRequestsRef.current;
-    const batchSize = Math.min(requestCount, Math.max(available, 0));
-    if (batchSize <= 0) return;
+    const requestCount = options?.retryCardId ? 1 : WATERFALL_LOAD_SIZE;
+    const available =
+      WATERFALL_MAX_CONCURRENT - batchActiveRequestsRef.current;
+    const loadSize = Math.min(requestCount, Math.max(available, 0));
+    if (loadSize <= 0) return;
 
-    const requiredCredits =
-      getImageCreditCost(fallbackSize, {
-        imageModerationCount: attachments.length,
-      }) * batchSize;
+    const creditsPerRequest = getImageCreditCost(fallbackSize, {
+      imageModerationCount: attachments.length,
+    });
+    const pendingCredits = batchActiveRequestsRef.current * creditsPerRequest;
+    const requiredCredits = creditsPerRequest * loadSize + pendingCredits;
     if (balance < requiredCredits) {
       showGenerationError("Insufficient credits");
       return;
@@ -1820,7 +1888,7 @@ export function CreatePageClient({
 
     const cards: BatchCard[] = options?.retryCardId
       ? []
-      : Array.from({ length: batchSize }, () => ({
+      : Array.from({ length: loadSize }, () => ({
           id: createLocalId(),
           state: "loading" as const,
           aspectRatio:
@@ -1860,6 +1928,7 @@ export function CreatePageClient({
           streamCardId: cardId,
         });
         const variant = addSuccessfulResult(data, currentPrompt, fallbackSize);
+        syncWaterfallCredits(data.creditsConsumed);
         setBatchCards((prev) =>
           prev.map((card) =>
             card.id === cardId
@@ -1873,11 +1942,18 @@ export function CreatePageClient({
                   streamThinking: data.responseThinking,
                   model: data.model,
                   size: data.size || fallbackSize,
+                  creditsConsumed: data.creditsConsumed,
                 }
               : card
           )
         );
       } catch (error) {
+        const creditsConsumed =
+          error instanceof Error
+            ? (error as GenerationRequestError).creditsConsumed
+            : undefined;
+        syncChargedCredits(creditsConsumed);
+        syncWaterfallCredits(creditsConsumed);
         setBatchCards((prev) =>
           prev.map((card) =>
             card.id === cardId
@@ -1888,6 +1964,7 @@ export function CreatePageClient({
                     error instanceof Error
                       ? error.message
                       : copy("Generation failed", "生成失败"),
+                  creditsConsumed,
                 }
               : card
           )
@@ -1906,6 +1983,7 @@ export function CreatePageClient({
       void runCard(card.id);
     });
   };
+  triggerBatchGenerationRef.current = triggerBatchGeneration;
 
   const handleBatchSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -1916,6 +1994,11 @@ export function CreatePageClient({
     }
     batchPromptRef.current = currentPrompt;
     batchSizeRef.current = getBatchFallbackSize();
+    batchActiveRequestsRef.current = 0;
+    batchLoadingMoreRef.current = false;
+    setBatchCards([]);
+    setWaterfallCreditsConsumed(0);
+    setIsBatchLoadingMore(false);
     setIsBatchActive(true);
     await triggerBatchGeneration();
   };
@@ -1933,10 +2016,12 @@ export function CreatePageClient({
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
         if (!batchPromptRef.current || batchLoadingMoreRef.current) return;
-        if (batchActiveRequestsRef.current >= batchTier * 3) return;
+        if (batchActiveRequestsRef.current >= WATERFALL_MAX_CONCURRENT) return;
+        const triggerGeneration = triggerBatchGenerationRef.current;
+        if (!triggerGeneration) return;
         batchLoadingMoreRef.current = true;
         setIsBatchLoadingMore(true);
-        void triggerBatchGeneration().finally(() => {
+        void triggerGeneration().finally(() => {
           batchLoadingMoreRef.current = false;
           setIsBatchLoadingMore(false);
         });
@@ -1946,7 +2031,7 @@ export function CreatePageClient({
 
     observer.observe(batchLoadTriggerRef.current);
     return () => observer.disconnect();
-  }, [batchTier, isBatchActive, triggerBatchGeneration]);
+  }, [isBatchActive]);
 
   const handleChatPaste = (event: React.ClipboardEvent) => {
     if (activeMode !== "chat" || isChatGenerating) return;
@@ -2099,6 +2184,11 @@ export function CreatePageClient({
           : copy("Response generated", "回复已生成")
       );
     } catch (error) {
+      const creditsConsumed =
+        error instanceof Error
+          ? (error as GenerationRequestError).creditsConsumed
+          : undefined;
+      syncChargedCredits(creditsConsumed);
       const message =
         error instanceof Error
           ? error.message
@@ -3416,21 +3506,47 @@ export function CreatePageClient({
                   onClick={() => setChatViewMode("batch")}
                 >
                   <ImagePlus className="h-4 w-4" />
-                  {copy("Batch", "批量")}
+                  {copy("Waterfall", "瀑布流")}
                 </Button>
               </div>
-              {chatAttachments.length > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={clearChatAttachments}
-                  disabled={isChatGenerating}
-                >
-                  <X className="h-4 w-4" />
-                  {copy("Clear references", "清除参考图")}
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {chatViewMode === "chat" && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleNewChat}
+                      disabled={isChatGenerating}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {copy("New chat", "新对话")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearChatHistory}
+                      disabled={isChatGenerating || chatMessages.length === 0}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {copy("Clear history", "清理记录")}
+                    </Button>
+                  </>
+                )}
+                {chatAttachments.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={clearChatAttachments}
+                    disabled={isChatGenerating}
+                  >
+                    <X className="h-4 w-4" />
+                    {copy("Clear references", "清除参考图")}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {chatViewMode === "chat" ? (
@@ -3708,21 +3824,6 @@ export function CreatePageClient({
                       </SelectContent>
                     </Select>
                     <Select
-                      value={String(batchTier)}
-                      onValueChange={(value) => setBatchTier(Number(value))}
-                    >
-                      <SelectTrigger className="h-8 w-[110px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CHAT_TIER_OPTIONS.map((tier) => (
-                          <SelectItem key={tier} value={String(tier)}>
-                            {copy(`Batch ${tier}`, `批量 ${tier}`)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
                       value={chatThinking}
                       onValueChange={(value) =>
                         setChatThinking(value as ChatThinkingLevel)
@@ -3746,11 +3847,26 @@ export function CreatePageClient({
                       isBatchActive
                     )}
                     <div className="text-xs text-muted-foreground">
-                      {copy("Cost", "费用")}{" "}
+                      {copy("Per image", "单张预计")}{" "}
                       <span className="font-medium text-foreground">
-                        {formattedBatchCreditCost}
+                        {formattedBatchSingleCreditCost}
+                      </span>
+                      {isBatchActive && (
+                        <>
+                          {" "}
+                          <span className="text-muted-foreground">/</span>{" "}
+                          {copy("Used", "已用")}{" "}
+                          <span className="font-medium text-foreground">
+                            {formattedWaterfallCreditsConsumed}
+                          </span>
+                        </>
+                      )}
+                      {" "}
+                      <span className="text-muted-foreground">/</span>{" "}
+                      {copy("Balance", "余额")}{" "}
+                      <span className="font-medium text-foreground">
+                        {formattedBalance}
                       </span>{" "}
-                      {copy(`for ${batchTier}`, `共 ${batchTier} 张`)}
                     </div>
                   </div>
                 </div>
@@ -3765,7 +3881,7 @@ export function CreatePageClient({
                         )}
                       </h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {copy("One prompt, endless creations", "一个提示词，批量生成灵感")}
+                        {copy("One prompt, endless creations", "一个提示词，瀑布生成灵感")}
                       </p>
                     </div>
                     <form
@@ -3813,7 +3929,7 @@ export function CreatePageClient({
                           }
                           placeholder={copy(
                             "Describe the images you want to generate...",
-                            "描述你想批量生成的图片..."
+                            "描述你想生成的图片..."
                           )}
                           rows={1}
                           className="max-h-40 min-h-9 resize-none border-0 bg-transparent px-0 py-2 text-base shadow-none focus-visible:ring-0"
@@ -3828,7 +3944,7 @@ export function CreatePageClient({
                           type="submit"
                           size="icon-sm"
                           disabled={!batchPrompt.trim()}
-                          title={copy("Generate batch", "批量生成")}
+                          title={copy("Start waterfall", "开始瀑布流")}
                         >
                           <Send className="h-4 w-4" />
                         </Button>
