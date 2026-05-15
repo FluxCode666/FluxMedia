@@ -2,6 +2,10 @@ import type { Transporter } from "nodemailer";
 import { createTransport } from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import { Resend } from "resend";
+import {
+  getProcessSettingBoolean,
+  getProcessSettingString,
+} from "../system-settings";
 
 /**
  * 邮件客户端
@@ -20,30 +24,22 @@ interface SmtpConfig {
   pass: string;
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean) {
-  if (!value) {
-    return fallback;
-  }
-
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
 function getSmtpConfig(): SmtpConfig | null {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const host = getProcessSettingString("SMTP_HOST");
+  const user = getProcessSettingString("SMTP_USER");
+  const pass = getProcessSettingString("SMTP_PASS");
 
   if (!host || !user || !pass) {
     return null;
   }
 
-  const port = Number.parseInt(process.env.SMTP_PORT ?? "465", 10);
+  const port = Number.parseInt(getProcessSettingString("SMTP_PORT") ?? "465", 10);
   const resolvedPort = Number.isFinite(port) ? port : 465;
 
   return {
     host,
     port: resolvedPort,
-    secure: parseBoolean(process.env.SMTP_SECURE, resolvedPort === 465),
+    secure: getProcessSettingBoolean("SMTP_SECURE", resolvedPort === 465),
     user,
     pass,
   };
@@ -54,7 +50,7 @@ export function isSmtpConfigured() {
 }
 
 export function isResendConfigured() {
-  return Boolean(process.env.RESEND_API_KEY);
+  return Boolean(getProcessSettingString("RESEND_API_KEY"));
 }
 
 export function isEmailConfigured() {
@@ -62,7 +58,7 @@ export function isEmailConfigured() {
 }
 
 export function getEmailProvider(): EmailProvider {
-  const configuredProvider = process.env.EMAIL_PROVIDER?.toLowerCase();
+  const configuredProvider = getProcessSettingString("EMAIL_PROVIDER")?.toLowerCase();
 
   if (configuredProvider === "smtp" || configuredProvider === "resend") {
     return configuredProvider;
@@ -81,7 +77,7 @@ export function getEmailProvider(): EmailProvider {
  * 使用懒加载模式，只在需要时创建实例
  */
 function createResendClient() {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = getProcessSettingString("RESEND_API_KEY");
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY environment variable is not set");
@@ -146,4 +142,4 @@ export function getSmtpTransporter(): Transporter<SMTPTransport.SentMessageInfo>
  * 格式: "Name <email@domain.com>"
  */
 export const DEFAULT_FROM_EMAIL =
-  process.env.EMAIL_FROM ?? "GPT2IMAGE <noreply@gpt2image.com>";
+  getProcessSettingString("EMAIL_FROM") ?? "GPT2IMAGE <noreply@gpt2image.com>";

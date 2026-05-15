@@ -15,10 +15,20 @@ import {
   creditsTransaction,
 } from "@repo/database/schema";
 import { logEvent } from "../logger/index";
-import { CREDITS_EXPIRY_DAYS } from "./config";
+import { getRuntimeSettingNumber } from "../system-settings";
+import { CREDIT_CONFIG_DEFAULTS } from "./config";
 
 const CREDIT_DECIMAL_PLACES = 2;
 const CREDIT_DECIMAL_FACTOR = 10 ** CREDIT_DECIMAL_PLACES;
+
+async function getDefaultCreditsExpiryDate(issuedAt: Date) {
+  const expiryDays = await getRuntimeSettingNumber(
+    "CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+    { positive: true }
+  );
+  return new Date(issuedAt.getTime() + expiryDays * 24 * 60 * 60 * 1000);
+}
 
 function normalizeCreditAmount(amount: number) {
   if (!Number.isFinite(amount)) {
@@ -273,8 +283,7 @@ export async function grantCredits(params: GrantCreditsParams) {
 
     const issuedAt = new Date();
     const effectiveExpiresAt =
-      expiresAt ??
-      new Date(issuedAt.getTime() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+      expiresAt ?? (await getDefaultCreditsExpiryDate(issuedAt));
     const batchId = crypto.randomUUID();
     await tx.insert(creditsBatch).values({
       id: batchId,

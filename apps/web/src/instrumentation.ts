@@ -8,6 +8,10 @@
 export async function register() {
   // 服务端初始化
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { bootstrapSystemSettingsEnv } = await import(
+      "@repo/shared/system-settings/bootstrap"
+    );
+    await bootstrapSystemSettingsEnv();
     // Sentry 服务端初始化
     await import("../sentry.server.config");
   }

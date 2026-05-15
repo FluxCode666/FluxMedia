@@ -4,19 +4,19 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
-  findPlanByPriceId,
   getBaseUrl,
   paymentConfig,
 } from "@repo/shared/config/payment";
+import { findRuntimePlanByPriceId } from "@repo/shared/config/payment-runtime";
 import { db } from "@repo/database";
 import { subscription } from "@repo/database/schema";
 import { PaymentType } from "@/features/payment/types";
 import { logEvent } from "@repo/shared/logger";
 import { protectedAction } from "@repo/shared/safe-action";
 import {
-  createEpayPurchase,
+  createRuntimeEpayPurchase,
   encodeEpayMetadata,
-  isEpayPaymentProvider,
+  isRuntimeEpayPaymentProvider,
 } from "@repo/shared/payment/epay";
 
 import { creem } from "./creem";
@@ -54,7 +54,7 @@ export const createCheckoutSession = protectedAction
       .limit(1);
 
     // 查找计划和价格信息
-    const { plan, price } = findPlanByPriceId(priceId);
+    const { plan, price } = await findRuntimePlanByPriceId(priceId);
     if (!plan || !price) {
       throw new Error("无效的价格 ID");
     }
@@ -63,22 +63,23 @@ export const createCheckoutSession = protectedAction
     const hasActiveSub =
       existingSub && isSubscriptionCurrentlyActive(existingSub);
     const upgradeQuote = hasActiveSub
-      ? createSubscriptionCheckoutQuote(existingSub, priceId)
+      ? await createSubscriptionCheckoutQuote(existingSub, priceId)
       : null;
+    const useEpay = await isRuntimeEpayPaymentProvider();
 
     logEvent("payment.checkout.started", {
       userId,
       priceId,
       planId: plan.id,
-      provider: isEpayPaymentProvider() ? "epay" : "creem",
+      provider: useEpay ? "epay" : "creem",
       checkoutMode: upgradeQuote ? "upgrade" : "new_subscription",
       amountDue: upgradeQuote?.amountDue ?? price.amount,
       prorationCredit: upgradeQuote?.prorationCredit,
     });
 
-    if (isEpayPaymentProvider()) {
+    if (useEpay) {
       const outTradeNo = `SUB${Date.now()}${crypto.randomUUID().slice(0, 8)}`;
-      const checkout = createEpayPurchase({
+      const checkout = await createRuntimeEpayPurchase({
         outTradeNo,
         name: upgradeQuote
           ? `GPT2IMAGE upgrade to ${plan.name} ${price.interval ?? "subscription"}`

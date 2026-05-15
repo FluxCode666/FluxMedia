@@ -3,15 +3,17 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@repo/database";
 import { creditsBatch, subscription } from "@repo/database/schema";
 import {
-  findPlanByPriceId,
-  SUBSCRIPTION_MONTHLY_CREDITS,
-} from "@repo/shared/config/payment";
+  findRuntimePlanByPriceId,
+  getSubscriptionMonthlyCredits,
+  type PaidPlanId,
+} from "@repo/shared/config/payment-runtime";
 import { getPlanFromPriceId } from "@repo/shared/config/subscription-plan";
 import {
   CREDIT_PACKAGES,
-  CREDITS_EXPIRY_DAYS,
+  CREDIT_CONFIG_DEFAULTS,
 } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
+import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import {
   decodeEpayMetadata,
   type EpayMetadata,
@@ -28,6 +30,17 @@ const inFlightFulfillments = new Map<
   string,
   Promise<FulfillEpayPaymentResult>
 >();
+
+async function getCreditPackExpiresAt() {
+  const expiryDays = await getRuntimeSettingNumber(
+    "CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+    { positive: true }
+  );
+  return expiryDays
+    ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
+    : null;
+}
 
 export async function fulfillSuccessfulEpayPayment(
   verifyInfo: EpayVerifyResult,
@@ -115,9 +128,7 @@ async function handleCreditPurchase(
     return;
   }
 
-  const expiresAt = CREDITS_EXPIRY_DAYS
-    ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
-    : null;
+  const expiresAt = await getCreditPackExpiresAt();
 
   const result = await grantCredits({
     userId,
@@ -161,7 +172,7 @@ async function handleSubscription(
     throw new Error("Missing subscription price ID");
   }
 
-  const { plan, price } = findPlanByPriceId(priceId);
+  const { plan, price } = await findRuntimePlanByPriceId(priceId);
   const planType = getPlanFromPriceId(priceId);
   if (!plan || !price || !planType || planType === "free") {
     throw new Error(`Unknown subscription price ID: ${priceId}`);
@@ -256,7 +267,7 @@ async function grantSubscriptionCredits(params: {
   userId: string;
   subscriptionId: string;
   priceId: string;
-  planType: keyof typeof SUBSCRIPTION_MONTHLY_CREDITS;
+  planType: PaidPlanId;
   isYearly: boolean;
   periodStart: Date;
   periodEnd: Date;
@@ -292,11 +303,10 @@ async function grantSubscriptionCredits(params: {
     return;
   }
 
-  const monthlyCredits = SUBSCRIPTION_MONTHLY_CREDITS[params.planType];
+  const monthlyCreditsByPlan = await getSubscriptionMonthlyCredits();
+  const monthlyCredits = monthlyCreditsByPlan[params.planType];
   const creditsToGrant = params.isYearly ? monthlyCredits * 12 : monthlyCredits;
-  const fallbackExpiresAt = CREDITS_EXPIRY_DAYS
-    ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
-    : null;
+  const fallbackExpiresAt = await getCreditPackExpiresAt();
   const expiresAt = Number.isNaN(params.periodEnd.getTime())
     ? fallbackExpiresAt
     : params.periodEnd;

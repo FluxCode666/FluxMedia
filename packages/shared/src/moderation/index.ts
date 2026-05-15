@@ -6,6 +6,11 @@ import Green20220302Module, {
 import { Config as AliyunOpenApiConfig } from "@alicloud/openapi-client";
 import OpenAI from "openai";
 import { logError, logWarn } from "../logger";
+import {
+  getRuntimeSettingBoolean,
+  getRuntimeSettingNumber,
+  getRuntimeSettingString,
+} from "../system-settings";
 
 type ModerationProvider = "aliyun" | "openai";
 type ModerationDecision = "allow" | "block" | "skipped" | "error";
@@ -57,33 +62,28 @@ interface AliyunConfig {
   imageAppId?: string;
 }
 
-function envFlag(name: string, fallback = false) {
-  const value = process.env[name];
-  if (!value) return fallback;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
 function envValue(name: string) {
   const value = process.env[name]?.trim();
   return value || undefined;
 }
 
-function envNumber(name: string, fallback: number) {
-  const value = Number(envValue(name));
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+async function isModerationEnabled() {
+  return getRuntimeSettingBoolean("CONTENT_MODERATION_ENABLED", true);
 }
 
-function isModerationEnabled() {
-  return envFlag("CONTENT_MODERATION_ENABLED", true);
+async function shouldFailClosed() {
+  return getRuntimeSettingBoolean("CONTENT_MODERATION_FAIL_CLOSED", true);
 }
 
-function shouldFailClosed() {
-  return envFlag("CONTENT_MODERATION_FAIL_CLOSED", true);
+async function runtimeValue(name: Parameters<typeof getRuntimeSettingString>[0]) {
+  return getRuntimeSettingString(name);
 }
 
-function getAliyunConfig(): AliyunConfig | null {
-  const accessKeyId = envValue("ALIYUN_MODERATION_ACCESS_KEY_ID");
-  const accessKeySecret = envValue("ALIYUN_MODERATION_ACCESS_KEY_SECRET");
+async function getAliyunConfig(): Promise<AliyunConfig | null> {
+  const accessKeyId = await runtimeValue("ALIYUN_MODERATION_ACCESS_KEY_ID");
+  const accessKeySecret = await runtimeValue(
+    "ALIYUN_MODERATION_ACCESS_KEY_SECRET"
+  );
 
   if (!accessKeyId || !accessKeySecret) {
     return null;
@@ -92,84 +92,92 @@ function getAliyunConfig(): AliyunConfig | null {
   const config: AliyunConfig = {
     accessKeyId,
     accessKeySecret,
-    regionId: envValue("ALIYUN_MODERATION_REGION_ID") || "cn-shanghai",
+    regionId: (await runtimeValue("ALIYUN_MODERATION_REGION_ID")) || "cn-shanghai",
   };
 
-  const endpoint = envValue("ALIYUN_MODERATION_ENDPOINT");
+  const endpoint = await runtimeValue("ALIYUN_MODERATION_ENDPOINT");
   if (endpoint) config.endpoint = endpoint;
 
-  const textRegionId = envValue("ALIYUN_MODERATION_TEXT_REGION_ID");
+  const textRegionId = await runtimeValue("ALIYUN_MODERATION_TEXT_REGION_ID");
   if (textRegionId) config.textRegionId = textRegionId;
 
-  const textEndpoint = envValue("ALIYUN_MODERATION_TEXT_ENDPOINT");
+  const textEndpoint = await runtimeValue("ALIYUN_MODERATION_TEXT_ENDPOINT");
   if (textEndpoint) config.textEndpoint = textEndpoint;
 
-  const textService = envValue("ALIYUN_MODERATION_TEXT_SERVICE");
+  const textService = await runtimeValue("ALIYUN_MODERATION_TEXT_SERVICE");
   if (textService) config.textService = textService;
 
-  const imageRegionId = envValue("ALIYUN_MODERATION_IMAGE_REGION_ID");
+  const imageRegionId = await runtimeValue("ALIYUN_MODERATION_IMAGE_REGION_ID");
   if (imageRegionId) config.imageRegionId = imageRegionId;
 
-  const imageEndpoint = envValue("ALIYUN_MODERATION_IMAGE_ENDPOINT");
+  const imageEndpoint = await runtimeValue("ALIYUN_MODERATION_IMAGE_ENDPOINT");
   if (imageEndpoint) config.imageEndpoint = imageEndpoint;
 
-  const imageService = envValue("ALIYUN_MODERATION_IMAGE_SERVICE");
+  const imageService = await runtimeValue("ALIYUN_MODERATION_IMAGE_SERVICE");
   if (imageService) config.imageService = imageService;
 
   const textAppId =
-    envValue("ALIYUN_MODERATION_TEXT_APP_ID") ||
+    (await runtimeValue("ALIYUN_MODERATION_TEXT_APP_ID")) ||
     envValue("ALIYUN_MODERATION_APP_ID");
   if (textAppId) config.textAppId = textAppId;
 
-  const imageAppId = envValue("ALIYUN_MODERATION_IMAGE_APP_ID");
+  const imageAppId = await runtimeValue("ALIYUN_MODERATION_IMAGE_APP_ID");
   if (imageAppId) config.imageAppId = imageAppId;
 
   return config;
 }
 
-function getOpenAiApiKey() {
+async function getOpenAiApiKey() {
   return (
-    envValue("OPENAI_MODERATION_API_KEY") ||
+    (await runtimeValue("OPENAI_MODERATION_API_KEY")) ||
     envValue("MODERATION_OPENAI_API_KEY") ||
     envValue("OPENAI_API_KEY")
   );
 }
 
-function getProxyUrl() {
-  return envValue("CONTENT_MODERATION_PROXY_URL");
+async function getProxyUrl() {
+  return runtimeValue("CONTENT_MODERATION_PROXY_URL");
 }
 
-function getProxySecret() {
-  return envValue("CONTENT_MODERATION_PROXY_SECRET");
+async function getProxySecret() {
+  return runtimeValue("CONTENT_MODERATION_PROXY_SECRET");
 }
 
-function getProxyTimeoutMs() {
-  return envNumber("CONTENT_MODERATION_PROXY_TIMEOUT_MS", 10_000);
+async function getProxyTimeoutMs() {
+  return getRuntimeSettingNumber("CONTENT_MODERATION_PROXY_TIMEOUT_MS", 10_000, {
+    positive: true,
+  });
 }
 
-function getProviderTimeoutMs() {
-  return envNumber("CONTENT_MODERATION_PROVIDER_TIMEOUT_MS", 10_000);
+async function getProviderTimeoutMs() {
+  return getRuntimeSettingNumber(
+    "CONTENT_MODERATION_PROVIDER_TIMEOUT_MS",
+    10_000,
+    { positive: true }
+  );
 }
 
-export function getConfiguredModerationProviders(): ModerationProvider[] {
-  if (!isModerationEnabled()) {
+export async function getConfiguredModerationProviders(): Promise<
+  ModerationProvider[]
+> {
+  if (!(await isModerationEnabled())) {
     return [];
   }
 
-  const configured = envValue("CONTENT_MODERATION_PROVIDER");
+  const configured = await runtimeValue("CONTENT_MODERATION_PROVIDER");
   if (configured === "aliyun") {
-    return getAliyunConfig() ? ["aliyun"] : [];
+    return (await getAliyunConfig()) ? ["aliyun"] : [];
   }
   if (configured === "openai") {
-    return getOpenAiApiKey() ? ["openai"] : [];
+    return (await getOpenAiApiKey()) ? ["openai"] : [];
   }
   if (configured === "none") {
     return [];
   }
 
   const providers: ModerationProvider[] = [];
-  if (getAliyunConfig()) providers.push("aliyun");
-  if (getOpenAiApiKey()) providers.push("openai");
+  if (await getAliyunConfig()) providers.push("aliyun");
+  if (await getOpenAiApiKey()) providers.push("openai");
   return providers;
 }
 
@@ -461,7 +469,7 @@ async function moderateWithAliyunImageModeration(
 async function moderateWithAliyun(
   input: ModerateContentInput
 ): Promise<ModerationResult> {
-  const config = getAliyunConfig();
+  const config = await getAliyunConfig();
   if (!config) {
     return { decision: "skipped", provider: "aliyun" };
   }
@@ -503,7 +511,7 @@ async function moderateWithAliyun(
 async function moderateWithOpenAI(
   input: ModerateContentInput
 ): Promise<ModerationResult> {
-  const apiKey = getOpenAiApiKey();
+  const apiKey = await getOpenAiApiKey();
   if (!apiKey) {
     return { decision: "skipped", provider: "openai" };
   }
@@ -524,7 +532,9 @@ async function moderateWithOpenAI(
   }
 
   const result = await client.moderations.create({
-    model: envValue("OPENAI_MODERATION_MODEL") || "omni-moderation-latest",
+    model:
+      (await runtimeValue("OPENAI_MODERATION_MODEL")) ||
+      "omni-moderation-latest",
     input: moderationInput,
   });
 
@@ -548,19 +558,22 @@ async function moderateWithOpenAI(
 async function moderateWithProxy(
   input: ModerateContentInput
 ): Promise<ModerationResult> {
-  const proxyUrl = getProxyUrl();
+  const proxyUrl = await getProxyUrl();
   if (!proxyUrl || input.skipProxy) {
     return { decision: "skipped" };
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getProxyTimeoutMs());
+  const timeout = setTimeout(
+    () => controller.abort(),
+    await getProxyTimeoutMs()
+  );
 
   try {
     const headers: Record<string, string> = {
       "content-type": "application/json",
     };
-    const secret = getProxySecret();
+    const secret = await getProxySecret();
     if (secret) {
       headers.authorization = `Bearer ${secret}`;
       headers["x-moderation-proxy-secret"] = secret;
@@ -607,8 +620,8 @@ async function moderateWithProxy(
 export async function moderateContent(
   input: ModerateContentInput
 ): Promise<ModerationResult> {
-  const providers = getConfiguredModerationProviders();
-  const proxyUrl = getProxyUrl();
+  const providers = await getConfiguredModerationProviders();
+  const proxyUrl = await getProxyUrl();
   if (providers.length === 0 && (!proxyUrl || input.skipProxy)) {
     return { decision: "skipped" };
   }
@@ -639,7 +652,7 @@ export async function moderateContent(
         provider === "aliyun"
           ? moderateWithAliyun(input)
           : moderateWithOpenAI(input),
-        getProviderTimeoutMs(),
+        await getProviderTimeoutMs(),
         `${provider} moderation`
       );
 
@@ -663,7 +676,7 @@ export async function moderateContent(
   }
 
   if (errors.length > 0) {
-    if (shouldFailClosed()) {
+    if (await shouldFailClosed()) {
       return {
         decision: "error",
         reason: "Content moderation failed",

@@ -1,19 +1,20 @@
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { SUBSCRIPTION_MONTHLY_CREDITS } from "@repo/shared/config/payment";
+import { getSubscriptionMonthlyCredits } from "@repo/shared/config/payment-runtime";
 import { getPlanFromPriceId } from "@repo/shared/config/subscription-plan";
 import { db } from "@repo/database";
 import { creditsBatch, subscription, user } from "@repo/database/schema";
 import {
-  CREDITS_EXPIRY_DAYS,
+  CREDIT_CONFIG_DEFAULTS,
   CREDIT_PACKAGES,
 } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
+import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import {
   type CreemCheckoutCompletedData,
   type CreemSubscription,
-  constructCreemEvent,
+  constructRuntimeCreemEvent,
 } from "@repo/shared/payment/creem";
 import { withApiLogging } from "@repo/shared/api-logger";
 import { logger, logError, logEvent } from "@repo/shared/logger";
@@ -23,6 +24,17 @@ function getProductId(sub: CreemSubscription): string {
   return typeof sub.product === "string"
     ? sub.product
     : (sub.product?.id ?? "");
+}
+
+async function getCreditPackExpiresAt() {
+  const expiryDays = await getRuntimeSettingNumber(
+    "CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+    { positive: true }
+  );
+  return expiryDays
+    ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
+    : null;
 }
 
 /**
@@ -47,7 +59,7 @@ export const POST = withApiLogging(async (req: Request) => {
 
   try {
     // 验证 Webhook 签名并解析事件
-    event = constructCreemEvent(body, signature);
+    event = await constructRuntimeCreemEvent(body, signature);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     logError(err, { source: "creem-webhook", stage: "signature" });
@@ -215,9 +227,7 @@ async function handleCreditPurchase(
   }
 
   // 积分包购买的积分按系统配置过期
-  const expiresAt = CREDITS_EXPIRY_DAYS
-    ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
-    : null;
+  const expiresAt = await getCreditPackExpiresAt();
 
   try {
     const result = await grantCredits({
@@ -509,10 +519,11 @@ async function grantSubscriptionCredits(
   }
 
   // 获取该计划的月度积分配额
+  const monthlyCreditsByPlan = await getSubscriptionMonthlyCredits();
   const monthlyCredits =
-    SUBSCRIPTION_MONTHLY_CREDITS[
-      planType as keyof typeof SUBSCRIPTION_MONTHLY_CREDITS
-    ];
+    planType in monthlyCreditsByPlan
+      ? monthlyCreditsByPlan[planType as keyof typeof monthlyCreditsByPlan]
+      : 0;
   if (!monthlyCredits) {
     logger.error({ planType }, "No monthly credits configured for plan");
     return;
@@ -529,9 +540,7 @@ async function grantSubscriptionCredits(
   // 计算应发放积分：月付发月度积分，年付发12个月积分
   const creditsToGrant = isYearly ? monthlyCredits * 12 : monthlyCredits;
 
-  const fallbackExpiresAt = CREDITS_EXPIRY_DAYS
-    ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
-    : null;
+  const fallbackExpiresAt = await getCreditPackExpiresAt();
   const expiresAt = Number.isNaN(periodEnd.getTime())
     ? fallbackExpiresAt
     : periodEnd;

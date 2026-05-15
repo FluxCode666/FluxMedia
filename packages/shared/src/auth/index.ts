@@ -10,6 +10,10 @@ import {
 import { sendEmail } from "../mail/utils";
 import { registrationVerificationPlugin } from "./registration-verification-plugin";
 
+function settingValue(name: string, fallback = "") {
+  return process.env[name] || fallback;
+}
+
 /**
  * Better Auth 服务端配置
  *
@@ -29,15 +33,15 @@ export const auth = betterAuth({
    * 基础 URL 配置
    * 用于 OAuth 回调和邮件链接
    */
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: settingValue("BETTER_AUTH_URL", "http://localhost:3000"),
 
   /**
    * 信任的来源
    * 允许从这些来源发起认证请求
    */
   trustedOrigins: [
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001",
+    settingValue("NEXT_PUBLIC_APP_URL", "http://localhost:3000"),
+    settingValue("NEXT_PUBLIC_ADMIN_URL", "http://localhost:3001"),
   ].filter(Boolean),
 
   /**
@@ -129,8 +133,8 @@ export const auth = betterAuth({
      * 获取凭证: https://github.com/settings/developers
      */
     github: {
-      clientId: process.env.GITHUB_CLIENT_ID || "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
+      clientId: settingValue("GITHUB_CLIENT_ID"),
+      clientSecret: settingValue("GITHUB_CLIENT_SECRET"),
     },
 
     /**
@@ -138,8 +142,8 @@ export const auth = betterAuth({
      * 获取凭证: https://console.cloud.google.com/apis/credentials
      */
     google: {
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      clientId: settingValue("GOOGLE_CLIENT_ID"),
+      clientSecret: settingValue("GOOGLE_CLIENT_SECRET"),
     },
   },
 

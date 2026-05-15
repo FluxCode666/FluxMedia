@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { ChevronsUpDown, LogOut, Shield, Settings } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -50,6 +50,7 @@ export function DashboardSidebar() {
   // 获取当前用户会话
   const { data: session } = useCurrentSession();
   const user = session?.user;
+  const isAdmin = user?.role === "admin";
 
   // Popover 开关状态
   const [open, setOpen] = useState(false);
@@ -75,6 +76,7 @@ export function DashboardSidebar() {
       Gallery: t("nav.gallery"),
       History: t("nav.history"),
       Settings: t("nav.settings"),
+      "System Settings": t("nav.systemSettings"),
       Support: t("nav.support"),
       "New Ticket": t("nav.newTicket"),
     };
@@ -167,7 +169,15 @@ export function DashboardSidebar() {
                 </p>
               )}
               <div className="space-y-0.5">
-                {group.items.map((item) => {
+                {[...group.items, ...(isAdmin
+                  ? [
+                      {
+                        title: "System Settings",
+                        href: "/dashboard/admin/settings",
+                        icon: Shield,
+                      },
+                    ]
+                  : [])].map((item) => {
                   // 去掉 locale 前缀后比较路径
                   const normalizedPath = pathname.replace(/^\/[a-z]{2}\//, "/");
                   const isActive =

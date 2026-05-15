@@ -1,6 +1,9 @@
 import type { StorageProvider } from "../types";
+import { getRuntimeSettingString } from "../../system-settings";
 
-const BASE_DIR = process.env.LOCAL_STORAGE_PATH || "./storage";
+async function getBaseDir() {
+  return (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
+}
 
 async function getFs() {
   return await import("node:fs/promises");
@@ -17,11 +20,12 @@ async function safePath(bucket: string, key: string): Promise<string> {
     throw new Error("Invalid path: directory traversal not allowed");
   }
   const path = await getPath();
-  const filePath = path.join(BASE_DIR, bucket, key);
+  const baseDir = await getBaseDir();
+  const filePath = path.join(baseDir, bucket, key);
 
   // 防止路径遍历攻击：确保解析后的路径在允许的目录范围内
   const resolvedPath = path.resolve(filePath);
-  const resolvedBase = path.resolve(BASE_DIR, bucket);
+  const resolvedBase = path.resolve(baseDir, bucket);
   if (
     !resolvedPath.startsWith(resolvedBase + path.sep) &&
     resolvedPath !== resolvedBase

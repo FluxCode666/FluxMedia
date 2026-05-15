@@ -18,6 +18,7 @@ import {
   type S3StorageConfig,
   type StorageProvider,
 } from "../types";
+import { getRuntimeSettingString } from "../../system-settings";
 
 // ============================================
 // S3 客户端单例
@@ -30,11 +31,13 @@ let s3Client: S3Client | null = null;
  *
  * 从环境变量读取 S3 兼容存储配置
  */
-function getStorageConfig(): S3StorageConfig {
-  const accessKeyId = process.env.STORAGE_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY;
-  const endpoint = process.env.STORAGE_ENDPOINT;
-  const region = process.env.STORAGE_REGION ?? "auto";
+async function getStorageConfig(): Promise<S3StorageConfig> {
+  const accessKeyId = await getRuntimeSettingString("STORAGE_ACCESS_KEY_ID");
+  const secretAccessKey = await getRuntimeSettingString(
+    "STORAGE_SECRET_ACCESS_KEY"
+  );
+  const endpoint = await getRuntimeSettingString("STORAGE_ENDPOINT");
+  const region = (await getRuntimeSettingString("STORAGE_REGION")) ?? "auto";
 
   // 验证必需的环境变量
   if (!accessKeyId || !secretAccessKey || !endpoint) {
@@ -56,9 +59,9 @@ function getStorageConfig(): S3StorageConfig {
  *
  * 延迟初始化，避免在模块加载时就检查环境变量
  */
-function getS3Client(): S3Client {
+async function getS3Client(): Promise<S3Client> {
   if (!s3Client) {
-    const config = getStorageConfig();
+    const config = await getStorageConfig();
 
     s3Client = new S3Client({
       region: config.region,
@@ -102,7 +105,7 @@ export const s3Provider: StorageProvider = {
     bucket: string,
     expiresIn: number = DEFAULT_SIGNED_URL_EXPIRES
   ): Promise<string> {
-    const client = getS3Client();
+    const client = await getS3Client();
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -131,7 +134,7 @@ export const s3Provider: StorageProvider = {
     contentType: string,
     expiresIn: number = DEFAULT_UPLOAD_URL_EXPIRES
   ): Promise<string> {
-    const client = getS3Client();
+    const client = await getS3Client();
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -153,7 +156,7 @@ export const s3Provider: StorageProvider = {
    * @param bucket - 存储桶名称
    */
   async deleteObject(key: string, bucket: string): Promise<void> {
-    const client = getS3Client();
+    const client = await getS3Client();
 
     const command = new DeleteObjectCommand({
       Bucket: bucket,
@@ -171,7 +174,7 @@ export const s3Provider: StorageProvider = {
    * @returns 文件内容 Buffer
    */
   async getObject(key: string, bucket: string): Promise<Buffer> {
-    const client = getS3Client();
+    const client = await getS3Client();
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -203,7 +206,7 @@ export const s3Provider: StorageProvider = {
     data: Buffer,
     contentType: string
   ): Promise<void> {
-    const client = getS3Client();
+    const client = await getS3Client();
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: key,

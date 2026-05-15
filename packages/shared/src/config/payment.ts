@@ -157,9 +157,11 @@ export const paymentConfig: PaymentConfig = {
  * 返回用于定价页面展示的完整计划信息
  */
 export function getPricingPlans(_t?: (key: string) => string): Plan[] {
-  const plans: Plan[] = [];
-  const config = paymentConfig;
+  return getPricingPlansFromConfig(paymentConfig);
+}
 
+export function getPricingPlansFromConfig(config: PaymentConfig): Plan[] {
+  const plans: Plan[] = [];
   // 免费计划
   if (config.plans.free) {
     plans.push({

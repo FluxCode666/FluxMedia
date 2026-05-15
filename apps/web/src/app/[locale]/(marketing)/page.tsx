@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SiteJsonLd, SoftwareAppJsonLd } from "@/components/seo/json-ld";
 import { siteConfig } from "@repo/shared/config";
+import { getRuntimePaymentConfig } from "@repo/shared/config/payment-runtime";
 import {
   CTASection,
   FAQSection,
@@ -74,6 +75,7 @@ export default async function HomePage({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
+  const runtimePaymentConfig = await getRuntimePaymentConfig();
 
   return (
     <>
@@ -87,7 +89,7 @@ export default async function HomePage({
       <HowItWorks />
       <UseCasesSection />
       <Testimonials />
-      <PricingSection />
+      <PricingSection payment={runtimePaymentConfig} />
       <FAQSection />
       <CTASection />
     </>

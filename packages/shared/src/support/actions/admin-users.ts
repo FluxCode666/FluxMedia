@@ -6,9 +6,10 @@ import { z } from "zod";
 
 import { db } from "@repo/database";
 import { creditsBalance, subscription, user } from "@repo/database/schema";
-import { CREDITS_EXPIRY_DAYS } from "../../credits/config";
+import { CREDIT_CONFIG_DEFAULTS } from "../../credits/config";
 import { grantCredits } from "../../credits/core";
 import { adminAction } from "../../safe-action";
+import { getRuntimeSettingNumber } from "../../system-settings";
 
 const withAdminUsersAction = (name: string) =>
   adminAction.metadata({ action: `support.adminUsers.${name}` });
@@ -212,8 +213,13 @@ export const banUserAction = withAdminUsersAction("banUser")
 export const adminGrantCreditsAction = withAdminUsersAction("grantCredits")
   .schema(grantCreditsSchema)
   .action(async ({ parsedInput: data, ctx }) => {
-    const expiresAt = CREDITS_EXPIRY_DAYS
-      ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
+    const expiryDays = await getRuntimeSettingNumber(
+      "CREDITS_EXPIRY_DAYS",
+      CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+      { positive: true }
+    );
+    const expiresAt = expiryDays
+      ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
       : null;
 
     const result = await grantCredits({

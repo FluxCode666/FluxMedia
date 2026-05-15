@@ -1,8 +1,8 @@
 import {
   EPAY_TRADE_SUCCESS,
-  isEpayConfigured,
+  isRuntimeEpayConfigured,
   parseEpayRequestParams,
-  verifyEpayParams,
+  verifyRuntimeEpayParams,
 } from "@repo/shared/payment/epay";
 import { withApiLogging } from "@repo/shared/api-logger";
 import { logger, logError } from "@repo/shared/logger";
@@ -12,13 +12,13 @@ export const GET = withApiLogging(handleEpayWebhook);
 export const POST = withApiLogging(handleEpayWebhook);
 
 async function handleEpayWebhook(req: Request) {
-  if (!isEpayConfigured()) {
+  if (!(await isRuntimeEpayConfigured())) {
     logger.warn({ source: "epay-webhook" }, "Epay is not configured");
     return new Response("fail", { status: 200 });
   }
 
   const params = await parseEpayRequestParams(req);
-  const verifyInfo = verifyEpayParams(params);
+  const verifyInfo = await verifyRuntimeEpayParams(params);
 
   if (!verifyInfo.verifyStatus) {
     logger.warn(

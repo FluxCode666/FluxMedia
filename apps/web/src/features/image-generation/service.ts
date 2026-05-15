@@ -1,6 +1,7 @@
 import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
 import { logError } from "@repo/shared/logger";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { eq } from "drizzle-orm";
 import {
@@ -98,15 +99,15 @@ function isImageOnlyModel(model: string) {
   return model.toLowerCase().startsWith("gpt-image-");
 }
 
-export function getResponsesModel(config: ApiConfig, model?: string) {
+export async function getResponsesModel(config: ApiConfig, model?: string) {
   const requested = (model || config.model || "").trim();
   if (requested && !isImageOnlyModel(requested)) {
     return requested;
   }
 
   return (
-    process.env.PLATFORM_RESPONSES_MODEL?.trim() ||
-    process.env.PLATFORM_CHAT_MODEL?.trim() ||
+    (await getRuntimeSettingString("PLATFORM_RESPONSES_MODEL")) ||
+    (await getRuntimeSettingString("PLATFORM_CHAT_MODEL")) ||
     DEFAULT_RESPONSES_MODEL
   );
 }
@@ -824,9 +825,9 @@ async function parseImageResponse(
   return result;
 }
 
-function getPlatformConfig(): ApiConfig {
-  const baseUrl = process.env.PLATFORM_API_BASE_URL;
-  const apiKey = process.env.PLATFORM_API_KEY;
+async function getPlatformConfig(): Promise<ApiConfig> {
+  const baseUrl = await getRuntimeSettingString("PLATFORM_API_BASE_URL");
+  const apiKey = await getRuntimeSettingString("PLATFORM_API_KEY");
   if (!baseUrl || !apiKey) {
     throw new Error("Platform API configuration is missing");
   }
@@ -834,7 +835,7 @@ function getPlatformConfig(): ApiConfig {
     baseUrl,
     apiKey,
     model:
-      normalizeImageModel(process.env.PLATFORM_IMAGE_MODEL) ||
+      normalizeImageModel(await getRuntimeSettingString("PLATFORM_IMAGE_MODEL")) ||
       DEFAULT_IMAGE_MODEL,
   };
 }
@@ -865,14 +866,14 @@ export async function getUserApiConfig(
   return result;
 }
 
-export function getEffectiveConfig(userConfig: ApiConfig | null): {
+export async function getEffectiveConfig(userConfig: ApiConfig | null): Promise<{
   config: ApiConfig;
   useCredits: boolean;
-} {
+}> {
   if (userConfig) {
     return { config: userConfig, useCredits: false };
   }
-  return { config: getPlatformConfig(), useCredits: true };
+  return { config: await getPlatformConfig(), useCredits: true };
 }
 
 export async function generateImage(
@@ -986,7 +987,7 @@ export async function generateChatImage(
   params: ChatImageParams,
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
-  const model = getResponsesModel(config, params.model);
+  const model = await getResponsesModel(config, params.model);
   try {
     const prompt = params.apiPrompt || params.prompt;
     const size = params.size || DEFAULT_IMAGE_SIZE;

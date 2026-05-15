@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { protectedAction } from "../safe-action";
+import { getRuntimeSettingString } from "../system-settings";
 
 import { getStorageProvider } from "./providers";
 import { ALLOWED_IMAGE_TYPES, type AllowedImageType } from "./types";
@@ -23,8 +24,8 @@ const withStorageAction = (name: string) =>
 /**
  * 获取头像存储桶名称
  */
-function getAvatarsBucket(): string {
-  const bucket = process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME;
+async function getAvatarsBucket(): Promise<string> {
+  const bucket = await getRuntimeSettingString("NEXT_PUBLIC_AVATARS_BUCKET_NAME");
   if (!bucket) {
     throw new Error("NEXT_PUBLIC_AVATARS_BUCKET_NAME 环境变量未设置");
   }
@@ -36,8 +37,8 @@ function getAvatarsBucket(): string {
  *
  * 安全措施：只允许访问预定义的存储桶
  */
-function getAllowedBuckets(): string[] {
-  return [getAvatarsBucket()];
+async function getAllowedBuckets(): Promise<string[]> {
+  return [await getAvatarsBucket()];
 }
 
 // ============================================
@@ -72,10 +73,10 @@ export const getSignedUploadUrlAction = withStorageAction("getSignedUploadUrl")
     const { userId } = ctx;
 
     // 确定使用的存储桶
-    const bucket = inputBucket ?? getAvatarsBucket();
+    const bucket = inputBucket ?? (await getAvatarsBucket());
 
     // 安全检查：验证存储桶在白名单中
-    const allowedBuckets = getAllowedBuckets();
+    const allowedBuckets = await getAllowedBuckets();
     if (!allowedBuckets.includes(bucket)) {
       throw new Error("不允许访问该存储桶");
     }
@@ -121,10 +122,10 @@ export const deleteFileAction = withStorageAction("deleteFile")
     const { userId } = ctx;
 
     // 确定使用的存储桶
-    const bucket = inputBucket ?? getAvatarsBucket();
+    const bucket = inputBucket ?? (await getAvatarsBucket());
 
     // 安全检查：验证存储桶在白名单中
-    const allowedBuckets = getAllowedBuckets();
+    const allowedBuckets = await getAllowedBuckets();
     if (!allowedBuckets.includes(bucket)) {
       throw new Error("不允许访问该存储桶");
     }

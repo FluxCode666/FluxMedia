@@ -3,6 +3,7 @@ import { generation } from "@repo/database/schema";
 import { consumeCredits, grantCredits } from "@repo/shared/credits/core";
 import { moderateContent } from "@repo/shared/moderation";
 import { getStorageProvider } from "@repo/shared/storage/providers";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -13,6 +14,10 @@ import {
   normalizeImageModel,
   roundCreditAmount,
 } from "./resolution";
+import {
+  recordChatNoImageResult,
+  resetChatNoImageState,
+} from "./chat-no-image-penalty";
 import {
   editImage,
   generateChatImage,
@@ -58,8 +63,8 @@ export type ImageGenerationOperationResult = {
   creditsConsumed?: number;
 };
 
-function getStoredImageUrl(bucket: string, storageKey: string) {
-  return process.env.STORAGE_ENDPOINT
+async function getStoredImageUrl(bucket: string, storageKey: string) {
+  return (await getRuntimeSettingString("STORAGE_ENDPOINT"))
     ? `/image-proxy/${bucket}/${storageKey}`
     : `/api/storage/${bucket}/${storageKey}`;
 }
@@ -106,13 +111,14 @@ export async function runImageGenerationForUser(
     Math.max(0, creditsPerImage - creditCost.moderationOnlyCredits)
   );
   const bucket =
-    process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
+    (await getRuntimeSettingString("NEXT_PUBLIC_GENERATIONS_BUCKET_NAME")) ||
+    "generations";
 
   const userConfig = await getUserApiConfig(input.userId);
-  const { config, useCredits } = getEffectiveConfig(userConfig);
+  const { config, useCredits } = await getEffectiveConfig(userConfig);
   const model =
     input.mode === "chat"
-      ? getResponsesModel(config, input.model)
+      ? await getResponsesModel(config, input.model)
       : normalizeImageModel(input.model) ||
         normalizeImageModel(config.model) ||
         DEFAULT_IMAGE_MODEL;
@@ -312,11 +318,38 @@ export async function runImageGenerationForUser(
   }
 
   if (!result.imageBase64 && !result.imageUrl) {
+    let finalChargedCredits = chargedCredits;
+    if (input.mode === "chat") {
+      try {
+        const penalty = await recordChatNoImageResult({
+          userId: input.userId,
+          generationId,
+          prompt: input.prompt,
+          currentCreditsConsumed: chargedCredits,
+          useCredits,
+        });
+        finalChargedCredits = penalty.chargedCredits;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Insufficient credits";
+        await db
+          .update(generation)
+          .set({ status: "failed", error: message, creditsConsumed: chargedCredits })
+          .where(eq(generation.id, generationId));
+        return {
+          error: "Insufficient credits",
+          generationId,
+          creditsConsumed: chargedCredits,
+        };
+      }
+    }
+
     await db
       .update(generation)
       .set({
         status: "completed",
         revisedPrompt: result.revisedPrompt,
+        creditsConsumed: finalChargedCredits,
         completedAt: new Date(),
       })
       .where(eq(generation.id, generationId));
@@ -328,7 +361,7 @@ export async function runImageGenerationForUser(
       revisedPrompt: result.revisedPrompt,
       responseText: result.responseText,
       responseThinking: result.responseThinking,
-      creditsConsumed: chargedCredits,
+      creditsConsumed: finalChargedCredits,
     };
   }
 
@@ -382,9 +415,13 @@ export async function runImageGenerationForUser(
     })
     .where(eq(generation.id, generationId));
 
+  if (input.mode === "chat") {
+    await resetChatNoImageState(input.userId);
+  }
+
   return {
     generationId,
-    imageUrl: getStoredImageUrl(bucket, storageKey),
+    imageUrl: await getStoredImageUrl(bucket, storageKey),
     model,
     size,
     revisedPrompt: result.revisedPrompt,

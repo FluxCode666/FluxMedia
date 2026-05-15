@@ -44,6 +44,7 @@ async function getCurrentSessionResponse() {
       name: user.name,
       email: user.email,
       image: user.image,
+      role: user.role,
     })
     .from(user)
     .where(eq(user.id, session.user.id))

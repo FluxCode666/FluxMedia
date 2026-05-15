@@ -8,6 +8,10 @@
 
 import crypto from "node:crypto";
 import { getBaseUrl } from "../config/payment";
+import {
+  getRuntimeSettingSelect,
+  getRuntimeSettingString,
+} from "../system-settings";
 
 export const EPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
 
@@ -74,6 +78,18 @@ export function isEpayPaymentProvider(): boolean {
   return getPaymentProvider() === "epay";
 }
 
+export async function getRuntimePaymentProvider(): Promise<PaymentProvider> {
+  return getRuntimeSettingSelect(
+    "PAYMENT_PROVIDER",
+    ["creem", "epay"] as const,
+    getPaymentProvider()
+  );
+}
+
+export async function isRuntimeEpayPaymentProvider(): Promise<boolean> {
+  return (await getRuntimePaymentProvider()) === "epay";
+}
+
 export function getEpayDefaultPaymentType(): string {
   return (
     process.env.EPAY_DEFAULT_PAYMENT_TYPE ??
@@ -99,11 +115,31 @@ function getEpayConfig() {
   return { pid, key, apiUrl };
 }
 
+async function getRuntimeEpayConfig() {
+  const pid = (await getRuntimeSettingString("EPAY_PID")) ?? "";
+  const key = (await getRuntimeSettingString("EPAY_KEY")) ?? "";
+  const apiUrl = (await getRuntimeSettingString("EPAY_API_URL")) ?? "";
+
+  if (!pid || !key || !apiUrl) {
+    throw new Error("EPAY_PID, EPAY_KEY and EPAY_API_URL must be configured");
+  }
+
+  return { pid, key, apiUrl };
+}
+
 export function isEpayConfigured(): boolean {
   return Boolean(
     process.env.EPAY_PID?.trim() &&
       process.env.EPAY_KEY?.trim() &&
       process.env.EPAY_API_URL?.trim()
+  );
+}
+
+export async function isRuntimeEpayConfigured(): Promise<boolean> {
+  return Boolean(
+    (await getRuntimeSettingString("EPAY_PID")) &&
+      (await getRuntimeSettingString("EPAY_KEY")) &&
+      (await getRuntimeSettingString("EPAY_API_URL"))
   );
 }
 
@@ -138,6 +174,16 @@ export function signEpayParams(
   return crypto
     .createHash("md5")
     .update(buildSignPayload(params) + merchantKey)
+    .digest("hex");
+}
+
+export async function signRuntimeEpayParams(
+  params: Record<string, string>
+): Promise<string> {
+  const { key } = await getRuntimeEpayConfig();
+  return crypto
+    .createHash("md5")
+    .update(buildSignPayload(params) + key)
     .digest("hex");
 }
 
@@ -190,11 +236,83 @@ export function createEpayPurchase(
   };
 }
 
+export async function createRuntimeEpayPurchase(
+  input: EpayPurchaseInput
+): Promise<EpayPurchaseResult> {
+  const { pid, apiUrl } = await getRuntimeEpayConfig();
+  const baseUrl = getBaseUrl();
+  const notifyUrl =
+    input.notifyUrl ??
+    (await getRuntimeSettingString("EPAY_NOTIFY_URL")) ??
+    `${baseUrl}/api/webhooks/epay`;
+  const paymentType =
+    input.type ??
+    (await getRuntimeSettingString("EPAY_DEFAULT_PAYMENT_TYPE")) ??
+    "alipay";
+  const params: Record<string, string> = {
+    pid,
+    type: paymentType,
+    out_trade_no: input.outTradeNo,
+    notify_url: notifyUrl,
+    return_url: input.returnUrl ?? `${baseUrl}/api/payments/epay/return`,
+    name: input.name,
+    money: formatMoney(input.money),
+    device: "pc",
+    sign_type: "MD5",
+  };
+
+  if (input.param) {
+    params.param = input.param;
+  }
+
+  const signedParams = {
+    ...params,
+    sign: await signRuntimeEpayParams(params),
+    sign_type: "MD5",
+  };
+  const submitUrl = new URL(apiUrl.endsWith("/") ? apiUrl : `${apiUrl}/`);
+  submitUrl.pathname = `${submitUrl.pathname.replace(/\/+$/, "")}/submit.php`;
+  submitUrl.search = new URLSearchParams(signedParams).toString();
+
+  return {
+    url: submitUrl.toString(),
+    params: signedParams,
+  };
+}
+
 export function verifyEpayParams(
   params: Record<string, string>
 ): EpayVerifyResult {
   const receivedSign = params.sign ?? "";
   const expectedSign = signEpayParams(params);
+  const verifyStatus = timingSafeEqualString(
+    receivedSign.toLowerCase(),
+    expectedSign.toLowerCase()
+  );
+
+  const result: EpayVerifyResult = {
+    verifyStatus,
+    type: params.type ?? "",
+    tradeNo: params.trade_no ?? "",
+    outTradeNo: params.out_trade_no ?? "",
+    name: params.name ?? "",
+    money: params.money ?? "",
+    tradeStatus: params.trade_status ?? "",
+    raw: params,
+  };
+
+  if (params.param !== undefined) {
+    result.param = params.param;
+  }
+
+  return result;
+}
+
+export async function verifyRuntimeEpayParams(
+  params: Record<string, string>
+): Promise<EpayVerifyResult> {
+  const receivedSign = params.sign ?? "";
+  const expectedSign = await signRuntimeEpayParams(params);
   const verifyStatus = timingSafeEqualString(
     receivedSign.toLowerCase(),
     expectedSign.toLowerCase()

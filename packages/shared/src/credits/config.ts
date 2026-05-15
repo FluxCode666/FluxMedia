@@ -19,6 +19,11 @@ export const REGISTRATION_BONUS_CREDITS = 100;
  */
 export const CREDITS_EXPIRY_DAYS = 365;
 
+export const CREDIT_CONFIG_DEFAULTS = {
+  registrationBonusCredits: REGISTRATION_BONUS_CREDITS,
+  creditsExpiryDays: CREDITS_EXPIRY_DAYS,
+} as const;
+
 /**
  * 积分包配置（一次性购买）
  *

@@ -497,10 +497,12 @@
   "Support": {
     "title": "Support Center",
     "subtitle": "View and manage your support tickets",
+    "adminSubtitle": "View and handle support tickets from all users",
     "newTicket": "New Ticket",
     "noTickets": "No Tickets",
     "noTicketsDescription": "You haven't submitted any support tickets yet",
     "createFirst": "Create Your First Ticket",
+    "unknownUser": "Unknown User",
     "categories": {
       "billing": "Billing",
       "technical": "Technical Support",
@@ -535,6 +537,7 @@
       "gallery": "Gallery",
       "history": "History",
       "settings": "Settings",
+      "systemSettings": "System Settings",
       "support": "Support",
       "newTicket": "New Ticket"
     },
@@ -550,6 +553,7 @@
       "support": "Support",
       "newTicket": "New Ticket",
       "settings": "Settings",
+      "systemSettings": "System Settings",
       "creditsBuy": "Buy Credits",
       "profile": "Profile",
       "security": "Security",

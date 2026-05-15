@@ -10,7 +10,10 @@
  * - 账单历史
  */
 
-import { findPlanByPriceId, paymentConfig } from "@repo/shared/config/payment";
+import {
+  findPlanByPriceId,
+  paymentConfig,
+} from "@repo/shared/config/payment";
 import {
   PLAN_PRIVILEGES,
   type SubscriptionPlan,
@@ -172,24 +175,40 @@ export function BillingSection() {
       })
     : null;
 
-  const priceDisplay = useMemo(() => {
-    if (userPlan === "free") return formatCurrency(0);
-    const priceId = planResult.data?.priceId;
-    if (!priceId) return "-";
-    const { price } = findPlanByPriceId(priceId);
-    if (!price) return "-";
-    return formatCurrency(price.amount);
-  }, [userPlan, planResult.data?.priceId]);
+  const [priceDisplay, setPriceDisplay] = useState("-");
+  const [priceInterval, setPriceInterval] = useState("");
 
-  const priceInterval = useMemo(() => {
-    if (userPlan === "free") return t("currentPlan.perMonth");
+  useEffect(() => {
+    let cancelled = false;
+    if (userPlan === "free") {
+      setPriceDisplay(formatCurrency(0));
+      setPriceInterval(t("currentPlan.perMonth"));
+      return;
+    }
     const priceId = planResult.data?.priceId;
-    if (!priceId) return "";
+    if (!priceId) {
+      setPriceDisplay("-");
+      setPriceInterval("");
+      return;
+    }
+
     const { price } = findPlanByPriceId(priceId);
-    if (!price) return "";
-    return price.interval === "yearly"
-      ? t("currentPlan.perYear")
-      : t("currentPlan.perMonth");
+    if (cancelled) return;
+    if (!price) {
+      setPriceDisplay("-");
+      setPriceInterval("");
+      return;
+    }
+    setPriceDisplay(formatCurrency(price.amount));
+    setPriceInterval(
+      price.interval === "yearly"
+        ? t("currentPlan.perYear")
+        : t("currentPlan.perMonth")
+    );
+
+    return () => {
+      cancelled = true;
+    };
   }, [userPlan, planResult.data?.priceId, t]);
 
   // 组件挂载时获取计划

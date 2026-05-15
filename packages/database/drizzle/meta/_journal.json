@@ -57,6 +57,13 @@
       "when": 1778864400000,
       "tag": "0007_decimal_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778868000000,
+      "tag": "0008_system_settings_and_chat_state",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import {
-  findPlanByPriceId,
   getPlanPrice,
   paymentConfig,
 } from "@repo/shared/config/payment";
+import type { PaymentConfig } from "@repo/shared/payment/types";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -94,12 +94,13 @@ const PLAN_FEATURE_KEYS: Record<string, string[]> = {
 interface PricingSectionProps {
   /** 用户当前订阅的价格 ID */
   currentPriceId?: string | null;
+  payment?: PaymentConfig & { yearlyEnabled?: boolean };
 }
 
 /**
  * 价格计划展示组件
  */
-export function PricingSection({ currentPriceId }: PricingSectionProps) {
+export function PricingSection({ currentPriceId, payment }: PricingSectionProps) {
   const t = useTranslations("Pricing");
   const [isPending, startTransition] = useTransition();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
@@ -127,7 +128,8 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
    * 获取计划配置
    */
   const getPlanConfig = (planId: string) => {
-    return paymentConfig.plans[planId as keyof typeof paymentConfig.plans];
+    const config = payment ?? paymentConfig;
+    return config.plans[planId as keyof typeof config.plans];
   };
 
   /**
@@ -183,7 +185,12 @@ export function PricingSection({ currentPriceId }: PricingSectionProps) {
 
   const getActivePriceInterval = () => {
     if (!activePriceId) return PlanInterval.MONTH;
-    const { price } = findPlanByPriceId(activePriceId);
+    const activePlanId = getPlanIdByPriceId(activePriceId);
+    const activeConfig = activePlanId ? getPlanConfig(activePlanId) : null;
+    const price =
+      activeConfig && "prices" in activeConfig
+        ? activeConfig.prices?.find((item) => item.priceId === activePriceId)
+        : null;
     return price?.interval ?? PlanInterval.MONTH;
   };
 

@@ -8,6 +8,8 @@ import { Button } from "@repo/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
 import { db } from "@repo/database";
 import { ticket, ticketMessage, user } from "@repo/database/schema";
+import { AdminTicketReplyForm } from "@repo/shared/support/components/admin-ticket-reply-form";
+import { AdminTicketStatusSelect } from "@repo/shared/support/components/admin-ticket-status-select";
 import { TicketMessageForm } from "@repo/shared/support/components/ticket-message-form";
 import {
   ticketCategories,
@@ -37,18 +39,45 @@ export default async function TicketDetailPage({
   if (!session?.user) {
     redirect("/sign-in");
   }
+  const isAdmin = (session.user as { role?: string }).role === "admin";
 
   // 获取工单信息
-  const ticketResult = await db
-    .select()
-    .from(ticket)
-    .where(and(eq(ticket.id, id), eq(ticket.userId, session.user.id)))
-    .limit(1);
+  const ticketResult = isAdmin
+    ? await db
+        .select({
+          ticket,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          },
+        })
+        .from(ticket)
+        .leftJoin(user, eq(ticket.userId, user.id))
+        .where(eq(ticket.id, id))
+        .limit(1)
+    : await db
+        .select({
+          ticket,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          },
+        })
+        .from(ticket)
+        .leftJoin(user, eq(ticket.userId, user.id))
+        .where(and(eq(ticket.id, id), eq(ticket.userId, session.user.id)))
+        .limit(1);
 
-  const ticketData = ticketResult[0];
-  if (!ticketData) {
+  const ticketRecord = ticketResult[0];
+  if (!ticketRecord) {
     notFound();
   }
+  const ticketData = ticketRecord.ticket;
+  const ticketUser = ticketRecord.user;
 
   // 获取消息列表
   const messages = await db
@@ -158,6 +187,47 @@ export default async function TicketDetailPage({
         </div>
       </div>
 
+      {isAdmin && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>用户信息</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-4">
+                <Avatar className="h-12 w-12">
+                  <AvatarImage
+                    src={ticketUser?.image || undefined}
+                    alt={ticketUser?.name || "用户"}
+                  />
+                  <AvatarFallback className="bg-foreground text-background">
+                    {ticketUser?.name ? getInitials(ticketUser.name) : "U"}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">{ticketUser?.name || "未知用户"}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {ticketUser?.email}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>工单状态</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AdminTicketStatusSelect
+                ticketId={ticketData.id}
+                currentStatus={ticketData.status}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* 消息列表 */}
       <Card>
         <CardHeader>
@@ -210,7 +280,9 @@ export default async function TicketDetailPage({
       </Card>
 
       {/* 回复表单 */}
-      {isClosed ? (
+      {isAdmin ? (
+        <AdminTicketReplyForm ticketId={id} isClosed={isClosed} />
+      ) : isClosed ? (
         <Card>
           <CardContent className="py-6 text-center text-muted-foreground">
             此工单已关闭，无法添加新消息

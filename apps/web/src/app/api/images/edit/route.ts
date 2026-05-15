@@ -1,6 +1,7 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { auth } from "@repo/shared/auth";
 import { getStorageProvider } from "@repo/shared/storage/providers";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 
@@ -118,17 +119,18 @@ async function uploadModerationImages(
   files: File[]
 ) {
   const publicBaseUrl =
-    process.env.ALIYUN_MODERATION_PUBLIC_BASE_URL ||
-    process.env.CONTENT_MODERATION_PUBLIC_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.BETTER_AUTH_URL;
-  if (!process.env.STORAGE_ENDPOINT && !publicBaseUrl) {
+    (await getRuntimeSettingString("ALIYUN_MODERATION_PUBLIC_BASE_URL")) ||
+    (await getRuntimeSettingString("CONTENT_MODERATION_PUBLIC_BASE_URL")) ||
+    (await getRuntimeSettingString("NEXT_PUBLIC_APP_URL")) ||
+    (await getRuntimeSettingString("BETTER_AUTH_URL"));
+  if (!(await getRuntimeSettingString("STORAGE_ENDPOINT")) && !publicBaseUrl) {
     return undefined;
   }
 
   const storage = await getStorageProvider();
   const bucket =
-    process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
+    (await getRuntimeSettingString("NEXT_PUBLIC_GENERATIONS_BUCKET_NAME")) ||
+    "generations";
 
   return Promise.all(
     files.map(async (file, index) => {

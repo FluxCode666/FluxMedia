@@ -36,6 +36,13 @@
       "when": 1778788800000,
       "tag": "0004_external_api_key",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778868000000,
+      "tag": "0005_system_settings_and_chat_state",
+      "breakpoints": true
     }
   ]
 }

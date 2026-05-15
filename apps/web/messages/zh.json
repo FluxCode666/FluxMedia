@@ -497,10 +497,12 @@
   "Support": {
     "title": "支持中心",
     "subtitle": "查看和管理您的支持工单",
+    "adminSubtitle": "查看和处理所有用户提交的支持工单",
     "newTicket": "新建工单",
     "noTickets": "暂无工单",
     "noTicketsDescription": "您还没有提交过任何支持工单",
     "createFirst": "创建第一个工单",
+    "unknownUser": "未知用户",
     "categories": {
       "billing": "账单问题",
       "technical": "技术支持",
@@ -535,6 +537,7 @@
       "gallery": "图库",
       "history": "历史记录",
       "settings": "设置",
+      "systemSettings": "系统设置",
       "support": "支持",
       "newTicket": "新建工单"
     },
@@ -550,6 +553,7 @@
       "support": "支持",
       "newTicket": "新建工单",
       "settings": "设置",
+      "systemSettings": "系统设置",
       "creditsBuy": "购买积分",
       "profile": "个人资料",
       "security": "安全",

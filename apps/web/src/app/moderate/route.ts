@@ -2,6 +2,7 @@ import {
   moderateContent,
   type ModerationImageInput,
 } from "@repo/shared/moderation";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { NextResponse, type NextRequest } from "next/server";
 
 type ModerationRequestImage = {
@@ -15,20 +16,23 @@ function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function getProxySecret() {
-  return process.env.CONTENT_MODERATION_PROXY_SECRET?.trim();
+async function getProxySecrets() {
+  return [
+    await getRuntimeSettingString("CONTENT_MODERATION_PROXY_SECRET"),
+    await getRuntimeSettingString("CONTENT_MODERATION_PROXY_GATEWAY_SECRET"),
+  ].filter((value): value is string => Boolean(value));
 }
 
-function verifyProxySecret(request: NextRequest) {
-  const secret = getProxySecret();
-  if (!secret) return true;
+async function verifyProxySecret(request: NextRequest) {
+  const secrets = await getProxySecrets();
+  if (secrets.length === 0) return true;
 
   const authorization = request.headers.get("authorization") || "";
   const bearer = authorization.startsWith("Bearer ")
     ? authorization.slice("Bearer ".length).trim()
     : "";
   const headerSecret = request.headers.get("x-moderation-proxy-secret") || "";
-  return bearer === secret || headerSecret === secret;
+  return secrets.includes(bearer) || secrets.includes(headerSecret);
 }
 
 function parseImage(image: ModerationRequestImage): ModerationImageInput | null {
@@ -42,7 +46,7 @@ function parseImage(image: ModerationRequestImage): ModerationImageInput | null 
 }
 
 export async function POST(request: NextRequest) {
-  if (!verifyProxySecret(request)) {
+  if (!(await verifyProxySecret(request))) {
     return errorResponse("Unauthorized", 401);
   }
 

@@ -9,6 +9,7 @@ type CurrentSession = {
     name: string;
     email: string;
     image?: string | null;
+    role?: "user" | "admin";
   };
 } | null;
 

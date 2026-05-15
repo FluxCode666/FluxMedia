@@ -121,7 +121,7 @@ export async function getExternalModelsForUser(
   userId: string
 ): Promise<OpenAIModelList> {
   const userConfig = await getUserApiConfig(userId);
-  const { config } = getEffectiveConfig(userConfig);
+  const { config } = await getEffectiveConfig(userConfig);
   const fallbackModelId = getFallbackModelId(config);
 
   try {

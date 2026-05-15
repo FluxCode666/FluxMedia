@@ -1,4 +1,4 @@
-import { findPlanByPriceId } from "@repo/shared/config/payment";
+import { findRuntimePlanByPriceId } from "@repo/shared/config/payment-runtime";
 import {
   getPlanFromPriceId,
   type SubscriptionPlan,
@@ -70,13 +70,13 @@ function getPeriodDayCounts(
   return { periodDays, remainingDays };
 }
 
-export function createSubscriptionCheckoutQuote(
+export async function createSubscriptionCheckoutQuote(
   current: ProratedSubscription,
   targetPriceId: string,
   now = new Date()
-): SubscriptionCheckoutQuote {
+): Promise<SubscriptionCheckoutQuote> {
   const targetPlan = getPlanFromPriceId(targetPriceId);
-  const { price: targetPrice } = findPlanByPriceId(targetPriceId);
+  const { price: targetPrice } = await findRuntimePlanByPriceId(targetPriceId);
   if (!targetPlan || targetPlan === "free" || !targetPrice) {
     throw new Error("无效的目标套餐");
   }
@@ -86,7 +86,9 @@ export function createSubscriptionCheckoutQuote(
   }
 
   const currentPlan = getPlanFromPriceId(current.priceId);
-  const { price: currentPrice } = findPlanByPriceId(current.priceId);
+  const { price: currentPrice } = await findRuntimePlanByPriceId(
+    current.priceId
+  );
   if (!currentPlan || currentPlan === "free" || !currentPrice) {
     throw new Error("找不到当前订阅套餐");
   }

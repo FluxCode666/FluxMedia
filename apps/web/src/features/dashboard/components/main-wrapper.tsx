@@ -24,6 +24,7 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/support": "support",
     "/dashboard/support/new": "newTicket",
     "/dashboard/settings": "settings",
+    "/dashboard/admin/settings": "systemSettings",
     "/dashboard/settings/profile": "profile",
     "/dashboard/settings/security": "security",
     "/dashboard/settings/billing": "billing",

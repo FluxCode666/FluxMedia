@@ -396,6 +396,53 @@ export const creditsTransaction = pgTable("credits_transaction", {
 });
 
 // ============================================
+// 系统设置表 (System Settings)
+// ============================================
+/**
+ * 系统设置表 - 存储管理员可配置的运行时配置与密钥
+ *
+ * @field key - 配置键名
+ * @field value - 配置值，密钥也存储在这里但不会在管理界面回显
+ * @field isSecret - 是否为密钥类配置
+ * @field updatedBy - 最近更新的管理员
+ * @field createdAt - 创建时间
+ * @field updatedAt - 更新时间
+ */
+export const systemSetting = pgTable("system_setting", {
+  key: text("key").primaryKey(),
+  value: json("value").$type<unknown>().notNull(),
+  isSecret: boolean("is_secret").notNull().default(false),
+  updatedBy: text("updated_by").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ============================================
+// Chat 纯文字连续使用状态
+// ============================================
+/**
+ * Chat 纯文字连续使用状态 - 用于限制连续多次对话但不出图的滥用
+ */
+export const chatNoImageState = pgTable("chat_no_image_state", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  consecutiveCount: integer("consecutive_count").notNull().default(0),
+  lastGenerationId: text("last_generation_id"),
+  lastPenaltyAt: timestamp("last_penalty_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type SystemSetting = typeof systemSetting.$inferSelect;
+export type NewSystemSetting = typeof systemSetting.$inferInsert;
+
+export type ChatNoImageState = typeof chatNoImageState.$inferSelect;
+export type NewChatNoImageState = typeof chatNoImageState.$inferInsert;
+
+// ============================================
 // 积分系统类型导出
 // ============================================
 

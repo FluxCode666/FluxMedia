@@ -20,17 +20,17 @@ import {
 } from "../config/subscription-plan";
 import { creem } from "../payment/creem";
 import {
-  createEpayPurchase,
+  createRuntimeEpayPurchase,
   encodeEpayMetadata,
-  isEpayPaymentProvider,
+  isRuntimeEpayPaymentProvider,
 } from "../payment/epay";
 import { logEvent } from "../logger/index";
 import { actionClient, protectedAction } from "../safe-action";
+import { getRuntimeSettingNumber } from "../system-settings";
 
 import {
+  CREDIT_CONFIG_DEFAULTS,
   CREDIT_PACKAGES,
-  CREDITS_EXPIRY_DAYS,
-  REGISTRATION_BONUS_CREDITS,
 } from "./config";
 import {
   AccountFrozenError,
@@ -48,6 +48,28 @@ const withPublicCreditsAction = (name: string) =>
   actionClient.metadata({ action: `credits.${name}` });
 const withProtectedCreditsAction = (name: string) =>
   protectedAction.metadata({ action: `credits.${name}` });
+
+async function getRuntimeRegistrationBonusCredits() {
+  return getRuntimeSettingNumber(
+    "REGISTRATION_BONUS_CREDITS",
+    CREDIT_CONFIG_DEFAULTS.registrationBonusCredits,
+    { positive: true }
+  );
+}
+
+async function getRuntimeCreditsExpiryDays() {
+  return getRuntimeSettingNumber(
+    "CREDITS_EXPIRY_DAYS",
+    CREDIT_CONFIG_DEFAULTS.creditsExpiryDays,
+    { positive: true }
+  );
+}
+
+function getExpiryDate(expiryDays: number | null) {
+  return expiryDays
+    ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
+    : null;
+}
 
 // ============================================
 // 受保护 Actions（需要登录）
@@ -81,13 +103,13 @@ export const grantRegistrationBonus = withProtectedCreditsAction(
       return { success: true, alreadyGranted: true };
     }
 
-    const expiresAt = CREDITS_EXPIRY_DAYS
-      ? new Date(Date.now() + CREDITS_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
-      : null;
+    const bonusCredits = await getRuntimeRegistrationBonusCredits();
+    const expiryDays = await getRuntimeCreditsExpiryDays();
+    const expiresAt = getExpiryDate(expiryDays);
 
     const result = await grantCredits({
       userId,
-      amount: REGISTRATION_BONUS_CREDITS,
+      amount: bonusCredits,
       sourceType: "bonus",
       debitAccount: "SYSTEM:registration_bonus",
       transactionType: "registration_bonus",
@@ -118,8 +140,8 @@ export const getMyCreditsBalance = withProtectedCreditsAction(
   // 懒加载: 确保新用户获得注册奖励
   await ensureRegistrationBonus(
     userId,
-    REGISTRATION_BONUS_CREDITS,
-    CREDITS_EXPIRY_DAYS
+    await getRuntimeRegistrationBonusCredits(),
+    await getRuntimeCreditsExpiryDays()
   );
 
   // 获取余额
@@ -361,8 +383,8 @@ export const purchaseCredits = withProtectedCreditsAction("purchaseCredits")
     const { userId } = ctx;
     const { amount, paymentId, expiresInDays } = parsedInput;
 
-    const expiryDays = expiresInDays ?? CREDITS_EXPIRY_DAYS;
-    const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
+    const expiryDays = expiresInDays ?? (await getRuntimeCreditsExpiryDays());
+    const expiresAt = getExpiryDate(expiryDays);
 
     const result = await grantCredits({
       userId,
@@ -425,17 +447,19 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
 
     const baseUrl = getBaseUrl();
 
+    const useEpay = await isRuntimeEpayPaymentProvider();
+
     logEvent("payment.checkout.started", {
       userId,
       packageId: pkg.id,
       credits: pkg.credits,
-      provider: isEpayPaymentProvider() ? "epay" : "creem",
+      provider: useEpay ? "epay" : "creem",
       checkoutType: "credits",
     });
 
-    if (isEpayPaymentProvider()) {
+    if (useEpay) {
       const outTradeNo = `CR${Date.now()}${crypto.randomUUID().slice(0, 8)}`;
-      const checkout = createEpayPurchase({
+      const checkout = await createRuntimeEpayPurchase({
         outTradeNo,
         name: `GPT2IMAGE Credits ${pkg.credits}`,
         money: pkg.price,

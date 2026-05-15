@@ -6,10 +6,17 @@
  */
 
 import crypto from "crypto";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 
-const CREEM_API_BASE = process.env.CREEM_API_KEY?.startsWith("creem_test_")
-  ? "https://test-api.creem.io/v1"
-  : "https://api.creem.io/v1";
+async function getRuntimeCreemApiKey() {
+  return (await getRuntimeSettingString("CREEM_API_KEY")) ?? "";
+}
+
+async function getRuntimeCreemApiBase() {
+  return (await getRuntimeCreemApiKey()).startsWith("creem_test_")
+    ? "https://test-api.creem.io/v1"
+    : "https://api.creem.io/v1";
+}
 
 // ============================================
 // 类型定义
@@ -150,11 +157,11 @@ export const creem = {
   async createCheckout(
     params: CreemCheckoutParams
   ): Promise<CreemCheckoutResponse> {
-    const res = await fetch(`${CREEM_API_BASE}/checkouts`, {
+    const res = await fetch(`${await getRuntimeCreemApiBase()}/checkouts`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.CREEM_API_KEY ?? "",
+        "x-api-key": await getRuntimeCreemApiKey(),
       },
       body: JSON.stringify(params),
     });
@@ -175,10 +182,10 @@ export const creem = {
    */
   async getSubscription(subscriptionId: string): Promise<CreemSubscription> {
     const res = await fetch(
-      `${CREEM_API_BASE}/subscriptions/${subscriptionId}`,
+      `${await getRuntimeCreemApiBase()}/subscriptions/${subscriptionId}`,
       {
         headers: {
-          "x-api-key": process.env.CREEM_API_KEY ?? "",
+          "x-api-key": await getRuntimeCreemApiKey(),
         },
       }
     );
@@ -199,11 +206,11 @@ export const creem = {
    */
   async cancelSubscription(subscriptionId: string): Promise<CreemSubscription> {
     const res = await fetch(
-      `${CREEM_API_BASE}/subscriptions/${subscriptionId}/cancel`,
+      `${await getRuntimeCreemApiBase()}/subscriptions/${subscriptionId}/cancel`,
       {
         method: "POST",
         headers: {
-          "x-api-key": process.env.CREEM_API_KEY ?? "",
+          "x-api-key": await getRuntimeCreemApiKey(),
         },
       }
     );
@@ -223,9 +230,9 @@ export const creem = {
    * @returns 客户信息
    */
   async getCustomer(customerId: string): Promise<CreemCustomer> {
-    const res = await fetch(`${CREEM_API_BASE}/customers/${customerId}`, {
+    const res = await fetch(`${await getRuntimeCreemApiBase()}/customers/${customerId}`, {
       headers: {
-        "x-api-key": process.env.CREEM_API_KEY ?? "",
+        "x-api-key": await getRuntimeCreemApiKey(),
       },
     });
 
@@ -279,6 +286,19 @@ export function constructCreemEvent(
   signature: string
 ): CreemWebhookEvent {
   const secret = process.env.CREEM_WEBHOOK_SECRET ?? "";
+
+  if (!verifyCreemWebhookSignature(payload, signature, secret)) {
+    throw new Error("Invalid webhook signature");
+  }
+
+  return JSON.parse(payload) as CreemWebhookEvent;
+}
+
+export async function constructRuntimeCreemEvent(
+  payload: string,
+  signature: string
+): Promise<CreemWebhookEvent> {
+  const secret = (await getRuntimeSettingString("CREEM_WEBHOOK_SECRET")) ?? "";
 
   if (!verifyCreemWebhookSignature(payload, signature, secret)) {
     throw new Error("Invalid webhook signature");

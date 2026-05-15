@@ -7,7 +7,7 @@ import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
 import { db } from "@repo/database";
-import { ticket } from "@repo/database/schema";
+import { ticket, user } from "@repo/database/schema";
 import { getServerSession } from "@repo/shared/auth/server";
 
 /**
@@ -24,13 +24,46 @@ export default async function SupportPage() {
 
   const t = await getTranslations("Support");
   const locale = await getLocale();
+  const isAdmin = (session.user as { role?: string }).role === "admin";
 
-  // 获取用户的工单列表
-  const tickets = await db
-    .select()
-    .from(ticket)
-    .where(eq(ticket.userId, session.user.id))
-    .orderBy(desc(ticket.createdAt));
+  const tickets = isAdmin
+    ? await db
+        .select({
+          id: ticket.id,
+          userId: ticket.userId,
+          subject: ticket.subject,
+          category: ticket.category,
+          priority: ticket.priority,
+          status: ticket.status,
+          createdAt: ticket.createdAt,
+          updatedAt: ticket.updatedAt,
+          user: {
+            name: user.name,
+            email: user.email,
+          },
+        })
+        .from(ticket)
+        .leftJoin(user, eq(ticket.userId, user.id))
+        .orderBy(desc(ticket.createdAt))
+    : await db
+        .select({
+          id: ticket.id,
+          userId: ticket.userId,
+          subject: ticket.subject,
+          category: ticket.category,
+          priority: ticket.priority,
+          status: ticket.status,
+          createdAt: ticket.createdAt,
+          updatedAt: ticket.updatedAt,
+          user: {
+            name: user.name,
+            email: user.email,
+          },
+        })
+        .from(ticket)
+        .leftJoin(user, eq(ticket.userId, user.id))
+        .where(eq(ticket.userId, session.user.id))
+        .orderBy(desc(ticket.createdAt));
 
   /**
    * 获取状态徽章样式
@@ -89,7 +122,9 @@ export default async function SupportPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">{t("title")}</h2>
-          <p className="text-muted-foreground">{t("subtitle")}</p>
+          <p className="text-muted-foreground">
+            {isAdmin ? t("adminSubtitle") : t("subtitle")}
+          </p>
         </div>
         <Link href="/dashboard/support/new">
           <Button>
@@ -128,6 +163,9 @@ export default async function SupportPage() {
                       <p className="text-sm text-muted-foreground">
                         {getCategoryLabel(tkt.category)} ·{" "}
                         {new Date(tkt.createdAt).toLocaleDateString(dateLocale)}
+                        {isAdmin && tkt.user?.email
+                          ? ` · ${tkt.user.name || t("unknownUser")} (${tkt.user.email})`
+                          : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">

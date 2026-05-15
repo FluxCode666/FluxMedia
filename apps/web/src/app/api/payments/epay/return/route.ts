@@ -3,9 +3,9 @@ import { getBaseUrl } from "@repo/shared/config/payment";
 import {
   decodeEpayMetadata,
   EPAY_TRADE_SUCCESS,
-  isEpayConfigured,
+  isRuntimeEpayConfigured,
   parseEpayRequestParams,
-  verifyEpayParams,
+  verifyRuntimeEpayParams,
 } from "@repo/shared/payment/epay";
 import { logger, logError } from "@repo/shared/logger";
 import { fulfillSuccessfulEpayPayment } from "@/features/payment/epay-fulfillment";
@@ -21,14 +21,14 @@ export async function POST(req: Request) {
 async function handleReturn(req: Request) {
   const baseUrl = getBaseUrl();
 
-  if (!isEpayConfigured()) {
+  if (!(await isRuntimeEpayConfigured())) {
     return NextResponse.redirect(
       `${baseUrl}/dashboard/settings?tab=usage&pay=fail`
     );
   }
 
   const params = await parseEpayRequestParams(req);
-  const verifyInfo = verifyEpayParams(params);
+  const verifyInfo = await verifyRuntimeEpayParams(params);
   const metadata = verifyInfo.verifyStatus
     ? decodeEpayMetadata(verifyInfo.param)
     : null;
