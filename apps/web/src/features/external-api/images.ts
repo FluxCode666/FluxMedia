@@ -11,6 +11,12 @@ export type ExternalImageStreamEvent = {
   data: unknown;
 };
 
+type JsonKeepAliveOptions = {
+  keepAliveMs?: number;
+  initialWaitMs?: number;
+  status?: number;
+};
+
 function getRequestBaseUrl(request: Request) {
   return (
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -185,6 +191,111 @@ export function createExternalImageStreamResponse(
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+      },
+    }
+  );
+}
+
+function toOpenAIErrorPayload(message: string) {
+  return {
+    error: {
+      message,
+      type: "invalid_request_error",
+      code: null,
+    },
+  };
+}
+
+function isErrorPayload(data: unknown) {
+  return Boolean(data && typeof data === "object" && "error" in data);
+}
+
+function getJsonStatus(data: unknown, fallback = 200) {
+  if (isErrorPayload(data)) return 400;
+  return fallback;
+}
+
+export async function createJsonKeepAliveResponse(
+  run: () => Promise<unknown>,
+  options?: JsonKeepAliveOptions
+) {
+  const runResult = run().then(
+    (data) => data ?? null,
+    (error) =>
+      toOpenAIErrorPayload(
+        error instanceof Error ? error.message : "Image request failed"
+      )
+  );
+
+  const initialWaitMs = options?.initialWaitMs ?? 1_000;
+  const initialResult = await Promise.race([
+    runResult,
+    new Promise<undefined>((resolve) =>
+      setTimeout(() => resolve(undefined), initialWaitMs)
+    ),
+  ]);
+
+  if (initialResult !== undefined) {
+    return Response.json(initialResult, {
+      status: getJsonStatus(initialResult, options?.status ?? 200),
+      headers: {
+        "Cache-Control": "no-store, no-transform",
+      },
+    });
+  }
+
+  const encoder = new TextEncoder();
+  const keepAliveMs = options?.keepAliveMs ?? 15_000;
+  let keepAlive: ReturnType<typeof setInterval> | undefined;
+  let cancelled = false;
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        let closed = false;
+
+        const write = (chunk: string) => {
+          if (closed || cancelled) return;
+          try {
+            controller.enqueue(encoder.encode(chunk));
+          } catch {
+            closed = true;
+          }
+        };
+
+        write("\n");
+        keepAlive = setInterval(() => {
+          write("\n");
+        }, keepAliveMs);
+
+        try {
+          const data = await runResult;
+          write(JSON.stringify(data));
+        } finally {
+          if (keepAlive) {
+            clearInterval(keepAlive);
+            keepAlive = undefined;
+          }
+          if (!(closed || cancelled)) {
+            closed = true;
+            controller.close();
+          }
+        }
+      },
+      cancel() {
+        cancelled = true;
+        if (keepAlive) {
+          clearInterval(keepAlive);
+          keepAlive = undefined;
+        }
+      },
+    }),
+    {
+      status: options?.status ?? 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store, no-transform",
+        "X-Accel-Buffering": "no",
       },
     }
   );

@@ -2,11 +2,12 @@ import { withApiLogging } from "@repo/shared/api-logger";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { randomUUID } from "node:crypto";
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
 import {
   createExternalImageStreamResponse,
+  createJsonKeepAliveResponse,
   getImageBase64,
   getPublicImageUrl,
   openAIImageError,
@@ -227,6 +228,16 @@ function toPartialPayload(image: PartialImageResult, index: number) {
   };
 }
 
+function toOpenAIErrorPayload(message: string) {
+  return {
+    error: {
+      message,
+      type: "invalid_request_error",
+      code: null,
+    },
+  };
+}
+
 export const POST = withApiLogging(async (request: NextRequest) => {
   const auth = await authenticateExternalApiRequest(request);
   if (!auth) {
@@ -372,71 +383,71 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       getBoolean(formData, "stream")
     );
 
-    try {
-      if (useStreamResponse) {
-        return createExternalImageStreamResponse(async (emit) => {
-          try {
-            for (let index = 0; index < count; index++) {
-              const result = await runEdit(randomUUID(), {
-                onPartialImage: async (image) => {
-                  await emit({
-                    event: "image_edit.partial_image",
-                    data: toPartialPayload(image, index),
-                  });
+    if (useStreamResponse) {
+      return createExternalImageStreamResponse(async (emit) => {
+        try {
+          for (let index = 0; index < count; index++) {
+            const result = await runEdit(randomUUID(), {
+              onPartialImage: async (image) => {
+                await emit({
+                  event: "image_edit.partial_image",
+                  data: toPartialPayload(image, index),
+                });
+              },
+            });
+
+            if (result.error) {
+              await emit({
+                event: "error",
+                data: {
+                  type: "upstream_error",
+                  message: result.error,
+                  error: { message: result.error },
+                  generation_id: result.generationId,
+                  generationId: result.generationId,
+                  credits_consumed: result.creditsConsumed,
                 },
               });
-
-              if (result.error) {
-                await emit({
-                  event: "error",
-                  data: {
-                    type: "upstream_error",
-                    message: result.error,
-                    error: { message: result.error },
-                    generation_id: result.generationId,
-                    generationId: result.generationId,
-                    credits_consumed: result.creditsConsumed,
-                  },
-                });
-                return;
-              }
-
-              await emit({
-                event: "image_edit.completed",
-                data: await toStreamCompletedPayload(
-                  request,
-                  result,
-                  responseFormat,
-                  index
-                ),
-              });
+              return;
             }
-          } finally {
-            await deleteModerationImages(moderationImages);
+
+            await emit({
+              event: "image_edit.completed",
+              data: await toStreamCompletedPayload(
+                request,
+                result,
+                responseFormat,
+                index
+              ),
+            });
           }
-        });
-      }
-
-      const data = [];
-      const created = Math.floor(Date.now() / 1000);
-
-      for (let index = 0; index < count; index++) {
-        const result = await runEdit(randomUUID());
-        if (result.error) {
-          return openAIImageError(result.error, 400);
+        } finally {
+          await deleteModerationImages(moderationImages);
         }
-        data.push(await toOpenAIImageData(request, result, responseFormat));
-      }
-
-      return NextResponse.json({
-        created,
-        data,
       });
-    } finally {
-      if (!useStreamResponse) {
+    }
+
+    return createJsonKeepAliveResponse(async () => {
+      try {
+        const data = [];
+        const created = Math.floor(Date.now() / 1000);
+
+        for (let index = 0; index < count; index++) {
+          const result = await runEdit(randomUUID());
+          if (result.error) {
+            return toOpenAIErrorPayload(result.error);
+          }
+          data.push(await toOpenAIImageData(request, result, responseFormat));
+        }
+
+        return {
+          created,
+          data,
+        };
+      } finally {
         await deleteModerationImages(moderationImages);
       }
-    }
+    });
   } catch (error) {
     return openAIImageError(
       error instanceof Error ? error.message : "Failed to edit image."

@@ -1,12 +1,13 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { canUseExternalResponsesImageApi } from "@repo/shared/config/subscription-plan";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
 import {
   createExternalImageStreamResponse,
+  createJsonKeepAliveResponse,
   getImageBase64,
   openAIImageError,
   toOpenAIResponseImageItem,
@@ -175,6 +176,25 @@ function toResponsePayload(params: {
   };
 }
 
+function toResponseErrorPayload(message: string, requestId?: string) {
+  return {
+    error: {
+      message,
+      type: "invalid_request_error",
+      code: null,
+    },
+    ...(requestId
+      ? {
+          response: {
+            id: requestId,
+            status: "failed",
+            error: { message },
+          },
+        }
+      : {}),
+  };
+}
+
 export const POST = withApiLogging(async (request: NextRequest) => {
   const auth = await authenticateExternalApiRequest(request);
   if (!auth) {
@@ -293,21 +313,21 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     });
   }
 
-  const result = await runImageGenerationForUser(input);
-  if (result.error) {
-    return openAIImageError(result.error, 400);
-  }
+  return createJsonKeepAliveResponse(async () => {
+    const result = await runImageGenerationForUser(input);
+    if (result.error) {
+      return toResponseErrorPayload(result.error, requestId);
+    }
 
-  const imageBase64 = result.imageUrl
-    ? await getImageBase64(request, result.imageUrl)
-    : undefined;
+    const imageBase64 = result.imageUrl
+      ? await getImageBase64(request, result.imageUrl)
+      : undefined;
 
-  return NextResponse.json(
-    toResponsePayload({
+    return toResponsePayload({
       requestId,
       model: parsed.data.model,
       result,
       imageBase64,
-    })
-  );
+    });
+  });
 });

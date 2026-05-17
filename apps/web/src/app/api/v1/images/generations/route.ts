@@ -1,12 +1,13 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { canUseExternalResponsesImageApi } from "@repo/shared/config/subscription-plan";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
 import {
   createExternalImageStreamResponse,
+  createJsonKeepAliveResponse,
   getImageBase64,
   getPublicImageUrl,
   openAIImageError,
@@ -82,6 +83,16 @@ function toPartialPayload(
     partial_image_index: image.partialImageIndex,
     b64_json: image.imageBase64,
     url: image.imageUrl,
+  };
+}
+
+function toOpenAIErrorPayload(message: string) {
+  return {
+    error: {
+      message,
+      type: "invalid_request_error",
+      code: null,
+    },
   };
 }
 
@@ -182,19 +193,21 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     });
   }
 
-  const data = [];
-  const created = Math.floor(Date.now() / 1000);
+  return createJsonKeepAliveResponse(async () => {
+    const data = [];
+    const created = Math.floor(Date.now() / 1000);
 
-  for (let index = 0; index < count; index++) {
-    const result = await runImageGenerationForUser(input);
-    if (result.error) {
-      return openAIImageError(result.error, 400);
+    for (let index = 0; index < count; index++) {
+      const result = await runImageGenerationForUser(input);
+      if (result.error) {
+        return toOpenAIErrorPayload(result.error);
+      }
+      data.push(await toOpenAIImageData(request, result, responseFormat));
     }
-    data.push(await toOpenAIImageData(request, result, responseFormat));
-  }
 
-  return NextResponse.json({
-    created,
-    data,
+    return {
+      created,
+      data,
+    };
   });
 });
