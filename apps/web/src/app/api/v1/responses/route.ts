@@ -195,7 +195,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     );
   }
 
-  if (!hasImageGenerationTool(parsed.data.tools)) {
+  if (parsed.data.tools && !hasImageGenerationTool(parsed.data.tools)) {
     return openAIImageError(
       "The external Responses API currently requires the image_generation tool."
     );

@@ -17,6 +17,7 @@ import { isExternalResponsesImageModelAllowed } from "@/features/external-api/mo
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import {
   DEFAULT_IMAGE_SIZE,
+  normalizeImageModel,
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import type { PartialImageResult } from "@/features/image-generation/types";
@@ -113,21 +114,28 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     );
   }
 
-  if (!isExternalResponsesImageModelAllowed(parsed.data.model, plan.plan)) {
+  const imageModel = parsed.data.model
+    ? normalizeImageModel(parsed.data.model)
+    : undefined;
+
+  if (
+    !imageModel &&
+    !isExternalResponsesImageModelAllowed(parsed.data.model, plan.plan)
+  ) {
     return openAIImageError(
       "Unsupported model for this plan. Use /v1/models to list available Responses image models."
     );
   }
 
   const input = {
-    mode: "chat" as const,
+    mode: imageModel ? ("generate" as const) : ("chat" as const),
     userId: auth.userId,
     prompt: parsed.data.prompt,
     apiPrompt: parsed.data.apiPrompt || parsed.data.api_prompt,
     promptOptimization:
       parsed.data.promptOptimization ?? parsed.data.prompt_optimization,
     size: parsed.data.size || DEFAULT_IMAGE_SIZE,
-    model: parsed.data.model,
+    model: imageModel || parsed.data.model,
     quality: parsed.data.quality,
     moderation: parsed.data.moderation || "auto",
   };
