@@ -14,12 +14,22 @@ SKIP_BUILD="${SKIP_BUILD:-1}"
 TAR_FILE="${TAR_FILE:-deploy.tgz}"
 FORCE_EXTRACT="${FORCE_EXTRACT:-1}"
 ASSET_PREFIX="${ASSET_PREFIX:-${NEXT_PUBLIC_ASSET_PREFIX:-}}"
-STANDALONE_APP_DIR="${STANDALONE_APP_DIR:-apps/web/.next/standalone/GPT2Image-Pro/apps/web}"
+STANDALONE_APP_DIR="${STANDALONE_APP_DIR:-}"
 
 cd "$APP_DIR"
 export NODE_ENV=production
 export PORT="$PORT"
 [ -n "$ASSET_PREFIX" ] && export NEXT_PUBLIC_ASSET_PREFIX="$ASSET_PREFIX"
+
+if [ -z "$STANDALONE_APP_DIR" ]; then
+  if [ -d "apps/web/.next/standalone/apps/web" ]; then
+    STANDALONE_APP_DIR="apps/web/.next/standalone/apps/web"
+  elif [ -d "apps/web/.next/standalone/$APP_NAME/apps/web" ]; then
+    STANDALONE_APP_DIR="apps/web/.next/standalone/$APP_NAME/apps/web"
+  else
+    STANDALONE_APP_DIR="apps/web/.next/standalone/apps/web"
+  fi
+fi
 
 if [ "$SKIP_INSTALL" != "1" ]; then
   if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
@@ -60,7 +70,11 @@ else
   fi
 fi
 
-if [ -d "apps/web/.next/static" ] && [ -d "$STANDALONE_APP_DIR/.next" ]; then
+if [ -d "apps/web/.next/static" ]; then
+  if [ ! -d "$STANDALONE_APP_DIR/.next" ]; then
+    echo "Standalone .next directory not found: $STANDALONE_APP_DIR/.next"
+    exit 1
+  fi
   mkdir -p "$STANDALONE_APP_DIR/.next/static"
   cp -a apps/web/.next/static/. "$STANDALONE_APP_DIR/.next/static/"
 fi
