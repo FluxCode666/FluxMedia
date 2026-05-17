@@ -566,7 +566,7 @@ export async function runImageGenerationForUser(
   let fileSize = 0;
   try {
     const imageBuffer = await toImageBuffer(result);
-    storageKey = `${input.userId}/${generationId}.png`;
+    storageKey = `${input.userId}/${nanoid(32)}.png`;
     fileSize = imageBuffer.length;
     const storage = await getStorageProvider();
     await storage.putObject(storageKey, bucket, imageBuffer, "image/png");
