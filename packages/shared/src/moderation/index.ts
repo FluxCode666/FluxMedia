@@ -4,6 +4,7 @@ import Green20220302Module, {
   TextModerationPlusRequest,
 } from "@alicloud/green20220302";
 import { Config as AliyunOpenApiConfig } from "@alicloud/openapi-client";
+import { RuntimeOptions as AliyunRuntimeOptions } from "@alicloud/tea-util";
 import OpenAI from "openai";
 import { logError, logWarn } from "../logger";
 import {
@@ -51,6 +52,7 @@ interface AliyunConfig {
   accessKeyId: string;
   accessKeySecret: string;
   regionId: string;
+  timeoutMs: number;
   endpoint?: string;
   textRegionId?: string;
   textEndpoint?: string;
@@ -93,6 +95,7 @@ async function getAliyunConfig(): Promise<AliyunConfig | null> {
     accessKeyId,
     accessKeySecret,
     regionId: (await runtimeValue("ALIYUN_MODERATION_REGION_ID")) || "cn-shanghai",
+    timeoutMs: await getProviderTimeoutMs(),
   };
 
   const endpoint = await runtimeValue("ALIYUN_MODERATION_ENDPOINT");
@@ -216,6 +219,8 @@ function getAliyunClient(config: AliyunConfig) {
       accessKeySecret: config.accessKeySecret,
       regionId: config.textRegionId || config.regionId,
       endpoint: config.textEndpoint || config.endpoint,
+      readTimeout: config.timeoutMs,
+      connectTimeout: config.timeoutMs,
     })
   );
 }
@@ -227,6 +232,8 @@ function getAliyunAgentClient(config: AliyunConfig) {
       accessKeySecret: config.accessKeySecret,
       regionId: config.regionId,
       endpoint: config.endpoint,
+      readTimeout: config.timeoutMs,
+      connectTimeout: config.timeoutMs,
     })
   );
 }
@@ -238,8 +245,17 @@ function getAliyunImageClient(config: AliyunConfig) {
       accessKeySecret: config.accessKeySecret,
       regionId: config.imageRegionId || config.regionId,
       endpoint: config.imageEndpoint || config.endpoint,
+      readTimeout: config.timeoutMs,
+      connectTimeout: config.timeoutMs,
     })
   );
+}
+
+function getAliyunRuntime(config: AliyunConfig) {
+  return new AliyunRuntimeOptions({
+    readTimeout: config.timeoutMs,
+    connectTimeout: config.timeoutMs,
+  });
 }
 
 function assertAliyunResponseOk(
@@ -287,18 +303,20 @@ function getAliyunAgentPayload(
 
 async function moderateWithAliyunAgent(
   client: InstanceType<typeof Green20220302>,
+  config: AliyunConfig,
   appId: string,
   input: ModerateContentInput,
   content: string,
   imageUrl?: string
 ): Promise<ModerationResult> {
-  const response = await client.multiModalAgent(
+  const response = await client.multiModalAgentWithOptions(
     new MultiModalAgentRequest({
       appID: appId,
       serviceParameters: JSON.stringify(
         getAliyunAgentPayload(input, content, imageUrl)
       ),
-    })
+    }),
+    getAliyunRuntime(config)
   );
 
   assertAliyunResponseOk(response.body);
@@ -326,11 +344,18 @@ async function moderateWithAliyunAgent(
 
 async function moderateWithAliyunTextAgent(
   client: InstanceType<typeof Green20220302>,
+  config: AliyunConfig,
   appId: string,
   input: ModerateContentInput
 ): Promise<ModerationResult> {
   for (const content of getContentChunks(input.prompt)) {
-    const result = await moderateWithAliyunAgent(client, appId, input, content);
+    const result = await moderateWithAliyunAgent(
+      client,
+      config,
+      appId,
+      input,
+      content
+    );
     if (result.decision === "block") {
       return result;
     }
@@ -341,18 +366,20 @@ async function moderateWithAliyunTextAgent(
 
 async function moderateWithAliyunTextPlus(
   client: InstanceType<typeof Green20220302>,
+  config: AliyunConfig,
   service: string,
   input: ModerateContentInput
 ): Promise<ModerationResult> {
   for (const content of getContentChunks(input.prompt)) {
-    const response = await client.textModerationPlus(
+    const response = await client.textModerationPlusWithOptions(
       new TextModerationPlusRequest({
         service,
         serviceParameters: JSON.stringify({
           dataId: input.generationId,
           content,
         }),
-      })
+      }),
+      getAliyunRuntime(config)
     );
 
     assertAliyunResponseOk(response.body);
@@ -388,6 +415,7 @@ async function moderateWithAliyunTextPlus(
 
 async function moderateWithAliyunImageAgent(
   client: InstanceType<typeof Green20220302>,
+  config: AliyunConfig,
   appId: string,
   input: ModerateContentInput
 ): Promise<ModerationResult> {
@@ -403,6 +431,7 @@ async function moderateWithAliyunImageAgent(
     for (const content of getContentChunks(input.prompt)) {
       const result = await moderateWithAliyunAgent(
         client,
+        config,
         appId,
         input,
         content,
@@ -419,6 +448,7 @@ async function moderateWithAliyunImageAgent(
 
 async function moderateWithAliyunImageModeration(
   client: InstanceType<typeof Green20220302>,
+  config: AliyunConfig,
   service: string,
   input: ModerateContentInput
 ): Promise<ModerationResult> {
@@ -431,14 +461,15 @@ async function moderateWithAliyunImageModeration(
       throw new Error("Aliyun image moderation requires public image URLs");
     }
 
-    const response = await client.imageModeration(
+    const response = await client.imageModerationWithOptions(
       new ImageModerationRequest({
         service,
         serviceParameters: JSON.stringify({
           dataId: input.generationId,
           imageUrl: image.url,
         }),
-      })
+      }),
+      getAliyunRuntime(config)
     );
 
     assertAliyunResponseOk(response.body);
@@ -479,6 +510,7 @@ async function moderateWithAliyun(
   if (!isImageMode && config.textService) {
     return moderateWithAliyunTextPlus(
       getAliyunClient(config),
+      config,
       config.textService,
       input
     );
@@ -487,6 +519,7 @@ async function moderateWithAliyun(
   if (isImageMode && config.imageService) {
     return moderateWithAliyunImageModeration(
       getAliyunImageClient(config),
+      config,
       config.imageService,
       input
     );
@@ -504,8 +537,8 @@ async function moderateWithAliyun(
   }
 
   return isImageMode
-    ? moderateWithAliyunImageAgent(client, appId, input)
-    : moderateWithAliyunTextAgent(client, appId, input);
+    ? moderateWithAliyunImageAgent(client, config, appId, input)
+    : moderateWithAliyunTextAgent(client, config, appId, input);
 }
 
 async function moderateWithOpenAI(
