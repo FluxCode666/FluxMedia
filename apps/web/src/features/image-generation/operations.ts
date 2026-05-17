@@ -15,10 +15,9 @@ import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
-  DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageModel,
   getImageCreditCostBreakdown,
-  normalizeImageModel,
   roundCreditAmount,
 } from "./resolution";
 import {
@@ -57,9 +56,8 @@ type RunImageGenerationInput =
 
 const CHAT_TEXT_ONLY_CREDITS = 1;
 const MAX_CHAT_CONTEXT_CHARS = 30_000;
-const TEXT_MODERATION_ONLY_CREDITS = getImageCreditCostBreakdown(
-  DEFAULT_IMAGE_SIZE
-).moderationOnlyCredits;
+const TEXT_MODERATION_ONLY_CREDITS =
+  getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
 
 export type ImageGenerationOperationResult = {
   error?: string;
@@ -202,17 +200,29 @@ export async function runImageGenerationForUser(
   const { config, useCredits } = await getEffectiveConfig(userConfig);
   let model: string;
   try {
-    model =
-      input.mode === "chat"
-        ? await getResponsesModel(config, input.model, {
-            allowGpt55: canUseGpt55Chat(userPlan.plan),
-          })
-        : normalizeImageModel(input.model) ||
-          normalizeImageModel(config.model) ||
-          DEFAULT_IMAGE_MODEL;
+    if (input.mode === "chat") {
+      model = await getResponsesModel(config, input.model, {
+        allowGpt55: canUseGpt55Chat(userPlan.plan),
+      });
+    } else {
+      const imageModel = getImageModel(input.model, config.model);
+      if (!imageModel) {
+        throw new Error(
+          "Unsupported model for image generation. Use a gpt-image-* model."
+        );
+      }
+      model = imageModel;
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Invalid model.",
+      generationId,
+    };
+  }
+
+  if (!model) {
+    return {
+      error: "Invalid model.",
       generationId,
     };
   }
@@ -357,9 +367,7 @@ export async function runImageGenerationForUser(
 
   if (moderation.decision === "block" || moderation.decision === "error") {
     const targetCredits =
-      moderation.decision === "block"
-        ? moderationFailureCredits
-        : 0;
+      moderation.decision === "block" ? moderationFailureCredits : 0;
     try {
       await settleChargedCredits(
         targetCredits,
@@ -466,7 +474,11 @@ export async function runImageGenerationForUser(
         creditsConsumed: chargedCredits,
       })
       .where(eq(generation.id, generationId));
-    return { error: result.error, generationId, creditsConsumed: chargedCredits };
+    return {
+      error: result.error,
+      generationId,
+      creditsConsumed: chargedCredits,
+    };
   }
 
   if (!result.imageBase64 && !result.imageUrl) {
@@ -489,7 +501,11 @@ export async function runImageGenerationForUser(
           error instanceof Error ? error.message : "Insufficient credits";
         await db
           .update(generation)
-          .set({ status: "failed", error: message, creditsConsumed: chargedCredits })
+          .set({
+            status: "failed",
+            error: message,
+            creditsConsumed: chargedCredits,
+          })
           .where(eq(generation.id, generationId));
         return {
           error: "Insufficient credits",

@@ -15,6 +15,8 @@ import { eq } from "drizzle-orm";
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageModel,
+  isImageModel,
   normalizeImageModel,
   parseImageSize,
 } from "./resolution";
@@ -96,15 +98,20 @@ type ReasoningConfig = {
 };
 
 function getModel(config: ApiConfig, model?: string) {
-  return (
-    normalizeImageModel(model) ||
-    normalizeImageModel(config.model) ||
-    DEFAULT_IMAGE_MODEL
-  );
-}
+  const requestedModel = normalizeImageModel(model);
+  if (requestedModel && !isImageModel(requestedModel)) {
+    throw new Error(
+      "Unsupported model for image generation. Use a gpt-image-* model."
+    );
+  }
 
-function isImageOnlyModel(model: string) {
-  return model.toLowerCase().startsWith("gpt-image-");
+  const imageModel = getImageModel(requestedModel, config.model);
+  if (!imageModel) {
+    throw new Error(
+      "Unsupported model for image generation. Use a gpt-image-* model."
+    );
+  }
+  return imageModel;
 }
 
 function normalizeResponsesModel(
@@ -113,7 +120,15 @@ function normalizeResponsesModel(
   explicit = false
 ) {
   const requested = model.trim();
-  if (!requested || isImageOnlyModel(requested)) return null;
+  if (!requested) return null;
+  if (isImageModel(requested)) {
+    if (explicit) {
+      throw new Error(
+        `Unsupported chat model. Use ${RESPONSES_IMAGE_MODELS.join(", ")}.`
+      );
+    }
+    return null;
+  }
 
   if (requested === GPT55_CHAT_MODEL && !options?.allowGpt55) {
     throw new Error("GPT-5.5 chat model requires Ultra plan.");
@@ -902,8 +917,9 @@ async function getPlatformConfig(): Promise<ApiConfig> {
     apiKey,
     supportsPromptOptimizationControl: true,
     model:
-      normalizeImageModel(await getRuntimeSettingString("PLATFORM_IMAGE_MODEL")) ||
-      DEFAULT_IMAGE_MODEL,
+      normalizeImageModel(
+        await getRuntimeSettingString("PLATFORM_IMAGE_MODEL")
+      ) || DEFAULT_IMAGE_MODEL,
   };
 }
 
@@ -933,7 +949,9 @@ export async function getUserApiConfig(
   return result;
 }
 
-export async function getEffectiveConfig(userConfig: ApiConfig | null): Promise<{
+export async function getEffectiveConfig(
+  userConfig: ApiConfig | null
+): Promise<{
   config: ApiConfig;
   useCredits: boolean;
 }> {

@@ -1,1 +1,1 @@
-export { GET } from "@/app/api/v1/models/route";
+export { getExternalModels as GET } from "@/features/external-api/handlers/models";

@@ -1,2 +1,1 @@
-export { POST } from "@/app/api/v1/images/generations/route";
-
+export { postExternalImageGenerations as POST } from "@/features/external-api/handlers/image-generations";

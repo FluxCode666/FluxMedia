@@ -1,1 +1,1 @@
-export { POST } from "@/app/api/v1/responses/route";
+export { postExternalResponses as POST } from "@/features/external-api/handlers/responses";

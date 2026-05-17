@@ -1,5 +1,6 @@
 export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const LEGACY_IMAGE_MODEL = "gpt-image-1";
+export const IMAGE_MODEL_PREFIX = "gpt-image-";
 export const DEFAULT_IMAGE_SIZE = "1024x1024";
 export const IMAGE_DIMENSION_STEP = 16;
 export const MIN_IMAGE_DIMENSION = 256;
@@ -19,8 +20,26 @@ export type ImageDimensions = {
 };
 
 export function normalizeImageModel(model?: string | null) {
-  if (!model || model === LEGACY_IMAGE_MODEL) return undefined;
-  return model;
+  const requested = model?.trim();
+  if (!requested || requested === LEGACY_IMAGE_MODEL) return undefined;
+  return requested;
+}
+
+export function isImageModel(model?: string | null) {
+  const normalizedModel = normalizeImageModel(model);
+  return Boolean(normalizedModel?.toLowerCase().startsWith(IMAGE_MODEL_PREFIX));
+}
+
+export function getImageModel(model?: string | null, fallback?: string | null) {
+  const requested = normalizeImageModel(model);
+  if (requested) {
+    return isImageModel(requested) ? requested : null;
+  }
+
+  const fallbackModel = normalizeImageModel(fallback);
+  if (fallbackModel && isImageModel(fallbackModel)) return fallbackModel;
+
+  return DEFAULT_IMAGE_MODEL;
 }
 
 export const IMAGE_RESOLUTION_PRESETS = [
@@ -62,8 +81,7 @@ export function getImageCreditCostBreakdown(
   const pixels = dimensions
     ? dimensions.width * dimensions.height
     : MAX_IMAGE_PIXELS;
-  const baseCredits =
-    (pixels / MAX_IMAGE_PIXELS) * IMAGE_4K_BASE_CREDIT_COST;
+  const baseCredits = (pixels / MAX_IMAGE_PIXELS) * IMAGE_4K_BASE_CREDIT_COST;
   const textModerationCount = options.textModerationCount ?? 1;
   const imageModerationCount = options.imageModerationCount ?? 0;
   const moderationCny =

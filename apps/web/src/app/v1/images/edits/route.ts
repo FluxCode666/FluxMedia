@@ -1,1 +1,1 @@
-export { POST } from "@/app/api/v1/images/edits/route";
+export { postExternalImageEdits as POST } from "@/features/external-api/handlers/image-edits";
