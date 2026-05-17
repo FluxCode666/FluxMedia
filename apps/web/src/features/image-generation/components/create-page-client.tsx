@@ -1385,7 +1385,7 @@ export function CreatePageClient({
         action: {
           label: copy("Top up", "去充值"),
           onClick: () => {
-            window.location.href = "/dashboard/credits/buy";
+            window.location.href = `/${locale}/dashboard/credits/buy`;
           },
         },
       });

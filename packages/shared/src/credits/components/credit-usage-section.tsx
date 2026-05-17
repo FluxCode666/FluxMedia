@@ -162,12 +162,14 @@ export function CreditUsageSection() {
 
         <div className="flex gap-3">
           <Button asChild>
-            <Link href="/dashboard/credits/buy">
+            <Link href={`/${locale}/dashboard/credits/buy`}>
               {t("getMoreCredits.buyCredits")}
             </Link>
           </Button>
           <Button asChild variant="outline">
-            <Link href="/#pricing">{t("getMoreCredits.viewPlans")}</Link>
+            <Link href={`/${locale}/#pricing`}>
+              {t("getMoreCredits.viewPlans")}
+            </Link>
           </Button>
         </div>
       </div>

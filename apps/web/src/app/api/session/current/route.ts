@@ -2,6 +2,7 @@ import { db, user } from "@repo/database";
 import { auth } from "@repo/shared/auth";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,36 @@ function withNoStore(response: NextResponse) {
   return response;
 }
 
+async function clearAuthCookies(response: NextResponse) {
+  const cookieStore = await cookies();
+  const authCookieNames = new Set([
+    "better-auth.session_token",
+    "__Secure-better-auth.session_token",
+    "better-auth.session_data",
+    "__Secure-better-auth.session_data",
+    "better-auth.dont_remember",
+    "__Secure-better-auth.dont_remember",
+  ]);
+
+  for (const cookie of cookieStore.getAll()) {
+    if (
+      authCookieNames.has(cookie.name) ||
+      cookie.name.startsWith("better-auth.session_data.") ||
+      cookie.name.startsWith("__Secure-better-auth.session_data.")
+    ) {
+      response.cookies.set(cookie.name, "", {
+        path: "/",
+        maxAge: 0,
+        secure: cookie.name.startsWith("__Secure-"),
+        httpOnly: true,
+        sameSite: "lax",
+      });
+    }
+  }
+
+  return response;
+}
+
 export async function GET() {
   return getCurrentSessionResponse();
 }
@@ -35,7 +66,7 @@ async function getCurrentSessionResponse() {
   });
 
   if (!session?.user?.id) {
-    return withNoStore(NextResponse.json(null));
+    return clearAuthCookies(withNoStore(NextResponse.json(null)));
   }
 
   const [currentUser] = await db
@@ -51,7 +82,7 @@ async function getCurrentSessionResponse() {
     .limit(1);
 
   if (!currentUser) {
-    return withNoStore(NextResponse.json(null));
+    return clearAuthCookies(withNoStore(NextResponse.json(null)));
   }
 
   return withNoStore(

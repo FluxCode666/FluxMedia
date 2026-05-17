@@ -18,13 +18,13 @@ import { Link } from "@/i18n/routing";
 
 export default async function DashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() });
+  const locale = await getLocale();
   if (!session?.user) {
-    redirect("/sign-in");
+    redirect(`/${locale}/sign-in`);
   }
 
   const user = session.user;
   const userId = user.id;
-  const locale = await getLocale();
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
 
@@ -112,7 +112,7 @@ export default async function DashboardPage() {
             <CardContent className="flex h-full flex-col items-center justify-center gap-3 p-6">
               <ImagePlus className="h-8 w-8 text-muted-foreground" />
               <Button asChild>
-                <Link href="/dashboard/create">
+                <Link href={`/${locale}/dashboard/create`}>
                   {copy("Start Creating", "开始创作")}
                 </Link>
               </Button>
@@ -128,14 +128,18 @@ export default async function DashboardPage() {
                 {copy("Recent Creations", "最近创作")}
               </h2>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/dashboard/gallery">
+                <Link href={`/${locale}/dashboard/gallery`}>
                   {copy("View All", "查看全部")}
                 </Link>
               </Button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {generationsWithUrls.map((gen) => (
-                <Link key={gen.id} href="/dashboard/gallery" className="group">
+                <Link
+                  key={gen.id}
+                  href={`/${locale}/dashboard/gallery`}
+                  className="group"
+                >
                   <Card className="overflow-hidden transition-shadow hover:shadow-md">
                     <div className="relative aspect-square">
                       {gen.imageUrl ? (

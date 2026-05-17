@@ -12,7 +12,7 @@ import { Label } from "@repo/ui/components/label";
 import { Separator } from "@repo/ui/components/separator";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -27,6 +27,7 @@ import { AuthLogo } from "./auth-logo";
  * - 邮箱密码登录
  */
 export function SignInForm() {
+  const locale = useLocale();
   const t = useTranslations("Auth.signIn");
   const tCommon = useTranslations("Auth.common");
 
@@ -107,7 +108,7 @@ export function SignInForm() {
 
       // 登录成功，提示并跳转
       toast.success(t("success"));
-      window.location.href = "/dashboard";
+      window.location.href = `/${locale}/dashboard`;
     } catch {
       setError(t("errors.invalidCredentials"));
       setIsLoading(false);
@@ -229,7 +230,7 @@ export function SignInForm() {
       <p className="text-center text-sm text-muted-foreground">
         {t("noAccount")}{" "}
         <Link
-          href="/sign-up"
+          href={`/${locale}/sign-up`}
           className="font-medium text-foreground hover:underline"
         >
           {t("signUpLink")}

@@ -3,6 +3,7 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLocale } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@repo/ui/components/button";
@@ -27,6 +28,7 @@ import { ticketCategories, ticketPriorities } from "@repo/shared/support/schemas
  */
 export default function NewTicketPage() {
   const router = useRouter();
+  const locale = useLocale();
   const [isLoading, setIsLoading] = useState(false);
 
   // 表单状态
@@ -57,7 +59,7 @@ export default function NewTicketPage() {
 
       if (result?.data) {
         toast.success("工单创建成功");
-        router.push(`/dashboard/support/${result.data.ticketId}`);
+        router.push(`/${locale}/dashboard/support/${result.data.ticketId}`);
       } else if (result?.serverError) {
         toast.error(result.serverError);
       }
@@ -73,7 +75,7 @@ export default function NewTicketPage() {
     <div className="space-y-6">
       {/* 页面标题 */}
       <div className="flex items-center gap-4">
-        <Link href="/dashboard/support">
+        <Link href={`/${locale}/dashboard/support`}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -162,7 +164,7 @@ export default function NewTicketPage() {
 
             {/* 提交按钮 */}
             <div className="flex justify-end gap-4">
-              <Link href="/dashboard/support">
+              <Link href={`/${locale}/dashboard/support`}>
                 <Button type="button" variant="outline">
                   取消
                 </Button>

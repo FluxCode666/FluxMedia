@@ -2,13 +2,15 @@ import { getCurrentUser } from "@repo/shared/auth/server";
 
 import { getCreditsBalance } from "@repo/shared/credits/core";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
 import { getUserRecentGenerations } from "@/features/image-generation/queries";
 
 export default async function CreatePage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/sign-in");
+  const locale = await getLocale();
+  if (!user) redirect(`/${locale}/sign-in`);
 
   const [creditsData, recentGenerations, plan] = await Promise.all([
     getCreditsBalance(user.id),

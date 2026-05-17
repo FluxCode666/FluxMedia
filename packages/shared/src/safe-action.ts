@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { createSafeActionClient } from "next-safe-action";
 import { z } from "zod";
 
@@ -12,6 +11,13 @@ const actionMetadataSchema = z
     action: z.string().min(1),
   })
   .optional();
+
+class ActionAuthError extends Error {
+  constructor() {
+    super("登录已失效，请重新登录");
+    this.name = "ActionAuthError";
+  }
+}
 
 /**
  * 基础 Action 客户端
@@ -28,6 +34,10 @@ const baseActionClient = createSafeActionClient({
    * - 生产环境下隐藏具体错误信息
    */
   handleServerError(error) {
+    if (error instanceof ActionAuthError) {
+      return error.message;
+    }
+
     // 结构化日志记录
     logError(error, { source: "server-action" });
 
@@ -86,7 +96,7 @@ export const protectedAction = actionClient.use(async ({ next }) => {
 
   // 如果没有会话或用户信息，重定向到登录页
   if (!session || !session.user) {
-    redirect("/sign-in");
+    throw new ActionAuthError();
   }
 
   // 设置用户上下文到日志

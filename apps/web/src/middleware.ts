@@ -160,13 +160,6 @@ export async function middleware(request: NextRequest) {
     return setPrivateNoStore(NextResponse.redirect(signInUrl));
   }
 
-  // 如果已登录用户访问认证页面，重定向到 Dashboard
-  if (isAuthRoute && sessionToken) {
-    return setPrivateNoStore(
-      NextResponse.redirect(new URL(`/${locale}/dashboard`, request.url))
-    );
-  }
-
   // 执行国际化中间件
   const response = intlMiddleware(request);
   return isProtectedRoute || isAuthRoute ? setPrivateNoStore(response) : response;

@@ -4,6 +4,7 @@ import { ChevronsUpDown, LogOut, Shield, Settings } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useLocale } from "next-intl";
 import { useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
@@ -43,6 +44,7 @@ import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
 export function DashboardSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const locale = useLocale();
   const { isCollapsed, isMobileOpen, setMobileOpen, toggleSidebar } =
     useSidebar();
   const t = useTranslations("Dashboard");
@@ -114,8 +116,11 @@ export function DashboardSidebar() {
    */
   const handleSettingsClick = () => {
     setOpen(false);
-    router.push("/dashboard/settings");
+    router.push(`/${locale}/dashboard/settings`);
   };
+
+  const localizedHref = (href: string) =>
+    href.startsWith("/") ? `/${locale}${href}` : href;
 
   /**
    * 渲染侧边栏内容（桌面和移动端共用）
@@ -129,7 +134,7 @@ export function DashboardSidebar() {
         {/* Logo */}
         <div className="flex h-14 items-center px-4">
           <Link
-            href="/"
+            href={`/${locale}`}
             className="flex items-center gap-2"
             onClick={(e) => {
               if (mobile) {
@@ -189,7 +194,7 @@ export function DashboardSidebar() {
                   return (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={localizedHref(item.href)}
                       title={collapsed ? translatedTitle : undefined}
                       onClick={() => mobile && setMobileOpen(false)}
                       className={cn(

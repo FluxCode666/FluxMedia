@@ -12,8 +12,8 @@ interface GalleryPageProps {
 
 export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const user = await getCurrentUser();
-  if (!user) redirect("/sign-in");
   const locale = await getLocale();
+  if (!user) redirect(`/${locale}/sign-in`);
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
 

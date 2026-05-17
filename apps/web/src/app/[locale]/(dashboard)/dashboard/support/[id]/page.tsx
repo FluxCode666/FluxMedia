@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { getLocale } from "next-intl/server";
 import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
@@ -36,8 +37,9 @@ export default async function TicketDetailPage({
 
   // 获取当前用户会话
   const session = await getServerSession();
+  const locale = await getLocale();
   if (!session?.user) {
-    redirect("/sign-in");
+    redirect(`/${locale}/sign-in`);
   }
   const isAdmin = (session.user as { role?: string }).role === "admin";
 
@@ -167,7 +169,7 @@ export default async function TicketDetailPage({
     <div className="space-y-6">
       {/* 页面标题 */}
       <div className="flex items-center gap-4">
-        <Link href="/dashboard/support">
+        <Link href={`/${locale}/dashboard/support`}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>

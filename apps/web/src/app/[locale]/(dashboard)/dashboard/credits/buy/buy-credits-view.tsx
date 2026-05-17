@@ -102,9 +102,9 @@ export function BuyCreditPackagesView() {
   useEffect(() => {
     if (canceled) {
       toast.info(copy("Payment canceled", "支付已取消"));
-      router.replace("/dashboard/credits/buy");
+      router.replace(`/${locale}/dashboard/credits/buy`);
     }
-  }, [canceled, copy, router]);
+  }, [canceled, copy, locale, router]);
 
   /**
    * 处理购买按钮点击
@@ -244,7 +244,7 @@ export function BuyCreditPackagesView() {
           variant="ghost"
           size="sm"
           className="gap-2 text-muted-foreground"
-          onClick={() => router.push("/dashboard/settings?tab=usage")}
+          onClick={() => router.push(`/${locale}/dashboard/settings?tab=usage`)}
         >
           <ArrowLeft className="h-4 w-4" />
           {copy("Back to Usage", "返回用量")}

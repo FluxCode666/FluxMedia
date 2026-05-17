@@ -18,12 +18,12 @@ import { getServerSession } from "@repo/shared/auth/server";
 export default async function SupportPage() {
   // 获取当前用户会话
   const session = await getServerSession();
+  const locale = await getLocale();
   if (!session?.user) {
-    redirect("/sign-in");
+    redirect(`/${locale}/sign-in`);
   }
 
   const t = await getTranslations("Support");
-  const locale = await getLocale();
   const isAdmin = (session.user as { role?: string }).role === "admin";
 
   const tickets = isAdmin
@@ -126,7 +126,7 @@ export default async function SupportPage() {
             {isAdmin ? t("adminSubtitle") : t("subtitle")}
           </p>
         </div>
-        <Link href="/dashboard/support/new">
+        <Link href={`/${locale}/dashboard/support/new`}>
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             {t("newTicket")}
@@ -143,7 +143,7 @@ export default async function SupportPage() {
             <p className="text-muted-foreground mb-4">
               {t("noTicketsDescription")}
             </p>
-            <Link href="/dashboard/support/new">
+            <Link href={`/${locale}/dashboard/support/new`}>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
                 {t("createFirst")}
@@ -154,7 +154,7 @@ export default async function SupportPage() {
       ) : (
         <div className="space-y-4">
           {tickets.map((tkt) => (
-            <Link key={tkt.id} href={`/dashboard/support/${tkt.id}`}>
+            <Link key={tkt.id} href={`/${locale}/dashboard/support/${tkt.id}`}>
               <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">

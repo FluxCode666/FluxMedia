@@ -17,7 +17,7 @@ import { Label } from "@repo/ui/components/label";
 import { Separator } from "@repo/ui/components/separator";
 import { Eye, EyeOff, Mail } from "lucide-react";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -93,6 +93,7 @@ function isVerificationCodeError(error: unknown) {
  * - 邮箱密码注册
  */
 export function SignUpForm() {
+  const locale = useLocale();
   const t = useTranslations("Auth.signUp");
   const tCommon = useTranslations("Auth.common");
 
@@ -267,7 +268,7 @@ export function SignUpForm() {
       // 注册成功，显示验证邮件提示
       if (result.data?.token) {
         toast.success(tCommon("success"));
-        window.location.href = "/dashboard";
+        window.location.href = `/${locale}/dashboard`;
         return;
       }
 
@@ -314,7 +315,7 @@ export function SignUpForm() {
               : t("verifyEmail.resend")}
           </Button>
           <Link
-            href="/sign-in"
+            href={`/${locale}/sign-in`}
             className="text-sm text-muted-foreground hover:text-foreground underline"
           >
             {t("verifyEmail.backToSignIn")}
@@ -490,7 +491,7 @@ export function SignUpForm() {
       <p className="text-center text-sm text-muted-foreground">
         {t("haveAccount")}{" "}
         <Link
-          href="/sign-in"
+          href={`/${locale}/sign-in`}
           className="font-medium text-foreground hover:underline"
         >
           {t("signInLink")}

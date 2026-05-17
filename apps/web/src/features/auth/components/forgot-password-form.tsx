@@ -81,7 +81,7 @@ export function ForgotPasswordForm() {
         {/* 返回登录 */}
         <div className="text-center">
           <Link
-            href="/sign-in"
+            href={`/${locale}/sign-in`}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             <span className="underline">
@@ -149,7 +149,7 @@ export function ForgotPasswordForm() {
       <p className="text-center text-sm text-muted-foreground">
         {copy("Remember your password?", "想起密码了？")}{" "}
         <Link
-          href="/sign-in"
+          href={`/${locale}/sign-in`}
           className="font-medium text-foreground hover:underline"
         >
           {copy("Back to Login", "返回登录")}
