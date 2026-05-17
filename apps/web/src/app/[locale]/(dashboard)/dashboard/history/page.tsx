@@ -68,6 +68,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         </p>
       </div>
       <HistoryClient
+        key={page}
         initialGenerations={withUrls}
         totalCount={totalResult[0]?.count ?? 0}
         page={page}

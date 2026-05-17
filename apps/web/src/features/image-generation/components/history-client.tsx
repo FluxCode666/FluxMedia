@@ -13,7 +13,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import { useLocale } from "next-intl";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ImageLightbox,
   type LightboxGeneration,
@@ -93,11 +93,6 @@ export function HistoryClient({
   const historyHref = (nextPage: number) =>
     `/${locale}/dashboard/history?page=${nextPage}`;
   const createHref = `/${locale}/dashboard/create`;
-
-  useEffect(() => {
-    setItems(initialGenerations);
-    setSelectedId(null);
-  }, [initialGenerations]);
 
   const handleDelete = (id: string) => {
     setItems((prev) => prev.filter((x) => x.id !== id));

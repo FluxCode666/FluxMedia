@@ -1,11 +1,10 @@
 "use client";
 
 import { Button } from "@repo/ui/components/button";
-import { ImagePlus, Loader2 } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { useLocale } from "next-intl";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useState } from "react";
 import { ImageCard } from "@/features/image-generation/components/image-card";
 import {
   ImageLightbox,
@@ -38,33 +37,18 @@ export function GalleryClient({
   page,
 }: GalleryClientProps) {
   const locale = useLocale();
-  const router = useRouter();
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const [items, setItems] = useState<GenerationWithUrl[]>(initialGenerations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
 
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const hasMore = items.length < totalCount;
   const createHref = `/${locale}/dashboard/create`;
-
-  useEffect(() => {
-    setItems(initialGenerations);
-    setSelectedId(null);
-  }, [initialGenerations]);
+  const nextPageHref = `/${locale}/dashboard/gallery?page=${page + 1}`;
 
   const handleDelete = (id: string) => {
     setItems((prev) => prev.filter((x) => x.id !== id));
-  };
-
-  const handleLoadMore = () => {
-    const nextPage = page + 1;
-    startTransition(() => {
-      router.push(`/${locale}/dashboard/gallery?page=${nextPage}`, {
-        scroll: false,
-      });
-    });
   };
 
   if (items.length === 0) {
@@ -112,9 +96,10 @@ export function GalleryClient({
 
       {hasMore && (
         <div className="flex justify-center pt-4">
-          <Button variant="outline" onClick={handleLoadMore} disabled={isPending}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {copy("Load more", "加载更多")}
+          <Button asChild variant="outline">
+            <Link href={nextPageHref} scroll={false}>
+              {copy("Load more", "加载更多")}
+            </Link>
           </Button>
         </div>
       )}

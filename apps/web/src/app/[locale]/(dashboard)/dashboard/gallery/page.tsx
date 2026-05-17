@@ -67,6 +67,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
         </p>
       </div>
       <GalleryClient
+        key={page}
         initialGenerations={withUrls}
         totalCount={totalResult[0]?.count ?? 0}
         page={page}
