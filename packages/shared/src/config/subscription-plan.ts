@@ -98,8 +98,8 @@ export const PLAN_PRIVILEGES: Record<SubscriptionPlan, PlanPrivileges> = {
     name: "Enterprise",
     maxFileSizeBytes: 100 * 1024 * 1024, // 100MB
     queuePriority: "highest",
-    imageGenerationConcurrency: 50,
-    monthlyCredits: 80_000,
+    imageGenerationConcurrency: 100,
+    monthlyCredits: 320_000,
   },
 };
 

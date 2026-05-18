@@ -64,7 +64,7 @@ export const SUBSCRIPTION_MONTHLY_CREDITS = {
   starter: 5000,
   pro: 20000,
   ultra: 80000,
-  enterprise: 80000,
+  enterprise: 320000,
 } as const;
 
 // ============================================
@@ -281,12 +281,12 @@ export function getPricingPlansFromConfig(config: PaymentConfig): Plan[] {
       description:
         "Ultra capabilities plus enterprise resource packs for sustained volume",
       features: [
-        "80,000 credits / month",
+        "320,000 credits / month",
         "Text-to-image and image editing",
         "Up to 10 images per batch",
         "Chat-to-image supports GPT-5.5",
         "Moderation failures only charge review credits",
-        "Highest priority queue, up to 50 concurrent generations",
+        "Highest priority queue, up to 100 concurrent generations",
         "Enterprise resource packs: 5,000 credits per pack",
         "Unlimited enterprise resource pack purchases",
         "Download & share",

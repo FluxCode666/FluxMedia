@@ -28,7 +28,7 @@ function getPositiveIntegerEnv(name: string, fallback: number) {
 }
 
 function getGlobalConcurrency() {
-  return getPositiveIntegerEnv("IMAGE_GENERATION_GLOBAL_CONCURRENCY", 100);
+  return getPositiveIntegerEnv("IMAGE_GENERATION_GLOBAL_CONCURRENCY", 500);
 }
 
 function getQueueTimeoutMs() {

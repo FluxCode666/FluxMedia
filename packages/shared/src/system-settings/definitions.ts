@@ -351,7 +351,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     description: "Enterprise 套餐每月发放积分。",
     category: "plans",
     valueType: "number",
-    defaultValue: 80000,
+    defaultValue: 320000,
   },
   {
     key: "PLAN_STARTER_MONTHLY_AMOUNT",
