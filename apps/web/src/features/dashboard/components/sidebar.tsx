@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsUpDown, LogOut, Shield, Settings } from "lucide-react";
+import { ChevronsUpDown, LogOut, Shield, Settings, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -81,6 +81,7 @@ export function DashboardSidebar() {
       "System Settings": t("nav.systemSettings"),
       Support: t("nav.support"),
       "New Ticket": t("nav.newTicket"),
+      "User Management": t("nav.userManagement"),
     };
     return titleMap[title] || title;
   };
@@ -176,6 +177,11 @@ export function DashboardSidebar() {
               <div className="space-y-0.5">
                 {[...group.items, ...(isAdmin
                   ? [
+                      {
+                        title: "User Management",
+                        href: "/dashboard/admin/users",
+                        icon: Users,
+                      },
                       {
                         title: "System Settings",
                         href: "/dashboard/admin/settings",

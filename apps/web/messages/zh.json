@@ -579,6 +579,7 @@
       "gallery": "图库",
       "history": "历史记录",
       "settings": "设置",
+      "userManagement": "用户管理",
       "systemSettings": "系统设置",
       "support": "支持",
       "newTicket": "新建工单"
@@ -595,6 +596,7 @@
       "support": "支持",
       "newTicket": "新建工单",
       "settings": "设置",
+      "userManagement": "用户管理",
       "systemSettings": "系统设置",
       "creditsBuy": "购买积分",
       "profile": "个人资料",

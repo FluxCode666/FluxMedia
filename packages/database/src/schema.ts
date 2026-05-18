@@ -58,6 +58,38 @@ export const user = pgTable("user", {
 });
 
 // ============================================
+// 管理员操作审计日志 (Admin Audit Log)
+// ============================================
+/**
+ * 管理员操作审计日志 - 记录高风险后台操作
+ *
+ * @field id - 记录唯一标识符
+ * @field adminUserId - 执行操作的管理员用户 ID
+ * @field targetUserId - 被操作的目标用户 ID（可为空，用于全局操作）
+ * @field action - 操作类型
+ * @field reason - 管理员填写的操作原因
+ * @field before - 操作前快照
+ * @field after - 操作后快照
+ * @field metadata - 扩展元数据
+ * @field createdAt - 创建时间
+ */
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: text("id").primaryKey(),
+  adminUserId: text("admin_user_id").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  targetUserId: text("target_user_id").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  action: text("action").notNull(),
+  reason: text("reason"),
+  before: json("before").$type<Record<string, unknown>>(),
+  after: json("after").$type<Record<string, unknown>>(),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
 // 注册邮箱账本 (Registration Identity)
 // ============================================
 /**
@@ -217,6 +249,9 @@ export const subscription = pgTable("subscription", {
  */
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;
+
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+export type NewAdminAuditLog = typeof adminAuditLog.$inferInsert;
 
 export type RegistrationIdentity = typeof registrationIdentity.$inferSelect;
 export type NewRegistrationIdentity = typeof registrationIdentity.$inferInsert;
