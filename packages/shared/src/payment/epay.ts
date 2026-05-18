@@ -104,14 +104,7 @@ function getEpayNotifyUrl(): string | undefined {
   return notifyUrl || undefined;
 }
 
-function getEpayReturnUrl(baseUrl: string, notifyUrl?: string): string {
-  if (notifyUrl) {
-    try {
-      return new URL("/api/payments/epay/return", notifyUrl).toString();
-    } catch {
-      // Fall back to the public app URL below.
-    }
-  }
+function getEpayReturnUrl(baseUrl: string): string {
   return `${baseUrl}/api/payments/epay/return`;
 }
 
@@ -226,7 +219,7 @@ export function createEpayPurchase(
     type: input.type || getEpayDefaultPaymentType(),
     out_trade_no: input.outTradeNo,
     notify_url: notifyUrl ?? `${baseUrl}/api/webhooks/epay`,
-    return_url: input.returnUrl ?? getEpayReturnUrl(baseUrl, notifyUrl),
+    return_url: input.returnUrl ?? getEpayReturnUrl(baseUrl),
     name: input.name,
     money: formatMoney(input.money),
     device: "pc",
@@ -266,7 +259,7 @@ export async function createRuntimeEpayPurchase(
     type: paymentType,
     out_trade_no: input.outTradeNo,
     notify_url: notifyUrl,
-    return_url: input.returnUrl ?? getEpayReturnUrl(baseUrl, notifyUrl),
+    return_url: input.returnUrl ?? getEpayReturnUrl(baseUrl),
     name: input.name,
     money: formatMoney(input.money),
     device: "pc",
