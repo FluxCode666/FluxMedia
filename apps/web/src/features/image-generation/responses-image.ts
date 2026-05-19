@@ -38,6 +38,12 @@ type ResponsesImageRequest = {
   instructions?: string;
 };
 
+const RESPONSES_IMAGE_INSTRUCTIONS =
+  "You are an image generation assistant. Use the image_generation tool to satisfy the user's request and return the generated image.";
+
+const RESPONSES_IMAGE_ORIGINAL_PROMPT_INSTRUCTIONS =
+  "Use the user's original image prompt exactly as written for image generation. Do not rewrite, expand, translate, polish, or optimize the prompt before calling the image_generation tool.";
+
 function getDataUrl(image: ImageInputFile) {
   if (image.url?.startsWith("http://") || image.url?.startsWith("https://")) {
     return image.url;
@@ -66,7 +72,7 @@ function getPrompt(params: GenerateImageParams | EditImageParams) {
 
 function getInstructions(params: GenerateImageParams | EditImageParams) {
   if (params.promptOptimization !== false) return undefined;
-  return "Use the user's original image prompt exactly as written for image generation. Do not rewrite, expand, translate, polish, or optimize the prompt before calling the image_generation tool.";
+  return RESPONSES_IMAGE_ORIGINAL_PROMPT_INSTRUCTIONS;
 }
 
 function normalizeQuality(quality?: string): ImageQuality | undefined {
@@ -104,6 +110,8 @@ export function buildResponsesImageGenerationRequest(
   const moderation = normalizeModeration(params.moderation);
   if (moderation) tool.moderation = moderation;
 
+  const instructions = getInstructions(params) || RESPONSES_IMAGE_INSTRUCTIONS;
+
   return {
     model: getResponsesModel(config),
     input: [
@@ -118,9 +126,7 @@ export function buildResponsesImageGenerationRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
-    ...(getInstructions(params)
-      ? { instructions: getInstructions(params) }
-      : {}),
+    instructions,
   };
 }
 
@@ -147,6 +153,8 @@ export function buildResponsesImageEditRequest(
     tool.input_image_mask = { image_url: getDataUrl(params.mask) };
   }
 
+  const instructions = getInstructions(params) || RESPONSES_IMAGE_INSTRUCTIONS;
+
   return {
     model: getResponsesModel(config),
     input: [
@@ -167,8 +175,6 @@ export function buildResponsesImageEditRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
-    ...(getInstructions(params)
-      ? { instructions: getInstructions(params) }
-      : {}),
+    instructions,
   };
 }

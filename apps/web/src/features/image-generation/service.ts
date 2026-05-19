@@ -57,6 +57,10 @@ const VALID_QUALITIES = new Set<ImageQuality>([
 ]);
 const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
 const DEFAULT_RESPONSES_MODEL = GPT54_CHAT_MODEL;
+const DEFAULT_RESPONSES_IMAGE_INSTRUCTIONS =
+  "You are an image generation assistant. Use the image_generation tool when the user asks for an image, edit, or visual output.";
+const ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS =
+  "Use the user's original image prompt exactly as written when calling the image_generation tool. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation.";
 
 type ImageOutput = {
   b64_json?: string;
@@ -1317,8 +1321,8 @@ export async function generateChatImage(
     const input = buildResponsesInput(prompt, params.images, params.history);
     const instructions =
       params.promptOptimization === false
-        ? "Use the user's original image prompt exactly as written when calling the image_generation tool. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation."
-        : undefined;
+        ? ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS
+        : DEFAULT_RESPONSES_IMAGE_INSTRUCTIONS;
     const tool: {
       type: "image_generation";
       action: "auto";
@@ -1341,13 +1345,19 @@ export async function generateChatImage(
       params.rawResponsesBody && typeof params.rawResponsesBody === "object"
         ? {
             ...(params.rawResponsesBody as Record<string, unknown>),
+            instructions:
+              typeof (params.rawResponsesBody as Record<string, unknown>)
+                .instructions === "string" &&
+              (params.rawResponsesBody as Record<string, unknown>).instructions
+                ? (params.rawResponsesBody as Record<string, unknown>).instructions
+                : instructions,
             ...(params.stream || config.useStream ? { stream: true } : {}),
           }
         : {
             model,
             input,
             tools: [tool],
-            ...(instructions ? { instructions } : {}),
+            instructions,
             ...(reasoning ? { reasoning } : {}),
             ...(params.stream || config.useStream ? { stream: true } : {}),
           };
