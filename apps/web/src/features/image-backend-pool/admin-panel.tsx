@@ -175,6 +175,13 @@ function normalizeBackendFormValue(value: string): AccountBackendFormValue {
   return value === "responses" ? "responses" : "web";
 }
 
+function formatModeStats(
+  label: string,
+  stats: { synced: number; skipped: number; failed: number }
+) {
+  return `${label} 写入 ${stats.synced}，跳过 ${stats.skipped}，失败 ${stats.failed}`;
+}
+
 export function ImageBackendPoolAdminPanel() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sub2ApiSourceGroups, setSub2ApiSourceGroups] = useState<
@@ -440,7 +447,9 @@ export function ImageBackendPoolAdminPanel() {
     let syncedCount = 0;
     let refreshTokenWriteBackCount = 0;
     let failedCount = 0;
+    const synced = { web: 0, responses: 0 };
     const skipped = { web: 0, responses: 0 };
+    const failed = { web: 0, responses: 0 };
 
     setSyncProgress({
       status: "running",
@@ -473,8 +482,12 @@ export function ImageBackendPoolAdminPanel() {
         syncedCount += data.syncedCount || 0;
         refreshTokenWriteBackCount += data.refreshTokenWriteBackCount || 0;
         failedCount += data.failed || 0;
+        synced.web += data.syncedByMode?.web || 0;
+        synced.responses += data.syncedByMode?.responses || 0;
         skipped.web += data.skipped?.web || 0;
         skipped.responses += data.skipped?.responses || 0;
+        failed.web += data.failedByMode?.web || 0;
+        failed.responses += data.failedByMode?.responses || 0;
 
         const progressBase = totalSourceCount
           ? Math.min(100, Math.round((processedCount / totalSourceCount) * 100))
@@ -482,10 +495,20 @@ export function ImageBackendPoolAdminPanel() {
             ? 50
             : 100;
         const progressValue = Math.max(5, Math.min(99, progressBase));
+        const codexText = formatModeStats("Codex", {
+          synced: synced.responses,
+          skipped: skipped.responses,
+          failed: failed.responses,
+        });
+        const webText = formatModeStats("Web", {
+          synced: synced.web,
+          skipped: skipped.web,
+          failed: failed.web,
+        });
         setSyncProgress({
           status: "running",
           value: data.hasMore ? progressValue : 100,
-          message: `已处理 ${processedCount}/${totalSourceCount || "?"} 个，写入 ${syncedCount} 个，失败 ${failedCount} 个`,
+          message: `来源账号 ${processedCount}/${totalSourceCount || "?"}；${codexText}；${webText}`,
         });
 
         if (!data.hasMore || data.sourceCount === 0) break;
@@ -496,10 +519,18 @@ export function ImageBackendPoolAdminPanel() {
       setSyncProgress({
         status: "success",
         value: 100,
-        message: `完成：处理 ${processedCount} 个，写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个`,
+        message: `完成：来源账号 ${processedCount} 个；${formatModeStats("Codex", {
+          synced: synced.responses,
+          skipped: skipped.responses,
+          failed: failed.responses,
+        })}；${formatModeStats("Web", {
+          synced: synced.web,
+          skipped: skipped.web,
+          failed: failed.web,
+        })}`,
       });
       toast.success(
-        `同步完成：写入 ${syncedCount} 个，回写 RT ${refreshTokenWriteBackCount} 个，跳过 ${skippedCount} 个`
+        `同步完成：写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个，回写 RT ${refreshTokenWriteBackCount} 个`
       );
       reload();
     } catch (error) {

@@ -1327,11 +1327,18 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       ? (["web", "responses"] as const)
       : ([input.syncMode] as const);
   const imported: string[] = [];
+  const syncedByMode = {
+    web: 0,
+    responses: 0,
+  };
   const skipped = {
     web: 0,
     responses: 0,
   };
-  let failed = 0;
+  const failedByMode = {
+    web: 0,
+    responses: 0,
+  };
   let refreshTokenWriteBackCount = 0;
 
   const connectionString = await getSub2ApiPostgresConnectionString();
@@ -1384,9 +1391,9 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
             },
           });
           imported.push(id);
+          syncedByMode[mode]++;
         } catch (error) {
-          failed++;
-          skipped[mode]++;
+          failedByMode[mode]++;
           logWarn("Sub2API 账号 AT 同步失败，已跳过", {
             sourceAccountId: account.sourceId,
             mode,
@@ -1403,8 +1410,10 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       nextOffset: offset + accounts.length,
       hasMore: offset + accounts.length < totalSourceCount,
       syncedCount: imported.length,
+      syncedByMode,
       skipped,
-      failed,
+      failed: failedByMode.web + failedByMode.responses,
+      failedByMode,
       refreshTokenWriteBackCount,
     };
   } finally {
