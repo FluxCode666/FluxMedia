@@ -93,11 +93,14 @@ type WebAccountRuntimeMetadata = ChatGptWebAccountInfo & {
 
 type BackendMetadata = Record<string, unknown> & {
   source?: string;
+  chatgptAccountId?: string;
   webAccount?: Partial<WebAccountRuntimeMetadata>;
 };
 
 const CHATGPT_CODEX_RESPONSES_URL =
   "https://chatgpt.com/backend-api/codex";
+const CODEX_CLI_VERSION = "0.125.0";
+const CODEX_CLI_USER_AGENT = `codex_cli_rs/${CODEX_CLI_VERSION}`;
 const OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_PLATFORM_OAUTH_CLIENT_ID = "app_2SKx67EdpoN0G6j64rFvigXD";
@@ -196,6 +199,14 @@ function asBackendMetadata(value: unknown): BackendMetadata {
   return value && typeof value === "object" && !Array.isArray(value)
     ? ({ ...(value as Record<string, unknown>) } as BackendMetadata)
     : {};
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string
+) {
+  const value = asBackendMetadata(metadata)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function isSub2ApiBackedMetadata(
@@ -506,6 +517,7 @@ function toResolvedPoolConfig(
 
   const implementationMode = normalizeAccountBackend(member.implementationMode);
   const isResponsesBackend = implementationMode === "responses";
+  const chatgptAccountId = metadataString(member.metadata, "chatgptAccountId");
 
   return {
     config: {
@@ -519,7 +531,11 @@ function toResolvedPoolConfig(
         ? {
             "OpenAI-Beta": "responses=experimental",
             originator: "codex_cli_rs",
-            "User-Agent": "codex_cli_rs/0.1.0",
+            Version: CODEX_CLI_VERSION,
+            "User-Agent": CODEX_CLI_USER_AGENT,
+            ...(chatgptAccountId
+              ? { "chatgpt-account-id": chatgptAccountId }
+              : {}),
           }
         : undefined,
       backend: {
@@ -1234,6 +1250,7 @@ type Sub2ApiTokenAccount = {
   sourceId: string;
   name: string | null;
   email: string | null;
+  chatgptAccountId: string | null;
   codexAccessToken: string | null;
   refreshToken: string | null;
   clientId: string | null;
@@ -1286,6 +1303,10 @@ function mapSub2ApiAccountRow(row: Sub2ApiAccountRow): Sub2ApiTokenAccount | nul
 
   const clientId = credentialString(credentials, ["client_id", "clientId"]);
   const email = credentialString(credentials, ["email", "account_email", "username"]);
+  const chatgptAccountId = credentialString(credentials, [
+    "chatgpt_account_id",
+    "chatgptAccountId",
+  ]);
   const planType = credentialString(credentials, ["plan_type", "planType"]);
   const sourceId = String(row.id);
   const name = row.name?.trim() || email || `Sub2API 账号 ${sourceId}`;
@@ -1294,6 +1315,7 @@ function mapSub2ApiAccountRow(row: Sub2ApiAccountRow): Sub2ApiTokenAccount | nul
     sourceId,
     name,
     email: email || null,
+    chatgptAccountId: chatgptAccountId || null,
     codexAccessToken: codexAccessToken || null,
     refreshToken: refreshToken || null,
     clientId: clientId || null,
@@ -1671,6 +1693,7 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
             metadata: {
               source: "sub2api_postgres",
               sourceAccountId: account.sourceId,
+              chatgptAccountId: account.chatgptAccountId,
               sourceGroups: account.groupNames,
               planType: account.planType,
               syncedAt: new Date().toISOString(),

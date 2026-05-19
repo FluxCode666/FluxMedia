@@ -35,6 +35,11 @@ type ResponsesImageRequest = {
   stream: boolean;
   store: boolean;
   parallel_tool_calls: boolean;
+  reasoning: {
+    effort: "medium";
+    summary: "auto";
+  };
+  include: string[];
   instructions?: string;
 };
 
@@ -126,6 +131,8 @@ export function buildResponsesImageGenerationRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
+    reasoning: { effort: "medium", summary: "auto" },
+    include: ["reasoning.encrypted_content"],
     instructions,
   };
 }
@@ -175,6 +182,8 @@ export function buildResponsesImageEditRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
+    reasoning: { effort: "medium", summary: "auto" },
+    include: ["reasoning.encrypted_content"],
     instructions,
   };
 }

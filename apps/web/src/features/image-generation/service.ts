@@ -266,6 +266,18 @@ function getHttpErrorMessage(
   return getApiError(errorData, `${fallback}: ${trimmedBody}`);
 }
 
+function getNonJsonErrorMessage(
+  rawBody: string,
+  apiName: "Images API" | "Responses API"
+) {
+  const trimmedBody = truncateResponseBody(rawBody);
+  if (trimmedBody.startsWith("<")) {
+    return `API returned an HTML page instead of a ${apiName} response. Check that the API base URL points to an OpenAI-compatible /v1 endpoint.`;
+  }
+  if (!trimmedBody) return `API returned an empty non-JSON ${apiName} response.`;
+  return `API returned a non-JSON ${apiName} response: ${trimmedBody}`;
+}
+
 function normalizeQuality(quality?: string): ImageQuality | undefined {
   if (!quality || quality === "auto") return undefined;
   return VALID_QUALITIES.has(quality as ImageQuality)
@@ -823,9 +835,7 @@ async function parseResponsesResponse(
   if (!contentType.includes("application/json")) {
     const text = await response.text().catch(() => "");
     return {
-      error: text.trim().startsWith("<")
-        ? "API returned an HTML page instead of a Responses API response. Check that the API base URL points to an OpenAI-compatible /v1 endpoint."
-        : "API returned a non-JSON response.",
+      error: getNonJsonErrorMessage(text, "Responses API"),
     };
   }
 
@@ -1005,9 +1015,7 @@ async function parseImageResponse(
   if (!contentType.includes("application/json")) {
     const text = await response.text().catch(() => "");
     return {
-      error: text.trim().startsWith("<")
-        ? "API returned an HTML page instead of an Images API response. Check that the API base URL points to an OpenAI-compatible /v1 endpoint."
-        : "API returned a non-JSON response.",
+      error: getNonJsonErrorMessage(text, "Images API"),
     };
   }
 
@@ -1130,6 +1138,7 @@ export async function generateImage(
           method: "POST",
           headers: getHeaders(config, {
             "Content-Type": "application/json",
+            Accept: "text/event-stream",
           }),
           body: JSON.stringify(
             buildResponsesImageGenerationRequest(config, { ...params, model })
@@ -1222,6 +1231,7 @@ export async function editImage(
           method: "POST",
           headers: getHeaders(config, {
             "Content-Type": "application/json",
+            Accept: "text/event-stream",
           }),
           body: JSON.stringify(
             buildResponsesImageEditRequest(config, { ...params, model })
@@ -1377,6 +1387,10 @@ export async function generateChatImage(
         method: "POST",
         headers: getHeaders(config, {
           "Content-Type": "application/json",
+          Accept:
+            params.stream || config.useStream
+              ? "text/event-stream"
+              : "application/json",
         }),
         body: JSON.stringify(requestBody),
       }
