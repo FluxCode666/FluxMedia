@@ -29,6 +29,14 @@ const nullableGroupIdSchema = z
   .optional()
   .transform((value) => (value && value !== "default" ? value : null));
 
+const optionalGroupIdSchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) =>
+    value === undefined ? undefined : value && value !== "default" ? value : null
+  );
+
 const safetyOverrideSchema = z.enum(["inherit", "enabled", "disabled"]);
 const accountBackendSchema = z.enum(["web", "responses"]);
 const sub2ApiTokenSyncModeSchema = z.enum(["web", "responses", "both"]);
@@ -151,8 +159,8 @@ export const bulkUpdateImageBackendAccountsAction =
   withImageBackendPoolAdminAction("bulkUpdateAccounts")
     .schema(
       z.object({
-        accountIds: z.array(z.string().trim().min(1)).min(1).max(500),
-        groupId: nullableGroupIdSchema,
+        accountIds: z.array(z.string().trim().min(1)).min(1).max(10000),
+        groupId: optionalGroupIdSchema,
         implementationMode: accountBackendSchema.optional(),
         contentSafetyEnabled: z.boolean().optional(),
         isEnabled: z.boolean().optional(),
@@ -179,14 +187,16 @@ export const bulkDeleteImageBackendAccountsAction =
   withImageBackendPoolAdminAction("bulkDeleteAccounts")
     .schema(
       z.object({
-        accountIds: z.array(z.string().trim().min(1)).min(1).max(500),
+        accountIds: z.array(z.string().trim().min(1)).min(1).max(10000),
       })
     )
     .action(async ({ parsedInput }) => {
-      await deleteImageBackendMembers({ accountIds: parsedInput.accountIds });
+      const result = await deleteImageBackendMembers({
+        accountIds: parsedInput.accountIds,
+      });
       return {
         success: true,
-        deletedCount: parsedInput.accountIds.length,
+        deletedCount: result.deletedAccountCount,
       };
     });
 

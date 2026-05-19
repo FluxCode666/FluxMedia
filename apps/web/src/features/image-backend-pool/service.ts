@@ -1288,7 +1288,16 @@ function asStringArray(value: unknown) {
     : [];
 }
 
+function isSub2ApiOpenAIOAuthRow(row: Sub2ApiAccountRow) {
+  return (
+    row.platform?.trim().toLowerCase() === "openai" &&
+    row.type?.trim().toLowerCase() === "oauth"
+  );
+}
+
 function mapSub2ApiAccountRow(row: Sub2ApiAccountRow): Sub2ApiTokenAccount | null {
+  if (!isSub2ApiOpenAIOAuthRow(row)) return null;
+
   const credentials = row.credentials || {};
   const codexAccessToken = credentialString(credentials, [
     "access_token",
@@ -1378,8 +1387,8 @@ async function listSub2ApiCurrentAccessTokens(
       LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
       WHERE
         a.deleted_at IS NULL
-        AND a.platform = 'openai'
-        AND a.type = 'oauth'
+        AND LOWER(a.platform) = 'openai'
+        AND LOWER(a.type) = 'oauth'
         AND a.status = 'active'
         AND COALESCE(a.schedulable, true) = true
         AND (
@@ -1423,8 +1432,8 @@ async function countSub2ApiCurrentAccessTokens(
       FROM accounts a
       WHERE
         a.deleted_at IS NULL
-        AND a.platform = 'openai'
-        AND a.type = 'oauth'
+        AND LOWER(a.platform) = 'openai'
+        AND LOWER(a.type) = 'oauth'
         AND a.status = 'active'
         AND COALESCE(a.schedulable, true) = true
         AND (
@@ -1456,8 +1465,8 @@ async function listSub2ApiSourceGroupsFromPool(pool: Pool) {
         COUNT(a.id) FILTER (
           WHERE
             a.deleted_at IS NULL
-            AND a.platform = 'openai'
-            AND a.type = 'oauth'
+            AND LOWER(a.platform) = 'openai'
+            AND LOWER(a.type) = 'oauth'
             AND a.status = 'active'
             AND COALESCE(a.schedulable, true) = true
         ) AS account_count
@@ -1467,7 +1476,7 @@ async function listSub2ApiSourceGroupsFromPool(pool: Pool) {
       WHERE
         g.deleted_at IS NULL
         AND g.status = 'active'
-        AND g.platform = 'openai'
+        AND LOWER(g.platform) = 'openai'
       GROUP BY g.id, g.name, g.platform, g.sort_order
       ORDER BY g.sort_order ASC, g.name ASC, g.id ASC
     `
@@ -1543,30 +1552,7 @@ async function refreshOpenAIAccessToken(
   }
 }
 
-async function writeBackSub2ApiRefreshToken(
-  pool: Pool,
-  sourceId: string,
-  refreshToken: string
-) {
-  const numericSourceId = Number(sourceId);
-  if (!Number.isFinite(numericSourceId)) {
-    throw new Error(`Sub2API 账号 ID 非数字: ${sourceId}`);
-  }
-  await pool.query(
-    `
-      UPDATE accounts
-      SET
-        credentials = COALESCE(credentials, '{}'::jsonb)
-          || jsonb_build_object('refresh_token', $2::text),
-        updated_at = NOW()
-      WHERE id = $1 AND deleted_at IS NULL
-    `,
-    [numericSourceId, refreshToken]
-  );
-}
-
 async function resolveSub2ApiAccessTokenForMode(
-  pool: Pool,
   account: Sub2ApiTokenAccount,
   mode: ImageBackendAccountBackend
 ) {
@@ -1597,20 +1583,10 @@ async function resolveSub2ApiAccessTokenForMode(
       refreshTokenWrittenBack: false,
     };
   }
-  const shouldWriteBack =
-    Boolean(refreshed.refreshToken) &&
-    refreshed.refreshToken !== account.refreshToken;
-  if (shouldWriteBack && refreshed.refreshToken) {
-    await writeBackSub2ApiRefreshToken(
-      pool,
-      account.sourceId,
-      refreshed.refreshToken
-    );
-  }
   return {
     accessToken: refreshed.accessToken,
     tokenSource: "openai.oauth.platform_refresh",
-    refreshTokenWrittenBack: shouldWriteBack,
+    refreshTokenWrittenBack: false,
   };
 }
 
@@ -1650,7 +1626,6 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
     web: 0,
     responses: 0,
   };
-  let refreshTokenWriteBackCount = 0;
 
   const connectionString = await getSub2ApiPostgresConnectionString();
   const pool = createSub2ApiPool(connectionString);
@@ -1666,13 +1641,12 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
     for (const account of accounts) {
       for (const mode of modes) {
         try {
-          const { accessToken, tokenSource, refreshTokenWrittenBack } =
-            await resolveSub2ApiAccessTokenForMode(pool, account, mode);
+          const { accessToken, tokenSource } =
+            await resolveSub2ApiAccessTokenForMode(account, mode);
           if (!accessToken) {
             skipped[mode]++;
             continue;
           }
-          if (refreshTokenWrittenBack) refreshTokenWriteBackCount++;
           const id = await upsertImageBackendAccount({
             groupId:
               mode === "responses" ? input.responsesGroupId : input.webGroupId,
@@ -1699,7 +1673,7 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
               syncedAt: new Date().toISOString(),
               tokenSource,
               sub2apiClientId: account.clientId,
-              refreshTokenWrittenBack,
+              refreshTokenWrittenBack: false,
             },
           });
           imported.push(id);
@@ -1726,7 +1700,7 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       skipped,
       failed: failedByMode.web + failedByMode.responses,
       failedByMode,
-      refreshTokenWriteBackCount,
+      refreshTokenWriteBackCount: 0,
     };
   } finally {
     await pool.end();
@@ -1853,16 +1827,31 @@ export async function deleteImageBackendMembers(input: {
   accountIds?: string[];
   apiIds?: string[];
 }) {
+  let deletedAccountCount = 0;
+  let deletedApiCount = 0;
   if (input.accountIds?.length) {
-    await db
-      .delete(imageBackendAccount)
-      .where(inArray(imageBackendAccount.id, input.accountIds));
+    const accountIds = Array.from(new Set(input.accountIds.filter(Boolean)));
+    for (let index = 0; index < accountIds.length; index += 500) {
+      const chunk = accountIds.slice(index, index + 500);
+      if (!chunk.length) continue;
+      await db
+        .delete(imageBackendAccount)
+        .where(inArray(imageBackendAccount.id, chunk));
+      deletedAccountCount += chunk.length;
+    }
   }
   if (input.apiIds?.length) {
-    await db
-      .delete(imageBackendApi)
-      .where(inArray(imageBackendApi.id, input.apiIds));
+    const apiIds = Array.from(new Set(input.apiIds.filter(Boolean)));
+    for (let index = 0; index < apiIds.length; index += 500) {
+      const chunk = apiIds.slice(index, index + 500);
+      if (!chunk.length) continue;
+      await db
+        .delete(imageBackendApi)
+        .where(inArray(imageBackendApi.id, chunk));
+      deletedApiCount += chunk.length;
+    }
   }
+  return { deletedAccountCount, deletedApiCount };
 }
 
 export async function listAdminImageBackendPool() {

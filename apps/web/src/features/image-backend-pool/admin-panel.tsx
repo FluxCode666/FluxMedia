@@ -136,7 +136,19 @@ type SyncProgressState = {
   message: string;
 };
 
-type BulkAccountOperation = "group" | "mode" | "enable" | "disable" | "delete";
+type BulkAccountForm = {
+  selectionGroupId: string;
+  selectionMode: "all" | AccountBackendFormValue;
+  setGroup: boolean;
+  groupId: string;
+  setMode: boolean;
+  implementationMode: AccountBackendFormValue;
+  setEnabled: boolean;
+  isEnabled: boolean;
+  setContentSafety: boolean;
+  contentSafetyEnabled: boolean;
+  deleteSelected: boolean;
+};
 
 function groupName(groups: Group[], groupId: string | null) {
   return groups.find((group) => group.id === groupId)?.name || "未分组";
@@ -250,13 +262,19 @@ export function ImageBackendPoolAdminPanel() {
     isEnabled: true,
     priority: 50,
   });
-  const [bulkAccountForm, setBulkAccountForm] = useState({
+  const [bulkAccountForm, setBulkAccountForm] = useState<BulkAccountForm>({
     selectionGroupId: "all",
     selectionMode: "all" as "all" | AccountBackendFormValue,
-    operation: "group" as BulkAccountOperation,
+    setGroup: false,
     groupId: "default",
+    setMode: false,
     implementationMode: "responses" as AccountBackendFormValue,
-  });
+    setEnabled: false,
+    isEnabled: true,
+    setContentSafety: false,
+    contentSafetyEnabled: true,
+    deleteSelected: false,
+  } satisfies BulkAccountForm);
   const [manualImportForm, setManualImportForm] = useState({
     refreshTokensText: "",
     webGroupId: "default",
@@ -306,6 +324,12 @@ export function ImageBackendPoolAdminPanel() {
   const selectedAccountCount = selectedAccountIds.length;
   const allAccountsSelected =
     accounts.length > 0 && selectedAccountIds.length === accounts.length;
+  const hasBulkAccountOperation =
+    bulkAccountForm.setGroup ||
+    bulkAccountForm.setMode ||
+    bulkAccountForm.setEnabled ||
+    bulkAccountForm.setContentSafety ||
+    bulkAccountForm.deleteSelected;
   const editingAccount = accountForm.id
     ? accounts.find((account) => account.id === accountForm.id)
     : undefined;
@@ -597,7 +621,6 @@ export function ImageBackendPoolAdminPanel() {
     let totalSourceCount = 0;
     let processedCount = 0;
     let syncedCount = 0;
-    let refreshTokenWriteBackCount = 0;
     let failedCount = 0;
     const synced = { web: 0, responses: 0 };
     const skipped = { web: 0, responses: 0 };
@@ -632,7 +655,6 @@ export function ImageBackendPoolAdminPanel() {
         totalSourceCount = data.totalSourceCount || totalSourceCount;
         processedCount = data.nextOffset || processedCount + data.sourceCount;
         syncedCount += data.syncedCount || 0;
-        refreshTokenWriteBackCount += data.refreshTokenWriteBackCount || 0;
         failedCount += data.failed || 0;
         synced.web += data.syncedByMode?.web || 0;
         synced.responses += data.syncedByMode?.responses || 0;
@@ -682,7 +704,7 @@ export function ImageBackendPoolAdminPanel() {
         })}`,
       });
       toast.success(
-        `同步完成：写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个，回写 RT ${refreshTokenWriteBackCount} 个`
+        `同步完成：写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个`
       );
       reload();
     } catch (error) {
@@ -704,40 +726,42 @@ export function ImageBackendPoolAdminPanel() {
       toast.error("请先选择账号");
       return;
     }
+    if (!hasBulkAccountOperation) {
+      toast.error("请选择至少一个批量操作");
+      return;
+    }
     if (
-      bulkAccountForm.operation === "delete" &&
-      !window.confirm(`确定删除 ${selectedAccountIds.length} 个账号？`)
+      bulkAccountForm.deleteSelected &&
+      !window.confirm(
+        `确定删除 ${selectedAccountIds.length} 个账号？这只会删除本站后端池记录，不会删除 Sub2API 源库账号。`
+      )
     ) {
       return;
     }
     if (
-      bulkAccountForm.operation === "mode" &&
+      bulkAccountForm.setMode &&
       selectedSub2ApiAccountCount > 0
     ) {
       toast.error("Sub2API 同步账号不能在本站批量切换 Web/Responses");
       return;
     }
-    if (bulkAccountForm.operation === "delete") {
+    if (bulkAccountForm.deleteSelected) {
       bulkDeleteAccounts({ accountIds: selectedAccountIds });
       return;
     }
-    if (bulkAccountForm.operation === "group") {
-      bulkUpdateAccounts({
-        accountIds: selectedAccountIds,
-        groupId: bulkAccountForm.groupId,
-      });
-      return;
-    }
-    if (bulkAccountForm.operation === "mode") {
-      bulkUpdateAccounts({
-        accountIds: selectedAccountIds,
-        implementationMode: bulkAccountForm.implementationMode,
-      });
-      return;
-    }
+
     bulkUpdateAccounts({
       accountIds: selectedAccountIds,
-      isEnabled: bulkAccountForm.operation === "enable",
+      ...(bulkAccountForm.setGroup ? { groupId: bulkAccountForm.groupId } : {}),
+      ...(bulkAccountForm.setMode
+        ? { implementationMode: bulkAccountForm.implementationMode }
+        : {}),
+      ...(bulkAccountForm.setEnabled
+        ? { isEnabled: bulkAccountForm.isEnabled }
+        : {}),
+      ...(bulkAccountForm.setContentSafety
+        ? { contentSafetyEnabled: bulkAccountForm.contentSafetyEnabled }
+        : {}),
     });
   };
 
@@ -1161,89 +1185,172 @@ export function ImageBackendPoolAdminPanel() {
                     清空选择
                   </Button>
                 </div>
-                <div className="grid gap-3 md:grid-cols-[160px_1fr_auto]">
-                  <Select
-                    value={bulkAccountForm.operation}
-                    onValueChange={(value) =>
-                      setBulkAccountForm((current) => ({
-                        ...current,
-                        operation: value as BulkAccountOperation,
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="group">批量改分组</SelectItem>
-                      <SelectItem value="mode">批量切接口</SelectItem>
-                      <SelectItem value="enable">批量启用</SelectItem>
-                      <SelectItem value="disable">批量停用</SelectItem>
-                      <SelectItem value="delete">批量删除</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {bulkAccountForm.operation === "group" && (
-                    <Select
-                      value={bulkAccountForm.groupId}
-                      onValueChange={(value) =>
-                        setBulkAccountForm((current) => ({
-                          ...current,
-                          groupId: value,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {groupOptions.map((group) => (
-                          <SelectItem key={group.id} value={group.id}>
-                            {group.name}
+                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Label className="flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm">
+                      <Checkbox
+                        checked={bulkAccountForm.setGroup}
+                        disabled={bulkAccountForm.deleteSelected}
+                        onCheckedChange={(checked) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            setGroup: Boolean(checked),
+                          }))
+                        }
+                      />
+                      改分组
+                      <Select
+                        value={bulkAccountForm.groupId}
+                        disabled={!bulkAccountForm.setGroup}
+                        onValueChange={(value) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            groupId: value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="ml-auto w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {groupOptions.map((group) => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Label>
+                    <Label className="flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm">
+                      <Checkbox
+                        checked={bulkAccountForm.setMode}
+                        disabled={bulkAccountForm.deleteSelected}
+                        onCheckedChange={(checked) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            setMode: Boolean(checked),
+                          }))
+                        }
+                      />
+                      切接口
+                      <Select
+                        value={bulkAccountForm.implementationMode}
+                        disabled={!bulkAccountForm.setMode}
+                        onValueChange={(value) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            implementationMode: value as AccountBackendFormValue,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="ml-auto w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="web">Web 账号</SelectItem>
+                          <SelectItem value="responses">
+                            Codex/Responses
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {bulkAccountForm.operation === "mode" && (
-                    <Select
-                      value={bulkAccountForm.implementationMode}
-                      onValueChange={(value) =>
-                        setBulkAccountForm((current) => ({
-                          ...current,
-                          implementationMode: value as AccountBackendFormValue,
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="web">Web 账号</SelectItem>
-                        <SelectItem value="responses">
-                          Codex/Responses 账号
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {["enable", "disable", "delete"].includes(
-                    bulkAccountForm.operation
-                  ) && (
-                    <div className="flex items-center rounded-md border px-3 text-sm text-muted-foreground">
-                      将作用于当前选中的账号
-                    </div>
-                  )}
+                        </SelectContent>
+                      </Select>
+                    </Label>
+                    <Label className="flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm">
+                      <Checkbox
+                        checked={bulkAccountForm.setEnabled}
+                        disabled={bulkAccountForm.deleteSelected}
+                        onCheckedChange={(checked) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            setEnabled: Boolean(checked),
+                          }))
+                        }
+                      />
+                      启停
+                      <Select
+                        value={bulkAccountForm.isEnabled ? "enabled" : "disabled"}
+                        disabled={!bulkAccountForm.setEnabled}
+                        onValueChange={(value) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            isEnabled: value === "enabled",
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="ml-auto w-28">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="enabled">启用</SelectItem>
+                          <SelectItem value="disabled">停用</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Label>
+                    <Label className="flex min-h-10 items-center gap-2 rounded-md border px-3 text-sm">
+                      <Checkbox
+                        checked={bulkAccountForm.setContentSafety}
+                        disabled={bulkAccountForm.deleteSelected}
+                        onCheckedChange={(checked) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            setContentSafety: Boolean(checked),
+                          }))
+                        }
+                      />
+                      内容安全
+                      <Select
+                        value={
+                          bulkAccountForm.contentSafetyEnabled
+                            ? "enabled"
+                            : "disabled"
+                        }
+                        disabled={!bulkAccountForm.setContentSafety}
+                        onValueChange={(value) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            contentSafetyEnabled: value === "enabled",
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="ml-auto w-28">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="enabled">开启</SelectItem>
+                          <SelectItem value="disabled">关闭</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Label>
+                    <Label className="flex min-h-10 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm text-destructive md:col-span-2">
+                      <Checkbox
+                        checked={bulkAccountForm.deleteSelected}
+                        onCheckedChange={(checked) =>
+                          setBulkAccountForm((current) => ({
+                            ...current,
+                            deleteSelected: Boolean(checked),
+                            setGroup: checked ? false : current.setGroup,
+                            setMode: checked ? false : current.setMode,
+                            setEnabled: checked ? false : current.setEnabled,
+                            setContentSafety: checked
+                              ? false
+                              : current.setContentSafety,
+                          }))
+                        }
+                      />
+                      删除选中账号
+                      <span className="text-xs text-muted-foreground">
+                        只删除本站后端池记录，不删除 Sub2API 源库账号。
+                      </span>
+                    </Label>
+                  </div>
                   <Button
                     onClick={runBulkAccountOperation}
                     disabled={
                       selectedAccountCount === 0 ||
+                      !hasBulkAccountOperation ||
                       isBulkUpdatingAccounts ||
                       isBulkDeletingAccounts
                     }
-                    variant={
-                      bulkAccountForm.operation === "delete"
-                        ? "destructive"
-                        : "default"
-                    }
+                    variant={bulkAccountForm.deleteSelected ? "destructive" : "default"}
                   >
                     {(isBulkUpdatingAccounts || isBulkDeletingAccounts) && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1251,7 +1358,7 @@ export function ImageBackendPoolAdminPanel() {
                     执行
                   </Button>
                 </div>
-                {bulkAccountForm.operation === "mode" &&
+                {bulkAccountForm.setMode &&
                   selectedSub2ApiAccountCount > 0 && (
                     <p className="text-xs text-destructive">
                       Sub2API 来源账号不能在本站批量切换 Web/Responses；手工导入账号会使用保存的 RT 重新换取目标模式 AT。
@@ -1519,7 +1626,7 @@ export function ImageBackendPoolAdminPanel() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                连接 Sub2API Postgres。Codex 直接复用 Sub2API 当前 access_token；Web 必须读取 Sub2API 的 RT 换取平台 AT，并把刷新返回的新 RT 写回 Sub2API，避免账号失效。
+                连接 Sub2API Postgres，只读取 OpenAI OAuth 账号。Codex 复用 Sub2API 当前 access_token；Web 使用 Sub2API 的 RT 换取平台 AT，但不会写回 Sub2API 数据库。
               </p>
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                 <Select
