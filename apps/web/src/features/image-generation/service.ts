@@ -389,21 +389,12 @@ function withoutPoolBackendReport(config: ApiConfig): ApiConfig {
 }
 
 function applyPromptOptimizationResultVisibility(
-  params: { promptOptimization?: boolean },
   result: GenerateImageResult
 ): GenerateImageResult {
   if (result.error) return result;
   const upstreamRevisedPrompt =
     result.upstreamRevisedPrompt || result.revisedPrompt;
   if (!upstreamRevisedPrompt) return result;
-
-  if (params.promptOptimization === false) {
-    return {
-      ...result,
-      revisedPrompt: undefined,
-      upstreamRevisedPrompt,
-    };
-  }
 
   return {
     ...result,
@@ -1126,7 +1117,6 @@ export async function generateImage(
         }
       );
       return applyPromptOptimizationResultVisibility(
-        params,
         await parseResponsesResponse(response, callbacks)
       );
     } catch (error) {
@@ -1173,7 +1163,6 @@ export async function generateImage(
     });
 
     return applyPromptOptimizationResultVisibility(
-      params,
       await parseImageResponse(response, callbacks)
     );
   } catch (error) {
@@ -1220,7 +1209,6 @@ export async function editImage(
         }
       );
       return applyPromptOptimizationResultVisibility(
-        params,
         await parseResponsesResponse(response, callbacks)
       );
     } catch (error) {
@@ -1274,7 +1262,6 @@ export async function editImage(
     });
 
     return applyPromptOptimizationResultVisibility(
-      params,
       await parseImageResponse(response, callbacks)
     );
   } catch (error) {
@@ -1361,7 +1348,6 @@ export async function generateChatImage(
     );
 
     return applyPromptOptimizationResultVisibility(
-      params,
       await parseResponsesResponse(response, callbacks)
     );
   } catch (error) {

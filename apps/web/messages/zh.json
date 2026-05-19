@@ -619,8 +619,13 @@
       "security": "安全",
       "billing": "账单",
       "usage": "用量",
+      "backend": "后端",
       "profile": "个人资料",
       "advanced": "高级"
+    },
+    "backend": {
+      "title": "生图后端",
+      "description": "选择网页端默认使用的系统后端账号池分组。外接 API Key 也可以在 API Key 列表里单独指定分组。"
     },
     "advanced": {
       "title": "高级设置",

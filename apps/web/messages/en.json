@@ -619,8 +619,13 @@
       "security": "Security",
       "billing": "Billing",
       "usage": "Usage",
+      "backend": "Backend",
       "profile": "Profile",
       "advanced": "Advanced"
+    },
+    "backend": {
+      "title": "Image backend",
+      "description": "Choose the default system backend account-pool group for web generation. External API keys can set their own group in the API key list."
     },
     "advanced": {
       "title": "Advanced Settings",

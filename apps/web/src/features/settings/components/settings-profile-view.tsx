@@ -310,6 +310,12 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
               {tTabs("usage")}
             </TabsTrigger>
             <TabsTrigger
+              value="backend"
+              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {tTabs("backend")}
+            </TabsTrigger>
+            <TabsTrigger
               value="advanced"
               className="rounded-md border border-transparent px-4 py-2 text-muted-foreground data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
@@ -606,6 +612,18 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
           <CreditUsageSection />
         </TabsContent>
 
+        <TabsContent value="backend" className="mt-8 space-y-6 pl-4">
+          <div>
+            <h3 className="font-serif text-lg font-medium">
+              {t("backend.title")}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {t("backend.description")}
+            </p>
+          </div>
+          <ImageBackendPreferenceSection />
+        </TabsContent>
+
         <TabsContent value="advanced" className="mt-8 space-y-6 pl-4">
           <div>
             <h3 className="font-serif text-lg font-medium">
@@ -615,7 +633,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
               {t("advanced.description")}
             </p>
           </div>
-          <ImageBackendPreferenceSection />
           <ExternalApiKeySection />
           <ApiConfigForm />
         </TabsContent>
