@@ -100,7 +100,6 @@ export interface ApiConfig {
   apiKey: string;
   model?: string;
   useStream?: boolean;
-  supportsPromptOptimizationControl?: boolean;
   contentSafetyEnabled?: boolean;
   headers?: Record<string, string>;
   backend?: {

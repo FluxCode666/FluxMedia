@@ -456,6 +456,24 @@ function buildResponsesInput(
   return input;
 }
 
+const ORIGINAL_PROMPT_INSTRUCTION =
+  "Use the following image prompt exactly as the user's requested generation prompt. Do not rewrite, expand, translate, polish, summarize, optimize, or add style words before generating the image.";
+
+function buildOriginalPromptText(prompt: string) {
+  return `${ORIGINAL_PROMPT_INSTRUCTION}\n\nOriginal prompt:\n${prompt}`;
+}
+
+function getEffectivePrompt(params: {
+  prompt: string;
+  apiPrompt?: string;
+  promptOptimization?: boolean;
+}) {
+  if (params.promptOptimization === false) {
+    return buildOriginalPromptText(params.prompt);
+  }
+  return params.apiPrompt || params.prompt;
+}
+
 function appendImageParams(
   formData: FormData,
   config: ApiConfig,
@@ -491,13 +509,6 @@ function appendImageParams(
   const moderation = normalizeModeration(params.moderation);
   if (moderation) {
     formData.append("moderation", moderation);
-  }
-
-  if (
-    config.supportsPromptOptimizationControl &&
-    params.promptOptimization === false
-  ) {
-    formData.append("prompt_optimization", "false");
   }
 
   if (config.useStream) {
@@ -1006,7 +1017,6 @@ async function getPlatformConfig(): Promise<ApiConfig> {
   return {
     baseUrl,
     apiKey,
-    supportsPromptOptimizationControl: true,
     model:
       normalizeImageModel(
         await getRuntimeSettingString("PLATFORM_IMAGE_MODEL")
@@ -1086,15 +1096,18 @@ export async function generateImage(
   }
   if (isResponsesBackend(config)) {
     try {
-      const response = await fetch(`${stripTrailingSlash(config.baseUrl)}/responses`, {
-        method: "POST",
-        headers: getHeaders(config, {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify(
-          buildResponsesImageGenerationRequest(config, { ...params, model })
-        ),
-      });
+      const response = await fetch(
+        `${stripTrailingSlash(config.baseUrl)}/responses`,
+        {
+          method: "POST",
+          headers: getHeaders(config, {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify(
+            buildResponsesImageGenerationRequest(config, { ...params, model })
+          ),
+        }
+      );
       return await parseResponsesResponse(response, callbacks);
     } catch (error) {
       logImageRequestError(error, {
@@ -1105,16 +1118,14 @@ export async function generateImage(
         useStream: config.useStream,
       });
       return {
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
 
   try {
-    const prompt =
-      params.promptOptimization === false
-        ? params.prompt
-        : params.apiPrompt || params.prompt;
+    const prompt = getEffectivePrompt(params);
     const size = params.size || DEFAULT_IMAGE_SIZE;
     const dimensions = parseImageSize(size);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
@@ -1135,10 +1146,6 @@ export async function generateImage(
           : {}),
         ...(normalizeModeration(params.moderation)
           ? { moderation: normalizeModeration(params.moderation) }
-          : {}),
-        ...(config.supportsPromptOptimizationControl &&
-        params.promptOptimization === false
-          ? { prompt_optimization: false }
           : {}),
         ...(config.useStream ? { stream: true, partial_images: 2 } : {}),
         response_format: "b64_json",
@@ -1177,15 +1184,18 @@ export async function editImage(
   }
   if (isResponsesBackend(config)) {
     try {
-      const response = await fetch(`${stripTrailingSlash(config.baseUrl)}/responses`, {
-        method: "POST",
-        headers: getHeaders(config, {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify(
-          buildResponsesImageEditRequest(config, { ...params, model })
-        ),
-      });
+      const response = await fetch(
+        `${stripTrailingSlash(config.baseUrl)}/responses`,
+        {
+          method: "POST",
+          headers: getHeaders(config, {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify(
+            buildResponsesImageEditRequest(config, { ...params, model })
+          ),
+        }
+      );
       return await parseResponsesResponse(response, callbacks);
     } catch (error) {
       logImageRequestError(error, {
@@ -1196,16 +1206,14 @@ export async function editImage(
         useStream: config.useStream,
       });
       return {
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
 
   try {
-    const prompt =
-      params.promptOptimization === false
-        ? params.prompt
-        : params.apiPrompt || params.prompt;
+    const prompt = getEffectivePrompt(params);
     const formData = new FormData();
     appendImageParams(formData, config, {
       prompt,
@@ -1272,10 +1280,7 @@ export async function generateChatImage(
     return { error: "Web backend accounts do not support /v1/responses." };
   }
   try {
-    const prompt =
-      params.promptOptimization === false
-        ? params.prompt
-        : params.apiPrompt || params.prompt;
+    const prompt = getEffectivePrompt(params);
     const size = params.size || DEFAULT_IMAGE_SIZE;
     const input = buildResponsesInput(prompt, params.images, params.history);
     const instructions =

@@ -68,6 +68,8 @@ const CHAT_TEXT_ONLY_CREDITS = 1;
 const MAX_CHAT_CONTEXT_CHARS = 30_000;
 const TEXT_MODERATION_ONLY_CREDITS =
   getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
+const ORIGINAL_PROMPT_INSTRUCTION =
+  "Use the following image prompt exactly as the user's requested generation prompt. Do not rewrite, expand, translate, polish, summarize, optimize, or add style words before generating the image.";
 
 export type ImageGenerationOperationResult = {
   error?: string;
@@ -142,6 +144,54 @@ function getChatContextLength(params: {
   );
 }
 
+function buildOriginalPromptText(prompt: string) {
+  return `${ORIGINAL_PROMPT_INSTRUCTION}\n\nOriginal prompt:\n${prompt}`;
+}
+
+function buildPromptOptimizationMetadata(params: {
+  input: RunImageGenerationInput;
+  promptOptimization: boolean;
+  apiPrompt: string;
+}) {
+  const requestedApiPrompt = params.input.apiPrompt || "";
+  return {
+    promptOptimization: {
+      enabled: params.promptOptimization,
+      explicit: params.input.promptOptimization !== undefined,
+      apiPromptProvided: Boolean(requestedApiPrompt),
+      apiPromptUsed:
+        params.promptOptimization && params.apiPrompt !== params.input.prompt,
+      originalPromptInstructionInjected: !params.promptOptimization,
+      effectivePromptChanged: params.apiPrompt !== params.input.prompt,
+      effectivePromptKind: !params.promptOptimization
+        ? "original_with_instruction"
+        : params.apiPrompt !== params.input.prompt
+          ? "api_prompt"
+          : "original",
+      originalPromptLength: params.input.prompt.length,
+      effectivePromptLength: params.apiPrompt.length,
+    },
+  };
+}
+
+function buildRevisedPromptMetadata(params: {
+  input: RunImageGenerationInput;
+  apiPrompt: string;
+  result: { revisedPrompt?: string };
+}) {
+  const revisedPrompt = params.result.revisedPrompt?.trim() || "";
+  return {
+    promptOptimizationResult: {
+      hasRevisedPrompt: Boolean(revisedPrompt),
+      revisedPromptChangedFromOriginal:
+        Boolean(revisedPrompt) && revisedPrompt !== params.input.prompt,
+      revisedPromptChangedFromEffective:
+        Boolean(revisedPrompt) && revisedPrompt !== params.apiPrompt,
+      revisedPromptLength: revisedPrompt.length,
+    },
+  };
+}
+
 async function getUserModerationBlockRiskLevel(
   userId: string,
   plan: Awaited<ReturnType<typeof getUserPlan>>["plan"],
@@ -208,8 +258,9 @@ export async function runImageGenerationForUser(
   const promptOptimization = input.promptOptimization ?? true;
   const apiPrompt = promptOptimization
     ? input.apiPrompt || input.prompt
-    : input.prompt;
-  const moderationPrompt = input.mode === "chat" ? input.prompt : apiPrompt;
+    : buildOriginalPromptText(input.prompt);
+  const moderationPrompt =
+    input.mode === "chat" || !promptOptimization ? input.prompt : apiPrompt;
 
   if (input.mode === "chat" && !canUseChat(userPlan.plan)) {
     return {
@@ -357,6 +408,12 @@ async function runQueuedImageGenerationForUser({
   useCredits: boolean;
   model: string;
 }): Promise<ImageGenerationOperationResult> {
+  const promptOptimizationMetadata = buildPromptOptimizationMetadata({
+    input,
+    promptOptimization,
+    apiPrompt,
+  });
+
   await db.insert(generation).values({
     id: generationId,
     userId: input.userId,
@@ -370,6 +427,7 @@ async function runQueuedImageGenerationForUser({
       input.mode === "edit"
         ? {
             mode: "edit",
+            ...promptOptimizationMetadata,
             imageCount: input.images.length,
             hasMask: Boolean(input.mask),
             quality: input.quality || "auto",
@@ -381,6 +439,7 @@ async function runQueuedImageGenerationForUser({
           ? {
               mode: "chat",
               action: "auto",
+              ...promptOptimizationMetadata,
               imageCount: input.images?.length || 0,
               quality: input.quality || "auto",
               moderation: input.moderation || "auto",
@@ -390,6 +449,7 @@ async function runQueuedImageGenerationForUser({
             }
           : {
               mode: "generate",
+              ...promptOptimizationMetadata,
               quality: input.quality || "auto",
               moderation: input.moderation || "auto",
               batchCount: input.n || 1,
@@ -663,13 +723,16 @@ async function runQueuedImageGenerationForUser({
         revisedPrompt: result.revisedPrompt,
         creditsConsumed: finalChargedCredits,
         metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
-          isTextOnlyChatInput
-            ? {
-                chatTextOnlyCharge: {
-                  credits: useCredits ? CHAT_TEXT_ONLY_CREDITS : 0,
-                },
-              }
-            : {}
+          {
+            ...buildRevisedPromptMetadata({ input, apiPrompt, result }),
+            ...(isTextOnlyChatInput
+              ? {
+                  chatTextOnlyCharge: {
+                    credits: useCredits ? CHAT_TEXT_ONLY_CREDITS : 0,
+                  },
+                }
+              : {}),
+          }
         )}::jsonb`,
         completedAt: new Date(),
       })
@@ -769,6 +832,9 @@ async function runQueuedImageGenerationForUser({
       fileSize,
       revisedPrompt: result.revisedPrompt,
       creditsConsumed: chargedCredits,
+      metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
+        buildRevisedPromptMetadata({ input, apiPrompt, result })
+      )}::jsonb`,
       completedAt: new Date(),
     })
     .where(eq(generation.id, generationId));

@@ -468,7 +468,6 @@ function toResolvedPoolConfig(
         apiKey: member.apiKey,
         model: member.model || undefined,
         useStream: member.useStream,
-        supportsPromptOptimizationControl: true,
         contentSafetyEnabled,
         backend: {
           type: "pool-api",

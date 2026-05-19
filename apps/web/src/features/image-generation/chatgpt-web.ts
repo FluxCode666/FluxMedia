@@ -66,9 +66,10 @@ type WebProxyResponsePayload = {
 };
 
 function getPrompt(params: GenerateImageParams | EditImageParams) {
-  return params.promptOptimization === false
-    ? params.prompt
-    : params.apiPrompt || params.prompt;
+  if (params.promptOptimization === false) {
+    return `Use the following image prompt exactly as the user's requested generation prompt. Do not rewrite, expand, translate, polish, summarize, optimize, or add style words before generating the image.\n\nOriginal prompt:\n${params.prompt}`;
+  }
+  return params.apiPrompt || params.prompt;
 }
 
 function getWebSession(config: ApiConfig) {
@@ -92,7 +93,9 @@ function encodeBody(body: BodyInit | null | undefined) {
   if (typeof body === "string") return Buffer.from(body).toString("base64");
   if (body instanceof Uint8Array) return Buffer.from(body).toString("base64");
   if (body instanceof ArrayBuffer) return Buffer.from(body).toString("base64");
-  throw new Error("ChatGPT Web proxy only supports string and binary request bodies");
+  throw new Error(
+    "ChatGPT Web proxy only supports string and binary request bodies"
+  );
 }
 
 function decodeBody(bodyBase64: string | undefined) {
@@ -299,12 +302,18 @@ function buildProofToken(data: {
     powConfig(data.resources)
   );
   if (!solved) {
-    throw new Error(`failed to solve proof token: difficulty=${data.difficulty}`);
+    throw new Error(
+      `failed to solve proof token: difficulty=${data.difficulty}`
+    );
   }
   return `gAAAAAB${token}`;
 }
 
-function getHeaders(config: ApiConfig, path: string, extra?: Record<string, string>) {
+function getHeaders(
+  config: ApiConfig,
+  path: string,
+  extra?: Record<string, string>
+) {
   const session = getWebSession(config);
   return {
     "User-Agent": USER_AGENT,
@@ -314,7 +323,8 @@ function getHeaders(config: ApiConfig, path: string, extra?: Record<string, stri
     "Cache-Control": "no-cache",
     Pragma: "no-cache",
     Priority: "u=1, i",
-    "Sec-Ch-Ua": '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+    "Sec-Ch-Ua":
+      '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
     "Sec-Ch-Ua-Arch": '"x86"',
     "Sec-Ch-Ua-Bitness": '"64"',
     "Sec-Ch-Ua-Full-Version": '"143.0.3650.96"',
@@ -536,7 +546,11 @@ function imageDimensions(buffer: Buffer) {
   return { width: 1024, height: 1024 };
 }
 
-async function uploadImage(config: ApiConfig, image: ImageInputFile, index: number) {
+async function uploadImage(
+  config: ApiConfig,
+  image: ImageInputFile,
+  index: number
+) {
   const dimensions = imageDimensions(image.data);
   const path = "/backend-api/files";
   const fileName = image.name || `image_${index}.png`;
@@ -555,7 +569,9 @@ async function uploadImage(config: ApiConfig, image: ImageInputFile, index: numb
     }),
   });
   if (!createResponse.ok) {
-    throw new Error(`ChatGPT Web file create failed: HTTP ${createResponse.status}`);
+    throw new Error(
+      `ChatGPT Web file create failed: HTTP ${createResponse.status}`
+    );
   }
   const uploadMeta = (await createResponse.json()) as {
     file_id: string;
@@ -574,17 +590,24 @@ async function uploadImage(config: ApiConfig, image: ImageInputFile, index: numb
     body: new Uint8Array(image.data),
   });
   if (!uploadResponse.ok) {
-    throw new Error(`ChatGPT Web file upload failed: HTTP ${uploadResponse.status}`);
+    throw new Error(
+      `ChatGPT Web file upload failed: HTTP ${uploadResponse.status}`
+    );
   }
   const uploadedPath = `/backend-api/files/${uploadMeta.file_id}/uploaded`;
-  const uploadedResponse = await fetchChatGptWeb(config, uploadedPath, uploadedPath, {
-    method: "POST",
-    headers: getHeaders(config, uploadedPath, {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    }),
-    body: "{}",
-  });
+  const uploadedResponse = await fetchChatGptWeb(
+    config,
+    uploadedPath,
+    uploadedPath,
+    {
+      method: "POST",
+      headers: getHeaders(config, uploadedPath, {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      }),
+      body: "{}",
+    }
+  );
   if (!uploadedResponse.ok) {
     throw new Error(
       `ChatGPT Web file finalize failed: HTTP ${uploadedResponse.status}`
@@ -741,7 +764,9 @@ async function startImageGeneration(
     }),
   });
   if (!response.ok) {
-    throw new Error(`ChatGPT Web image request failed: HTTP ${response.status}`);
+    throw new Error(
+      `ChatGPT Web image request failed: HTTP ${response.status}`
+    );
   }
   return response;
 }
@@ -817,7 +842,10 @@ async function resolveImageUrls(
       : ids;
   const urls: string[] = [];
   for (const fileId of resolvedIds.fileIds) {
-    const url = await getDownloadUrl(config, `/backend-api/files/${fileId}/download`);
+    const url = await getDownloadUrl(
+      config,
+      `/backend-api/files/${fileId}/download`
+    );
     if (url) urls.push(url);
   }
   if (urls.length || !conversationId) return urls;
@@ -839,7 +867,9 @@ async function downloadImage(config: ApiConfig, url: string) {
     },
   });
   if (!response.ok) {
-    throw new Error(`ChatGPT Web image download failed: HTTP ${response.status}`);
+    throw new Error(
+      `ChatGPT Web image download failed: HTTP ${response.status}`
+    );
   }
   return Buffer.from(await response.arrayBuffer()).toString("base64");
 }
@@ -884,7 +914,8 @@ async function runWebImage(
       requestKind: config.backend?.requestKind,
     });
     return {
-      error: error instanceof Error ? error.message : "ChatGPT Web image failed",
+      error:
+        error instanceof Error ? error.message : "ChatGPT Web image failed",
     };
   }
 }
