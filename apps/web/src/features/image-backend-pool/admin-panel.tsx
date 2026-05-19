@@ -4,6 +4,12 @@ import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
 import { Checkbox } from "@repo/ui/components/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@repo/ui/components/dialog";
 import { Input } from "@repo/ui/components/input";
 import { Label } from "@repo/ui/components/label";
 import { Progress } from "@repo/ui/components/progress";
@@ -31,10 +37,13 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
+  bulkDeleteImageBackendAccountsAction,
+  bulkUpdateImageBackendAccountsAction,
   deleteImageBackendGroupAction,
   deleteImageBackendMemberAction,
   getAdminImageBackendPoolAction,
   getSub2ApiSourceGroupsAction,
+  importImageBackendAccountsFromRefreshTokensAction,
   refreshImageBackendAccountInfoAction,
   saveImageBackendAccountAction,
   saveImageBackendApiAction,
@@ -74,6 +83,9 @@ type Account = {
   lastError: string | null;
   lastErrorAt: Date | string | null;
   metadata: {
+    source?: string;
+    sourceAccountId?: string;
+    tokenSource?: string;
     webAccount?: {
       email?: string | null;
       userId?: string | null;
@@ -123,6 +135,8 @@ type SyncProgressState = {
   value: number;
   message: string;
 };
+
+type BulkAccountOperation = "group" | "mode" | "enable" | "disable" | "delete";
 
 function groupName(groups: Group[], groupId: string | null) {
   return groups.find((group) => group.id === groupId)?.name || "未分组";
@@ -175,6 +189,17 @@ function normalizeBackendFormValue(value: string): AccountBackendFormValue {
   return value === "responses" ? "responses" : "web";
 }
 
+function accountSourceLabel(account: Account) {
+  const source = account.metadata?.source;
+  if (source === "sub2api_postgres") return "Sub2API";
+  if (source === "manual_refresh_token") return "手工 RT";
+  return "本站";
+}
+
+function isSub2ApiAccount(account: Account | undefined) {
+  return account?.metadata?.source === "sub2api_postgres";
+}
+
 function formatModeStats(
   label: string,
   stats: { synced: number; skipped: number; failed: number }
@@ -225,6 +250,26 @@ export function ImageBackendPoolAdminPanel() {
     isEnabled: true,
     priority: 50,
   });
+  const [bulkAccountForm, setBulkAccountForm] = useState({
+    selectionGroupId: "all",
+    selectionMode: "all" as "all" | AccountBackendFormValue,
+    operation: "group" as BulkAccountOperation,
+    groupId: "default",
+    implementationMode: "responses" as AccountBackendFormValue,
+  });
+  const [manualImportForm, setManualImportForm] = useState({
+    refreshTokensText: "",
+    webGroupId: "default",
+    responsesGroupId: "default",
+    syncMode: "responses" as TokenSyncMode,
+    namePrefix: "手工导入",
+    model: "",
+    contentSafetyEnabled: true,
+    priority: 50,
+    concurrency: 1,
+  });
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [isManualImportOpen, setIsManualImportOpen] = useState(false);
   const [importForm, setImportForm] = useState({
     sourceGroupId: "default",
     webGroupId: "default",
@@ -246,6 +291,25 @@ export function ImageBackendPoolAdminPanel() {
     ],
     [groups]
   );
+  const selectedAccountIdSet = useMemo(
+    () => new Set(selectedAccountIds),
+    [selectedAccountIds]
+  );
+  const selectedAccounts = useMemo(
+    () => accounts.filter((account) => selectedAccountIdSet.has(account.id)),
+    [accounts, selectedAccountIdSet]
+  );
+  const selectedSub2ApiAccountCount = selectedAccounts.filter((account) =>
+    isSub2ApiAccount(account)
+  ).length;
+  const selectedManualAccountCount = selectedAccounts.length - selectedSub2ApiAccountCount;
+  const selectedAccountCount = selectedAccountIds.length;
+  const allAccountsSelected =
+    accounts.length > 0 && selectedAccountIds.length === accounts.length;
+  const editingAccount = accountForm.id
+    ? accounts.find((account) => account.id === accountForm.id)
+    : undefined;
+  const editingSub2ApiAccount = isSub2ApiAccount(editingAccount);
 
   const resetGroupForm = () =>
     setGroupForm({
@@ -289,6 +353,19 @@ export function ImageBackendPoolAdminPanel() {
       priority: 50,
     });
 
+  const resetManualImportForm = () =>
+    setManualImportForm({
+      refreshTokensText: "",
+      webGroupId: "default",
+      responsesGroupId: "default",
+      syncMode: "responses" as TokenSyncMode,
+      namePrefix: "手工导入",
+      model: "",
+      contentSafetyEnabled: true,
+      priority: 50,
+      concurrency: 1,
+    });
+
   const editGroup = (group: Group) => {
     setGroupForm({
       id: group.id,
@@ -319,6 +396,33 @@ export function ImageBackendPoolAdminPanel() {
     });
   };
 
+  const toggleAccountSelection = (accountId: string, checked: boolean) => {
+    setSelectedAccountIds((current) =>
+      checked
+        ? Array.from(new Set([...current, accountId]))
+        : current.filter((id) => id !== accountId)
+    );
+  };
+
+  const toggleAllAccounts = (checked: boolean) => {
+    setSelectedAccountIds(checked ? accounts.map((account) => account.id) : []);
+  };
+
+  const selectAccountsByCurrentFilter = () => {
+    const matched = accounts.filter((account) => {
+      const groupMatches =
+        bulkAccountForm.selectionGroupId === "all" ||
+        (bulkAccountForm.selectionGroupId === "default"
+          ? !account.groupId
+          : account.groupId === bulkAccountForm.selectionGroupId);
+      const modeMatches =
+        bulkAccountForm.selectionMode === "all" ||
+        account.implementationMode === bulkAccountForm.selectionMode;
+      return groupMatches && modeMatches;
+    });
+    setSelectedAccountIds(matched.map((account) => account.id));
+  };
+
   const editApi = (api: Api) => {
     setApiForm({
       id: api.id,
@@ -341,6 +445,10 @@ export function ImageBackendPoolAdminPanel() {
         setGroups((data?.groups || []) as Group[]);
         setAccounts((data?.accounts || []) as Account[]);
         setApis((data?.apis || []) as Api[]);
+        setSelectedAccountIds((current) => {
+          const availableIds = new Set((data?.accounts || []).map((account) => account.id));
+          return current.filter((id) => availableIds.has(id));
+        });
       },
       onError: ({ error }) => toast.error(error.serverError || "加载生图后端池失败"),
     }
@@ -380,6 +488,50 @@ export function ImageBackendPoolAdminPanel() {
       onError: ({ error }) => toast.error(error.serverError || "保存账号失败"),
     }
   );
+
+  const { execute: bulkUpdateAccounts, isPending: isBulkUpdatingAccounts } =
+    useAction(bulkUpdateImageBackendAccountsAction, {
+      onSuccess: ({ data }) => {
+        toast.success(
+          `批量操作完成：成功 ${data?.updatedCount || 0} 个，失败 ${
+            data?.failedCount || 0
+          } 个`
+        );
+        setSelectedAccountIds([]);
+        reload();
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "批量操作账号失败"),
+    });
+
+  const { execute: bulkDeleteAccounts, isPending: isBulkDeletingAccounts } =
+    useAction(bulkDeleteImageBackendAccountsAction, {
+      onSuccess: ({ data }) => {
+        toast.success(`已删除 ${data?.deletedCount || 0} 个账号`);
+        setSelectedAccountIds([]);
+        reload();
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "批量删除账号失败"),
+    });
+
+  const {
+    execute: importManualRefreshTokens,
+    isPending: isImportingManualRefreshTokens,
+  } = useAction(importImageBackendAccountsFromRefreshTokensAction, {
+    onSuccess: ({ data }) => {
+      toast.success(
+        `导入完成：来源 RT ${data?.sourceCount || 0} 个，写入 ${
+          data?.syncedCount || 0
+        } 个，失败 ${data?.failed || 0} 个`
+      );
+      setIsManualImportOpen(false);
+      resetManualImportForm();
+      reload();
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "手工 RT 导入失败"),
+  });
 
   const { execute: saveApi, isPending: isSavingApi } = useAction(
     saveImageBackendApiAction,
@@ -545,6 +697,48 @@ export function ImageBackendPoolAdminPanel() {
     } finally {
       setIsSyncingSub2Api(false);
     }
+  };
+
+  const runBulkAccountOperation = () => {
+    if (!selectedAccountIds.length) {
+      toast.error("请先选择账号");
+      return;
+    }
+    if (
+      bulkAccountForm.operation === "delete" &&
+      !window.confirm(`确定删除 ${selectedAccountIds.length} 个账号？`)
+    ) {
+      return;
+    }
+    if (
+      bulkAccountForm.operation === "mode" &&
+      selectedSub2ApiAccountCount > 0
+    ) {
+      toast.error("Sub2API 同步账号不能在本站批量切换 Web/Responses");
+      return;
+    }
+    if (bulkAccountForm.operation === "delete") {
+      bulkDeleteAccounts({ accountIds: selectedAccountIds });
+      return;
+    }
+    if (bulkAccountForm.operation === "group") {
+      bulkUpdateAccounts({
+        accountIds: selectedAccountIds,
+        groupId: bulkAccountForm.groupId,
+      });
+      return;
+    }
+    if (bulkAccountForm.operation === "mode") {
+      bulkUpdateAccounts({
+        accountIds: selectedAccountIds,
+        implementationMode: bulkAccountForm.implementationMode,
+      });
+      return;
+    }
+    bulkUpdateAccounts({
+      accountIds: selectedAccountIds,
+      isEnabled: bulkAccountForm.operation === "enable",
+    });
   };
 
   useEffect(() => {
@@ -751,7 +945,9 @@ export function ImageBackendPoolAdminPanel() {
               />
               <Textarea
                 placeholder={
-                  accountForm.id ? "Access Token，留空不修改" : "Access Token"
+                  accountForm.id
+                    ? "Access Token，留空不修改"
+                    : "Access Token，可选；优先使用 RT 自动换取"
                 }
                 value={accountForm.accessToken}
                 onChange={(event) =>
@@ -761,6 +957,26 @@ export function ImageBackendPoolAdminPanel() {
                   }))
                 }
               />
+              {!editingSub2ApiAccount ? (
+                <Textarea
+                  placeholder={
+                    accountForm.id
+                      ? "Refresh Token，留空不修改；填写后会重新换取 AT"
+                      : "Refresh Token，推荐填写；保存时自动换取 AT"
+                  }
+                  value={accountForm.refreshToken}
+                  onChange={(event) =>
+                    setAccountForm((current) => ({
+                      ...current,
+                      refreshToken: event.target.value,
+                    }))
+                  }
+                />
+              ) : (
+                <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                  Sub2API 来源账号的 RT 由 Sub2API 管理，本站不允许修改。
+                </div>
+              )}
               <Select
                 value={accountForm.groupId}
                 onValueChange={(value) =>
@@ -842,7 +1058,9 @@ export function ImageBackendPoolAdminPanel() {
                 disabled={
                   isSavingAccount ||
                   !accountForm.name ||
-                  (!accountForm.id && !accountForm.accessToken)
+                  (!accountForm.id &&
+                    !accountForm.accessToken &&
+                    !accountForm.refreshToken)
                 }
               >
                 {isSavingAccount && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -861,11 +1079,197 @@ export function ImageBackendPoolAdminPanel() {
           </Card>
 
           <div className="grid gap-3">
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <Label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={allAccountsSelected}
+                      onCheckedChange={(checked) =>
+                        toggleAllAccounts(Boolean(checked))
+                      }
+                    />
+                    已选 {selectedAccountCount} 个账号
+                    {selectedAccountCount > 0 && (
+                      <span className="text-muted-foreground">
+                        Sub2API {selectedSub2ApiAccountCount} · 手工/本站{" "}
+                        {selectedManualAccountCount}
+                      </span>
+                    )}
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsManualImportOpen(true)}
+                  >
+                    批量导入 RT
+                  </Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                  <Select
+                    value={bulkAccountForm.selectionGroupId}
+                    onValueChange={(value) =>
+                      setBulkAccountForm((current) => ({
+                        ...current,
+                        selectionGroupId: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="按分组选择" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部分组</SelectItem>
+                      {groupOptions.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={bulkAccountForm.selectionMode}
+                    onValueChange={(value) =>
+                      setBulkAccountForm((current) => ({
+                        ...current,
+                        selectionMode: value as "all" | AccountBackendFormValue,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="按接口选择" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部接口</SelectItem>
+                      <SelectItem value="web">Web</SelectItem>
+                      <SelectItem value="responses">Codex/Responses</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={selectAccountsByCurrentFilter}
+                  >
+                    选中匹配账号
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setSelectedAccountIds([])}
+                    disabled={selectedAccountCount === 0}
+                  >
+                    清空选择
+                  </Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[160px_1fr_auto]">
+                  <Select
+                    value={bulkAccountForm.operation}
+                    onValueChange={(value) =>
+                      setBulkAccountForm((current) => ({
+                        ...current,
+                        operation: value as BulkAccountOperation,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="group">批量改分组</SelectItem>
+                      <SelectItem value="mode">批量切接口</SelectItem>
+                      <SelectItem value="enable">批量启用</SelectItem>
+                      <SelectItem value="disable">批量停用</SelectItem>
+                      <SelectItem value="delete">批量删除</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {bulkAccountForm.operation === "group" && (
+                    <Select
+                      value={bulkAccountForm.groupId}
+                      onValueChange={(value) =>
+                        setBulkAccountForm((current) => ({
+                          ...current,
+                          groupId: value,
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {groupOptions.map((group) => (
+                          <SelectItem key={group.id} value={group.id}>
+                            {group.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {bulkAccountForm.operation === "mode" && (
+                    <Select
+                      value={bulkAccountForm.implementationMode}
+                      onValueChange={(value) =>
+                        setBulkAccountForm((current) => ({
+                          ...current,
+                          implementationMode: value as AccountBackendFormValue,
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="web">Web 账号</SelectItem>
+                        <SelectItem value="responses">
+                          Codex/Responses 账号
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {["enable", "disable", "delete"].includes(
+                    bulkAccountForm.operation
+                  ) && (
+                    <div className="flex items-center rounded-md border px-3 text-sm text-muted-foreground">
+                      将作用于当前选中的账号
+                    </div>
+                  )}
+                  <Button
+                    onClick={runBulkAccountOperation}
+                    disabled={
+                      selectedAccountCount === 0 ||
+                      isBulkUpdatingAccounts ||
+                      isBulkDeletingAccounts
+                    }
+                    variant={
+                      bulkAccountForm.operation === "delete"
+                        ? "destructive"
+                        : "default"
+                    }
+                  >
+                    {(isBulkUpdatingAccounts || isBulkDeletingAccounts) && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    执行
+                  </Button>
+                </div>
+                {bulkAccountForm.operation === "mode" &&
+                  selectedSub2ApiAccountCount > 0 && (
+                    <p className="text-xs text-destructive">
+                      Sub2API 来源账号不能在本站批量切换 Web/Responses；手工导入账号会使用保存的 RT 重新换取目标模式 AT。
+                    </p>
+                  )}
+              </CardContent>
+            </Card>
             {accounts.map((account) => (
               <Card key={account.id}>
                 <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <Checkbox
+                        checked={selectedAccountIdSet.has(account.id)}
+                        onCheckedChange={(checked) =>
+                          toggleAccountSelection(account.id, Boolean(checked))
+                        }
+                      />
                       <Server className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium">{account.name}</span>
                       <Badge variant="outline">
@@ -873,6 +1277,7 @@ export function ImageBackendPoolAdminPanel() {
                           ? "Codex/Responses"
                           : "Web"}
                       </Badge>
+                      <Badge variant="secondary">{accountSourceLabel(account)}</Badge>
                       <Badge variant="secondary">{account.status}</Badge>
                       {formatWebStatus(account) && (
                         <Badge variant="secondary">
@@ -889,6 +1294,12 @@ export function ImageBackendPoolAdminPanel() {
                       {groupName(groups, account.groupId)} · 优先级{" "}
                       {account.priority} · {formatDate(account.lastUsedAt)}
                     </p>
+                    {account.metadata?.sourceAccountId && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        来源账号 {account.metadata.sourceAccountId} ·{" "}
+                        {account.metadata.tokenSource || "未知 token 来源"}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       成功 {account.successCount} · 失败 {account.failCount} · 冷却至{" "}
                       {formatOptionalDate(account.cooldownUntil)}
@@ -1264,6 +1675,171 @@ export function ImageBackendPoolAdminPanel() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isManualImportOpen} onOpenChange={setIsManualImportOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>批量导入 Refresh Token</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              每行一个 RT。导入时会立即换取对应接口的 AT，并保存刷新后的 RT；这里导入的账号可在本站继续更新 RT。
+            </p>
+            <Textarea
+              className="min-h-44 font-mono text-xs"
+              placeholder="rt_..."
+              value={manualImportForm.refreshTokensText}
+              onChange={(event) =>
+                setManualImportForm((current) => ({
+                  ...current,
+                  refreshTokensText: event.target.value,
+                }))
+              }
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select
+                value={manualImportForm.syncMode}
+                onValueChange={(value) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    syncMode: value as TokenSyncMode,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="responses">只导入 Codex/Responses</SelectItem>
+                  <SelectItem value="web">只导入 Web</SelectItem>
+                  <SelectItem value="both">同时导入 Web 和 Codex</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="名称前缀"
+                value={manualImportForm.namePrefix}
+                onChange={(event) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    namePrefix: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select
+                value={manualImportForm.webGroupId}
+                onValueChange={(value) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    webGroupId: value,
+                  }))
+                }
+                disabled={manualImportForm.syncMode === "responses"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Web 账号分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groupOptions.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      Web：{group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={manualImportForm.responsesGroupId}
+                onValueChange={(value) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    responsesGroupId: value,
+                  }))
+                }
+                disabled={manualImportForm.syncMode === "web"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Codex/Responses 账号分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groupOptions.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      Codex：{group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input
+                placeholder="模型，可选"
+                value={manualImportForm.model}
+                onChange={(event) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+              />
+              <Input
+                type="number"
+                value={manualImportForm.priority}
+                onChange={(event) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    priority: Number(event.target.value),
+                  }))
+                }
+              />
+              <Input
+                type="number"
+                value={manualImportForm.concurrency}
+                onChange={(event) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    concurrency: Number(event.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <Label>接入内容安全审核</Label>
+              <Switch
+                checked={manualImportForm.contentSafetyEnabled}
+                onCheckedChange={(checked) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    contentSafetyEnabled: checked,
+                  }))
+                }
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsManualImportOpen(false)}
+                disabled={isImportingManualRefreshTokens}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                onClick={() => importManualRefreshTokens(manualImportForm)}
+                disabled={
+                  isImportingManualRefreshTokens ||
+                  !manualImportForm.refreshTokensText.trim()
+                }
+              >
+                {isImportingManualRefreshTokens && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                导入并获取 AT
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

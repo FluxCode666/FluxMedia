@@ -85,6 +85,7 @@ type WebAccountRuntimeMetadata = ChatGptWebAccountInfo & {
 };
 
 type BackendMetadata = Record<string, unknown> & {
+  source?: string;
   webAccount?: Partial<WebAccountRuntimeMetadata>;
 };
 
@@ -188,6 +189,12 @@ function asBackendMetadata(value: unknown): BackendMetadata {
   return value && typeof value === "object" && !Array.isArray(value)
     ? ({ ...(value as Record<string, unknown>) } as BackendMetadata)
     : {};
+}
+
+function isSub2ApiBackedMetadata(
+  metadata: Record<string, unknown> | null | undefined
+) {
+  return asBackendMetadata(metadata).source === "sub2api_postgres";
 }
 
 function normalizeWebAccountMetadata(
@@ -848,13 +855,57 @@ type UpsertAccountInput = {
   metadata?: Record<string, unknown> | null;
 };
 
+function clientIdForAccountBackend(backend: ImageBackendAccountBackend) {
+  return backend === "responses"
+    ? OPENAI_CODEX_OAUTH_CLIENT_ID
+    : OPENAI_PLATFORM_OAUTH_CLIENT_ID;
+}
+
+async function refreshAccessTokenForBackend(
+  refreshToken: string,
+  backend: ImageBackendAccountBackend
+) {
+  return await refreshOpenAIAccessToken(
+    refreshToken,
+    clientIdForAccountBackend(backend)
+  );
+}
+
 export async function upsertImageBackendAccount(input: UpsertAccountInput) {
   const implementationMode = normalizeAccountBackend(input.implementationMode);
+  let accessToken = input.accessToken?.trim() || "";
+  let refreshToken =
+    input.refreshToken === undefined
+      ? undefined
+      : input.refreshToken?.trim() || null;
+
+  if (input.id && refreshToken !== undefined) {
+    const [existingAccount] = await db
+      .select({ metadata: imageBackendAccount.metadata })
+      .from(imageBackendAccount)
+      .where(eq(imageBackendAccount.id, input.id))
+      .limit(1);
+    if (isSub2ApiBackedMetadata(existingAccount?.metadata)) {
+      throw new Error("Sub2API 同步账号的 RT 由 Sub2API 管理，不能在这里修改");
+    }
+  }
+
+  if (!accessToken && refreshToken) {
+    const refreshed = await refreshAccessTokenForBackend(
+      refreshToken,
+      implementationMode
+    );
+    if (!refreshed?.accessToken) {
+      throw new Error("Refresh Token 无法换取 Access Token");
+    }
+    accessToken = refreshed.accessToken;
+    refreshToken = refreshed.refreshToken || refreshToken;
+  }
+
   const update = {
     groupId: input.groupId || null,
     name: input.name,
     email: input.email || null,
-    refreshToken: input.refreshToken || null,
     implementationMode,
     model: input.model || null,
     contentSafetyEnabled: input.contentSafetyEnabled,
@@ -863,6 +914,7 @@ export async function upsertImageBackendAccount(input: UpsertAccountInput) {
     concurrency: input.concurrency,
     status: input.status || "active",
     ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+    ...(refreshToken !== undefined ? { refreshToken } : {}),
     updatedAt: new Date(),
   };
 
@@ -870,11 +922,11 @@ export async function upsertImageBackendAccount(input: UpsertAccountInput) {
     await db
       .update(imageBackendAccount)
       .set(
-        input.accessToken
+        accessToken
           ? {
               ...update,
-              accessToken: input.accessToken,
-              credentialHash: hashBackendCredential(input.accessToken),
+              accessToken,
+              credentialHash: hashBackendCredential(accessToken),
             }
           : update
       )
@@ -882,11 +934,11 @@ export async function upsertImageBackendAccount(input: UpsertAccountInput) {
     return input.id;
   }
 
-  if (!input.accessToken) {
+  if (!accessToken) {
     throw new Error("accessToken is required");
   }
 
-  const credentialHash = hashBackendCredential(input.accessToken);
+  const credentialHash = hashBackendCredential(accessToken);
   const [existing] = await db
     .select({ id: imageBackendAccount.id })
     .from(imageBackendAccount)
@@ -902,7 +954,7 @@ export async function upsertImageBackendAccount(input: UpsertAccountInput) {
       .update(imageBackendAccount)
       .set({
         ...update,
-        accessToken: input.accessToken,
+        accessToken,
         credentialHash,
       })
       .where(eq(imageBackendAccount.id, existing.id));
@@ -913,10 +965,221 @@ export async function upsertImageBackendAccount(input: UpsertAccountInput) {
   await db.insert(imageBackendAccount).values({
     id,
     ...update,
-    accessToken: input.accessToken,
+    refreshToken: refreshToken || null,
+    accessToken,
     credentialHash,
   });
   return id;
+}
+
+type BulkUpdateAccountsInput = {
+  accountIds: string[];
+  groupId?: string | null;
+  implementationMode?: ImageBackendAccountBackend | null;
+  contentSafetyEnabled?: boolean | null;
+  isEnabled?: boolean | null;
+  status?: string | null;
+};
+
+export async function bulkUpdateImageBackendAccounts(
+  input: BulkUpdateAccountsInput
+) {
+  const accountIds = Array.from(new Set(input.accountIds.filter(Boolean)));
+  if (!accountIds.length) throw new Error("请选择账号");
+
+  const baseUpdate: Partial<typeof imageBackendAccount.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  const targetMode = input.implementationMode
+    ? normalizeAccountBackend(input.implementationMode)
+    : null;
+  if (input.groupId !== undefined) baseUpdate.groupId = input.groupId || null;
+  if (input.contentSafetyEnabled !== undefined && input.contentSafetyEnabled !== null) {
+    baseUpdate.contentSafetyEnabled = input.contentSafetyEnabled;
+  }
+  if (input.isEnabled !== undefined && input.isEnabled !== null) {
+    baseUpdate.isEnabled = input.isEnabled;
+  }
+  if (input.status !== undefined && input.status !== null) {
+    baseUpdate.status = input.status || "active";
+  }
+
+  if (Object.keys(baseUpdate).length <= 1 && !targetMode) {
+    throw new Error("请选择要批量修改的内容");
+  }
+
+  let updatedCount = 0;
+  let failedCount = 0;
+  for (const accountId of accountIds) {
+    try {
+      const update = { ...baseUpdate };
+      if (targetMode) {
+        const [account] = await db
+          .select({
+            implementationMode: imageBackendAccount.implementationMode,
+            refreshToken: imageBackendAccount.refreshToken,
+            metadata: imageBackendAccount.metadata,
+          })
+          .from(imageBackendAccount)
+          .where(eq(imageBackendAccount.id, accountId))
+          .limit(1);
+        if (!account) throw new Error("账号不存在");
+        if (normalizeAccountBackend(account.implementationMode) !== targetMode) {
+          if (isSub2ApiBackedMetadata(account.metadata)) {
+            throw new Error("Sub2API 同步账号不能在本站切换接口模式");
+          }
+          if (!account.refreshToken) {
+            throw new Error("账号没有保存 RT，无法刷新目标接口模式的 AT");
+          }
+          const refreshed = await refreshAccessTokenForBackend(
+            account.refreshToken,
+            targetMode
+          );
+          if (!refreshed?.accessToken) {
+            throw new Error("Refresh Token 无法换取目标模式 Access Token");
+          }
+          update.implementationMode = targetMode;
+          update.accessToken = refreshed.accessToken;
+          update.credentialHash = hashBackendCredential(refreshed.accessToken);
+          update.refreshToken = refreshed.refreshToken || account.refreshToken;
+        }
+      }
+      await db
+        .update(imageBackendAccount)
+        .set(update)
+        .where(eq(imageBackendAccount.id, accountId));
+      updatedCount++;
+    } catch (error) {
+      failedCount++;
+      logWarn("批量更新生图账号失败，已跳过", {
+        accountId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { updatedCount, failedCount };
+}
+
+function parseRefreshTokensText(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\s,;]+/g)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+export async function importImageBackendAccountsFromRefreshTokens(input: {
+  refreshTokensText: string;
+  webGroupId?: string | null;
+  responsesGroupId?: string | null;
+  syncMode: Sub2ApiTokenSyncMode;
+  namePrefix?: string | null;
+  model?: string | null;
+  contentSafetyEnabled: boolean;
+  priority: number;
+  concurrency: number;
+}) {
+  const refreshTokens = parseRefreshTokensText(input.refreshTokensText).slice(
+    0,
+    200
+  );
+  if (!refreshTokens.length) throw new Error("请粘贴 Refresh Token");
+
+  const modes =
+    input.syncMode === "both"
+      ? (["web", "responses"] as const)
+      : ([input.syncMode] as const);
+  const syncedByMode = { web: 0, responses: 0 };
+  const failedByMode = { web: 0, responses: 0 };
+  const skipped = { web: 0, responses: 0 };
+  let refreshTokenRotatedCount = 0;
+  const importedIds: string[] = [];
+  const importBatchId = nanoid();
+
+  for (const [index, originalRefreshToken] of refreshTokens.entries()) {
+    let currentRefreshToken = originalRefreshToken;
+    const currentTokenImportedIds: string[] = [];
+    for (const mode of modes) {
+      try {
+        const refreshed = await refreshAccessTokenForBackend(
+          currentRefreshToken,
+          mode
+        );
+        if (!refreshed?.accessToken) {
+          skipped[mode]++;
+          continue;
+        }
+        const nextRefreshToken = refreshed.refreshToken || currentRefreshToken;
+        if (nextRefreshToken !== currentRefreshToken) {
+          refreshTokenRotatedCount++;
+          currentRefreshToken = nextRefreshToken;
+        }
+
+        const id = await upsertImageBackendAccount({
+          groupId:
+            mode === "responses" ? input.responsesGroupId : input.webGroupId,
+          name: `${input.namePrefix?.trim() || "手工导入"} ${index + 1} / ${
+            mode === "responses" ? "Codex" : "Web"
+          }`,
+          email: null,
+          accessToken: refreshed.accessToken,
+          refreshToken: currentRefreshToken,
+          implementationMode: mode,
+          model: input.model || null,
+          contentSafetyEnabled: input.contentSafetyEnabled,
+          isEnabled: true,
+          priority: input.priority,
+          concurrency: Math.max(1, Math.min(100, input.concurrency)),
+          status: "active",
+          metadata: {
+            source: "manual_refresh_token",
+            importBatchId,
+            importIndex: index + 1,
+            syncedAt: new Date().toISOString(),
+            tokenSource:
+              mode === "responses"
+                ? "openai.oauth.codex_refresh"
+                : "openai.oauth.platform_refresh",
+            refreshTokenRotated: nextRefreshToken !== originalRefreshToken,
+          },
+        });
+        importedIds.push(id);
+        currentTokenImportedIds.push(id);
+        syncedByMode[mode]++;
+      } catch (error) {
+        failedByMode[mode]++;
+        logWarn("手工 RT 导入生图账号失败，已跳过", {
+          mode,
+          index: index + 1,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (currentTokenImportedIds.length) {
+      await db
+        .update(imageBackendAccount)
+        .set({
+          refreshToken: currentRefreshToken,
+          updatedAt: new Date(),
+        })
+        .where(inArray(imageBackendAccount.id, currentTokenImportedIds));
+    }
+  }
+
+  return {
+    sourceCount: refreshTokens.length,
+    syncedCount: importedIds.length,
+    syncedByMode,
+    skipped,
+    failed: failedByMode.web + failedByMode.responses,
+    failedByMode,
+    refreshTokenRotatedCount,
+  };
 }
 
 type Sub2ApiTokenSyncMode = "web" | "responses" | "both";

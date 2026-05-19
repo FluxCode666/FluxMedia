@@ -9,6 +9,8 @@ import {
   deleteImageBackendMembers,
   fromSafetyOverride,
   getUserImageBackendPreference,
+  bulkUpdateImageBackendAccounts,
+  importImageBackendAccountsFromRefreshTokens,
   listAdminImageBackendPool,
   listImageBackendGroupOptions,
   listSelectableImageBackendGroups,
@@ -133,7 +135,7 @@ export const saveImageBackendAccountAction = withImageBackendPoolAdminAction(
       name: parsedInput.name,
       email: parsedInput.email || null,
       accessToken: parsedInput.accessToken || undefined,
-      refreshToken: parsedInput.refreshToken || null,
+      refreshToken: parsedInput.refreshToken || undefined,
       implementationMode: parsedInput.implementationMode,
       model: parsedInput.model || null,
       contentSafetyEnabled: parsedInput.contentSafetyEnabled,
@@ -144,6 +146,79 @@ export const saveImageBackendAccountAction = withImageBackendPoolAdminAction(
     });
     return { success: true, id };
   });
+
+export const bulkUpdateImageBackendAccountsAction =
+  withImageBackendPoolAdminAction("bulkUpdateAccounts")
+    .schema(
+      z.object({
+        accountIds: z.array(z.string().trim().min(1)).min(1).max(500),
+        groupId: nullableGroupIdSchema,
+        implementationMode: accountBackendSchema.optional(),
+        contentSafetyEnabled: z.boolean().optional(),
+        isEnabled: z.boolean().optional(),
+        status: z.string().trim().max(80).optional(),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      const result = await bulkUpdateImageBackendAccounts({
+        accountIds: parsedInput.accountIds,
+        groupId: parsedInput.groupId,
+        implementationMode: parsedInput.implementationMode || null,
+        contentSafetyEnabled:
+          parsedInput.contentSafetyEnabled === undefined
+            ? null
+            : parsedInput.contentSafetyEnabled,
+        isEnabled:
+          parsedInput.isEnabled === undefined ? null : parsedInput.isEnabled,
+        status: parsedInput.status === undefined ? null : parsedInput.status,
+      });
+      return { success: true, ...result };
+    });
+
+export const bulkDeleteImageBackendAccountsAction =
+  withImageBackendPoolAdminAction("bulkDeleteAccounts")
+    .schema(
+      z.object({
+        accountIds: z.array(z.string().trim().min(1)).min(1).max(500),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      await deleteImageBackendMembers({ accountIds: parsedInput.accountIds });
+      return {
+        success: true,
+        deletedCount: parsedInput.accountIds.length,
+      };
+    });
+
+export const importImageBackendAccountsFromRefreshTokensAction =
+  withImageBackendPoolAdminAction("importAccountsFromRefreshTokens")
+    .schema(
+      z.object({
+        refreshTokensText: z.string().trim().min(1),
+        webGroupId: nullableGroupIdSchema,
+        responsesGroupId: nullableGroupIdSchema,
+        syncMode: sub2ApiTokenSyncModeSchema.default("both"),
+        namePrefix: z.string().trim().max(80).optional(),
+        model: z.string().trim().max(120).optional(),
+        contentSafetyEnabled: z.boolean().default(true),
+        priority: z.coerce.number().int().min(0).max(10000).default(50),
+        concurrency: z.coerce.number().int().min(1).max(100).default(1),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      const result = await importImageBackendAccountsFromRefreshTokens({
+        refreshTokensText: parsedInput.refreshTokensText,
+        webGroupId: parsedInput.webGroupId,
+        responsesGroupId: parsedInput.responsesGroupId,
+        syncMode: parsedInput.syncMode,
+        namePrefix: parsedInput.namePrefix || null,
+        model: parsedInput.model || null,
+        contentSafetyEnabled: parsedInput.contentSafetyEnabled,
+        priority: parsedInput.priority,
+        concurrency: parsedInput.concurrency,
+      });
+      return { success: true, ...result };
+    });
 
 export const syncImageBackendAccountsFromSub2ApiAction =
   withImageBackendPoolAdminAction("syncSub2ApiAccounts")
