@@ -10,6 +10,7 @@ import type {
   ImageInputFile,
   ImageModeration,
   ImageQuality,
+  ThinkingLevel,
 } from "./types";
 
 type ResponsesImageRequest = {
@@ -36,7 +37,7 @@ type ResponsesImageRequest = {
   store: boolean;
   parallel_tool_calls: boolean;
   reasoning: {
-    effort: "medium";
+    effort: ThinkingLevel;
     summary: "auto";
   };
   include: string[];
@@ -56,7 +57,11 @@ function getDataUrl(image: ImageInputFile) {
   return `data:${image.type || "image/png"};base64,${image.data.toString("base64")}`;
 }
 
-function getResponsesModel(config: ApiConfig) {
+function getResponsesModel(config: ApiConfig, model?: string) {
+  const requested = model?.trim();
+  if (requested && !requested.startsWith("gpt-image-")) {
+    return requested;
+  }
   const configured = config.model?.trim();
   if (configured && !configured.startsWith("gpt-image-")) {
     return configured;
@@ -97,6 +102,19 @@ function normalizeModeration(moderation?: string): ImageModeration | undefined {
   return undefined;
 }
 
+function normalizeThinking(thinking?: string): ThinkingLevel {
+  if (
+    thinking === "none" ||
+    thinking === "low" ||
+    thinking === "medium" ||
+    thinking === "high" ||
+    thinking === "xhigh"
+  ) {
+    return thinking;
+  }
+  return "medium";
+}
+
 export function buildResponsesImageGenerationRequest(
   config: ApiConfig,
   params: GenerateImageParams
@@ -118,7 +136,7 @@ export function buildResponsesImageGenerationRequest(
   const instructions = getInstructions(params) || RESPONSES_IMAGE_INSTRUCTIONS;
 
   return {
-    model: getResponsesModel(config),
+    model: getResponsesModel(config, params.gptModel),
     input: [
       {
         type: "message",
@@ -131,7 +149,7 @@ export function buildResponsesImageGenerationRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
-    reasoning: { effort: "medium", summary: "auto" },
+    reasoning: { effort: normalizeThinking(params.thinking), summary: "auto" },
     include: ["reasoning.encrypted_content"],
     instructions,
   };
@@ -163,7 +181,7 @@ export function buildResponsesImageEditRequest(
   const instructions = getInstructions(params) || RESPONSES_IMAGE_INSTRUCTIONS;
 
   return {
-    model: getResponsesModel(config),
+    model: getResponsesModel(config, params.gptModel),
     input: [
       {
         type: "message",
@@ -182,7 +200,7 @@ export function buildResponsesImageEditRequest(
     stream: true,
     store: false,
     parallel_tool_calls: true,
-    reasoning: { effort: "medium", summary: "auto" },
+    reasoning: { effort: normalizeThinking(params.thinking), summary: "auto" },
     include: ["reasoning.encrypted_content"],
     instructions,
   };

@@ -28,6 +28,9 @@ const externalImageGenerationSchema = z.object({
   promptOptimization: z.boolean().optional(),
   prompt_optimization: z.boolean().optional(),
   model: z.string().optional(),
+  gptModel: z.string().optional(),
+  gpt_model: z.string().optional(),
+  thinking: z.enum(["none", "low", "medium", "high", "xhigh"]).optional(),
   n: z.number().int().min(1).max(10).optional(),
   size: z
     .string()
@@ -129,6 +132,8 @@ export const postExternalImageGenerations = withApiLogging(
       moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
       model: imageModel,
+      gptModel: parsed.data.gptModel || parsed.data.gpt_model,
+      thinking: parsed.data.thinking,
       quality: parsed.data.quality,
       moderation: parsed.data.moderation || "auto",
     };

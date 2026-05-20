@@ -3,6 +3,11 @@
 import { z } from "zod";
 
 import { adminAction, protectedAction } from "@repo/shared/safe-action";
+import {
+  isSubscriptionPlan,
+  type SubscriptionPlan,
+} from "@repo/shared/config/subscription-plan";
+import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 
 import {
   deleteImageBackendGroup,
@@ -40,6 +45,13 @@ const optionalGroupIdSchema = z
 const safetyOverrideSchema = z.enum(["inherit", "enabled", "disabled"]);
 const accountBackendSchema = z.enum(["web", "responses"]);
 const sub2ApiTokenSyncModeSchema = z.enum(["web", "responses", "both"]);
+const subscriptionPlanSchema = z
+  .string()
+  .trim()
+  .optional()
+  .transform((value): SubscriptionPlan =>
+    isSubscriptionPlan(value) ? value : "free"
+  );
 
 const withImageBackendPoolAdminAction = (name: string) =>
   adminAction.metadata({ action: `imageBackendPool.${name}` });
@@ -47,8 +59,9 @@ const withImageBackendPoolAdminAction = (name: string) =>
 export const getSelectableImageBackendGroupsAction = protectedAction
   .metadata({ action: "imageBackendPool.selectableGroups" })
   .action(async ({ ctx }) => {
+    const plan = await getUserPlan(ctx.userId);
     const [groups, selectedGroupId] = await Promise.all([
-      listSelectableImageBackendGroups(),
+      listSelectableImageBackendGroups(plan.plan),
       getUserImageBackendPreference(ctx.userId),
     ]);
     return { groups, selectedGroupId };
@@ -62,7 +75,12 @@ export const setUserImageBackendPreferenceAction = protectedAction
     })
   )
   .action(async ({ parsedInput, ctx }) => {
-    await setUserImageBackendPreference(ctx.userId, parsedInput.groupId);
+    const plan = await getUserPlan(ctx.userId);
+    await setUserImageBackendPreference(
+      ctx.userId,
+      parsedInput.groupId,
+      plan.plan
+    );
     return { success: true };
   });
 
@@ -90,6 +108,7 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       isDefault: z.boolean().default(false),
       isUserSelectable: z.boolean().default(true),
       contentSafety: safetyOverrideSchema.default("inherit"),
+      minPlan: subscriptionPlanSchema,
       priority: z.coerce.number().int().min(0).max(10000).default(50),
     })
   )
@@ -102,6 +121,7 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       isDefault: parsedInput.isDefault,
       isUserSelectable: parsedInput.isUserSelectable,
       contentSafetyEnabled: fromSafetyOverride(parsedInput.contentSafety),
+      minPlan: parsedInput.minPlan,
       priority: parsedInput.priority,
     });
     return { success: true, id };

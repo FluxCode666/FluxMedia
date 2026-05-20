@@ -19,6 +19,7 @@ import { isExternalResponsesImageModelAllowed } from "@/features/external-api/mo
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import {
   DEFAULT_IMAGE_SIZE,
+  getImageModel,
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import type {
@@ -132,6 +133,12 @@ function hasImageGenerationTool(tools: ResponseRequest["tools"]) {
 
 function normalizeThinking(value: ThinkingLevel | undefined) {
   return value === "none" ? undefined : value;
+}
+
+function getRequestedToolImageModel(tools: ResponseRequest["tools"]) {
+  const imageTool = tools?.find((tool) => tool.type === "image_generation");
+  if (!imageTool || typeof imageTool.model !== "string") return undefined;
+  return getImageModel(imageTool.model) || undefined;
 }
 
 function toResponsePayload(params: {
@@ -252,6 +259,7 @@ export const postExternalResponses = withApiLogging(
       moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
       model: parsed.data.model,
+      imageModel: getRequestedToolImageModel(parsed.data.tools),
       quality: parsed.data.quality as ImageQuality | undefined,
       moderation: (parsed.data.moderation || "auto") as ImageModeration,
       thinking: normalizeThinking(parsed.data.reasoning?.effort),

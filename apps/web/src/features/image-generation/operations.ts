@@ -216,6 +216,42 @@ function buildBackendExecutionMetadata(params: {
   };
 }
 
+function usesPoolAccountBackend(config: ApiConfig) {
+  return config.backend?.type === "pool-account";
+}
+
+async function resolveRequestedPoolGptModel(params: {
+  config: ApiConfig;
+  model?: string;
+  allowGpt55: boolean;
+}) {
+  const requested = params.model?.trim();
+  if (!requested || !usesPoolAccountBackend(params.config)) return undefined;
+  if (params.config.backend?.accountBackend === "web") {
+    if (requested.startsWith("gpt-image-")) {
+      throw new Error("Unsupported GPT model. Use a non-image model.");
+    }
+    return requested;
+  }
+  return await getResponsesModel(params.config, requested, {
+    allowGpt55: params.allowGpt55,
+  });
+}
+
+function buildModelMetadata(params: {
+  imageModel: string;
+  gptModel?: string;
+  recordModel: string;
+}) {
+  return {
+    models: {
+      imageModel: params.imageModel,
+      gptModel: params.gptModel || null,
+      recordModel: params.recordModel,
+    },
+  };
+}
+
 async function getUserModerationBlockRiskLevel(
   userId: string,
   plan: Awaited<ReturnType<typeof getUserPlan>>["plan"],
@@ -330,20 +366,43 @@ export async function runImageGenerationForUser(
     };
   }
   const { config, useCredits } = effectiveConfig;
-  let model: string;
+  let imageModel: string;
+  let gptModel: string | undefined;
+  let recordModel: string;
   try {
     if (input.mode === "chat") {
-      model = await getResponsesModel(config, input.model, {
-        allowGpt55: canUseGpt55Chat(userPlan.plan),
-      });
-    } else {
-      const imageModel = getImageModel(input.model, config.model);
-      if (!imageModel) {
+      if (
+        config.backend?.type === "pool-account" &&
+        config.backend.accountBackend === "web"
+      ) {
+        gptModel = input.model?.trim() || config.model?.trim() || undefined;
+      } else {
+        gptModel = await getResponsesModel(config, input.model, {
+          allowGpt55: canUseGpt55Chat(userPlan.plan),
+        });
+      }
+      const requestedImageModel = getImageModel(input.imageModel, config.model);
+      if (!requestedImageModel) {
         throw new Error(
           "Unsupported model for image generation. Use a gpt-image-* model."
         );
       }
-      model = imageModel;
+      imageModel = requestedImageModel;
+      recordModel = gptModel || imageModel;
+    } else {
+      const requestedImageModel = getImageModel(input.model, config.model);
+      if (!requestedImageModel) {
+        throw new Error(
+          "Unsupported model for image generation. Use a gpt-image-* model."
+        );
+      }
+      imageModel = requestedImageModel;
+      gptModel = await resolveRequestedPoolGptModel({
+        config,
+        model: input.gptModel,
+        allowGpt55: canUseGpt55Chat(userPlan.plan),
+      });
+      recordModel = imageModel;
     }
   } catch (error) {
     return {
@@ -352,7 +411,7 @@ export async function runImageGenerationForUser(
     };
   }
 
-  if (!model) {
+  if (!imageModel || !recordModel) {
     return {
       error: "Invalid model.",
       generationId,
@@ -387,7 +446,9 @@ export async function runImageGenerationForUser(
           moderationPrompt,
           config,
           useCredits,
-          model,
+          imageModel,
+          gptModel,
+          recordModel,
         })
     );
   } catch (error) {
@@ -420,7 +481,9 @@ async function runQueuedImageGenerationForUser({
   moderationPrompt,
   config,
   useCredits,
-  model,
+  imageModel,
+  gptModel,
+  recordModel,
 }: {
   input: RunImageGenerationInput;
   callbacks?: ImageGenerationCallbacks;
@@ -440,7 +503,9 @@ async function runQueuedImageGenerationForUser({
   moderationPrompt: string;
   config: Awaited<ReturnType<typeof getEffectiveConfig>>["config"];
   useCredits: boolean;
-  model: string;
+  imageModel: string;
+  gptModel?: string;
+  recordModel: string;
 }): Promise<ImageGenerationOperationResult> {
   const promptOptimizationMetadata = buildPromptOptimizationMetadata({
     input,
@@ -448,12 +513,17 @@ async function runQueuedImageGenerationForUser({
     apiPrompt,
   });
   const backendMetadata = buildBackendExecutionMetadata({ config, useCredits });
+  const modelMetadata = buildModelMetadata({
+    imageModel,
+    gptModel,
+    recordModel,
+  });
 
   await db.insert(generation).values({
     id: generationId,
     userId: input.userId,
     prompt: input.prompt,
-    model,
+    model: recordModel,
     size,
     status: "pending",
     creditsConsumed: useCredits ? initialCreditCharge : 0,
@@ -463,6 +533,7 @@ async function runQueuedImageGenerationForUser({
         ? {
             mode: "edit",
             ...backendMetadata,
+            ...modelMetadata,
             ...promptOptimizationMetadata,
             imageCount: input.images.length,
             hasMask: Boolean(input.mask),
@@ -476,6 +547,7 @@ async function runQueuedImageGenerationForUser({
               mode: "chat",
               action: "auto",
               ...backendMetadata,
+              ...modelMetadata,
               ...promptOptimizationMetadata,
               imageCount: input.images?.length || 0,
               quality: input.quality || "auto",
@@ -487,6 +559,7 @@ async function runQueuedImageGenerationForUser({
           : {
               mode: "generate",
               ...backendMetadata,
+              ...modelMetadata,
               ...promptOptimizationMetadata,
               quality: input.quality || "auto",
               moderation: input.moderation || "auto",
@@ -647,7 +720,9 @@ async function runQueuedImageGenerationForUser({
             images: input.images,
             mask: input.mask,
             size: input.size,
-            model,
+            model: imageModel,
+            gptModel,
+            thinking: input.thinking,
             quality: input.quality,
             n: input.n,
             moderation: input.moderation,
@@ -664,7 +739,8 @@ async function runQueuedImageGenerationForUser({
               images: input.images,
               history: input.history,
               size,
-              model,
+              model: gptModel,
+              imageModel,
               allowGpt55: canUseGpt55Chat(userPlan.plan),
               quality: input.quality,
               n: input.n,
@@ -682,7 +758,9 @@ async function runQueuedImageGenerationForUser({
               apiPrompt,
               promptOptimization,
               size,
-              model,
+              model: imageModel,
+              gptModel,
+              thinking: input.thinking,
               n: input.n,
               quality: input.quality,
               moderation: input.moderation,
@@ -778,7 +856,7 @@ async function runQueuedImageGenerationForUser({
 
     return {
       generationId,
-      model,
+      model: recordModel,
       size,
       revisedPrompt: result.revisedPrompt,
       responseText: result.responseText,
@@ -880,7 +958,7 @@ async function runQueuedImageGenerationForUser({
   return {
     generationId,
     imageUrl: await getStoredImageUrl(bucket, storageKey),
-    model,
+    model: recordModel,
     size,
     revisedPrompt: result.revisedPrompt,
     responseText: result.responseText,

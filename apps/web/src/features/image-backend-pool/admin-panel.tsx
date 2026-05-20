@@ -35,6 +35,7 @@ import {
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 
 import {
   bulkDeleteImageBackendAccountsAction,
@@ -59,6 +60,7 @@ type Group = {
   isDefault: boolean;
   isUserSelectable: boolean;
   contentSafetyEnabled: boolean | null;
+  minPlan: SubscriptionPlan;
   priority: number;
   apiCount: number;
   accountCount: number;
@@ -150,8 +152,26 @@ type BulkAccountForm = {
   deleteSelected: boolean;
 };
 
+const PLAN_OPTIONS: Array<{ value: SubscriptionPlan; label: string }> = [
+  { value: "free", label: "免费" },
+  { value: "starter", label: "入门版" },
+  { value: "pro", label: "专业版" },
+  { value: "ultra", label: "旗舰版" },
+  { value: "enterprise", label: "企业版" },
+];
+
 function groupName(groups: Group[], groupId: string | null) {
   return groups.find((group) => group.id === groupId)?.name || "未分组";
+}
+
+function planLabel(plan: SubscriptionPlan) {
+  return PLAN_OPTIONS.find((option) => option.value === plan)?.label || plan;
+}
+
+function safetyLabel(value: boolean | null) {
+  if (value === true) return "内容安全强制开启";
+  if (value === false) return "内容安全强制关闭";
+  return "内容安全继承成员";
 }
 
 function formatDate(value: Date | string | null) {
@@ -234,6 +254,7 @@ export function ImageBackendPoolAdminPanel() {
     isDefault: false,
     isUserSelectable: true,
     contentSafety: "inherit" as ContentSafetyFormValue,
+    minPlan: "free" as SubscriptionPlan,
     priority: 50,
   });
   const [accountForm, setAccountForm] = useState({
@@ -352,6 +373,7 @@ export function ImageBackendPoolAdminPanel() {
       isDefault: false,
       isUserSelectable: true,
       contentSafety: "inherit" as ContentSafetyFormValue,
+      minPlan: "free" as SubscriptionPlan,
       priority: 50,
     });
 
@@ -408,6 +430,7 @@ export function ImageBackendPoolAdminPanel() {
       isDefault: group.isDefault,
       isUserSelectable: group.isUserSelectable,
       contentSafety: safetyValue(group.contentSafetyEnabled),
+      minPlan: group.minPlan || "free",
       priority: group.priority,
     });
   };
@@ -891,6 +914,32 @@ export function ImageBackendPoolAdminPanel() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>最低套餐</Label>
+                <Select
+                  value={groupForm.minPlan}
+                  onValueChange={(value) =>
+                    setGroupForm((current) => ({
+                      ...current,
+                      minPlan: value as SubscriptionPlan,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLAN_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  用户套餐低于该档位时不可选择此后端分组，外接 API Key 也不能绑定。
+                </p>
+              </div>
               <Input
                 type="number"
                 value={groupForm.priority}
@@ -929,6 +978,18 @@ export function ImageBackendPoolAdminPanel() {
                       {group.isUserSelectable && (
                         <Badge variant="outline">用户可选</Badge>
                       )}
+                      <Badge variant="outline">
+                        最低 {planLabel(group.minPlan)}
+                      </Badge>
+                      <Badge
+                        variant={
+                          group.contentSafetyEnabled === false
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {safetyLabel(group.contentSafetyEnabled)}
+                      </Badge>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {group.description || "无说明"} · 优先级 {group.priority} · 账号 {group.accountCount} · API {group.apiCount}

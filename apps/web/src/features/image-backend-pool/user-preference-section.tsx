@@ -2,6 +2,7 @@
 
 import { Button } from "@repo/ui/components/button";
 import { Label } from "@repo/ui/components/label";
+import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,23 @@ type GroupOption = {
   name: string;
   description: string | null;
   isDefault: boolean;
+  contentSafetyEnabled: boolean | null;
+  minPlan: SubscriptionPlan;
 };
+
+const PLAN_LABELS: Record<SubscriptionPlan, string> = {
+  free: "免费",
+  starter: "入门版",
+  pro: "专业版",
+  ultra: "旗舰版",
+  enterprise: "企业版",
+};
+
+function safetyLabel(value: boolean | null) {
+  if (value === true) return "内容审核开启";
+  if (value === false) return "内容审核关闭";
+  return "内容审核按成员配置";
+}
 
 export function ImageBackendPreferenceSection() {
   const [groups, setGroups] = useState<GroupOption[]>([]);
@@ -91,6 +108,10 @@ export function ImageBackendPreferenceSection() {
                 <SelectItem key={group.id} value={group.id}>
                   {group.name}
                   {group.isDefault ? "（默认）" : ""}
+                  {" · "}
+                  {safetyLabel(group.contentSafetyEnabled)}
+                  {" · "}
+                  {PLAN_LABELS[group.minPlan] || group.minPlan}
                 </SelectItem>
               ))}
             </SelectContent>

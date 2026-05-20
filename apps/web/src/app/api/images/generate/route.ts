@@ -22,8 +22,12 @@ const generateImageSchema = z.object({
       message: "Invalid image size",
     }),
   model: z.string().optional(),
+  gptModel: z.string().optional(),
+  gpt_model: z.string().optional(),
+  thinking: z.enum(["none", "low", "medium", "high", "xhigh"]).optional(),
   stream: z.boolean().optional(),
   count: z.number().int().min(1).max(10).optional(),
+  quality: z.enum(["auto", "low", "medium", "high"]).optional(),
   moderation: z.enum(["auto", "low"]).optional(),
 });
 
@@ -66,6 +70,9 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     promptOptimization: parsed.data.promptOptimization,
     size: parsed.data.size || DEFAULT_IMAGE_SIZE,
     model: parsed.data.model,
+    gptModel: parsed.data.gptModel || parsed.data.gpt_model,
+    thinking: parsed.data.thinking,
+    quality: parsed.data.quality || "auto",
     moderation: parsed.data.moderation || "auto",
   };
   const count = parsed.data.count || 1;

@@ -36,9 +36,15 @@ async function ensureExternalApiAllowed(userId: string) {
   return plan.plan;
 }
 
-async function normalizeSelectableGenerationGroupId(groupId?: string | null) {
+async function normalizeSelectableGenerationGroupId(
+  groupId: string | null | undefined,
+  plan: Awaited<ReturnType<typeof getUserPlan>>["plan"]
+) {
   if (!groupId || groupId === "default") return null;
-  const groups = await listImageBackendGroupOptions({ userSelectableOnly: true });
+  const groups = await listImageBackendGroupOptions({
+    userSelectableOnly: true,
+    plan,
+  });
   if (!groups.some((group) => group.id === groupId)) {
     throw new Error("Image backend group is not selectable");
   }
@@ -47,6 +53,7 @@ async function normalizeSelectableGenerationGroupId(groupId?: string | null) {
 
 export const getExternalApiKeys = withExternalApiKeyAction("list").action(
   async ({ ctx }) => {
+    const plan = await getUserPlan(ctx.userId);
     const keys = await db
       .select({
         id: externalApiKey.id,
@@ -65,6 +72,7 @@ export const getExternalApiKeys = withExternalApiKeyAction("list").action(
 
     const groups = await listImageBackendGroupOptions({
       userSelectableOnly: true,
+      plan: plan.plan,
     });
     return { keys, groups };
   }
@@ -84,7 +92,8 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
     const apiKey = createApiKey();
     const keyPrefix = apiKey.slice(0, 7);
     const generationGroupId = await normalizeSelectableGenerationGroupId(
-      parsedInput.generationGroupId
+      parsedInput.generationGroupId,
+      plan
     );
 
     await db.insert(externalApiKey).values({
@@ -179,9 +188,10 @@ export const updateExternalApiKeyGroup = withExternalApiKeyAction("updateGroup")
     })
   )
   .action(async ({ parsedInput, ctx }) => {
-    await ensureExternalApiAllowed(ctx.userId);
+    const plan = await ensureExternalApiAllowed(ctx.userId);
     const generationGroupId = await normalizeSelectableGenerationGroupId(
-      parsedInput.generationGroupId
+      parsedInput.generationGroupId,
+      plan
     );
     await db
       .update(externalApiKey)

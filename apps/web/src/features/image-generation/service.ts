@@ -135,6 +135,10 @@ function getModel(config: ApiConfig, model?: string) {
   return imageModel;
 }
 
+function isPoolBackend(config: ApiConfig) {
+  return config.backend?.type === "pool-account";
+}
+
 function getHeaders(
   config: ApiConfig,
   defaults: Record<string, string>
@@ -215,6 +219,14 @@ export async function getResponsesModel(
       allowGpt55: options?.allowGpt55,
     }) || DEFAULT_RESPONSES_MODEL
   );
+}
+
+async function getDefaultImageGptModel(
+  config: ApiConfig,
+  options?: { allowGpt55?: boolean }
+) {
+  if (!isPoolBackend(config)) return undefined;
+  return await getResponsesModel(config, undefined, options);
 }
 
 function getApiErrorMessage(errorData: unknown): string | null {
@@ -454,6 +466,7 @@ function normalizeModeration(moderation?: string): ImageModeration | undefined {
 
 function normalizeThinking(thinking?: string): ThinkingLevel | undefined {
   if (
+    thinking === "none" ||
     thinking === "low" ||
     thinking === "medium" ||
     thinking === "high" ||
@@ -1449,7 +1462,11 @@ export async function generateImage(
 
   const model = getModel(config, params.model);
   if (isPoolAccountBackend(config, "web")) {
-    return generateImageWithChatGptWeb(config, { ...params, model });
+    return generateImageWithChatGptWeb(config, {
+      ...params,
+      model,
+      gptModel: params.gptModel,
+    });
   }
   if (isResponsesBackend(config)) {
     try {
@@ -1462,7 +1479,15 @@ export async function generateImage(
             Accept: "text/event-stream",
           }),
           body: JSON.stringify(
-            buildResponsesImageGenerationRequest(config, { ...params, model })
+            buildResponsesImageGenerationRequest(config, {
+              ...params,
+              model,
+              gptModel:
+                params.gptModel ||
+                (await getDefaultImageGptModel(config, {
+                  allowGpt55: true,
+                })),
+            })
           ),
         }
       );
@@ -1542,7 +1567,11 @@ export async function editImage(
 
   const model = getModel(config, params.model);
   if (isPoolAccountBackend(config, "web")) {
-    return editImageWithChatGptWeb(config, { ...params, model });
+    return editImageWithChatGptWeb(config, {
+      ...params,
+      model,
+      gptModel: params.gptModel,
+    });
   }
   if (isResponsesBackend(config)) {
     try {
@@ -1555,7 +1584,15 @@ export async function editImage(
             Accept: "text/event-stream",
           }),
           body: JSON.stringify(
-            buildResponsesImageEditRequest(config, { ...params, model })
+            buildResponsesImageEditRequest(config, {
+              ...params,
+              model,
+              gptModel:
+                params.gptModel ||
+                (await getDefaultImageGptModel(config, {
+                  allowGpt55: true,
+                })),
+            })
           ),
         }
       );
@@ -1649,7 +1686,9 @@ export async function generateChatImage(
       apiPrompt: params.apiPrompt,
       promptOptimization: params.promptOptimization,
       size: params.size,
-      model: params.model,
+      model: params.imageModel || DEFAULT_IMAGE_MODEL,
+      gptModel: model,
+      thinking: params.thinking,
       quality: params.quality,
       n: params.n,
       moderation: params.moderation,
@@ -1666,15 +1705,26 @@ export async function generateChatImage(
     const tool: {
       type: "image_generation";
       action: "auto";
+      model?: string;
       size?: string;
+      quality?: ImageQuality;
+      moderation?: ImageModeration;
     } = {
       type: "image_generation",
       action: "auto",
     };
 
+    const toolModel = getImageModel(params.imageModel);
+    if (toolModel) {
+      tool.model = toolModel;
+    }
     if (size && size !== "auto") {
       tool.size = size;
     }
+    const quality = normalizeQuality(params.quality);
+    if (quality) tool.quality = quality;
+    const moderation = normalizeModeration(params.moderation);
+    if (moderation) tool.moderation = moderation;
 
     const thinking = normalizeThinking(params.thinking);
     const reasoning: ReasoningConfig | undefined = thinking

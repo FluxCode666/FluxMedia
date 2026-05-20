@@ -25,8 +25,10 @@ import {
 } from "@/features/image-generation/resolution";
 import type {
   ImageInputFile,
+  ImageModeration,
   ImageQuality,
   PartialImageResult,
+  ThinkingLevel,
 } from "@/features/image-generation/types";
 
 const MAX_EDIT_IMAGES = 16;
@@ -39,6 +41,14 @@ const VALID_QUALITIES = new Set<ImageQuality>([
   "low",
   "medium",
   "high",
+]);
+const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
+const VALID_THINKING = new Set<ThinkingLevel>([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
 ]);
 function formatMegabytes(bytes: number) {
   return `${bytes / 1024 / 1024}MB`;
@@ -311,6 +321,11 @@ export const postExternalImageEdits = withApiLogging(
       return openAIImageError("Invalid quality.");
     }
     const quality = qualityValue as ImageQuality;
+    const moderationValue = getText(formData, "moderation") || "auto";
+    if (!VALID_MODERATION.has(moderationValue as ImageModeration)) {
+      return openAIImageError("Invalid moderation.");
+    }
+    const moderation = moderationValue as ImageModeration;
 
     let count = 1;
     try {
@@ -327,6 +342,15 @@ export const postExternalImageEdits = withApiLogging(
     if (!model) {
       return invalidImageModelError();
     }
+    const gptModel =
+      getText(formData, "gptModel") ||
+      getText(formData, "gpt_model") ||
+      undefined;
+    const thinkingValue = getText(formData, "thinking") || undefined;
+    if (thinkingValue && !VALID_THINKING.has(thinkingValue as ThinkingLevel)) {
+      return openAIImageError("Invalid thinking level.");
+    }
+    const thinking = thinkingValue as ThinkingLevel | undefined;
     const sourceFiles = getImageFiles(formData);
     if (sourceFiles.length === 0) {
       return openAIImageError("At least one source image is required.");
@@ -396,7 +420,10 @@ export const postExternalImageEdits = withApiLogging(
             moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
             size: displaySize || size,
             model,
+            gptModel,
+            thinking,
             quality,
+            moderation,
             n: 1,
             images: await buildImages(),
             mask: await buildMask(),

@@ -4,8 +4,11 @@ import {
   canUseChat,
   canUseGpt55Chat,
   canUsePromptOptimization,
+  GPT52_CHAT_MODEL,
   GPT54_CHAT_MODEL,
+  GPT54_MINI_CHAT_MODEL,
   GPT55_CHAT_MODEL,
+  RESPONSES_IMAGE_MODELS,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import { formatCredits } from "@repo/shared/credits/format";
@@ -182,7 +185,7 @@ type ChatStreamState = {
 };
 
 type ChatViewMode = "chat" | "batch";
-type ChatModel = typeof GPT54_CHAT_MODEL | typeof GPT55_CHAT_MODEL;
+type ChatModel = (typeof RESPONSES_IMAGE_MODELS)[number];
 type ChatThinkingLevel = "none" | "low" | "medium" | "high" | "xhigh";
 type TextGenerationMode = "single" | "lines";
 
@@ -233,6 +236,9 @@ const TEXT_MODEL_OPTIONS = [
   { value: "gpt-image-1.5", label: "GPT Image 1.5" },
   { value: "gpt-image-1-mini", label: "GPT Image 1 Mini" },
 ] as const;
+const IMAGE_MODEL_OPTIONS = TEXT_MODEL_OPTIONS.filter(
+  (option) => option.value !== "default"
+);
 const EDIT_MODEL_OPTIONS = [
   { value: "default", label: "Default" },
   { value: "gpt-image-2", label: "GPT Image 2" },
@@ -259,6 +265,8 @@ const CHAT_MODEL_OPTIONS: Array<{
   ultraOnly?: boolean;
 }> = [
   { value: GPT54_CHAT_MODEL, label: "GPT-5.4" },
+  { value: GPT54_MINI_CHAT_MODEL, label: "GPT-5.4 Mini" },
+  { value: GPT52_CHAT_MODEL, label: "GPT-5.2" },
   { value: GPT55_CHAT_MODEL, label: "GPT-5.5", ultraOnly: true },
 ];
 const CHAT_THINKING_OPTIONS: Array<{
@@ -595,6 +603,12 @@ export function CreatePageClient({
   const [waterfallCreditsConsumed, setWaterfallCreditsConsumed] = useState(0);
   const [chatModel, setChatModel] = useState<ChatModel>(GPT54_CHAT_MODEL);
   const [chatThinking, setChatThinking] = useState<ChatThinkingLevel>("low");
+  const [imageGptModel, setImageGptModel] = useState<ChatModel | "default">(
+    "default"
+  );
+  const [imageThinking, setImageThinking] =
+    useState<ChatThinkingLevel>("low");
+  const [chatImageModel, setChatImageModel] = useState(DEFAULT_IMAGE_MODEL);
   const [chatFirstImageSize, setChatFirstImageSize] = useState<{
     width: number;
     height: number;
@@ -782,6 +796,75 @@ export function CreatePageClient({
     </label>
   );
 
+  const renderGptModelSelect = (params: {
+    id: string;
+    value: ChatModel | "default";
+    onChange: (value: ChatModel | "default") => void;
+    disabled?: boolean;
+    compact?: boolean;
+    allowDefault?: boolean;
+  }) => (
+    <Select
+      value={params.value}
+      onValueChange={(value) => params.onChange(value as ChatModel | "default")}
+      disabled={params.disabled}
+    >
+      <SelectTrigger
+        id={params.id}
+        className={params.compact ? "h-8 w-[136px]" : "w-full"}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {params.allowDefault && (
+          <SelectItem value="default">
+            {copy("Backend default", "后端默认")}
+          </SelectItem>
+        )}
+        {CHAT_MODEL_OPTIONS.map((option) => (
+          <SelectItem
+            key={option.value}
+            value={option.value}
+            disabled={option.ultraOnly && !gpt55ChatAllowed}
+          >
+            {option.label}
+            {option.ultraOnly && !gpt55ChatAllowed
+              ? ` · ${copy("Ultra", "Ultra")}`
+              : ""}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const renderThinkingSelect = (params: {
+    id: string;
+    value: ChatThinkingLevel;
+    onChange: (value: ChatThinkingLevel) => void;
+    disabled?: boolean;
+    compact?: boolean;
+  }) => (
+    <Select
+      value={params.value}
+      onValueChange={(value) => params.onChange(value as ChatThinkingLevel)}
+      disabled={params.disabled}
+    >
+      <SelectTrigger
+        id={params.id}
+        className={params.compact ? "h-8 w-[138px]" : "w-full"}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {CHAT_THINKING_OPTIONS.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {copy("Thinking", "思考")} {thinkingLabel(option.value)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   const clearStreamingPreview = () => {
     setStreamingPreviewUrl(null);
   };
@@ -941,6 +1024,7 @@ export function CreatePageClient({
     formData.append("quality", quality);
     formData.append("moderation", moderation);
     formData.append("model", chatModel);
+    formData.append("imageModel", chatImageModel);
     formData.append("thinking", chatThinking);
     formData.append("size", fallbackSize);
     formData.append("count", "1");
@@ -1225,7 +1309,10 @@ export function CreatePageClient({
     if (!gpt55ChatAllowed && chatModel === GPT55_CHAT_MODEL) {
       setChatModel(GPT54_CHAT_MODEL);
     }
-  }, [chatModel, gpt55ChatAllowed]);
+    if (!gpt55ChatAllowed && imageGptModel === GPT55_CHAT_MODEL) {
+      setImageGptModel("default");
+    }
+  }, [chatModel, gpt55ChatAllowed, imageGptModel]);
 
   useEffect(() => {
     if (!firstPreviewUrl) {
@@ -1813,47 +1900,38 @@ export function CreatePageClient({
         )}
 
         <div className="mb-2 flex flex-wrap items-center gap-2">
+          {renderGptModelSelect({
+            id: "chat-gpt-model",
+            value: chatModel,
+            onChange: (value) => {
+              if (value !== "default") setChatModel(value);
+            },
+            disabled: isChatGenerating,
+            compact: true,
+          })}
           <Select
-            value={chatModel}
-            onValueChange={(value) => setChatModel(value as ChatModel)}
-            disabled={isChatGenerating}
-          >
-            <SelectTrigger className="h-8 w-[116px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CHAT_MODEL_OPTIONS.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.ultraOnly && !gpt55ChatAllowed}
-                >
-                  {option.label}
-                  {option.ultraOnly && !gpt55ChatAllowed
-                    ? ` · ${copy("Ultra", "Ultra")}`
-                    : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={chatThinking}
-            onValueChange={(value) =>
-              setChatThinking(value as ChatThinkingLevel)
-            }
+            value={chatImageModel}
+            onValueChange={setChatImageModel}
             disabled={isChatGenerating}
           >
             <SelectTrigger className="h-8 w-[138px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CHAT_THINKING_OPTIONS.map((option) => (
+              {IMAGE_MODEL_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {copy("Thinking", "思考")} {thinkingLabel(option.value)}
+                  {copy("Image", "图片")} {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {renderThinkingSelect({
+            id: "chat-thinking",
+            value: chatThinking,
+            onChange: setChatThinking,
+            disabled: isChatGenerating,
+            compact: true,
+          })}
           <Select
             value={selectedChatPreset}
             onValueChange={applyChatPreset}
@@ -2488,8 +2566,11 @@ export function CreatePageClient({
         size,
         stream: Boolean(params.stream),
         count: params.count || 1,
+        quality,
         moderation,
         ...(textModel !== "default" ? { model: textModel } : {}),
+        ...(imageGptModel !== "default" ? { gptModel: imageGptModel } : {}),
+        thinking: imageThinking,
         ...(promptOptimizationAllowed ? { promptOptimization } : {}),
       }),
     });
@@ -2615,9 +2696,14 @@ export function CreatePageClient({
     const formData = new FormData();
     formData.append("prompt", editPrompt.trim());
     formData.append("quality", quality);
+    formData.append("moderation", moderation);
     if (editModel !== "default") {
       formData.append("model", editModel);
     }
+    if (imageGptModel !== "default") {
+      formData.append("gptModel", imageGptModel);
+    }
+    formData.append("thinking", imageThinking);
     if (useFirstImageSize) {
       formData.append("displaySize", effectiveEditSize);
     } else {
@@ -3080,7 +3166,7 @@ export function CreatePageClient({
     <div className="space-y-4 rounded-lg border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1.5">
               <label
                 htmlFor={`text-model-${mode}`}
@@ -3100,6 +3186,43 @@ export function CreatePageClient({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor={`text-gpt-model-${mode}`}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {copy("GPT model", "GPT 模型")}
+              </label>
+              {renderGptModelSelect({
+                id: `text-gpt-model-${mode}`,
+                value: imageGptModel,
+                onChange: setImageGptModel,
+                disabled: busy,
+                allowDefault: true,
+              })}
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {copy(
+                  "Used by platform Web/Codex backend pools; external image APIs keep using the image model.",
+                  "仅用于平台 Web/Codex 后端池；默认会沿用后端配置，外接 image API 仍按图片模型请求。"
+                )}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor={`text-thinking-${mode}`}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {copy("Thinking", "思考强度")}
+              </label>
+              {renderThinkingSelect({
+                id: `text-thinking-${mode}`,
+                value: imageThinking,
+                onChange: setImageThinking,
+                disabled: busy,
+              })}
             </div>
 
             <div className="space-y-1.5">
@@ -3214,10 +3337,34 @@ export function CreatePageClient({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label
-                htmlFor="image-moderation"
+                htmlFor={`image-quality-${mode}`}
                 className="text-xs font-medium text-muted-foreground"
               >
-                {copy("API moderation", "API 审核")}
+                {copy("Quality", "质量")}
+              </label>
+              <Select
+                value={quality}
+                onValueChange={(value) => setQuality(value as ImageQuality)}
+                disabled={busy}
+              >
+                <SelectTrigger id={`image-quality-${mode}`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {QUALITY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {qualityLabel(option.value)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor={`image-oai-moderation-${mode}`}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {copy("OAI moderation strength", "OAI 自身审核强度")}
               </label>
               <Select
                 value={moderation}
@@ -3226,7 +3373,10 @@ export function CreatePageClient({
                 }
                 disabled={busy}
               >
-                <SelectTrigger id="image-moderation" className="w-full">
+                <SelectTrigger
+                  id={`image-oai-moderation-${mode}`}
+                  className="w-full"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -3698,6 +3848,43 @@ export function CreatePageClient({
 
                 <div className="space-y-2">
                   <label
+                    htmlFor="edit-gpt-model"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    {copy("GPT model", "GPT 模型")}
+                  </label>
+                  {renderGptModelSelect({
+                    id: "edit-gpt-model",
+                    value: imageGptModel,
+                    onChange: setImageGptModel,
+                    disabled: isEditing,
+                    allowDefault: true,
+                  })}
+                  <p className="text-xs leading-snug text-muted-foreground">
+                    {copy(
+                      "Used by platform Web/Codex backend pools; external image APIs keep using the image model.",
+                      "仅用于平台 Web/Codex 后端池；默认会沿用后端配置，外接 image API 仍按图片模型请求。"
+                    )}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="edit-thinking"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    {copy("Thinking", "思考强度")}
+                  </label>
+                  {renderThinkingSelect({
+                    id: "edit-thinking",
+                    value: imageThinking,
+                    onChange: setImageThinking,
+                    disabled: isEditing,
+                  })}
+                </div>
+
+                <div className="space-y-2">
+                  <label
                     htmlFor="edit-quality"
                     className="text-sm font-medium text-foreground"
                   >
@@ -3715,6 +3902,33 @@ export function CreatePageClient({
                       {QUALITY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {qualityLabel(option.value)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="edit-oai-moderation"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    {copy("OAI moderation strength", "OAI 自身审核强度")}
+                  </label>
+                  <Select
+                    value={moderation}
+                    onValueChange={(value) =>
+                      setModeration(value as ImageModeration)
+                    }
+                    disabled={isEditing}
+                  >
+                    <SelectTrigger id="edit-oai-moderation" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODERATION_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {moderationLabel(option.value)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -4237,45 +4451,35 @@ export function CreatePageClient({
               <div className="overflow-hidden rounded-lg border border-border bg-background">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
                   <div className="flex flex-wrap items-center gap-2">
+                    {renderGptModelSelect({
+                      id: "batch-gpt-model",
+                      value: chatModel,
+                      onChange: (value) => {
+                        if (value !== "default") setChatModel(value);
+                      },
+                      compact: true,
+                    })}
                     <Select
-                      value={chatModel}
-                      onValueChange={(value) => setChatModel(value as ChatModel)}
-                    >
-                      <SelectTrigger className="h-8 w-[116px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CHAT_MODEL_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            disabled={option.ultraOnly && !gpt55ChatAllowed}
-                          >
-                            {option.label}
-                            {option.ultraOnly && !gpt55ChatAllowed
-                              ? ` · ${copy("Ultra", "Ultra")}`
-                              : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={chatThinking}
-                      onValueChange={(value) =>
-                        setChatThinking(value as ChatThinkingLevel)
-                      }
+                      value={chatImageModel}
+                      onValueChange={setChatImageModel}
                     >
                       <SelectTrigger className="h-8 w-[138px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {CHAT_THINKING_OPTIONS.map((option) => (
+                        {IMAGE_MODEL_OPTIONS.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
-                            {copy("Thinking", "思考")} {thinkingLabel(option.value)}
+                            {copy("Image", "图片")} {option.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {renderThinkingSelect({
+                      id: "batch-thinking",
+                      value: chatThinking,
+                      onChange: setChatThinking,
+                      compact: true,
+                    })}
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-3">
                     {promptOptimizationField(

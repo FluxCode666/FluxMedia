@@ -7,6 +7,7 @@ import type {
   GenerateImageParams,
   GenerateImageResult,
   ImageInputFile,
+  ThinkingLevel,
 } from "./types";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com";
@@ -635,7 +636,23 @@ async function uploadImage(
 
 function imageModelSlug(model?: string) {
   if (model === "gpt-image-2") return "gpt-5-3";
-  return model || "auto";
+  if (model === "gpt-image-1.5") return "gpt-5-2";
+  if (model === "gpt-image-1-mini") return "gpt-5-mini";
+  return model || "gpt-5-3";
+}
+
+function webGptModelSlug(gptModel?: string, imageModel?: string) {
+  return gptModel?.trim() || imageModelSlug(imageModel);
+}
+
+function webThinkingValue(
+  thinking: ThinkingLevel | undefined,
+  promptOptimization?: boolean
+) {
+  if (promptOptimization === false) return "instant";
+  if (thinking === "none") return "instant";
+  if (thinking === "xhigh") return "high";
+  return thinking || "low";
 }
 
 function imageHeaders(
@@ -666,7 +683,12 @@ async function prepareImageConversation(
   config: ApiConfig,
   prompt: string,
   requirements: ChatRequirements,
-  model?: string
+  options: {
+    imageModel?: string;
+    gptModel?: string;
+    thinking?: ThinkingLevel;
+    promptOptimization?: boolean;
+  }
 ) {
   const path = "/backend-api/f/conversation/prepare";
   const response = await fetchChatGptWeb(config, path, path, {
@@ -676,7 +698,15 @@ async function prepareImageConversation(
       action: "next",
       fork_from_shared_post: false,
       parent_message_id: randomUUID(),
-      model: imageModelSlug(model),
+      model: webGptModelSlug(options.gptModel, options.imageModel),
+      force_paragen_model_slug: imageModelSlug(options.imageModel),
+      paragen_thinking_level: webThinkingValue(
+        options.thinking,
+        options.promptOptimization
+      ),
+      paragen_cot_summary_display_override: "allow",
+      force_parallel_switch:
+        options.promptOptimization === false ? "instant" : "auto",
       client_prepare_state: "success",
       timezone_offset_min: -480,
       timezone: "Asia/Shanghai",
@@ -739,7 +769,12 @@ async function startImageGeneration(
   prompt: string,
   requirements: ChatRequirements,
   conduitToken: string,
-  model: string | undefined,
+  options: {
+    imageModel?: string;
+    gptModel?: string;
+    thinking?: ThinkingLevel;
+    promptOptimization?: boolean;
+  },
   references: UploadedImage[]
 ) {
   const path = "/backend-api/f/conversation";
@@ -750,7 +785,8 @@ async function startImageGeneration(
       action: "next",
       messages: [buildMessage(prompt, references)],
       parent_message_id: randomUUID(),
-      model: imageModelSlug(model),
+      model: webGptModelSlug(options.gptModel, options.imageModel),
+      force_paragen_model_slug: imageModelSlug(options.imageModel),
       client_prepare_state: "sent",
       timezone_offset_min: -480,
       timezone: "Asia/Shanghai",
@@ -770,7 +806,12 @@ async function startImageGeneration(
         app_name: "chatgpt.com",
       },
       paragen_cot_summary_display_override: "allow",
-      force_parallel_switch: "auto",
+      paragen_thinking_level: webThinkingValue(
+        options.thinking,
+        options.promptOptimization
+      ),
+      force_parallel_switch:
+        options.promptOptimization === false ? "instant" : "auto",
     }),
   });
   if (!response.ok) {
@@ -959,14 +1000,24 @@ async function runWebImage(
       config,
       prompt,
       requirements,
-      params.model
+      {
+        imageModel: params.model,
+        gptModel: params.gptModel,
+        thinking: params.thinking,
+        promptOptimization: params.promptOptimization,
+      }
     );
     const response = await startImageGeneration(
       config,
       prompt,
       requirements,
       conduitToken,
-      params.model,
+      {
+        imageModel: params.model,
+        gptModel: params.gptModel,
+        thinking: params.thinking,
+        promptOptimization: params.promptOptimization,
+      },
       references
     );
     const text = await readSseText(response);

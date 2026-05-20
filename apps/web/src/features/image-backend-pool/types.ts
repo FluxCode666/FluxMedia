@@ -1,3 +1,5 @@
+import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
+
 export type ImageBackendRequestKind =
   | "image_generation"
   | "image_edit"
@@ -15,6 +17,7 @@ export type ImageBackendGroupSummary = {
   isDefault: boolean;
   isUserSelectable: boolean;
   contentSafetyEnabled: boolean | null;
+  minPlan: SubscriptionPlan;
   priority: number;
   apiCount: number;
   accountCount: number;

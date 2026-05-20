@@ -424,6 +424,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const model = getText(formData, "model") || undefined;
+  const imageModel =
+    getText(formData, "imageModel") ||
+    getText(formData, "image_model") ||
+    undefined;
   const sourceFiles = getImageFiles(formData);
   if (sourceFiles.length > MAX_CHAT_IMAGES) {
     return errorResponse(`No more than ${MAX_CHAT_IMAGES} images are allowed.`);
@@ -476,6 +480,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           history,
           size,
           model,
+          imageModel,
           quality,
           n: 1,
           moderation,

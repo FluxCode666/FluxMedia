@@ -7,6 +7,8 @@ export interface GenerateImageParams {
   width?: number;
   height?: number;
   model?: string;
+  gptModel?: string;
+  thinking?: ThinkingLevel;
   n?: number;
   quality?: ImageQuality;
   moderation?: ImageModeration;
@@ -59,6 +61,8 @@ export interface EditImageParams {
   mask?: ImageInputFile;
   size?: string;
   model?: string;
+  gptModel?: string;
+  thinking?: ThinkingLevel;
   quality?: ImageQuality;
   n?: number;
   moderation?: ImageModeration;
@@ -73,6 +77,7 @@ export interface ChatImageParams {
   history?: ChatHistoryMessage[];
   size?: string;
   model?: string;
+  imageModel?: string;
   allowGpt55?: boolean;
   quality?: ImageQuality;
   n?: number;

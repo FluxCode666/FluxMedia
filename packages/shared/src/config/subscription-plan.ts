@@ -20,6 +20,14 @@ export type SubscriptionPlan =
   | "ultra"
   | "enterprise";
 
+export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  "free",
+  "starter",
+  "pro",
+  "ultra",
+  "enterprise",
+];
+
 export type ModerationBlockRiskLevel = "low" | "medium" | "high";
 
 export const MODERATION_BLOCK_RISK_LEVELS = [
@@ -248,6 +256,23 @@ export function isPlanAtLeast(
   requiredPlan: SubscriptionPlan
 ): boolean {
   return PLAN_RANK[plan] >= PLAN_RANK[requiredPlan];
+}
+
+export function isSubscriptionPlan(value: unknown): value is SubscriptionPlan {
+  return (
+    value === "free" ||
+    value === "starter" ||
+    value === "pro" ||
+    value === "ultra" ||
+    value === "enterprise"
+  );
+}
+
+export function normalizeSubscriptionPlan(
+  value: unknown,
+  fallback: SubscriptionPlan = "free"
+): SubscriptionPlan {
+  return isSubscriptionPlan(value) ? value : fallback;
 }
 
 /**

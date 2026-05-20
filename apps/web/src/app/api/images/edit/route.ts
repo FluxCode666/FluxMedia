@@ -16,7 +16,9 @@ import {
 import { createImageStreamResponse } from "@/features/image-generation/streaming";
 import type {
   ImageInputFile,
+  ImageModeration,
   ImageQuality,
+  ThinkingLevel,
 } from "@/features/image-generation/types";
 
 const MAX_EDIT_IMAGES = 16;
@@ -28,6 +30,14 @@ const VALID_QUALITIES = new Set<ImageQuality>([
   "low",
   "medium",
   "high",
+]);
+const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
+const VALID_THINKING = new Set<ThinkingLevel>([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
 ]);
 const MAX_BATCH_COUNT = 10;
 
@@ -249,6 +259,11 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse("Invalid quality.");
   }
   const quality = qualityValue as ImageQuality;
+  const moderationValue = getText(formData, "moderation") || "auto";
+  if (!VALID_MODERATION.has(moderationValue as ImageModeration)) {
+    return errorResponse("Invalid moderation.");
+  }
+  const moderation = moderationValue as ImageModeration;
   let count = 1;
   try {
     count = getCount(formData, "count");
@@ -259,6 +274,13 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const model = getText(formData, "model") || undefined;
+  const gptModel =
+    getText(formData, "gptModel") || getText(formData, "gpt_model") || undefined;
+  const thinkingValue = getText(formData, "thinking") || undefined;
+  if (thinkingValue && !VALID_THINKING.has(thinkingValue as ThinkingLevel)) {
+    return errorResponse("Invalid thinking level.");
+  }
+  const thinking = thinkingValue as ThinkingLevel | undefined;
   const displaySize = getText(formData, "displaySize") || undefined;
   if (displaySize && !parseImageSize(displaySize)) {
     return errorResponse("Invalid display size.");
@@ -320,7 +342,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           promptOptimization,
           size: displaySize || size,
           model,
+          gptModel,
+          thinking,
           quality,
+          moderation,
           n: 1,
           images: await Promise.all(
             sourceFiles.map((file, index) =>

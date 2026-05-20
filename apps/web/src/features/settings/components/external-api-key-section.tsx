@@ -38,6 +38,8 @@ type ImageBackendGroupOption = {
   isDefault: boolean;
   isUserSelectable: boolean;
   isEnabled: boolean;
+  contentSafetyEnabled: boolean | null;
+  minPlan: SubscriptionPlan;
 };
 
 type ExternalApiKeySummary = {
@@ -58,6 +60,26 @@ function formatDate(value: Date | string | null, emptyLabel: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+const PLAN_LABELS: Record<SubscriptionPlan, string> = {
+  free: "免费",
+  starter: "入门版",
+  pro: "专业版",
+  ultra: "旗舰版",
+  enterprise: "企业版",
+};
+
+function groupOptionLabel(group: ImageBackendGroupOption) {
+  const safety =
+    group.contentSafetyEnabled === true
+      ? "内容审核开启"
+      : group.contentSafetyEnabled === false
+        ? "内容审核关闭"
+        : "内容审核按成员配置";
+  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${safety} · ${
+    PLAN_LABELS[group.minPlan] || group.minPlan
+  }`;
 }
 
 export function ExternalApiKeySection() {
@@ -272,7 +294,7 @@ export function ExternalApiKeySection() {
             <SelectItem value="default">{t("backendGroup.default")}</SelectItem>
             {groups.map((group) => (
               <SelectItem key={group.id} value={group.id}>
-                {group.name}
+                {groupOptionLabel(group)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -382,7 +404,7 @@ export function ExternalApiKeySection() {
                       </SelectItem>
                       {groups.map((group) => (
                         <SelectItem key={group.id} value={group.id}>
-                          {group.name}
+                          {groupOptionLabel(group)}
                         </SelectItem>
                       ))}
                     </SelectContent>

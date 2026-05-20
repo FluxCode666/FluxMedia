@@ -8,9 +8,15 @@ import {
   userImageBackendPreference,
 } from "@repo/database/schema";
 import {
+  isPlanAtLeast,
+  normalizeSubscriptionPlan,
+  type SubscriptionPlan,
+} from "@repo/shared/config/subscription-plan";
+import {
   getRuntimeSettingNumber,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
+import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { logWarn } from "@repo/shared/logger";
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -101,6 +107,10 @@ type BackendMetadata = Record<string, unknown> & {
   webAccount?: Partial<WebAccountRuntimeMetadata>;
 };
 
+type ImageBackendGroupMetadata = Record<string, unknown> & {
+  minPlan?: unknown;
+};
+
 const CHATGPT_CODEX_RESPONSES_URL =
   "https://chatgpt.com/backend-api/codex";
 const CODEX_CLI_VERSION = "0.125.0";
@@ -139,6 +149,25 @@ function effectiveContentSafety(
   memberValue: boolean
 ) {
   return groupValue ?? memberValue;
+}
+
+function asGroupMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): ImageBackendGroupMetadata {
+  return metadata && typeof metadata === "object" ? metadata : {};
+}
+
+function getGroupMinPlan(
+  metadata: Record<string, unknown> | null | undefined
+): SubscriptionPlan {
+  return normalizeSubscriptionPlan(asGroupMetadata(metadata).minPlan, "free");
+}
+
+function canUseBackendGroupForPlan(
+  metadata: Record<string, unknown> | null | undefined,
+  plan: SubscriptionPlan
+) {
+  return isPlanAtLeast(plan, getGroupMinPlan(metadata));
 }
 
 function memberTimestamp(value: Date | string | null | undefined) {
@@ -583,13 +612,19 @@ async function resolveRequestedGroup(
   return { groupId: await getDefaultGroupId(), explicit: false };
 }
 
-async function ensureGroupUsable(groupId: string | null) {
+async function ensureGroupUsable(
+  groupId: string | null,
+  plan: SubscriptionPlan
+) {
   if (!groupId) return null;
   const [group] = await db
     .select()
     .from(imageBackendGroup)
     .where(and(eq(imageBackendGroup.id, groupId), eq(imageBackendGroup.isEnabled, true)))
     .limit(1);
+  if (group && !canUseBackendGroupForPlan(group.metadata, plan)) {
+    return null;
+  }
   return group ?? null;
 }
 
@@ -819,12 +854,15 @@ function toResolvedPoolConfig(
 async function resolvePoolMember(
   options: ResolveBackendOptions & { excluded?: Set<string> }
 ) {
+  const userPlan = await getUserPlan(options.userId);
   const requestedGroup = await resolveRequestedGroup(options);
   const requestedGroupId = requestedGroup.groupId;
-  const group = await ensureGroupUsable(requestedGroupId);
+  const group = await ensureGroupUsable(requestedGroupId, userPlan.plan);
   if (!group) {
     if (requestedGroup.explicit) {
-      throw new ImageBackendPoolUnavailableError("选择的生图后端分组不可用");
+      throw new ImageBackendPoolUnavailableError(
+        "选择的生图后端分组不可用或当前套餐不可用"
+      );
     }
     return null;
   }
@@ -1038,8 +1076,10 @@ export async function refreshImageBackendAccountInfo(accountId: string) {
 
 export async function listImageBackendGroupOptions(options?: {
   userSelectableOnly?: boolean;
+  plan?: SubscriptionPlan;
 }) {
-  return await db
+  const plan = options?.plan;
+  const rows = await db
     .select({
       id: imageBackendGroup.id,
       name: imageBackendGroup.name,
@@ -1047,7 +1087,9 @@ export async function listImageBackendGroupOptions(options?: {
       isDefault: imageBackendGroup.isDefault,
       isUserSelectable: imageBackendGroup.isUserSelectable,
       isEnabled: imageBackendGroup.isEnabled,
+      contentSafetyEnabled: imageBackendGroup.contentSafetyEnabled,
       priority: imageBackendGroup.priority,
+      metadata: imageBackendGroup.metadata,
     })
     .from(imageBackendGroup)
     .where(
@@ -1059,10 +1101,18 @@ export async function listImageBackendGroupOptions(options?: {
         : eq(imageBackendGroup.isEnabled, true)
     )
     .orderBy(asc(imageBackendGroup.priority), asc(imageBackendGroup.createdAt));
+  return rows
+    .filter((group) =>
+      plan ? canUseBackendGroupForPlan(group.metadata, plan) : true
+    )
+    .map(({ metadata, ...group }) => ({
+      ...group,
+      minPlan: getGroupMinPlan(metadata),
+    }));
 }
 
-export async function listSelectableImageBackendGroups() {
-  return await listImageBackendGroupOptions({ userSelectableOnly: true });
+export async function listSelectableImageBackendGroups(plan?: SubscriptionPlan) {
+  return await listImageBackendGroupOptions({ userSelectableOnly: true, plan });
 }
 
 export async function getUserImageBackendPreference(userId: string) {
@@ -1076,11 +1126,12 @@ export async function getUserImageBackendPreference(userId: string) {
 
 export async function setUserImageBackendPreference(
   userId: string,
-  groupId: string | null
+  groupId: string | null,
+  plan: SubscriptionPlan
 ) {
   if (groupId) {
     const [group] = await db
-      .select({ id: imageBackendGroup.id })
+      .select({ id: imageBackendGroup.id, metadata: imageBackendGroup.metadata })
       .from(imageBackendGroup)
       .where(
         and(
@@ -1090,7 +1141,9 @@ export async function setUserImageBackendPreference(
         )
       )
       .limit(1);
-    if (!group) throw new Error("生图分组不存在或不可选择");
+    if (!group || !canUseBackendGroupForPlan(group.metadata, plan)) {
+      throw new Error("生图分组不存在、不可选择或当前套餐不可用");
+    }
   }
 
   const [existing] = await db
@@ -1121,6 +1174,7 @@ type UpsertGroupInput = {
   isDefault: boolean;
   isUserSelectable: boolean;
   contentSafetyEnabled: boolean | null;
+  minPlan: SubscriptionPlan;
   priority: number;
 };
 
@@ -1133,6 +1187,15 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
   }
 
   if (input.id) {
+    const [existing] = await db
+      .select({ metadata: imageBackendGroup.metadata })
+      .from(imageBackendGroup)
+      .where(eq(imageBackendGroup.id, input.id))
+      .limit(1);
+    const metadata = {
+      ...asGroupMetadata(existing?.metadata),
+      minPlan: input.minPlan,
+    };
     await db
       .update(imageBackendGroup)
       .set({
@@ -1142,6 +1205,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
         isDefault: input.isDefault,
         isUserSelectable: input.isUserSelectable,
         contentSafetyEnabled: input.contentSafetyEnabled,
+        metadata,
         priority: input.priority,
         updatedAt: new Date(),
       })
@@ -1158,6 +1222,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
     isDefault: input.isDefault,
     isUserSelectable: input.isUserSelectable,
     contentSafetyEnabled: input.contentSafetyEnabled,
+    metadata: { minPlan: input.minPlan },
     priority: input.priority,
   });
   return id;
@@ -2322,6 +2387,7 @@ export async function listAdminImageBackendPool() {
     isDefault: group.isDefault,
     isUserSelectable: group.isUserSelectable,
     contentSafetyEnabled: group.contentSafetyEnabled,
+    minPlan: getGroupMinPlan(group.metadata),
     priority: group.priority,
     apiCount: apiCountMap.get(group.id) ?? 0,
     accountCount: accountCountMap.get(group.id) ?? 0,
