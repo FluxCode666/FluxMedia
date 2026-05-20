@@ -220,6 +220,19 @@ function classifyFailure(error?: string | null): {
   return {};
 }
 
+function isBackendAvailableStatus(
+  statusColumn: typeof imageBackendAccount.status | typeof imageBackendApi.status,
+  cooldownColumn:
+    | typeof imageBackendAccount.cooldownUntil
+    | typeof imageBackendApi.cooldownUntil,
+  now: Date
+) {
+  return or(
+    eq(statusColumn, "active"),
+    and(eq(statusColumn, "limited"), sql`${cooldownColumn} <= ${now}`)
+  );
+}
+
 function truncateError(value?: string | null) {
   if (!value) return null;
   return value.length > 2000 ? value.slice(0, 2000) : value;
@@ -412,7 +425,11 @@ async function selectPoolMember(
         and(
           eq(imageBackendApi.isEnabled, true),
           apiGroupFilter,
-          eq(imageBackendApi.status, "active"),
+          isBackendAvailableStatus(
+            imageBackendApi.status,
+            imageBackendApi.cooldownUntil,
+            now
+          ),
           or(
             sql`${imageBackendApi.cooldownUntil} IS NULL`,
             sql`${imageBackendApi.cooldownUntil} <= ${now}`
@@ -432,7 +449,11 @@ async function selectPoolMember(
         and(
           eq(imageBackendAccount.isEnabled, true),
           accountGroupFilter,
-          eq(imageBackendAccount.status, "active"),
+          isBackendAvailableStatus(
+            imageBackendAccount.status,
+            imageBackendAccount.cooldownUntil,
+            now
+          ),
           or(
             sql`${imageBackendAccount.cooldownUntil} IS NULL`,
             sql`${imageBackendAccount.cooldownUntil} <= ${now}`
@@ -502,14 +523,26 @@ async function touchSelectedMember(member: PoolMember) {
   if (member.type === "api") {
     await db
       .update(imageBackendApi)
-      .set({ lastUsedAt: now, lastAcquiredAt: now, updatedAt: now })
+      .set({
+        status: "active",
+        cooldownUntil: null,
+        lastUsedAt: now,
+        lastAcquiredAt: now,
+        updatedAt: now,
+      })
       .where(eq(imageBackendApi.id, member.id));
     return;
   }
 
   await db
     .update(imageBackendAccount)
-    .set({ lastUsedAt: now, lastAcquiredAt: now, updatedAt: now })
+    .set({
+      status: "active",
+      cooldownUntil: null,
+      lastUsedAt: now,
+      lastAcquiredAt: now,
+      updatedAt: now,
+    })
     .where(eq(imageBackendAccount.id, member.id));
 }
 
@@ -658,9 +691,7 @@ export async function reportImageBackendResult(input: ImageBackendReportResultIn
             }
           : {
               failCount: sql`${imageBackendApi.failCount} + 1`,
-              ...(failure.status && failure.status !== "limited"
-                ? { status: failure.status }
-                : {}),
+              ...(failure.status ? { status: failure.status } : {}),
               ...(failure.cooldownUntil !== undefined
                 ? { cooldownUntil: failure.cooldownUntil }
                 : {}),
@@ -670,6 +701,18 @@ export async function reportImageBackendResult(input: ImageBackendReportResultIn
             }
       )
       .where(eq(imageBackendApi.id, input.memberId));
+    if (!input.success) {
+      logWarn("生图 API 后端失败，已更新调度状态", {
+        memberType: input.memberType,
+        memberId: input.memberId,
+        status: failure.status || "unchanged",
+        cooldownUntil: failure.cooldownUntil
+          ? failure.cooldownUntil.toISOString()
+          : null,
+        retryable: isRetryableBackendError(error),
+        error,
+      });
+    }
     return;
   }
 
@@ -682,10 +725,6 @@ export async function reportImageBackendResult(input: ImageBackendReportResultIn
     .where(eq(imageBackendAccount.id, input.memberId))
     .limit(1);
   const backend = normalizeAccountBackend(account?.implementationMode);
-  const failureStatus =
-    failure.status === "limited" && backend !== "web"
-      ? "active"
-      : failure.status;
   const webSuccess =
     input.success && backend === "web"
       ? nextWebAccountMetadataAfterSuccess(account?.metadata)
@@ -708,7 +747,7 @@ export async function reportImageBackendResult(input: ImageBackendReportResultIn
           }
         : {
             failCount: sql`${imageBackendAccount.failCount} + 1`,
-            ...(failureStatus ? { status: failureStatus } : {}),
+            ...(failure.status ? { status: failure.status } : {}),
             ...(failure.cooldownUntil !== undefined
               ? { cooldownUntil: failure.cooldownUntil }
               : {}),
@@ -718,6 +757,19 @@ export async function reportImageBackendResult(input: ImageBackendReportResultIn
           }
     )
     .where(eq(imageBackendAccount.id, input.memberId));
+  if (!input.success) {
+    logWarn("生图账号后端失败，已更新调度状态", {
+      memberType: input.memberType,
+      memberId: input.memberId,
+      backend,
+      status: failure.status || "unchanged",
+      cooldownUntil: failure.cooldownUntil
+        ? failure.cooldownUntil.toISOString()
+        : null,
+      retryable: isRetryableBackendError(error),
+      error,
+    });
+  }
 }
 
 export async function refreshImageBackendAccountInfo(accountId: string) {

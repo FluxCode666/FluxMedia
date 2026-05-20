@@ -103,6 +103,14 @@ function decodeBody(bodyBase64: string | undefined) {
   return Buffer.from(bodyBase64, "base64");
 }
 
+async function webErrorMessage(response: Response, context: string) {
+  const text = await response.text().catch(() => "");
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  return `${context} failed: HTTP ${response.status}${
+    trimmed ? ` ${trimmed.slice(0, 500)}` : ""
+  }`;
+}
+
 function headersToObject(headers: HeadersInit | undefined) {
   const result: Record<string, string> = {};
   if (!headers) return result;
@@ -470,7 +478,7 @@ async function bootstrap(config: ApiConfig) {
     }),
   });
   if (!response.ok) {
-    throw new Error(`ChatGPT Web bootstrap failed: HTTP ${response.status}`);
+    throw new Error(await webErrorMessage(response, "ChatGPT Web bootstrap"));
   }
   return powResourcesFromHtml(await response.text());
 }
@@ -487,7 +495,9 @@ async function getChatRequirements(config: ApiConfig) {
     body: JSON.stringify({ p: buildLegacyRequirementsToken(resources) }),
   });
   if (!response.ok) {
-    throw new Error(`ChatGPT Web requirements failed: HTTP ${response.status}`);
+    throw new Error(
+      await webErrorMessage(response, "ChatGPT Web requirements")
+    );
   }
   const data = (await response.json()) as {
     token?: string;
@@ -570,7 +580,7 @@ async function uploadImage(
   });
   if (!createResponse.ok) {
     throw new Error(
-      `ChatGPT Web file create failed: HTTP ${createResponse.status}`
+      await webErrorMessage(createResponse, "ChatGPT Web file create")
     );
   }
   const uploadMeta = (await createResponse.json()) as {
@@ -610,7 +620,7 @@ async function uploadImage(
   );
   if (!uploadedResponse.ok) {
     throw new Error(
-      `ChatGPT Web file finalize failed: HTTP ${uploadedResponse.status}`
+      await webErrorMessage(uploadedResponse, "ChatGPT Web file finalize")
     );
   }
   return {
@@ -683,7 +693,7 @@ async function prepareImageConversation(
     }),
   });
   if (!response.ok) {
-    throw new Error(`ChatGPT Web prepare failed: HTTP ${response.status}`);
+    throw new Error(await webErrorMessage(response, "ChatGPT Web prepare"));
   }
   const data = (await response.json()) as { conduit_token?: string };
   return data.conduit_token || "";
@@ -765,7 +775,7 @@ async function startImageGeneration(
   });
   if (!response.ok) {
     throw new Error(
-      `ChatGPT Web image request failed: HTTP ${response.status}`
+      await webErrorMessage(response, "ChatGPT Web image request")
     );
   }
   return response;

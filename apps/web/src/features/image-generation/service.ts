@@ -8,7 +8,7 @@ import {
   GPT55_CHAT_MODEL,
   RESPONSES_IMAGE_MODELS,
 } from "@repo/shared/config/subscription-plan";
-import { logError } from "@repo/shared/logger";
+import { logError, logWarn } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
@@ -215,17 +215,29 @@ export async function getResponsesModel(
   );
 }
 
-function getApiError(errorData: unknown, fallback: string) {
+function getApiErrorMessage(errorData: unknown): string | null {
+  if (typeof errorData === "string" && errorData.trim()) {
+    return errorData.trim();
+  }
+
   if (
     errorData &&
     typeof errorData === "object" &&
     "error" in errorData &&
-    errorData.error &&
-    typeof errorData.error === "object" &&
-    "message" in errorData.error &&
-    typeof errorData.error.message === "string"
+    errorData.error
   ) {
-    return errorData.error.message;
+    const nested = getApiErrorMessage(errorData.error);
+    if (nested) return nested;
+  }
+
+  if (
+    errorData &&
+    typeof errorData === "object" &&
+    "response" in errorData &&
+    errorData.response
+  ) {
+    const nested = getApiErrorMessage(errorData.response);
+    if (nested) return nested;
   }
 
   if (
@@ -237,7 +249,11 @@ function getApiError(errorData: unknown, fallback: string) {
     return errorData.message;
   }
 
-  return fallback;
+  return null;
+}
+
+function getApiError(errorData: unknown, fallback: string) {
+  return getApiErrorMessage(errorData) || fallback;
 }
 
 function truncateResponseBody(value: string) {
@@ -419,7 +435,7 @@ async function retryPoolBackendResult(
   const excluded = new Set<string>();
   let candidate = config;
   let lastResult: GenerateImageResult | null = null;
-  const maxAttempts = 4;
+  const maxAttempts = 8;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const result = await run(withoutPoolBackendReport(candidate));
@@ -433,15 +449,62 @@ async function retryPoolBackendResult(
     const memberKey = poolBackendMemberKey(candidate);
     if (memberKey) excluded.add(memberKey);
     if (!requestKind || !config.backend.userId) break;
+    const backend = candidate.backend;
+    if (
+      !backend ||
+      (backend.type !== "pool-api" && backend.type !== "pool-account")
+    ) {
+      break;
+    }
 
-    const next = await resolveImageBackendPoolConfig({
-      userId: config.backend.userId,
-      apiKeyId: config.backend.apiKeyId,
+    logWarn("生图后端可重试错误，准备切换账号池成员", {
+      attempt: attempt + 1,
+      maxAttempts,
       requestKind,
-      excludedMemberKeys: Array.from(excluded),
+      backendType: backend.type,
+      backendId: backend.id,
+      groupId: backend.groupId,
+      error: result.error,
     });
+
+    let next: Awaited<ReturnType<typeof resolveImageBackendPoolConfig>>;
+    try {
+      next = await resolveImageBackendPoolConfig({
+        userId: config.backend.userId,
+        apiKeyId: config.backend.apiKeyId,
+        requestKind,
+        excludedMemberKeys: Array.from(excluded),
+      });
+    } catch (error) {
+      if (error instanceof ImageBackendPoolUnavailableError) {
+        logWarn("生图后端没有可切换的账号池成员", {
+          attempt: attempt + 1,
+          requestKind,
+          excludedCount: excluded.size,
+          lastError: result.error,
+        });
+        break;
+      }
+      throw error;
+    }
     if (!next?.config?.backend) break;
-    if (poolBackendMemberKey(next.config) === memberKey) break;
+    if (poolBackendMemberKey(next.config) === memberKey) {
+      logWarn("生图后端重试选回同一成员，停止切换", {
+        requestKind,
+        memberKey,
+        lastError: result.error,
+      });
+      break;
+    }
+    logWarn("生图后端已切换账号池成员重试", {
+      attempt: attempt + 2,
+      requestKind,
+      previousMemberKey: memberKey,
+      nextBackendType: next.config.backend.type,
+      nextBackendId: next.config.backend.id,
+      nextGroupId: next.config.backend.groupId,
+      excludedCount: excluded.size,
+    });
     candidate = next.config;
   }
 
@@ -604,16 +667,18 @@ function toGenerateImageResult(image: ImageOutput): GenerateImageResult {
   return result;
 }
 
-function getPayloadError(payload: ImageResponsePayload): string | null {
-  if (typeof payload.error === "string") {
-    return payload.error;
-  }
+function getPayloadError(payload: unknown): string | null {
+  const apiError = getApiErrorMessage(payload);
+  if (apiError) return apiError;
 
-  if (payload.error?.message) {
-    return payload.error.message;
-  }
-
-  if (payload.type === "upstream_error" && payload.message) {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "type" in payload &&
+    payload.type === "upstream_error" &&
+    "message" in payload &&
+    typeof payload.message === "string"
+  ) {
     return payload.message;
   }
 
@@ -725,12 +790,13 @@ async function processResponsesEventPayload(
     return null;
   }
 
-  if (eventName === "response.failed" || eventName === "error") {
-    const error = payload.error;
-    return getApiError(
-      error && typeof error === "object" ? { error } : payload,
-      "Responses API stream failed"
-    );
+  if (
+    eventName === "response.failed" ||
+    eventName === "error" ||
+    payload.type === "response.failed" ||
+    payload.type === "error"
+  ) {
+    return getApiError(payload, "Responses API stream failed");
   }
 
   if (eventName === "response.output_item.done") {
