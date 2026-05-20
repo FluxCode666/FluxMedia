@@ -25,6 +25,9 @@ export type ExternalApiErrorOptions = {
   creditsConsumed?: number;
 };
 
+const DEFAULT_JSON_KEEP_ALIVE_INITIAL_WAIT_MS = 75_000;
+const DEFAULT_JSON_KEEP_ALIVE_INTERVAL_MS = 15_000;
+
 function getRequestBaseUrl(request: Request) {
   return (
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -307,7 +310,8 @@ export async function createJsonKeepAliveResponse(
       )
   );
 
-  const initialWaitMs = options?.initialWaitMs ?? 1_000;
+  const initialWaitMs =
+    options?.initialWaitMs ?? DEFAULT_JSON_KEEP_ALIVE_INITIAL_WAIT_MS;
   const initialResult = await Promise.race([
     runResult,
     new Promise<undefined>((resolve) =>
@@ -325,7 +329,7 @@ export async function createJsonKeepAliveResponse(
   }
 
   const encoder = new TextEncoder();
-  const keepAliveMs = options?.keepAliveMs ?? 15_000;
+  const keepAliveMs = options?.keepAliveMs ?? DEFAULT_JSON_KEEP_ALIVE_INTERVAL_MS;
   let keepAlive: ReturnType<typeof setInterval> | undefined;
   let cancelled = false;
 
@@ -343,9 +347,9 @@ export async function createJsonKeepAliveResponse(
           }
         };
 
-        write("\n");
+        write(" ");
         keepAlive = setInterval(() => {
-          write("\n");
+          write(" ");
         }, keepAliveMs);
 
         try {
