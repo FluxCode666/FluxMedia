@@ -1997,12 +1997,12 @@ export function ImageBackendPoolAdminPanel() {
       </Tabs>
 
       <Dialog open={isManualImportOpen} onOpenChange={setIsManualImportOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="flex max-h-[88vh] w-[calc(100vw-2rem)] max-w-3xl flex-col overflow-hidden p-0">
           <DialogHeader>
-            <DialogTitle>批量导入 RT</DialogTitle>
+            <DialogTitle className="px-6 pt-6">批量导入 RT</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6">
+            <p className="break-words text-sm text-muted-foreground">
               支持两种方式导入 RT：一是直接粘贴 RT 列表，每行一个；二是打开{" "}
               <a
                 className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
@@ -2020,7 +2020,8 @@ export function ImageBackendPoolAdminPanel() {
               RT。这里导入的账号可在本站继续更新 RT，不会写入 Sub2API。
             </p>
             <Textarea
-              className="min-h-44 font-mono text-xs"
+              className="h-44 min-h-44 max-w-full resize-y overflow-x-hidden whitespace-pre-wrap break-all font-mono text-xs"
+              wrap="soft"
               placeholder={`rt_...
 或粘贴 https://chatgpt.com/api/auth/session 返回的完整 JSON，例如包含 "refresh_token" / "refreshToken" 的对象`}
               value={manualImportForm.refreshTokensText}
