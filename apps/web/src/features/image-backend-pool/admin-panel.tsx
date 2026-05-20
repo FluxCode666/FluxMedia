@@ -280,6 +280,7 @@ export function ImageBackendPoolAdminPanel() {
     webGroupId: "default",
     responsesGroupId: "default",
     syncMode: "responses" as TokenSyncMode,
+    useMobileRt: false,
     namePrefix: "手工导入",
     model: "",
     contentSafetyEnabled: true,
@@ -292,7 +293,8 @@ export function ImageBackendPoolAdminPanel() {
     sourceGroupId: "default",
     webGroupId: "default",
     responsesGroupId: "default",
-    syncMode: "both" as TokenSyncMode,
+    syncMode: "responses" as TokenSyncMode,
+    allowMobileRtImport: false,
     contentSafetyEnabled: true,
     limit: 100,
   });
@@ -334,6 +336,12 @@ export function ImageBackendPoolAdminPanel() {
     ? accounts.find((account) => account.id === accountForm.id)
     : undefined;
   const editingSub2ApiAccount = isSub2ApiAccount(editingAccount);
+  const effectiveImportSyncMode = importForm.allowMobileRtImport
+    ? importForm.syncMode
+    : ("responses" as TokenSyncMode);
+  const effectiveManualImportSyncMode = manualImportForm.useMobileRt
+    ? manualImportForm.syncMode
+    : ("responses" as TokenSyncMode);
 
   const resetGroupForm = () =>
     setGroupForm({
@@ -383,6 +391,7 @@ export function ImageBackendPoolAdminPanel() {
       webGroupId: "default",
       responsesGroupId: "default",
       syncMode: "responses" as TokenSyncMode,
+      useMobileRt: false,
       namePrefix: "手工导入",
       model: "",
       contentSafetyEnabled: true,
@@ -638,7 +647,8 @@ export function ImageBackendPoolAdminPanel() {
           sourceGroupId: importForm.sourceGroupId,
           webGroupId: importForm.webGroupId,
           responsesGroupId: importForm.responsesGroupId,
-          syncMode: importForm.syncMode,
+          syncMode: effectiveImportSyncMode,
+          allowMobileRtImport: importForm.allowMobileRtImport,
           contentSafetyEnabled: importForm.contentSafetyEnabled,
           limit: batchSize,
           offset,
@@ -1626,7 +1636,7 @@ export function ImageBackendPoolAdminPanel() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                连接 Sub2API Postgres，只读取 OpenAI OAuth 账号。Codex 复用 Sub2API 当前 access_token；Web 使用 Sub2API 的 RT 换取平台 AT，但不会写回 Sub2API 数据库。
+                连接 Sub2API Postgres，只读取 OpenAI OAuth 账号。默认只同步 Codex/Responses，并复用 Sub2API 当前 access_token；勾选 Mobile RT 后才会把 Sub 中 mobile client 的当前 AT 同步为 Web/同时账号，不刷新也不回写 Sub2API 的 RT。
               </p>
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                 <Select
@@ -1664,24 +1674,43 @@ export function ImageBackendPoolAdminPanel() {
                   刷新来源
                 </Button>
               </div>
+              <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+                <div>
+                  <Label>Mobile RT 导入</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    仅用于 Sub 中由 Mobile RT client 导入的账号。关闭时强制只同步 Codex/Responses，避免误用普通 Codex RT。
+                  </p>
+                </div>
+                <Switch
+                  checked={importForm.allowMobileRtImport}
+                  onCheckedChange={(checked) =>
+                    setImportForm((current) => ({
+                      ...current,
+                      allowMobileRtImport: checked,
+                      syncMode: checked ? current.syncMode : "responses",
+                    }))
+                  }
+                />
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <Select
-                  value={importForm.syncMode}
+                  value={effectiveImportSyncMode}
                   onValueChange={(value) =>
                     setImportForm((current) => ({
                       ...current,
                       syncMode: value as TokenSyncMode,
                     }))
                   }
+                  disabled={!importForm.allowMobileRtImport}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="both">同时获取 Web 和 Codex AT</SelectItem>
-                    <SelectItem value="web">只获取 Web AT</SelectItem>
+                    <SelectItem value="both">同时同步 Web 和 Codex AT</SelectItem>
+                    <SelectItem value="web">只同步 Web AT</SelectItem>
                     <SelectItem value="responses">
-                      只获取 Codex/Responses AT
+                      只同步 Codex/Responses AT
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -1707,7 +1736,7 @@ export function ImageBackendPoolAdminPanel() {
                       webGroupId: value,
                     }))
                   }
-                  disabled={importForm.syncMode === "responses"}
+                  disabled={effectiveImportSyncMode === "responses"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Web 账号分组" />
@@ -1728,7 +1757,7 @@ export function ImageBackendPoolAdminPanel() {
                       responsesGroupId: value,
                     }))
                   }
-                  disabled={importForm.syncMode === "web"}
+                  disabled={effectiveImportSyncMode === "web"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Codex/Responses 账号分组" />
@@ -1790,7 +1819,7 @@ export function ImageBackendPoolAdminPanel() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              每行一个 RT。导入时会立即换取对应接口的 AT，并保存刷新后的 RT；这里导入的账号可在本站继续更新 RT。
+              每行一个 RT。默认按 Codex CLI RT 导入；勾选 Mobile RT 后按 Sub2API 的 mobile client 路线换取 AT，并保存刷新后的 RT。这里导入的账号可在本站继续更新 RT。
             </p>
             <Textarea
               className="min-h-44 font-mono text-xs"
@@ -1803,15 +1832,34 @@ export function ImageBackendPoolAdminPanel() {
                 }))
               }
             />
+            <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+              <div>
+                <Label>Mobile RT 导入</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  使用 mobile client_id 获取 AT。关闭时强制只导入 Codex/Responses，避免普通 Codex RT 被误用于 Web。
+                </p>
+              </div>
+              <Switch
+                checked={manualImportForm.useMobileRt}
+                onCheckedChange={(checked) =>
+                  setManualImportForm((current) => ({
+                    ...current,
+                    useMobileRt: checked,
+                    syncMode: checked ? current.syncMode : "responses",
+                  }))
+                }
+              />
+            </div>
             <div className="grid gap-3 md:grid-cols-2">
               <Select
-                value={manualImportForm.syncMode}
+                value={effectiveManualImportSyncMode}
                 onValueChange={(value) =>
                   setManualImportForm((current) => ({
                     ...current,
                     syncMode: value as TokenSyncMode,
                   }))
                 }
+                disabled={!manualImportForm.useMobileRt}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1842,7 +1890,7 @@ export function ImageBackendPoolAdminPanel() {
                     webGroupId: value,
                   }))
                 }
-                disabled={manualImportForm.syncMode === "responses"}
+                disabled={effectiveManualImportSyncMode === "responses"}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Web 账号分组" />
@@ -1863,7 +1911,7 @@ export function ImageBackendPoolAdminPanel() {
                     responsesGroupId: value,
                   }))
                 }
-                disabled={manualImportForm.syncMode === "web"}
+                disabled={effectiveManualImportSyncMode === "web"}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Codex/Responses 账号分组" />
@@ -1932,7 +1980,12 @@ export function ImageBackendPoolAdminPanel() {
               </Button>
               <Button
                 type="button"
-                onClick={() => importManualRefreshTokens(manualImportForm)}
+                onClick={() =>
+                  importManualRefreshTokens({
+                    ...manualImportForm,
+                    syncMode: effectiveManualImportSyncMode,
+                  })
+                }
                 disabled={
                   isImportingManualRefreshTokens ||
                   !manualImportForm.refreshTokensText.trim()

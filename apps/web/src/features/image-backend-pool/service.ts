@@ -104,6 +104,7 @@ const CODEX_CLI_USER_AGENT = `codex_cli_rs/${CODEX_CLI_VERSION}`;
 const OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_PLATFORM_OAUTH_CLIENT_ID = "app_2SKx67EdpoN0G6j64rFvigXD";
+const OPENAI_MOBILE_RT_CLIENT_ID = "app_LlGpXReQgckcGGUo2JrYvtJK";
 const OPENAI_REFRESH_SCOPES = "openid profile email";
 const RATE_LIMIT_COOLDOWN_MINUTES = 10;
 const TEMPORARY_ERROR_COOLDOWN_MINUTES = 2;
@@ -903,14 +904,24 @@ function clientIdForAccountBackend(backend: ImageBackendAccountBackend) {
     : OPENAI_PLATFORM_OAUTH_CLIENT_ID;
 }
 
-async function refreshAccessTokenForBackend(
-  refreshToken: string,
+function tokenSourceForRefreshClient(
+  clientId: string,
   backend: ImageBackendAccountBackend
 ) {
-  return await refreshOpenAIAccessToken(
-    refreshToken,
-    clientIdForAccountBackend(backend)
-  );
+  if (clientId === OPENAI_MOBILE_RT_CLIENT_ID) {
+    return "openai.oauth.mobile_refresh";
+  }
+  return backend === "responses"
+    ? "openai.oauth.codex_refresh"
+    : "openai.oauth.platform_refresh";
+}
+
+async function refreshAccessTokenForBackend(
+  refreshToken: string,
+  backend: ImageBackendAccountBackend,
+  clientId = clientIdForAccountBackend(backend)
+) {
+  return await refreshOpenAIAccessToken(refreshToken, clientId);
 }
 
 export async function upsertImageBackendAccount(input: UpsertAccountInput) {
@@ -1119,6 +1130,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   webGroupId?: string | null;
   responsesGroupId?: string | null;
   syncMode: Sub2ApiTokenSyncMode;
+  useMobileRt?: boolean;
   namePrefix?: string | null;
   model?: string | null;
   contentSafetyEnabled: boolean;
@@ -1131,10 +1143,11 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   );
   if (!refreshTokens.length) throw new Error("请粘贴 Refresh Token");
 
+  const effectiveSyncMode = input.useMobileRt ? input.syncMode : "responses";
   const modes =
-    input.syncMode === "both"
+    effectiveSyncMode === "both"
       ? (["web", "responses"] as const)
-      : ([input.syncMode] as const);
+      : ([effectiveSyncMode] as const);
   const syncedByMode = { web: 0, responses: 0 };
   const failedByMode = { web: 0, responses: 0 };
   const skipped = { web: 0, responses: 0 };
@@ -1145,11 +1158,84 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   for (const [index, originalRefreshToken] of refreshTokens.entries()) {
     let currentRefreshToken = originalRefreshToken;
     const currentTokenImportedIds: string[] = [];
+    if (input.useMobileRt) {
+      try {
+        const refreshed = await refreshOpenAIAccessToken(
+          currentRefreshToken,
+          OPENAI_MOBILE_RT_CLIENT_ID
+        );
+        if (!refreshed?.accessToken) {
+          for (const mode of modes) skipped[mode]++;
+          continue;
+        }
+        const nextRefreshToken = refreshed.refreshToken || currentRefreshToken;
+        if (nextRefreshToken !== currentRefreshToken) {
+          refreshTokenRotatedCount++;
+          currentRefreshToken = nextRefreshToken;
+        }
+
+        for (const mode of modes) {
+          const id = await upsertImageBackendAccount({
+            groupId:
+              mode === "responses" ? input.responsesGroupId : input.webGroupId,
+            name: `${input.namePrefix?.trim() || "Mobile RT 导入"} ${
+              index + 1
+            } / ${mode === "responses" ? "Codex" : "Web"}`,
+            email: null,
+            accessToken: refreshed.accessToken,
+            refreshToken: currentRefreshToken,
+            implementationMode: mode,
+            model: input.model || null,
+            contentSafetyEnabled: input.contentSafetyEnabled,
+            isEnabled: true,
+            priority: input.priority,
+            concurrency: Math.max(1, Math.min(100, input.concurrency)),
+            status: "active",
+            metadata: {
+              source: "manual_refresh_token",
+              importBatchId,
+              importIndex: index + 1,
+              syncedAt: new Date().toISOString(),
+              tokenSource: tokenSourceForRefreshClient(
+                OPENAI_MOBILE_RT_CLIENT_ID,
+                mode
+              ),
+              oauthClientId: OPENAI_MOBILE_RT_CLIENT_ID,
+              mobileRtImport: true,
+              refreshTokenRotated: nextRefreshToken !== originalRefreshToken,
+            },
+          });
+          importedIds.push(id);
+          currentTokenImportedIds.push(id);
+          syncedByMode[mode]++;
+        }
+
+        if (currentTokenImportedIds.length) {
+          await db
+            .update(imageBackendAccount)
+            .set({
+              refreshToken: currentRefreshToken,
+              updatedAt: new Date(),
+            })
+            .where(inArray(imageBackendAccount.id, currentTokenImportedIds));
+        }
+      } catch (error) {
+        for (const mode of modes) failedByMode[mode]++;
+        logWarn("手工 Mobile RT 导入生图账号失败，已跳过", {
+          index: index + 1,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      continue;
+    }
+
     for (const mode of modes) {
       try {
+        const clientId = clientIdForAccountBackend(mode);
         const refreshed = await refreshAccessTokenForBackend(
           currentRefreshToken,
-          mode
+          mode,
+          clientId
         );
         if (!refreshed?.accessToken) {
           skipped[mode]++;
@@ -1182,10 +1268,9 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
             importBatchId,
             importIndex: index + 1,
             syncedAt: new Date().toISOString(),
-            tokenSource:
-              mode === "responses"
-                ? "openai.oauth.codex_refresh"
-                : "openai.oauth.platform_refresh",
+            tokenSource: tokenSourceForRefreshClient(clientId, mode),
+            oauthClientId: clientId,
+            mobileRtImport: false,
             refreshTokenRotated: nextRefreshToken !== originalRefreshToken,
           },
         });
@@ -1254,6 +1339,8 @@ type Sub2ApiTokenAccount = {
   codexAccessToken: string | null;
   refreshToken: string | null;
   clientId: string | null;
+  oauthFamily: string | null;
+  oauthType: string | null;
   priority: number | null;
   concurrency: number | null;
   planType: string | null;
@@ -1311,6 +1398,21 @@ function mapSub2ApiAccountRow(row: Sub2ApiAccountRow): Sub2ApiTokenAccount | nul
   if (!codexAccessToken && !refreshToken) return null;
 
   const clientId = credentialString(credentials, ["client_id", "clientId"]);
+  const oauthFamily = credentialString(credentials, [
+    "oauth_family",
+    "oauthFamily",
+    "token_family",
+    "tokenFamily",
+    "token_source",
+    "tokenSource",
+    "source",
+  ]);
+  const oauthType = credentialString(credentials, [
+    "oauth_type",
+    "oauthType",
+    "auth_type",
+    "authType",
+  ]);
   const email = credentialString(credentials, ["email", "account_email", "username"]);
   const chatgptAccountId = credentialString(credentials, [
     "chatgpt_account_id",
@@ -1328,11 +1430,32 @@ function mapSub2ApiAccountRow(row: Sub2ApiAccountRow): Sub2ApiTokenAccount | nul
     codexAccessToken: codexAccessToken || null,
     refreshToken: refreshToken || null,
     clientId: clientId || null,
+    oauthFamily: oauthFamily || null,
+    oauthType: oauthType || null,
     priority: row.priority,
     concurrency: row.concurrency,
     planType: planType || null,
     groupNames: asStringArray(row.group_names),
   };
+}
+
+function isSub2ApiMobileRtAccount(account: Sub2ApiTokenAccount) {
+  const markers = [
+    account.clientId,
+    account.oauthFamily,
+    account.oauthType,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.trim().toLowerCase());
+  return (
+    markers.includes(OPENAI_MOBILE_RT_CLIENT_ID.toLowerCase()) ||
+    markers.some(
+      (value) =>
+        value.includes("mobile") ||
+        value.includes("ios") ||
+        value.includes("iphone")
+    )
+  );
 }
 
 async function getSub2ApiPostgresConnectionString() {
@@ -1527,7 +1650,8 @@ async function refreshOpenAIAccessToken(
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent":
-          clientId === OPENAI_CODEX_OAUTH_CLIENT_ID
+          clientId === OPENAI_CODEX_OAUTH_CLIENT_ID ||
+          clientId === OPENAI_MOBILE_RT_CLIENT_ID
             ? "codex-cli/0.91.0"
             : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
       },
@@ -1554,38 +1678,53 @@ async function refreshOpenAIAccessToken(
 
 async function resolveSub2ApiAccessTokenForMode(
   account: Sub2ApiTokenAccount,
-  mode: ImageBackendAccountBackend
+  mode: ImageBackendAccountBackend,
+  options?: { allowMobileRtImport?: boolean }
 ) {
   if (mode === "responses") {
+    if (!options?.allowMobileRtImport && isSub2ApiMobileRtAccount(account)) {
+      return {
+        accessToken: null,
+        tokenSource: "sub2api.mobile_rt_disabled",
+        refreshTokenWrittenBack: false,
+      };
+    }
     return {
       accessToken: account.codexAccessToken,
+      tokenSource: isSub2ApiMobileRtAccount(account)
+        ? "sub2api.credentials.mobile_access_token"
+        : "sub2api.credentials.access_token",
+      refreshTokenWrittenBack: false,
+    };
+  }
+
+  if (!options?.allowMobileRtImport) {
+    return {
+      accessToken: null,
+      tokenSource: "sub2api.mobile_rt_disabled",
+      refreshTokenWrittenBack: false,
+    };
+  }
+
+  if (!isSub2ApiMobileRtAccount(account)) {
+    return {
+      accessToken: null,
+      tokenSource: "sub2api.mobile_rt_not_marked",
+      refreshTokenWrittenBack: false,
+    };
+  }
+
+  if (!account.codexAccessToken) {
+    return {
+      accessToken: null,
       tokenSource: "sub2api.credentials.access_token",
       refreshTokenWrittenBack: false,
     };
   }
 
-  if (!account.refreshToken) {
-    return {
-      accessToken: null,
-      tokenSource: "sub2api.credentials.refresh_token",
-      refreshTokenWrittenBack: false,
-    };
-  }
-
-  const refreshed = await refreshOpenAIAccessToken(
-    account.refreshToken,
-    OPENAI_PLATFORM_OAUTH_CLIENT_ID
-  );
-  if (!refreshed?.accessToken) {
-    return {
-      accessToken: null,
-      tokenSource: "openai.oauth.platform_refresh",
-      refreshTokenWrittenBack: false,
-    };
-  }
   return {
-    accessToken: refreshed.accessToken,
-    tokenSource: "openai.oauth.platform_refresh",
+    accessToken: account.codexAccessToken,
+    tokenSource: "sub2api.credentials.mobile_access_token",
     refreshTokenWrittenBack: false,
   };
 }
@@ -1595,6 +1734,7 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
   responsesGroupId?: string | null;
   sourceGroupId?: string | null;
   syncMode: Sub2ApiTokenSyncMode;
+  allowMobileRtImport?: boolean;
   contentSafetyEnabled: boolean;
   limit?: number | null;
   offset?: number | null;
@@ -1609,10 +1749,13 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
     Math.min(500, Math.trunc(input.limit || configuredLimit))
   );
   const offset = Math.max(0, Math.trunc(input.offset || 0));
+  const effectiveSyncMode = input.allowMobileRtImport
+    ? input.syncMode
+    : "responses";
   const modes =
-    input.syncMode === "both"
+    effectiveSyncMode === "both"
       ? (["web", "responses"] as const)
-      : ([input.syncMode] as const);
+      : ([effectiveSyncMode] as const);
   const imported: string[] = [];
   const syncedByMode = {
     web: 0,
@@ -1642,7 +1785,9 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       for (const mode of modes) {
         try {
           const { accessToken, tokenSource } =
-            await resolveSub2ApiAccessTokenForMode(account, mode);
+            await resolveSub2ApiAccessTokenForMode(account, mode, {
+              allowMobileRtImport: input.allowMobileRtImport,
+            });
           if (!accessToken) {
             skipped[mode]++;
             continue;
@@ -1673,6 +1818,13 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
               syncedAt: new Date().toISOString(),
               tokenSource,
               sub2apiClientId: account.clientId,
+              sub2apiOauthFamily: account.oauthFamily,
+              sub2apiOauthType: account.oauthType,
+              mobileRtImport: Boolean(input.allowMobileRtImport && mode === "web"),
+              oauthClientId:
+                mode === "web"
+                  ? OPENAI_MOBILE_RT_CLIENT_ID
+                  : account.clientId || OPENAI_CODEX_OAUTH_CLIENT_ID,
               refreshTokenWrittenBack: false,
             },
           });
