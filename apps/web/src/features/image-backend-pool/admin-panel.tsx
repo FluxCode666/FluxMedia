@@ -34,6 +34,8 @@ import {
 } from "@repo/ui/components/tabs";
 import { Textarea } from "@repo/ui/components/textarea";
 import {
+  ChevronLeft,
+  ChevronRight,
   Database,
   ExternalLink,
   Loader2,
@@ -153,6 +155,7 @@ type SyncProgressState = {
 type BulkAccountForm = {
   selectionGroupId: string;
   selectionMode: "all" | AccountBackendFormValue;
+  pageSize: number;
   setGroup: boolean;
   groupId: string;
   setMode: boolean;
@@ -324,6 +327,7 @@ export function ImageBackendPoolAdminPanel() {
   const [bulkAccountForm, setBulkAccountForm] = useState<BulkAccountForm>({
     selectionGroupId: "all",
     selectionMode: "all" as "all" | AccountBackendFormValue,
+    pageSize: 20,
     setGroup: false,
     groupId: "default",
     setMode: false,
@@ -356,6 +360,7 @@ export function ImageBackendPoolAdminPanel() {
     concurrency: 1,
   });
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [accountPage, setAccountPage] = useState(1);
   const [isManualImportOpen, setIsManualImportOpen] = useState(false);
   const [isWebAtImportOpen, setIsWebAtImportOpen] = useState(false);
   const [importForm, setImportForm] = useState({
@@ -388,6 +393,33 @@ export function ImageBackendPoolAdminPanel() {
     () => accounts.filter((account) => selectedAccountIdSet.has(account.id)),
     [accounts, selectedAccountIdSet]
   );
+  const filteredAccounts = useMemo(
+    () =>
+      accounts.filter((account) => {
+        const groupMatches =
+          bulkAccountForm.selectionGroupId === "all" ||
+          (bulkAccountForm.selectionGroupId === "default"
+            ? !account.groupId
+            : account.groupId === bulkAccountForm.selectionGroupId);
+        const modeMatches =
+          bulkAccountForm.selectionMode === "all" ||
+          account.implementationMode === bulkAccountForm.selectionMode;
+        return groupMatches && modeMatches;
+      }),
+    [accounts, bulkAccountForm.selectionGroupId, bulkAccountForm.selectionMode]
+  );
+  const accountPageSize = Math.max(10, bulkAccountForm.pageSize || 20);
+  const accountTotalPages = Math.max(
+    1,
+    Math.ceil(filteredAccounts.length / accountPageSize)
+  );
+  const safeAccountPage = Math.min(accountPage, accountTotalPages);
+  const accountPageStart = (safeAccountPage - 1) * accountPageSize;
+  const pagedAccounts = filteredAccounts.slice(
+    accountPageStart,
+    accountPageStart + accountPageSize
+  );
+  const pagedAccountIds = pagedAccounts.map((account) => account.id);
   const selectedSub2ApiAccountCount = selectedAccounts.filter((account) =>
     isSub2ApiAccount(account)
   ).length;
@@ -395,7 +427,8 @@ export function ImageBackendPoolAdminPanel() {
     selectedAccounts.length - selectedSub2ApiAccountCount;
   const selectedAccountCount = selectedAccountIds.length;
   const allAccountsSelected =
-    accounts.length > 0 && selectedAccountIds.length === accounts.length;
+    pagedAccountIds.length > 0 &&
+    pagedAccountIds.every((id) => selectedAccountIdSet.has(id));
   const hasBulkAccountOperation =
     bulkAccountForm.setGroup ||
     bulkAccountForm.setMode ||
@@ -522,22 +555,11 @@ export function ImageBackendPoolAdminPanel() {
   };
 
   const toggleAllAccounts = (checked: boolean) => {
-    setSelectedAccountIds(checked ? accounts.map((account) => account.id) : []);
-  };
-
-  const selectAccountsByCurrentFilter = () => {
-    const matched = accounts.filter((account) => {
-      const groupMatches =
-        bulkAccountForm.selectionGroupId === "all" ||
-        (bulkAccountForm.selectionGroupId === "default"
-          ? !account.groupId
-          : account.groupId === bulkAccountForm.selectionGroupId);
-      const modeMatches =
-        bulkAccountForm.selectionMode === "all" ||
-        account.implementationMode === bulkAccountForm.selectionMode;
-      return groupMatches && modeMatches;
+    setSelectedAccountIds((current) => {
+      if (checked) return Array.from(new Set([...current, ...pagedAccountIds]));
+      const pageIdSet = new Set(pagedAccountIds);
+      return current.filter((id) => !pageIdSet.has(id));
     });
-    setSelectedAccountIds(matched.map((account) => account.id));
   };
 
   const editApi = (api: Api) => {
@@ -891,6 +913,20 @@ export function ImageBackendPoolAdminPanel() {
     loadPool();
     loadSub2ApiSourceGroups();
   }, [loadPool, loadSub2ApiSourceGroups]);
+
+  useEffect(() => {
+    setAccountPage(1);
+  }, [
+    bulkAccountForm.selectionGroupId,
+    bulkAccountForm.selectionMode,
+    bulkAccountForm.pageSize,
+  ]);
+
+  useEffect(() => {
+    if (accountPage > accountTotalPages) {
+      setAccountPage(accountTotalPages);
+    }
+  }, [accountPage, accountTotalPages]);
 
   return (
     <div className="space-y-6">
@@ -1336,7 +1372,7 @@ export function ImageBackendPoolAdminPanel() {
                     </Button>
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
                   <Select
                     value={bulkAccountForm.selectionGroupId}
                     onValueChange={(value) =>
@@ -1376,21 +1412,65 @@ export function ImageBackendPoolAdminPanel() {
                       <SelectItem value="responses">Codex/Responses</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={selectAccountsByCurrentFilter}
+                  <Select
+                    value={String(bulkAccountForm.pageSize)}
+                    onValueChange={(value) =>
+                      setBulkAccountForm((current) => ({
+                        ...current,
+                        pageSize: Number(value),
+                      }))
+                    }
                   >
-                    选中匹配账号
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setSelectedAccountIds([])}
-                    disabled={selectedAccountCount === 0}
-                  >
-                    清空选择
-                  </Button>
+                    <SelectTrigger>
+                      <SelectValue placeholder="每页数量" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">每页 10 个</SelectItem>
+                      <SelectItem value="20">每页 20 个</SelectItem>
+                      <SelectItem value="50">每页 50 个</SelectItem>
+                      <SelectItem value="100">每页 100 个</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+                  <span>
+                    当前显示 {pagedAccounts.length} 个，匹配{" "}
+                    {filteredAccounts.length} / 全部 {accounts.length} 个
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedAccountIds([])}
+                      disabled={selectedAccountCount === 0}
+                    >
+                      清空选择
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAccountPage((page) => page - 1)}
+                      disabled={safeAccountPage <= 1}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      上一页
+                    </Button>
+                    <span>
+                      第 {safeAccountPage} / {accountTotalPages} 页
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAccountPage((page) => page + 1)}
+                      disabled={safeAccountPage >= accountTotalPages}
+                    >
+                      下一页
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                   <div className="grid gap-3 md:grid-cols-2">
@@ -1579,7 +1659,7 @@ export function ImageBackendPoolAdminPanel() {
                 )}
               </CardContent>
             </Card>
-            {accounts.map((account) => (
+            {pagedAccounts.map((account) => (
               <Card key={account.id}>
                 <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
