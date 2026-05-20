@@ -337,7 +337,7 @@ export const postExternalImageEdits = withApiLogging(
     }
 
     const responseFormat =
-      getText(formData, "response_format") === "b64_json" ? "b64_json" : "url";
+      getText(formData, "response_format") === "url" ? "url" : "b64_json";
     const model = getImageModel(getText(formData, "model") || undefined);
     if (!model) {
       return invalidImageModelError();

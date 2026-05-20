@@ -138,7 +138,7 @@ export const postExternalImageGenerations = withApiLogging(
       moderation: parsed.data.moderation || "auto",
     };
     const count = parsed.data.n || 1;
-    const responseFormat = parsed.data.response_format || "url";
+    const responseFormat = parsed.data.response_format || "b64_json";
 
     if (wantsImageStreamResponse(request, parsed.data.stream)) {
       return createExternalImageStreamResponse(async (emit) => {
