@@ -457,6 +457,20 @@ async function retryPoolBackendResult(
       break;
     }
 
+    if (attempt + 1 >= maxAttempts) {
+      logWarn("生图后端重试次数已用尽", {
+        attempts: attempt + 1,
+        maxAttempts,
+        requestKind,
+        backendType: backend.type,
+        backendId: backend.id,
+        groupId: backend.groupId,
+        excludedCount: excluded.size,
+        lastError: result.error,
+      });
+      break;
+    }
+
     logWarn("生图后端可重试错误，准备切换账号池成员", {
       attempt: attempt + 1,
       maxAttempts,
