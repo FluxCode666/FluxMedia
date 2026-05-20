@@ -16,6 +16,7 @@ import {
   getUserImageBackendPreference,
   bulkUpdateImageBackendAccounts,
   importImageBackendAccountsFromRefreshTokens,
+  importImageBackendWebAccountsFromAccessTokens,
   listAdminImageBackendPool,
   listImageBackendGroupOptions,
   listSelectableImageBackendGroups,
@@ -39,7 +40,11 @@ const optionalGroupIdSchema = z
   .trim()
   .optional()
   .transform((value) =>
-    value === undefined ? undefined : value && value !== "default" ? value : null
+    value === undefined
+      ? undefined
+      : value && value !== "default"
+        ? value
+        : null
   );
 
 const safetyOverrideSchema = z.enum(["inherit", "enabled", "disabled"]);
@@ -49,8 +54,8 @@ const subscriptionPlanSchema = z
   .string()
   .trim()
   .optional()
-  .transform((value): SubscriptionPlan =>
-    isSubscriptionPlan(value) ? value : "free"
+  .transform(
+    (value): SubscriptionPlan => (isSubscriptionPlan(value) ? value : "free")
   );
 
 const withImageBackendPoolAdminAction = (name: string) =>
@@ -84,17 +89,19 @@ export const setUserImageBackendPreferenceAction = protectedAction
     return { success: true };
   });
 
-export const getAdminImageBackendPoolAction =
-  withImageBackendPoolAdminAction("list").action(async () => {
-    const pool = await listAdminImageBackendPool();
-    return pool;
-  });
+export const getAdminImageBackendPoolAction = withImageBackendPoolAdminAction(
+  "list"
+).action(async () => {
+  const pool = await listAdminImageBackendPool();
+  return pool;
+});
 
-export const getSub2ApiSourceGroupsAction =
-  withImageBackendPoolAdminAction("sub2ApiSourceGroups").action(async () => {
-    const groups = await listSub2ApiSourceGroups();
-    return { groups };
-  });
+export const getSub2ApiSourceGroupsAction = withImageBackendPoolAdminAction(
+  "sub2ApiSourceGroups"
+).action(async () => {
+  const groups = await listSub2ApiSourceGroups();
+  return { groups };
+});
 
 export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
   "saveGroup"
@@ -252,6 +259,32 @@ export const importImageBackendAccountsFromRefreshTokensAction =
       return { success: true, ...result };
     });
 
+export const importImageBackendWebAccountsFromAccessTokensAction =
+  withImageBackendPoolAdminAction("importWebAccountsFromAccessTokens")
+    .schema(
+      z.object({
+        accessTokensText: z.string().trim().min(1),
+        webGroupId: nullableGroupIdSchema,
+        namePrefix: z.string().trim().max(80).optional(),
+        model: z.string().trim().max(120).optional(),
+        contentSafetyEnabled: z.boolean().default(true),
+        priority: z.coerce.number().int().min(0).max(10000).default(50),
+        concurrency: z.coerce.number().int().min(1).max(100).default(1),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      const result = await importImageBackendWebAccountsFromAccessTokens({
+        accessTokensText: parsedInput.accessTokensText,
+        webGroupId: parsedInput.webGroupId,
+        namePrefix: parsedInput.namePrefix || null,
+        model: parsedInput.model || null,
+        contentSafetyEnabled: parsedInput.contentSafetyEnabled,
+        priority: parsedInput.priority,
+        concurrency: parsedInput.concurrency,
+      });
+      return { success: true, ...result };
+    });
+
 export const syncImageBackendAccountsFromSub2ApiAction =
   withImageBackendPoolAdminAction("syncSub2ApiAccounts")
     .schema(
@@ -317,22 +350,23 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
     return { success: true, id };
   });
 
-export const deleteImageBackendMemberAction =
-  withImageBackendPoolAdminAction("deleteMember")
-    .schema(
-      z.object({
-        type: z.enum(["account", "api"]),
-        id: z.string().trim().min(1),
-      })
-    )
-    .action(async ({ parsedInput }) => {
-      await deleteImageBackendMembers(
-        parsedInput.type === "account"
-          ? { accountIds: [parsedInput.id] }
-          : { apiIds: [parsedInput.id] }
-      );
-      return { success: true };
-    });
+export const deleteImageBackendMemberAction = withImageBackendPoolAdminAction(
+  "deleteMember"
+)
+  .schema(
+    z.object({
+      type: z.enum(["account", "api"]),
+      id: z.string().trim().min(1),
+    })
+  )
+  .action(async ({ parsedInput }) => {
+    await deleteImageBackendMembers(
+      parsedInput.type === "account"
+        ? { accountIds: [parsedInput.id] }
+        : { apiIds: [parsedInput.id] }
+    );
+    return { success: true };
+  });
 
 export const refreshImageBackendAccountInfoAction =
   withImageBackendPoolAdminAction("refreshAccountInfo")

@@ -56,6 +56,7 @@ import {
   getAdminImageBackendPoolAction,
   getSub2ApiSourceGroupsAction,
   importImageBackendAccountsFromRefreshTokensAction,
+  importImageBackendWebAccountsFromAccessTokensAction,
   refreshImageBackendAccountInfoAction,
   saveImageBackendAccountAction,
   saveImageBackendApiAction,
@@ -256,6 +257,12 @@ function accountSourceLabel(account: Account) {
   const source = account.metadata?.source;
   if (source === "sub2api_postgres") return "Sub2API";
   if (source === "manual_refresh_token") return "手工 RT";
+  if (
+    source === "manual_web_access_token" ||
+    source === "manual_auth_session_access_token"
+  ) {
+    return "Web AT";
+  }
   return "本站";
 }
 
@@ -339,8 +346,18 @@ export function ImageBackendPoolAdminPanel() {
     priority: 50,
     concurrency: 1,
   });
+  const [webAtImportForm, setWebAtImportForm] = useState({
+    accessTokensText: "",
+    webGroupId: "default",
+    namePrefix: "Web AT 导入",
+    model: "",
+    contentSafetyEnabled: true,
+    priority: 50,
+    concurrency: 1,
+  });
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [isManualImportOpen, setIsManualImportOpen] = useState(false);
+  const [isWebAtImportOpen, setIsWebAtImportOpen] = useState(false);
   const [importForm, setImportForm] = useState({
     sourceGroupId: "default",
     webGroupId: "default",
@@ -448,6 +465,17 @@ export function ImageBackendPoolAdminPanel() {
       syncMode: "responses" as TokenSyncMode,
       useMobileRt: false,
       namePrefix: "手工导入",
+      model: "",
+      contentSafetyEnabled: true,
+      priority: 50,
+      concurrency: 1,
+    });
+
+  const resetWebAtImportForm = () =>
+    setWebAtImportForm({
+      accessTokensText: "",
+      webGroupId: "default",
+      namePrefix: "Web AT 导入",
       model: "",
       contentSafetyEnabled: true,
       priority: 50,
@@ -614,9 +642,7 @@ export function ImageBackendPoolAdminPanel() {
     onSuccess: ({ data }) => {
       const prefix = data?.message
         ? `${data.message} `
-        : `导入完成：提取 RT ${data?.sourceCount || 0} 个，Auth Session AT ${
-            data?.accessTokenSourceCount || 0
-          } 个，`;
+        : `导入完成：提取 RT ${data?.sourceCount || 0} 个，`;
       toast.success(
         `${prefix}写入 ${
           data?.syncedCount || 0
@@ -628,6 +654,27 @@ export function ImageBackendPoolAdminPanel() {
     },
     onError: ({ error }) =>
       toast.error(error.serverError || "手工 RT 导入失败"),
+  });
+
+  const {
+    execute: importWebAccessTokens,
+    isPending: isImportingWebAccessTokens,
+  } = useAction(importImageBackendWebAccountsFromAccessTokensAction, {
+    onSuccess: ({ data }) => {
+      const prefix = data?.message
+        ? `${data.message} `
+        : `导入完成：提取 Web AT ${data?.sourceCount || 0} 个，`;
+      toast.success(
+        `${prefix}写入 ${
+          data?.syncedCount || 0
+        } 个，失败 ${data?.failed || 0} 个`
+      );
+      setIsWebAtImportOpen(false);
+      resetWebAtImportForm();
+      reload();
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "导入 Web AT 失败"),
   });
 
   const { execute: saveApi, isPending: isSavingApi } = useAction(
@@ -1272,13 +1319,22 @@ export function ImageBackendPoolAdminPanel() {
                       </span>
                     )}
                   </Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsManualImportOpen(true)}
-                  >
-                    批量导入 RT
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsManualImportOpen(true)}
+                    >
+                      导入 RT
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsWebAtImportOpen(true)}
+                    >
+                      导入 Web AT
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
                   <Select
@@ -2008,7 +2064,15 @@ export function ImageBackendPoolAdminPanel() {
           </DialogHeader>
           <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6">
             <p className="break-words text-sm text-muted-foreground">
-              支持两种方式导入 RT：一是直接粘贴 RT 列表，每行一个；二是打开{" "}
+              支持直接粘贴 RT 列表，每行一个；也可以粘贴包含
+              refresh_token/refreshToken 的 Auth Session JSON。只有 accessToken
+              的 Auth Session 不会在这里导入，请使用“导入 Web AT”。默认按 Codex
+              CLI RT 导入；勾选 Mobile RT 后由本站使用 mobile client_id 换取
+              AT，并保存刷新后的 RT。这里导入的账号可在本站继续更新 RT，不会写入
+              Sub2API。
+            </p>
+            <p className="break-words text-sm text-muted-foreground">
+              获取 Auth Session 可打开{" "}
               <a
                 className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
                 href={authSessionUrl}
@@ -2018,17 +2082,13 @@ export function ImageBackendPoolAdminPanel() {
                 Auth Session 接口
                 <ExternalLink className="h-3 w-3" />
               </a>{" "}
-              并粘贴页面返回的整段内容，系统会优先提取其中的
-              refresh_token/refreshToken 作为 RT；如果只有 accessToken，则按 Web
-              账号导入。默认按 Codex CLI RT 导入；勾选 Mobile RT 后由本站使用
-              mobile client_id 换取 AT，并保存刷新后的
-              RT。这里导入的账号可在本站继续更新 RT，不会写入 Sub2API。
+              并粘贴页面返回的整段内容。
             </p>
             <Textarea
               className="h-44 min-h-44 max-w-full resize-y overflow-x-hidden whitespace-pre-wrap break-all font-mono text-xs"
               wrap="soft"
               placeholder={`rt_...
-或粘贴 https://chatgpt.com/api/auth/session 返回的完整 JSON，例如包含 "refresh_token" / "refreshToken" 的对象`}
+或粘贴包含 "refresh_token" / "refreshToken" 的 Auth Session JSON`}
               value={manualImportForm.refreshTokensText}
               onChange={(event) =>
                 setManualImportForm((current) => ({
@@ -2203,6 +2263,143 @@ export function ImageBackendPoolAdminPanel() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 导入并获取 AT
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isWebAtImportOpen} onOpenChange={setIsWebAtImportOpen}>
+        <DialogContent className="flex max-h-[88vh] w-[calc(100vw-2rem)] max-w-3xl flex-col overflow-hidden p-0">
+          <DialogHeader>
+            <DialogTitle className="px-6 pt-6">批量导入 Web AT</DialogTitle>
+          </DialogHeader>
+          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6">
+            <p className="break-words text-sm text-muted-foreground">
+              支持粘贴 Web accessToken、Bearer token，或打开{" "}
+              <a
+                className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
+                href={authSessionUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Auth Session 接口
+                <ExternalLink className="h-3 w-3" />
+              </a>{" "}
+              后粘贴完整 JSON。Web AT 没有对应
+              RT，过期后需要重新导入；该入口只创建 Web 账号，不会创建
+              Codex/Responses 账号。
+            </p>
+            <Textarea
+              className="h-44 min-h-44 max-w-full resize-y overflow-x-hidden whitespace-pre-wrap break-all font-mono text-xs"
+              wrap="soft"
+              placeholder={`Bearer eyJ...
+或粘贴 https://chatgpt.com/api/auth/session 返回的完整 JSON`}
+              value={webAtImportForm.accessTokensText}
+              onChange={(event) =>
+                setWebAtImportForm((current) => ({
+                  ...current,
+                  accessTokensText: event.target.value,
+                }))
+              }
+            />
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select
+                value={webAtImportForm.webGroupId}
+                onValueChange={(value) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    webGroupId: value,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Web 账号分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groupOptions.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      Web：{group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="名称前缀"
+                value={webAtImportForm.namePrefix}
+                onChange={(event) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    namePrefix: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input
+                placeholder="模型，可选"
+                value={webAtImportForm.model}
+                onChange={(event) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+              />
+              <Input
+                type="number"
+                value={webAtImportForm.priority}
+                onChange={(event) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    priority: Number(event.target.value),
+                  }))
+                }
+              />
+              <Input
+                type="number"
+                value={webAtImportForm.concurrency}
+                onChange={(event) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    concurrency: Number(event.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <Label>接入内容安全审核</Label>
+              <Switch
+                checked={webAtImportForm.contentSafetyEnabled}
+                onCheckedChange={(checked) =>
+                  setWebAtImportForm((current) => ({
+                    ...current,
+                    contentSafetyEnabled: checked,
+                  }))
+                }
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsWebAtImportOpen(false)}
+                disabled={isImportingWebAccessTokens}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                onClick={() => importWebAccessTokens(webAtImportForm)}
+                disabled={
+                  isImportingWebAccessTokens ||
+                  !webAtImportForm.accessTokensText.trim()
+                }
+              >
+                {isImportingWebAccessTokens && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                导入 Web AT
               </Button>
             </div>
           </div>

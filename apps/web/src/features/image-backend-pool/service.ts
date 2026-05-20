@@ -1734,9 +1734,20 @@ export async function bulkUpdateImageBackendAccounts(
   return { updatedCount, failedCount };
 }
 
+function normalizeImportedToken(value: string | null | undefined) {
+  return value?.trim().replace(/^Bearer\s+/i, "") || "";
+}
+
 function addToken(tokens: Set<string>, value: string | null | undefined) {
-  const token = value?.trim();
+  const token = normalizeImportedToken(value);
   if (token) tokens.add(token);
+}
+
+function addAccessToken(tokens: Set<string>, value: string | null | undefined) {
+  const token = normalizeImportedToken(value);
+  if (token && token.length >= 40 && !token.startsWith("rt_")) {
+    tokens.add(token);
+  }
 }
 
 function collectTokensFromJson(
@@ -1766,7 +1777,7 @@ function collectTokensFromJson(
         continue;
       }
       if (["accesstoken", "at", "access"].includes(normalizedKey)) {
-        addToken(tokens.accessTokens, item);
+        addAccessToken(tokens.accessTokens, item);
         continue;
       }
     }
@@ -1774,7 +1785,21 @@ function collectTokensFromJson(
   }
 }
 
-function parseImportTokensText(value: string) {
+function isLikelyPlainAccessToken(value: string) {
+  const token = normalizeImportedToken(value);
+  if (!token || token.startsWith("rt_")) return false;
+  if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
+    return true;
+  }
+  return token.length >= 80 && !/\s/.test(token);
+}
+
+function parseImportTokensText(
+  value: string,
+  options: { plainFallback: "refresh" | "access" | "none" } = {
+    plainFallback: "refresh",
+  }
+) {
   const tokens = {
     refreshTokens: new Set<string>(),
     accessTokens: new Set<string>(),
@@ -1798,7 +1823,7 @@ function parseImportTokensText(value: string) {
     (token) => addToken(tokens.refreshTokens, token)
   );
   extractNamedTokens(value, ["access_token", "accessToken", "at"]).forEach(
-    (token) => addToken(tokens.accessTokens, token)
+    (token) => addAccessToken(tokens.accessTokens, token)
   );
 
   const looksStructured =
@@ -1812,7 +1837,15 @@ function parseImportTokensText(value: string) {
   ) {
     for (const item of value.split(/[\s,;]+/g)) {
       const token = item.trim();
-      if (token) tokens.refreshTokens.add(token);
+      if (options.plainFallback === "refresh" && token) {
+        tokens.refreshTokens.add(token);
+      }
+      if (
+        options.plainFallback === "access" &&
+        isLikelyPlainAccessToken(token)
+      ) {
+        tokens.accessTokens.add(normalizeImportedToken(token));
+      }
     }
   }
 
@@ -1875,18 +1908,18 @@ async function importAccessTokens(
         concurrency: Math.max(1, Math.min(100, input.concurrency)),
         status: "active",
         metadata: {
-          source: "manual_auth_session_access_token",
+          source: "manual_web_access_token",
           importBatchId,
           importIndex: index + 1,
           syncedAt: new Date().toISOString(),
-          tokenSource: "chatgpt.auth_session.access_token",
+          tokenSource: "chatgpt.web_access_token",
         },
       });
       counters.importedIds.push(id);
       counters.syncedByMode.web++;
     } catch (error) {
       counters.failedByMode.web++;
-      logWarn("手工 Auth Session AT 导入生图账号失败，已跳过", {
+      logWarn("手工 Web AT 导入生图账号失败，已跳过", {
         index: index + 1,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1894,10 +1927,9 @@ async function importAccessTokens(
   }
 }
 
-function emptyImportResult(message: string) {
+function emptyRefreshTokenImportResult(message: string) {
   return {
     sourceCount: 0,
-    accessTokenSourceCount: 0,
     syncedCount: 0,
     syncedByMode: { web: 0, responses: 0 },
     skipped: { web: 0, responses: 0 },
@@ -1905,6 +1937,77 @@ function emptyImportResult(message: string) {
     failedByMode: { web: 0, responses: 0 },
     refreshTokenRotatedCount: 0,
     message,
+  };
+}
+
+function emptyAccessTokenImportResult(message: string) {
+  return {
+    sourceCount: 0,
+    syncedCount: 0,
+    syncedByMode: { web: 0, responses: 0 },
+    skipped: { web: 0, responses: 0 },
+    failed: 0,
+    failedByMode: { web: 0, responses: 0 },
+    message,
+  };
+}
+
+export async function importImageBackendWebAccountsFromAccessTokens(input: {
+  accessTokensText: string;
+  webGroupId?: string | null;
+  namePrefix?: string | null;
+  model?: string | null;
+  contentSafetyEnabled: boolean;
+  priority: number;
+  concurrency: number;
+}) {
+  const parsedTokens = parseImportTokensText(input.accessTokensText, {
+    plainFallback: "access",
+  });
+  const accessTokens = parsedTokens.accessTokens.slice(0, 200);
+  const syncedByMode: Record<ImageBackendAccountBackend, number> = {
+    web: 0,
+    responses: 0,
+  };
+  const failedByMode: Record<ImageBackendAccountBackend, number> = {
+    web: 0,
+    responses: 0,
+  };
+  const skipped: Record<ImageBackendAccountBackend, number> = {
+    web: 0,
+    responses: 0,
+  };
+  const importedIds: string[] = [];
+  const importBatchId = nanoid();
+
+  if (!accessTokens.length) {
+    return emptyAccessTokenImportResult(
+      "未提取到可导入的 Web AT。请粘贴 accessToken、Bearer token，或粘贴 Auth Session 完整 JSON。"
+    );
+  }
+
+  await importAccessTokens(
+    {
+      accessTokens,
+      webGroupId: input.webGroupId,
+      namePrefix: input.namePrefix,
+      model: input.model,
+      contentSafetyEnabled: input.contentSafetyEnabled,
+      priority: input.priority,
+      concurrency: input.concurrency,
+    },
+    { syncedByMode, failedByMode, importedIds },
+    importBatchId
+  );
+
+  return {
+    sourceCount: accessTokens.length,
+    syncedCount: importedIds.length,
+    syncedByMode,
+    skipped,
+    failed: failedByMode.web + failedByMode.responses,
+    failedByMode,
+    message: "已导入 Web AT。该类账号没有 RT，AT 过期后需要重新导入。",
   };
 }
 
@@ -1920,9 +2023,10 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   priority: number;
   concurrency: number;
 }) {
-  const parsedTokens = parseImportTokensText(input.refreshTokensText);
+  const parsedTokens = parseImportTokensText(input.refreshTokensText, {
+    plainFallback: "refresh",
+  });
   const refreshTokens = parsedTokens.refreshTokens.slice(0, 200);
-  const accessTokens = parsedTokens.accessTokens.slice(0, 200);
 
   const effectiveSyncMode = input.useMobileRt ? input.syncMode : "responses";
   const modes =
@@ -1945,37 +2049,10 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   const importedIds: string[] = [];
   const importBatchId = nanoid();
 
-  if (!refreshTokens.length && !accessTokens.length) {
-    return emptyImportResult(
-      "未提取到可导入的 RT。请粘贴 RT 列表，或粘贴包含 refresh_token/refreshToken 的 Auth Session；如果只有 accessToken，请确认复制的是完整 JSON。"
+  if (!refreshTokens.length) {
+    return emptyRefreshTokenImportResult(
+      "未提取到可导入的 RT。请粘贴 RT 列表，或粘贴包含 refresh_token/refreshToken 的 Auth Session；如果只有 accessToken，请使用“导入 Web AT”。"
     );
-  }
-
-  if (!refreshTokens.length && accessTokens.length) {
-    await importAccessTokens(
-      {
-        accessTokens,
-        webGroupId: input.webGroupId,
-        namePrefix: input.namePrefix,
-        model: input.model,
-        contentSafetyEnabled: input.contentSafetyEnabled,
-        priority: input.priority,
-        concurrency: input.concurrency,
-      },
-      { syncedByMode, failedByMode, importedIds },
-      importBatchId
-    );
-    return {
-      sourceCount: 0,
-      accessTokenSourceCount: accessTokens.length,
-      syncedCount: importedIds.length,
-      syncedByMode,
-      skipped,
-      failed: failedByMode.web + failedByMode.responses,
-      failedByMode,
-      refreshTokenRotatedCount,
-      message: "已从 Auth Session 提取 accessToken，并按 Web 账号导入。",
-    };
   }
 
   for (const [index, originalRefreshToken] of refreshTokens.entries()) {
@@ -2123,7 +2200,6 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
 
   return {
     sourceCount: refreshTokens.length,
-    accessTokenSourceCount: accessTokens.length,
     syncedCount: importedIds.length,
     syncedByMode,
     skipped,
