@@ -83,7 +83,9 @@ const responseSchema = z.object({
   moderation: z.enum(["auto", "low"]).optional(),
   reasoning: z
     .object({
-      effort: z.enum(["none", "low", "medium", "high", "xhigh"]).optional(),
+      effort: z
+        .enum(["minimal", "none", "low", "medium", "high", "xhigh"])
+        .optional(),
     })
     .passthrough()
     .optional(),

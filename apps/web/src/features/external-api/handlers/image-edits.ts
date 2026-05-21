@@ -50,6 +50,7 @@ const VALID_QUALITIES = new Set<ImageQuality>([
 ]);
 const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
 const VALID_THINKING = new Set<ThinkingLevel>([
+  "minimal",
   "none",
   "low",
   "medium",

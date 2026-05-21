@@ -48,7 +48,6 @@ import {
   type ModerationBlockRiskLevel,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
-import { CreditUsageSection } from "@repo/shared/credits/components";
 import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import {
   deleteAccountAction,
@@ -67,8 +66,6 @@ import { signOut } from "@repo/shared/auth/client";
 import { ImageBackendPreferenceSection } from "@/features/image-backend-pool";
 
 import { ApiConfigForm } from "./api-config-form";
-import { BillingSection } from "./billing-section";
-import { ExternalApiKeySection } from "./external-api-key-section";
 import { SecuritySection } from "./security-section";
 
 interface SettingsProfileViewProps {
@@ -103,12 +100,10 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const moderationOptions = getAllowedModerationBlockRiskLevels(userPlan);
   const moderationControlAllowed = canUseModerationRiskLevelControl(userPlan);
   const normalizeTab = useCallback((value: string | null) => {
-    if (value === "billing" || value === "usage") return "billing";
     if (
       value === "security" ||
       value === "backend" ||
       value === "advanced" ||
-      value === "external-api" ||
       value === "account"
     ) {
       return value;
@@ -163,8 +158,17 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   }, [form]);
 
   useEffect(() => {
-    setActiveTab(normalizeTab(searchParams.get("tab")));
-  }, [searchParams, normalizeTab]);
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab === "billing" || requestedTab === "usage") {
+      router.replace(`/${locale}/dashboard/billing`);
+      return;
+    }
+    if (requestedTab === "external-api") {
+      router.replace(`/${locale}/dashboard/external-api`);
+      return;
+    }
+    setActiveTab(normalizeTab(requestedTab));
+  }, [searchParams, normalizeTab, router, locale]);
 
   const { execute: executeUpdateProfile, isPending } = useAction(
     updateProfileAction,
@@ -317,18 +321,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
               className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
             >
               {tTabs("security")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="billing"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {tTabs("billing")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="external-api"
-              className="rounded-md border border-transparent px-4 py-2 data-[state=active]:border-foreground/20 data-[state=active]:bg-foreground/5 data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {tTabs("externalApi")}
             </TabsTrigger>
             <TabsTrigger
               value="backend"
@@ -623,45 +615,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
 
         <TabsContent value="security" className="mt-8 pl-4">
           <SecuritySection />
-        </TabsContent>
-
-        <TabsContent value="billing" className="mt-8 pl-4">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold">{tTabs("billing")}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t("billing.description")}
-              </p>
-            </div>
-          </div>
-          <Tabs defaultValue="billing" className="w-full">
-            <TabsList className="mb-6 h-auto gap-1 bg-muted/60 p-1">
-              <TabsTrigger value="billing" className="px-4 py-2">
-                {t("billing.tabs.billing")}
-              </TabsTrigger>
-              <TabsTrigger value="usage" className="px-4 py-2">
-                {t("billing.tabs.usage")}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="billing" className="mt-0">
-              <BillingSection />
-            </TabsContent>
-            <TabsContent value="usage" className="mt-0">
-              <CreditUsageSection />
-            </TabsContent>
-          </Tabs>
-        </TabsContent>
-
-        <TabsContent value="external-api" className="mt-8 space-y-6 pl-4">
-          <div>
-            <h3 className="font-serif text-lg font-medium">
-              {t("externalApi.title")}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {t("externalApi.description")}
-            </p>
-          </div>
-          <ExternalApiKeySection />
         </TabsContent>
 
         <TabsContent value="backend" className="mt-8 space-y-6 pl-4">

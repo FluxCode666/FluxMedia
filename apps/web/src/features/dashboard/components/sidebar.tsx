@@ -93,6 +93,8 @@ export function DashboardSidebar() {
       Gallery: t("nav.gallery"),
       History: t("nav.history"),
       "System Docs": t("nav.backendHelp"),
+      "External API": t("nav.externalApi"),
+      "Billing & Usage": t("nav.billing"),
       Settings: t("nav.settings"),
       "System Settings": t("nav.systemSettings"),
       Support: t("nav.support"),

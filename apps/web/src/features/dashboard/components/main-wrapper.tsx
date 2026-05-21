@@ -24,12 +24,13 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/support": "support",
     "/dashboard/support/new": "newTicket",
     "/dashboard/backend-help": "backendHelp",
+    "/dashboard/external-api": "externalApi",
+    "/dashboard/billing": "billing",
     "/dashboard/settings": "settings",
     "/dashboard/admin/users": "userManagement",
     "/dashboard/admin/settings": "systemSettings",
     "/dashboard/settings/profile": "profile",
     "/dashboard/settings/security": "security",
-    "/dashboard/settings/billing": "billing",
     "/dashboard/settings/notifications": "notifications",
   };
 

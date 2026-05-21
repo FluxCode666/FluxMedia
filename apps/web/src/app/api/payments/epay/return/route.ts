@@ -24,7 +24,7 @@ async function handleReturn(req: Request) {
 
   if (!(await isRuntimeEpayConfigured())) {
     return NextResponse.redirect(
-      `${baseUrl}/dashboard/settings?tab=billing&pay=fail`
+      `${baseUrl}/dashboard/billing?pay=fail`
     );
   }
 
@@ -37,7 +37,7 @@ async function handleReturn(req: Request) {
   const redirectPath =
     metadata?.type === "subscription"
       ? "/dashboard"
-      : "/dashboard/settings?tab=billing";
+      : "/dashboard/billing";
   const separator = redirectPath.includes("?") ? "&" : "?";
 
   if (!verifyInfo.verifyStatus) {

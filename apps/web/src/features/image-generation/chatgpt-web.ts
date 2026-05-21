@@ -740,6 +740,7 @@ function webThinkingValue(
   promptOptimization?: boolean
 ) {
   if (promptOptimization === false) return "instant";
+  if (thinking === "minimal") return "instant";
   if (thinking === "none") return "instant";
   if (thinking === "xhigh") return "high";
   return thinking || "low";

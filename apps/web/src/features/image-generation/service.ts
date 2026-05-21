@@ -601,6 +601,7 @@ function normalizeModeration(moderation?: string): ImageModeration | undefined {
 
 function normalizeThinking(thinking?: string): ThinkingLevel | undefined {
   if (
+    thinking === "minimal" ||
     thinking === "none" ||
     thinking === "low" ||
     thinking === "medium" ||

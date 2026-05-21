@@ -185,6 +185,7 @@ const sections = {
       baseUrlTitle: "Base URL",
       baseUrl: "https://gpt2image.superapi.buzz",
       examplesTitle: "请求示例",
+      responseExampleTitle: "响应示例",
       common: [
         "所有外接接口都需要 Authorization: Bearer <本站 API Key>。",
         "图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上。",
@@ -223,6 +224,17 @@ const sections = {
             "兼容 OpenAI List models，用于列出当前 API Key 所属用户可见的图片模型和 Responses 模型。",
           example: `curl https://gpt2image.superapi.buzz/v1/models \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
+          responseExample: `{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-image-2",
+      "object": "model",
+      "created": 0,
+      "owned_by": "gpt2image"
+    }
+  ]
+}`,
           fields: [
             {
               name: "Authorization",
@@ -261,12 +273,20 @@ const sections = {
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-image-2",
+    "model": "gpt-image-1.5",
     "prompt": "一张赛博朋克城市夜景，雨后霓虹反光",
     "size": "1024x1024",
     "quality": "medium",
     "response_format": "url"
   }'`,
+          responseExample: `{
+  "created": 1713833628,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/..."
+    }
+  ]
+}`,
           fields: [
             {
               name: "prompt",
@@ -337,7 +357,7 @@ const sections = {
               requirement: "可选",
               custom: true,
               description:
-                "none、low、medium、high、xhigh。用于支持思考强度的后端。",
+                "minimal、none、low、medium、high、xhigh。用于支持思考强度的后端。",
             },
           ],
           responses: [
@@ -368,6 +388,7 @@ const sections = {
             "该接口不会调用页面 /api/images/generate，而是直接进入共享 service 层。",
             "如果命中 Responses 账号池，内部会把图片请求转换成 Responses image_generation tool 请求。",
             "如果实际生成尺寸与请求尺寸不一致，本站会按检测到的实际尺寸修正记录和计费。",
+            "官方 Images API 可能返回 usage；本站当前非流式 JSON 响应暂不返回 usage，流式完成和错误事件会带 credits_consumed。",
           ],
         },
         {
@@ -384,6 +405,15 @@ const sections = {
   -F size="1024x1024" \\
   -F response_format="url" \\
   -F image[]="@/path/to/reference.png"`,
+          responseExample: `{
+  "created": 1713833628,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "..."
+    }
+  ]
+}`,
           fields: [
             {
               name: "prompt",
@@ -466,7 +496,7 @@ const sections = {
               requirement: "可选",
               custom: true,
               description:
-                "用于覆盖记录和计费展示尺寸；主要兼容站内 UI 流程。",
+                "编辑接口专用的输出尺寸覆盖值；传入后会作为本次编辑运行参数 size 使用。",
             },
             {
               name: "apiPrompt / api_prompt",
@@ -530,6 +560,27 @@ const sections = {
     "input": "生成一张 1:1 的未来感产品渲染图",
     "tools": [{ "type": "image_generation", "size": "1024x1024" }]
   }'`,
+          responseExample: `{
+  "id": "resp_...",
+  "object": "response",
+  "created_at": 1713833628,
+  "status": "completed",
+  "model": "gpt-5.4",
+  "output": [
+    {
+      "id": "ig_...",
+      "type": "image_generation_call",
+      "status": "completed",
+      "result": "..."
+    }
+  ],
+  "usage": null,
+  "metadata": {
+    "generation_id": "...",
+    "credits_consumed": 1.31,
+    "size": "1024x1024"
+  }
+}`,
           fields: [
             {
               name: "model",
@@ -558,7 +609,8 @@ const sections = {
             {
               name: "tool_choice",
               requirement: "可选",
-              description: "按 Responses 请求体透传给支持的上游后端。",
+              description:
+                "兼容接收字段。本站调度只要求 tools 包含 image_generation；是否按 tool_choice 执行取决于命中的 Responses 上游。",
             },
             {
               name: "stream",
@@ -581,21 +633,21 @@ const sections = {
               requirement: "可选",
               custom: true,
               description:
-                "本站便捷字段：作为 image_generation tool 的 size 默认值。",
+                "本站便捷字段：未在 image_generation tool 内指定尺寸时，作为本次生图 size 使用。",
             },
             {
               name: "quality",
               requirement: "可选",
               custom: true,
               description:
-                "本站便捷字段：作为 image_generation tool 的 quality 默认值。",
+                "本站便捷字段：作为本次生图 quality 运行参数使用。",
             },
             {
               name: "moderation",
               requirement: "可选",
               custom: true,
               description:
-                "本站便捷字段：作为 image_generation tool 的 moderation 默认值。",
+                "本站便捷字段：作为本次生图 moderation 运行参数使用。",
             },
             {
               name: "tools[].model",
@@ -605,11 +657,10 @@ const sections = {
                 "当 image_generation tool 中提供 model 时，本站将其作为图片模型。",
             },
             {
-              name: "reasoning.effort = none / xhigh",
+              name: "reasoning.effort",
               requirement: "可选",
-              custom: true,
               description:
-                "本站额外接受的思考强度值；最终是否生效取决于命中的后端。",
+                "支持 minimal、none、low、medium、high、xhigh；最终是否生效取决于命中的后端。",
             },
           ],
           responses: [
@@ -871,6 +922,7 @@ const sections = {
       baseUrlTitle: "Base URL",
       baseUrl: "https://gpt2image.superapi.buzz",
       examplesTitle: "Request Example",
+      responseExampleTitle: "Response Example",
       common: [
         "All external endpoints require Authorization: Bearer <GPT2IMAGE API key>.",
         "Image generation and image edits require Starter or higher; Responses requires Pro or higher.",
@@ -909,6 +961,17 @@ const sections = {
             "Compatible with OpenAI List models. Lists image models and Responses models visible to the current API key's user.",
           example: `curl https://gpt2image.superapi.buzz/v1/models \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
+          responseExample: `{
+  "object": "list",
+  "data": [
+    {
+      "id": "gpt-image-2",
+      "object": "model",
+      "created": 0,
+      "owned_by": "gpt2image"
+    }
+  ]
+}`,
           fields: [
             {
               name: "Authorization",
@@ -947,12 +1010,20 @@ const sections = {
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-image-2",
+    "model": "gpt-image-1.5",
     "prompt": "A cyberpunk city at night after rain, neon reflections",
     "size": "1024x1024",
     "quality": "medium",
     "response_format": "url"
   }'`,
+          responseExample: `{
+  "created": 1713833628,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/..."
+    }
+  ]
+}`,
           fields: [
             {
               name: "prompt",
@@ -1023,7 +1094,7 @@ const sections = {
               requirement: "Optional",
               custom: true,
               description:
-                "none, low, medium, high, or xhigh. Used only by backends that support thinking effort.",
+                "minimal, none, low, medium, high, or xhigh. Used only by backends that support thinking effort.",
             },
           ],
           responses: [
@@ -1055,6 +1126,7 @@ const sections = {
             "This endpoint does not call page /api/images/generate; it directly enters the shared service layer.",
             "When routed to a Responses account, the image request is converted into a Responses image_generation tool request.",
             "If the actual generated dimensions differ from the requested size, GPT2IMAGE records and bills using the detected actual size.",
+            "The official Images API may return usage. GPT2IMAGE does not currently include usage in non-stream JSON responses; streaming completion and error events include credits_consumed.",
           ],
         },
         {
@@ -1071,6 +1143,15 @@ const sections = {
   -F size="1024x1024" \\
   -F response_format="url" \\
   -F image[]="@/path/to/reference.png"`,
+          responseExample: `{
+  "created": 1713833628,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "..."
+    }
+  ]
+}`,
           fields: [
             {
               name: "prompt",
@@ -1153,7 +1234,7 @@ const sections = {
               requirement: "Optional",
               custom: true,
               description:
-                "Overrides display/recorded size for compatibility with the internal UI flow.",
+                "Edit-specific output size override. When provided, it is used as the run-time size for this edit request.",
             },
             {
               name: "apiPrompt / api_prompt",
@@ -1217,6 +1298,27 @@ const sections = {
     "input": "Generate a 1:1 futuristic product render",
     "tools": [{ "type": "image_generation", "size": "1024x1024" }]
   }'`,
+          responseExample: `{
+  "id": "resp_...",
+  "object": "response",
+  "created_at": 1713833628,
+  "status": "completed",
+  "model": "gpt-5.4",
+  "output": [
+    {
+      "id": "ig_...",
+      "type": "image_generation_call",
+      "status": "completed",
+      "result": "..."
+    }
+  ],
+  "usage": null,
+  "metadata": {
+    "generation_id": "...",
+    "credits_consumed": 1.31,
+    "size": "1024x1024"
+  }
+}`,
           fields: [
             {
               name: "model",
@@ -1245,7 +1347,8 @@ const sections = {
             {
               name: "tool_choice",
               requirement: "Optional",
-              description: "Passed through to compatible Responses upstreams.",
+              description:
+                "Accepted for compatibility. GPT2IMAGE scheduling only requires tools to include image_generation; actual tool_choice behavior depends on the selected Responses upstream.",
             },
             {
               name: "stream",
@@ -1268,21 +1371,21 @@ const sections = {
               requirement: "Optional",
               custom: true,
               description:
-                "Convenience field used as the image_generation tool size default.",
+                "Convenience field used as the run-time image size when the image_generation tool does not provide one.",
             },
             {
               name: "quality",
               requirement: "Optional",
               custom: true,
               description:
-                "Convenience field used as the image_generation tool quality default.",
+                "Convenience field used as the run-time image quality.",
             },
             {
               name: "moderation",
               requirement: "Optional",
               custom: true,
               description:
-                "Convenience field used as the image_generation tool moderation default.",
+                "Convenience field used as the run-time image moderation setting.",
             },
             {
               name: "tools[].model",
@@ -1292,11 +1395,10 @@ const sections = {
                 "When provided on the image_generation tool, GPT2IMAGE treats it as the image model.",
             },
             {
-              name: "reasoning.effort = none / xhigh",
+              name: "reasoning.effort",
               requirement: "Optional",
-              custom: true,
               description:
-                "Additional thinking effort values accepted by GPT2IMAGE. Actual support depends on the selected backend.",
+                "Supports minimal, none, low, medium, high, and xhigh. Actual support depends on the selected backend.",
             },
           ],
           responses: [
@@ -1413,6 +1515,7 @@ type ExternalApiDoc = {
   contentType: string;
   description: string;
   example: string;
+  responseExample: string;
   fields: readonly ExternalApiField[];
   responses: readonly ExternalApiResponseField[];
   notes: readonly string[];
@@ -1684,6 +1787,7 @@ function ExternalApiDocs({
               key={doc.path}
               notesTitle={docs.notesTitle}
               examplesTitle={docs.examplesTitle}
+              responseExampleTitle={docs.responseExampleTitle}
               requestTitle={docs.requestTitle}
               responseHeaders={docs.responseHeaders}
               responseTitle={docs.responseTitle}
@@ -1732,6 +1836,7 @@ function ExternalEndpointDoc({
   responseTitle,
   notesTitle,
   examplesTitle,
+  responseExampleTitle,
   customLabel,
 }: {
   doc: ExternalApiDoc;
@@ -1741,6 +1846,7 @@ function ExternalEndpointDoc({
   responseTitle: string;
   notesTitle: string;
   examplesTitle: string;
+  responseExampleTitle: string;
   customLabel: string;
 }) {
   return (
@@ -1768,6 +1874,12 @@ function ExternalEndpointDoc({
           <h4 className="text-sm font-medium">{examplesTitle}</h4>
           <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
             <code>{doc.example}</code>
+          </pre>
+        </div>
+        <div>
+          <h4 className="text-sm font-medium">{responseExampleTitle}</h4>
+          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
+            <code>{doc.responseExample}</code>
           </pre>
         </div>
         <EndpointFieldTable

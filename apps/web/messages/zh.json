@@ -581,6 +581,8 @@
       "gallery": "图库",
       "history": "历史记录",
       "backendHelp": "系统文档",
+      "externalApi": "外接 API",
+      "billing": "账单与用量",
       "settings": "设置",
       "userManagement": "用户管理",
       "systemSettings": "系统设置",
@@ -599,6 +601,7 @@
       "support": "支持",
       "newTicket": "新建工单",
       "settings": "设置",
+      "externalApi": "外接 API",
       "backendHelp": "系统文档",
       "userManagement": "用户管理",
       "systemSettings": "系统设置",
@@ -786,6 +789,7 @@
       "avatarUpdated": "头像更新成功"
     },
     "billing": {
+      "pageTitle": "账单与用量",
       "description": "订阅、账单历史和积分用量都在这里。",
       "tabs": {
         "billing": "账单",

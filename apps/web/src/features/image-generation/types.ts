@@ -52,7 +52,13 @@ export interface ImageInputFile {
   url?: string;
 }
 
-export type ThinkingLevel = "none" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel =
+  | "minimal"
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
 
 export interface EditImageParams {
   prompt: string;

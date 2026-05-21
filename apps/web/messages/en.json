@@ -581,6 +581,8 @@
       "gallery": "Gallery",
       "history": "History",
       "backendHelp": "System Docs",
+      "externalApi": "External API",
+      "billing": "Billing & Usage",
       "settings": "Settings",
       "userManagement": "User Management",
       "systemSettings": "System Settings",
@@ -599,6 +601,7 @@
       "support": "Support",
       "newTicket": "New Ticket",
       "settings": "Settings",
+      "externalApi": "External API",
       "backendHelp": "System Docs",
       "userManagement": "User Management",
       "systemSettings": "System Settings",
@@ -786,6 +789,7 @@
       "avatarUpdated": "Avatar updated successfully"
     },
     "billing": {
+      "pageTitle": "Billing & Usage",
       "description": "Manage subscriptions, billing history, and credit usage here.",
       "tabs": {
         "billing": "Billing",

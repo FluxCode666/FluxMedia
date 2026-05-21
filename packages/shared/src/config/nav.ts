@@ -3,6 +3,7 @@ import {
   BookOpen,
   Clock,
   Coins,
+  KeyRound,
   GalleryHorizontalEnd,
   Headset,
   Image,
@@ -172,6 +173,16 @@ export const dashboardNav: NavGroup[] = [
         title: "System Docs",
         href: "/dashboard/backend-help",
         icon: BookOpen,
+      },
+      {
+        title: "External API",
+        href: "/dashboard/external-api",
+        icon: KeyRound,
+      },
+      {
+        title: "Billing & Usage",
+        href: "/dashboard/billing",
+        icon: Coins,
       },
       {
         title: "Settings",
