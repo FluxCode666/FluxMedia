@@ -1030,7 +1030,7 @@ export function AdminUsersManagement() {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="scrollbar-ui min-h-0 flex-1 overflow-y-scroll px-6 py-5">
             {isDetailLoading || !detail ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
@@ -1038,36 +1038,36 @@ export function AdminUsersManagement() {
             ) : (
               <div className="space-y-5">
                 <div className="grid gap-3 md:grid-cols-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">套餐</div>
-                    <div className="mt-2">{planBadge(detail.plan)}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">余额</div>
-                    <div className="mt-1 text-lg font-semibold">
-                      {formatCredits(detailBalance?.balance ?? 0)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">生成成功率</div>
-                    <div className="mt-1 text-lg font-semibold">
-                      {detailGenerationRate}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">API Key</div>
-                    <div className="mt-1 text-lg font-semibold">
-                      {detail.apiKeys.filter((item) => item.isActive).length}/
-                      {detail.apiKeys.length}
-                    </div>
-                  </CardContent>
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-xs text-muted-foreground">套餐</div>
+                      <div className="mt-2">{planBadge(detail.plan)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-xs text-muted-foreground">余额</div>
+                      <div className="mt-1 text-lg font-semibold">
+                        {formatCredits(detailBalance?.balance ?? 0)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-xs text-muted-foreground">生成成功率</div>
+                      <div className="mt-1 text-lg font-semibold">
+                        {detailGenerationRate}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="text-xs text-muted-foreground">API Key</div>
+                      <div className="mt-1 text-lg font-semibold">
+                        {detail.apiKeys.filter((item) => item.isActive).length}/
+                        {detail.apiKeys.length}
+                      </div>
+                    </CardContent>
                   </Card>
                 </div>
 
@@ -1178,10 +1178,10 @@ export function AdminUsersManagement() {
                   </Panel>
                 </TabsContent>
 
-                <TabsContent value="generations" className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <Metric label="总生成" value={detail.generationSummary.total} />
-                    <Metric
+                  <TabsContent value="generations" className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <Metric label="总生成" value={detail.generationSummary.total} />
+                      <Metric
                       label="成功"
                       value={detail.generationSummary.completed}
                     />
@@ -1195,7 +1195,7 @@ export function AdminUsersManagement() {
                     {detail.generations.length === 0 ? (
                       <EmptyText>暂无生图记录</EmptyText>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="scrollbar-ui max-h-[55vh] space-y-3 overflow-y-scroll pr-2">
                         {detail.generations.map((item) => (
                           <div
                             key={item.id}

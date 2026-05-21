@@ -248,7 +248,26 @@
   position: relative !important;
 }
 
-[role="dialog"][data-state="open"] {
-  top: 50% !important;
-  --tw-translate-y: -50% !important;
+@layer utilities {
+  .scrollbar-ui {
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .scrollbar-ui::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  .scrollbar-ui::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-ui::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
 }
