@@ -1011,7 +1011,16 @@ export function AdminUsersManagement() {
       </Card>
 
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
-        <SheetContent className="flex h-dvh max-h-dvh w-full flex-col overflow-hidden p-0 sm:max-w-4xl xl:max-w-5xl">
+        <SheetContent
+          className="flex w-full flex-col overflow-hidden p-0 sm:max-w-4xl xl:max-w-5xl"
+          style={{
+            top: 12,
+            right: 12,
+            bottom: 12,
+            height: "calc(100dvh - 24px)",
+            maxHeight: "calc(100dvh - 24px)",
+          }}
+        >
           <SheetHeader className="shrink-0 border-b px-6 py-5 pr-12">
             <SheetTitle>用户详情</SheetTitle>
             <SheetDescription>
@@ -1021,13 +1030,14 @@ export function AdminUsersManagement() {
             </SheetDescription>
           </SheetHeader>
 
-          {isDetailLoading || !detail ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              <div className="grid gap-3 md:grid-cols-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            {isDetailLoading || !detail ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-4">
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-xs text-muted-foreground">套餐</div>
@@ -1168,7 +1178,7 @@ export function AdminUsersManagement() {
                   </Panel>
                 </TabsContent>
 
-                  <TabsContent value="generations" className="space-y-4">
+                <TabsContent value="generations" className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-4">
                     <Metric label="总生成" value={detail.generationSummary.total} />
                     <Metric
@@ -1324,7 +1334,8 @@ export function AdminUsersManagement() {
                 </TabsContent>
                 </Tabs>
               </div>
-          )}
+            )}
+          </div>
         </SheetContent>
       </Sheet>
 
