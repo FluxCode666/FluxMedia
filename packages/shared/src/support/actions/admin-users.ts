@@ -35,6 +35,7 @@ import {
   grantCredits,
   unfreezeCreditsAccount,
 } from "../../credits/core";
+import { expireStalePendingGenerations } from "../../generation-maintenance";
 import { adminAction } from "../../safe-action";
 import { getUserPlan } from "../../subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "../../system-settings";
@@ -414,6 +415,7 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
   .schema(userIdSchema)
   .action(async ({ parsedInput }) => {
     const userId = parsedInput.userId;
+    await expireStalePendingGenerations({ userId, limit: 100 });
 
     const [
       userRows,

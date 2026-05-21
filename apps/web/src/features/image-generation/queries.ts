@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
+import { expireStalePendingGenerations } from "@repo/shared/generation-maintenance";
 import { and, count, desc, eq, gte, sum } from "drizzle-orm";
 
 export async function getUserRecentGenerations(userId: string, limit = 5) {
@@ -16,6 +17,7 @@ export async function getUserRecentGenerations(userId: string, limit = 5) {
 }
 
 export async function getGenerationById(id: string) {
+  await expireStalePendingGenerations({ limit: 100 });
   const rows = await db
     .select()
     .from(generation)
@@ -28,6 +30,7 @@ export async function getUserGenerations(
   userId: string,
   opts?: { limit?: number; offset?: number; status?: string }
 ) {
+  await expireStalePendingGenerations({ userId, limit: 100 });
   const conditions = [eq(generation.userId, userId)];
   if (opts?.status) {
     conditions.push(
@@ -45,6 +48,7 @@ export async function getUserGenerations(
 }
 
 export async function getUserGenerationsCount(userId: string, status?: string) {
+  await expireStalePendingGenerations({ userId, limit: 100 });
   const conditions = [eq(generation.userId, userId)];
   if (status) {
     conditions.push(

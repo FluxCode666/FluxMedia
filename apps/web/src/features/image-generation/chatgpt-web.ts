@@ -73,6 +73,12 @@ type WebImageParams = (GenerateImageParams | EditImageParams) & {
   history?: ChatHistoryMessage[];
 };
 
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new Error("Image generation timed out after 10 minutes");
+  }
+}
+
 type WebContinuationState = ChatGptWebConversationState & {
   useNativeContinuation: boolean;
 };
@@ -291,6 +297,12 @@ async function fetchChatGptWeb(
   }
 
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (init?.signal?.aborted) {
+    controller.abort();
+  } else {
+    init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
   const timeout = setTimeout(() => {
     controller.abort();
   }, WEB_PROXY_REQUEST_TIMEOUT_MS);
@@ -326,6 +338,7 @@ async function fetchChatGptWeb(
     });
   } finally {
     clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -597,6 +610,7 @@ export async function getChatGptWebAccountInfo(
 
 async function bootstrap(config: ApiConfig) {
   const response = await fetchChatGptWeb(config, "/", "/", {
+    signal: config.signal,
     headers: getHeaders(config, "/", {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }),
@@ -612,6 +626,7 @@ async function getChatRequirements(config: ApiConfig) {
   const path = "/backend-api/sentinel/chat-requirements";
   const response = await fetchChatGptWeb(config, path, path, {
     method: "POST",
+    signal: config.signal,
     headers: getHeaders(config, path, {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -690,6 +705,7 @@ async function uploadImage(
   const fileName = image.name || `image_${index}.png`;
   const createResponse = await fetchChatGptWeb(config, path, path, {
     method: "POST",
+    signal: config.signal,
     headers: getHeaders(config, path, {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -713,6 +729,7 @@ async function uploadImage(
   };
   const uploadResponse = await fetch(uploadMeta.upload_url, {
     method: "PUT",
+    signal: config.signal,
     headers: {
       "Content-Type": image.type || "image/png",
       "x-ms-blob-type": "BlockBlob",
@@ -735,6 +752,7 @@ async function uploadImage(
     uploadedPath,
     {
       method: "POST",
+      signal: config.signal,
       headers: getHeaders(config, uploadedPath, {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -812,6 +830,7 @@ async function prepareImageConversation(
   const path = "/backend-api/f/conversation/prepare";
   const response = await fetchChatGptWeb(config, path, path, {
     method: "POST",
+    signal: config.signal,
     headers: imageHeaders(config, path, requirements),
     body: JSON.stringify({
       action: "next",
@@ -908,6 +927,7 @@ async function startImageGeneration(
   const path = "/backend-api/f/conversation";
   const response = await fetchChatGptWeb(config, path, path, {
     method: "POST",
+    signal: config.signal,
     headers: imageHeaders(config, path, requirements, conduitToken),
     body: JSON.stringify({
       action: "next",
@@ -1224,9 +1244,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getConversationText(config: ApiConfig, conversationId: string) {
+async function getConversationText(
+  config: ApiConfig,
+  conversationId: string,
+  signal?: AbortSignal
+) {
   const path = `/backend-api/conversation/${conversationId}`;
   const response = await fetchChatGptWeb(config, path, path, {
+    signal,
     headers: getHeaders(config, path, { Accept: "application/json" }),
   });
   if (!response.ok) return "";
@@ -1248,11 +1273,13 @@ function latestConversationMessageId(text: string) {
 async function pollImageIds(
   config: ApiConfig,
   conversationId: string,
-  requestMessageId?: string
+  requestMessageId?: string,
+  signal?: AbortSignal
 ) {
   const deadline = Date.now() + IMAGE_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const text = await getConversationText(config, conversationId);
+    throwIfAborted(signal);
+    const text = await getConversationText(config, conversationId, signal);
     const scopedText = requestMessageId
       ? scopedConversationTextAfterMessage(text, requestMessageId)
       : text;
@@ -1270,8 +1297,13 @@ async function pollImageIds(
   return { ids: emptyImageIds(), parentMessageId: "" };
 }
 
-async function getDownloadUrl(config: ApiConfig, path: string) {
+async function getDownloadUrl(
+  config: ApiConfig,
+  path: string,
+  signal?: AbortSignal
+) {
   const response = await fetchChatGptWeb(config, path, path, {
+    signal,
     headers: getHeaders(config, path, { Accept: "application/json" }),
   });
   if (!response.ok) return "";
@@ -1286,23 +1318,29 @@ async function resolveImageUrls(
   config: ApiConfig,
   conversationId: string,
   ids: WebImageIds,
-  requestMessageId?: string
+  requestMessageId?: string,
+  signal?: AbortSignal
 ) {
   const polled =
     conversationId && requestMessageId
-      ? await pollImageIds(config, conversationId, requestMessageId)
+      ? await pollImageIds(config, conversationId, requestMessageId, signal)
       : null;
   const shouldPollUnscoped = conversationId && !hasImageIds(ids);
   const unscopedPolled =
     !polled && shouldPollUnscoped
-      ? await pollImageIds(config, conversationId)
+      ? await pollImageIds(config, conversationId, undefined, signal)
       : null;
-  const resolvedIds = polled?.ids || unscopedPolled?.ids || ids;
+  const resolvedIds = hasImageIds(polled?.ids || emptyImageIds())
+    ? polled?.ids || ids
+    : hasImageIds(unscopedPolled?.ids || emptyImageIds())
+      ? unscopedPolled?.ids || ids
+      : ids;
   const urls: string[] = [];
   for (const fileId of resolvedIds.fileIds) {
     const url = await getDownloadUrl(
       config,
-      `/backend-api/files/${fileId}/download`
+      `/backend-api/files/${fileId}/download`,
+      signal
     );
     if (url) urls.push(url);
   }
@@ -1315,7 +1353,8 @@ async function resolveImageUrls(
   for (const sedimentId of resolvedIds.sedimentIds) {
     const url = await getDownloadUrl(
       config,
-      `/backend-api/conversation/${conversationId}/attachment/${sedimentId}/download`
+      `/backend-api/conversation/${conversationId}/attachment/${sedimentId}/download`,
+      signal
     );
     if (url) urls.push(url);
   }
@@ -1325,8 +1364,13 @@ async function resolveImageUrls(
   };
 }
 
-async function downloadImage(config: ApiConfig, url: string) {
+async function downloadImage(
+  config: ApiConfig,
+  url: string,
+  signal?: AbortSignal
+) {
   const response = await fetch(url, {
+    signal,
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       "User-Agent": USER_AGENT,
@@ -1345,7 +1389,10 @@ async function runWebImage(
   params: WebImageParams,
   images: ImageInputFile[]
 ): Promise<GenerateImageResult> {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 10 * 60 * 1000);
   try {
+    const configWithSignal = { ...config, signal: abortController.signal };
     const requestMessageId = randomUUID();
     const continuation = lastWebConversationState(
       params.history,
@@ -1356,11 +1403,13 @@ async function runWebImage(
       : buildWebHistoryPrompt(getPrompt(params), params.history);
     const prompt = applyImageSizePrompt(promptBase, params.size);
     const references = await Promise.all(
-      images.map((image, index) => uploadImage(config, image, index + 1))
+      images.map((image, index) =>
+        uploadImage(configWithSignal, image, index + 1)
+      )
     );
-    const requirements = await getChatRequirements(config);
+    const requirements = await getChatRequirements(configWithSignal);
     const conduitToken = await prepareImageConversation(
-      config,
+      configWithSignal,
       prompt,
       requirements,
       {
@@ -1372,7 +1421,7 @@ async function runWebImage(
       }
     );
     const response = await startImageGeneration(
-      config,
+      configWithSignal,
       prompt,
       requirements,
       conduitToken,
@@ -1386,6 +1435,7 @@ async function runWebImage(
       references
     );
     const text = await readSseText(response);
+    throwIfAborted(abortController.signal);
     const streamError = extractWebStreamError(text);
     if (streamError) {
       return { error: streamError };
@@ -1394,23 +1444,32 @@ async function runWebImage(
     let parentMessageId = extractLastMessageId(text);
     const ids = extractImageIds(text);
     const resolved = await resolveImageUrls(
-      config,
+      configWithSignal,
       conversationId,
       ids,
-      requestMessageId
+      requestMessageId,
+      abortController.signal
     );
     const urls = resolved.urls;
     parentMessageId = resolved.parentMessageId || parentMessageId;
     if (conversationId && !parentMessageId) {
       parentMessageId = latestConversationMessageId(
-        await getConversationText(config, conversationId)
+        await getConversationText(
+          configWithSignal,
+          conversationId,
+          abortController.signal
+        )
       );
     }
     if (!urls[0]) {
       return { error: "ChatGPT Web backend returned no image output" };
     }
     return {
-      imageBase64: await downloadImage(config, urls[0]),
+      imageBase64: await downloadImage(
+        configWithSignal,
+        urls[0],
+        abortController.signal
+      ),
       ...(conversationId && parentMessageId
         ? {
             webConversation: {
@@ -1431,6 +1490,8 @@ async function runWebImage(
       error:
         error instanceof Error ? error.message : "ChatGPT Web image failed",
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

@@ -1591,6 +1591,7 @@ export async function generateImage(
         `${stripTrailingSlash(config.baseUrl)}/responses`,
         {
           method: "POST",
+          signal: params.signal,
           headers: getHeaders(config, {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
@@ -1632,6 +1633,7 @@ export async function generateImage(
     const dimensions = parseImageSize(size);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
       method: "POST",
+      signal: params.signal,
       headers: getHeaders(config, {
         "Content-Type": "application/json",
       }),
@@ -1696,6 +1698,7 @@ export async function editImage(
         `${stripTrailingSlash(config.baseUrl)}/responses`,
         {
           method: "POST",
+          signal: params.signal,
           headers: getHeaders(config, {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
@@ -1762,6 +1765,7 @@ export async function editImage(
 
     const response = await fetch(`${config.baseUrl}/images/edits`, {
       method: "POST",
+      signal: params.signal,
       headers: getHeaders(config, {}),
       body: formData,
     });
@@ -1884,6 +1888,7 @@ export async function generateChatImage(
       `${stripTrailingSlash(config.baseUrl)}/responses`,
       {
         method: "POST",
+        signal: params.signal,
         headers: getHeaders(config, {
           "Content-Type": "application/json",
           Accept:

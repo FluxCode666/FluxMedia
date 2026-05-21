@@ -2,6 +2,7 @@ export interface GenerateImageParams {
   prompt: string;
   apiPrompt?: string;
   promptOptimization?: boolean;
+  signal?: AbortSignal;
   moderationBlockRiskLevel?: ModerationBlockRiskLevel;
   size?: string;
   width?: number;
@@ -57,6 +58,7 @@ export interface EditImageParams {
   prompt: string;
   apiPrompt?: string;
   promptOptimization?: boolean;
+  signal?: AbortSignal;
   moderationBlockRiskLevel?: ModerationBlockRiskLevel;
   images: ImageInputFile[];
   mask?: ImageInputFile;
@@ -73,6 +75,7 @@ export interface ChatImageParams {
   prompt: string;
   apiPrompt?: string;
   promptOptimization?: boolean;
+  signal?: AbortSignal;
   moderationBlockRiskLevel?: ModerationBlockRiskLevel;
   images?: ImageInputFile[];
   history?: ChatHistoryMessage[];
@@ -114,6 +117,7 @@ export interface ChatHistoryMessage {
 export interface ApiConfig {
   baseUrl: string;
   apiKey: string;
+  signal?: AbortSignal;
   model?: string;
   useStream?: boolean;
   contentSafetyEnabled?: boolean;

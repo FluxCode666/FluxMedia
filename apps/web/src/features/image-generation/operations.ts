@@ -8,12 +8,17 @@ import {
   normalizeModerationBlockRiskLevelForPlan,
   PLAN_PRIVILEGES,
 } from "@repo/shared/config/subscription-plan";
-import { consumeCredits, grantCredits } from "@repo/shared/credits/core";
+import { consumeCredits } from "@repo/shared/credits/core";
+import {
+  IMAGE_GENERATION_PENDING_TIMEOUT_MS,
+  IMAGE_GENERATION_TIMEOUT_ERROR,
+  refundGenerationCredits,
+} from "@repo/shared/generation-maintenance";
 import { moderateContent } from "@repo/shared/moderation";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { ImageBackendRequestKind } from "@/features/image-backend-pool/types";
 import { withImageGenerationQueue } from "./queue";
@@ -110,6 +115,10 @@ async function toImageBuffer(result: {
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+function isPendingGeneration(generationId: string) {
+  return and(eq(generation.id, generationId), eq(generation.status, "pending"));
 }
 
 function readUInt24LE(buffer: Buffer, offset: number) {
@@ -610,6 +619,7 @@ async function runQueuedImageGenerationForUser({
   gptModel?: string;
   recordModel: string;
 }): Promise<ImageGenerationOperationResult> {
+  const startedAt = Date.now();
   const promptOptimizationMetadata = buildPromptOptimizationMetadata({
     input,
     promptOptimization,
@@ -679,12 +689,10 @@ async function runQueuedImageGenerationForUser({
     description: string
   ) => {
     if (!useCredits || amount <= 0) return;
-    await grantCredits({
+    await refundGenerationCredits({
+      generationId,
       userId: input.userId,
       amount: roundCreditAmount(amount),
-      sourceType: "refund",
-      debitAccount: "SYSTEM:generation_refund",
-      transactionType: "refund",
       sourceRef,
       description,
     });
@@ -756,10 +764,73 @@ async function runQueuedImageGenerationForUser({
       await db
         .update(generation)
         .set({ status: "failed", error: message })
-        .where(eq(generation.id, generationId));
+        .where(isPendingGeneration(generationId));
       return { error: "Insufficient credits", generationId };
     }
   }
+
+  const isTimedOut = () =>
+    Date.now() - startedAt > IMAGE_GENERATION_PENDING_TIMEOUT_MS;
+  const failTimedOutGeneration =
+    async (): Promise<ImageGenerationOperationResult> => {
+      const creditsToRefund = chargedCredits;
+      const refundSourceRef = `${generationId}:timeout-refund`;
+
+      const [updated] = await db
+        .update(generation)
+        .set({
+          status: "failed",
+          error: IMAGE_GENERATION_TIMEOUT_ERROR,
+          creditsConsumed: creditsToRefund,
+          completedAt: new Date(),
+          metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
+            {
+              timeout: {
+                reason: "runtime_timeout",
+                timeoutMs: IMAGE_GENERATION_PENDING_TIMEOUT_MS,
+                elapsedMs: Date.now() - startedAt,
+                refundCredits: creditsToRefund,
+                refundSourceRef,
+              },
+            }
+          )}::jsonb`,
+        })
+        .where(isPendingGeneration(generationId))
+        .returning({ id: generation.id });
+
+      if (updated && creditsToRefund > 0) {
+        try {
+          await refundChargedCredits(
+            creditsToRefund,
+            refundSourceRef,
+            `Refund timed out image generation: ${input.prompt.slice(0, 50)}`
+          );
+          await db
+            .update(generation)
+            .set({
+              creditsConsumed: chargedCredits,
+              metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
+                {
+                  timeoutRefund: {
+                    sourceRef: refundSourceRef,
+                    creditsRefunded: creditsToRefund,
+                    settledAt: new Date().toISOString(),
+                  },
+                }
+              )}::jsonb`,
+            })
+            .where(eq(generation.id, generationId));
+        } catch {
+          /* best effort settlement */
+        }
+      }
+
+      return {
+        error: IMAGE_GENERATION_TIMEOUT_ERROR,
+        generationId,
+        creditsConsumed: chargedCredits,
+      };
+    };
 
   const moderation =
     config.contentSafetyEnabled === false
@@ -773,6 +844,10 @@ async function runQueuedImageGenerationForUser({
           userModerationBlockRiskLevel: moderationBlockRiskLevel,
           generationId,
         });
+
+  if (isTimedOut()) {
+    return failTimedOutGeneration();
+  }
 
   if (moderation.decision === "block" || moderation.decision === "error") {
     const targetCredits =
@@ -804,7 +879,7 @@ async function runQueuedImageGenerationForUser({
         error: responseMessage,
         creditsConsumed: chargedCredits,
       })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
     return {
       error: responseMessage,
       generationId,
@@ -820,6 +895,7 @@ async function runQueuedImageGenerationForUser({
             prompt: input.prompt,
             apiPrompt,
             promptOptimization,
+            signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
             images: input.images,
             mask: input.mask,
             size: input.size,
@@ -839,6 +915,7 @@ async function runQueuedImageGenerationForUser({
               prompt: input.prompt,
               apiPrompt,
               promptOptimization,
+              signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
               images: input.images,
               history: input.history,
               size,
@@ -860,6 +937,7 @@ async function runQueuedImageGenerationForUser({
               prompt: input.prompt,
               apiPrompt,
               promptOptimization,
+              signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
               size,
               model: imageModel,
               gptModel,
@@ -870,6 +948,10 @@ async function runQueuedImageGenerationForUser({
             },
             callbacks
           );
+
+  if (isTimedOut()) {
+    return failTimedOutGeneration();
+  }
 
   if (result.error) {
     try {
@@ -893,7 +975,7 @@ async function runQueuedImageGenerationForUser({
         error: result.error,
         creditsConsumed: chargedCredits,
       })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
     return {
       error: result.error,
       generationId,
@@ -926,7 +1008,7 @@ async function runQueuedImageGenerationForUser({
             error: message,
             creditsConsumed: chargedCredits,
           })
-          .where(eq(generation.id, generationId));
+          .where(isPendingGeneration(generationId));
         return {
           error: "Insufficient credits",
           generationId,
@@ -955,7 +1037,7 @@ async function runQueuedImageGenerationForUser({
         )}::jsonb`,
         completedAt: new Date(),
       })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
 
     return {
       generationId,
@@ -995,7 +1077,7 @@ async function runQueuedImageGenerationForUser({
     await db
       .update(generation)
       .set({ status: "failed", error: `Storage error: ${message}` })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
     try {
       await settleChargedCredits(
         moderationFailureCredits,
@@ -1013,7 +1095,7 @@ async function runQueuedImageGenerationForUser({
     await db
       .update(generation)
       .set({ creditsConsumed: chargedCredits })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
     return {
       error: "Failed to save image",
       generationId,
@@ -1050,12 +1132,16 @@ async function runQueuedImageGenerationForUser({
         error: message,
         creditsConsumed: chargedCredits,
       })
-      .where(eq(generation.id, generationId));
+      .where(isPendingGeneration(generationId));
     return {
       error: "Insufficient credits",
       generationId,
       creditsConsumed: chargedCredits,
     };
+  }
+
+  if (isTimedOut()) {
+    return failTimedOutGeneration();
   }
 
   await db
@@ -1082,7 +1168,7 @@ async function runQueuedImageGenerationForUser({
       )}::jsonb`,
       completedAt: new Date(),
     })
-    .where(eq(generation.id, generationId));
+    .where(isPendingGeneration(generationId));
 
   return {
     generationId,
