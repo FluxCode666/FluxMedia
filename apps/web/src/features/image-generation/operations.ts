@@ -101,6 +101,7 @@ export type ImageGenerationOperationResult = {
   revisedPrompt?: string;
   responseText?: string;
   responseThinking?: string;
+  responseAgent?: string;
   webConversation?: GenerateImageResult["webConversation"];
   creditsConsumed?: number;
 };
@@ -1227,6 +1228,7 @@ async function runQueuedImageGenerationForUser({
       revisedPrompt: result.revisedPrompt,
       responseText: result.responseText,
       responseThinking: result.responseThinking,
+      responseAgent: result.responseAgent,
       webConversation: result.webConversation,
       creditsConsumed: finalChargedCredits,
     };
@@ -1403,6 +1405,7 @@ async function runQueuedImageGenerationForUser({
     revisedPrompt: result.revisedPrompt,
     responseText: result.responseText,
     responseThinking: result.responseThinking,
+    responseAgent: result.responseAgent,
     webConversation: result.webConversation,
     creditsConsumed: chargedCredits,
   };

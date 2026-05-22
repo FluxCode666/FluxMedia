@@ -110,6 +110,7 @@ type ImageApiResult = {
   revisedPrompt?: string;
   responseText?: string;
   responseThinking?: string;
+  responseAgent?: string;
   webConversation?: ChatGptWebConversationState;
   creditsConsumed?: number;
   results?: ImageApiResult[];
@@ -134,6 +135,11 @@ type ImageStreamEvent =
     }
   | {
       type: "thinking_delta";
+      index?: number;
+      delta: string;
+    }
+  | {
+      type: "agent_delta";
       index?: number;
       delta: string;
     }
@@ -164,6 +170,7 @@ type ChatVariant = {
   revisedPrompt?: string;
   responseText?: string;
   responseThinking?: string;
+  responseAgent?: string;
   webConversation?: ChatGptWebConversationState;
   creditsConsumed?: number;
   createdAt?: string;
@@ -269,6 +276,7 @@ type ChatStreamState = {
   cardId?: string;
   text: string;
   thinking: string;
+  agent: string;
   imageUrl?: string;
 };
 
@@ -285,6 +293,7 @@ type BatchCard = {
   size: string;
   streamText?: string;
   streamThinking?: string;
+  streamAgent?: string;
   imageUrl?: string;
   generationId?: string;
   text?: string;
@@ -1057,6 +1066,7 @@ function toChatHistory(messages: ChatMessage[]) {
       variants: message.variants?.map((variant) => ({
         text:
           variant.responseText ||
+          variant.responseAgent ||
           variant.revisedPrompt ||
           (variant.imageUrl
             ? `Generated an image at ${variant.size}: ${variant.imageUrl}`
@@ -1113,9 +1123,9 @@ export function CreatePageClient({
     null;
   const activeBackendType = selectedBackendGroup?.backendType || "mixed";
   const isWebOnlyBackend = activeBackendType === "web";
-  const isResponsesOnlyBackend = activeBackendType === "responses";
   const showImageModelControls = !isWebOnlyBackend;
-  const showWebOnlyControls = !isResponsesOnlyBackend;
+  const showThinkingControls = true;
+  const showAgentProcessHint = !isWebOnlyBackend;
   const imageCountLabel = (count: number) =>
     copy(`${count} image${count > 1 ? "s" : ""}`, `${count} 张图片`);
   const batchCostSuffix = (count: number) =>
@@ -1912,7 +1922,11 @@ export function CreatePageClient({
         return;
       }
 
-      if (event.type === "text_delta" || event.type === "thinking_delta") {
+      if (
+        event.type === "text_delta" ||
+        event.type === "thinking_delta" ||
+        event.type === "agent_delta"
+      ) {
         return;
       }
 
@@ -1986,7 +2000,7 @@ export function CreatePageClient({
     if (showImageModelControls && chatImageModel !== "default") {
       formData.append("image_model", chatImageModel);
     }
-    if (showWebOnlyControls) {
+    if (showThinkingControls) {
       formData.append("thinking", chatThinking);
     }
     formData.append("size", requestSize);
@@ -2041,6 +2055,7 @@ export function CreatePageClient({
     let completed: ImageApiResult | undefined;
     let text = "";
     let thinking = "";
+    let agent = "";
     let previewUrl: string | undefined;
 
     const processBlock = (block: string) => {
@@ -2067,6 +2082,7 @@ export function CreatePageClient({
           cardId: streamCardId,
           text,
           thinking,
+          agent,
           imageUrl: previewUrl,
         });
         if (streamCardId) {
@@ -2089,6 +2105,7 @@ export function CreatePageClient({
           cardId: streamCardId,
           text,
           thinking,
+          agent,
           imageUrl: previewUrl,
         });
         if (streamCardId) {
@@ -2097,6 +2114,29 @@ export function CreatePageClient({
               card.id === streamCardId &&
               (card.state === "loading" || card.state === "text")
                 ? { ...card, streamThinking: thinking }
+                : card
+            )
+          );
+        }
+        return;
+      }
+
+      if (event.type === "agent_delta") {
+        agent += event.delta;
+        setChatStream({
+          messageId: streamMessageId,
+          cardId: streamCardId,
+          text,
+          thinking,
+          agent,
+          imageUrl: previewUrl,
+        });
+        if (streamCardId) {
+          setBatchCards((prev) =>
+            prev.map((card) =>
+              card.id === streamCardId &&
+              (card.state === "loading" || card.state === "text")
+                ? { ...card, streamAgent: agent }
                 : card
             )
           );
@@ -2114,6 +2154,7 @@ export function CreatePageClient({
             cardId: streamCardId,
             text,
             thinking,
+            agent,
             imageUrl: nextPreviewUrl,
           });
           if (streamCardId) {
@@ -2168,6 +2209,7 @@ export function CreatePageClient({
       ...completed,
       responseText: completed.responseText || text || undefined,
       responseThinking: completed.responseThinking || thinking || undefined,
+      responseAgent: agent || completed.responseAgent || undefined,
       webConversation: completed.webConversation,
     };
   };
@@ -2378,6 +2420,7 @@ export function CreatePageClient({
       revisedPrompt?: string;
       responseText?: string;
       responseThinking?: string;
+      responseAgent?: string;
       webConversation?: ChatGptWebConversationState;
       creditsConsumed?: number;
     },
@@ -2430,6 +2473,7 @@ export function CreatePageClient({
       revisedPrompt: data.revisedPrompt,
       responseText: data.responseText,
       responseThinking: data.responseThinking,
+      responseAgent: data.responseAgent,
       webConversation: data.webConversation,
       creditsConsumed: data.creditsConsumed,
       createdAt: new Date().toISOString(),
@@ -2680,6 +2724,7 @@ export function CreatePageClient({
       messageId: assistantId,
       text: "",
       thinking: "",
+      agent: "",
     });
 
     try {
@@ -2781,11 +2826,29 @@ export function CreatePageClient({
     );
   };
 
+  const renderAgentBlock = (agent?: string, open = false) => {
+    if (!agent || !showAgentProcessHint) return null;
+    return (
+      <details
+        className="mb-3 rounded-md border border-border bg-background/70 p-2"
+        open={open}
+      >
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          {copy("Agent run", "运行过程")}
+        </summary>
+        <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+          {agent}
+        </p>
+      </details>
+    );
+  };
+
   const renderChatStreamBubble = (messageId?: string) => {
     if (!chatStream || chatStream.messageId !== messageId) return null;
     return (
       <div className="rounded-lg border border-border bg-muted/35 px-3 py-3 text-sm text-foreground">
         {renderThinkingBlock(chatStream.thinking, true)}
+        {renderAgentBlock(chatStream.agent, true)}
         {chatStream.text && (
           <p className="whitespace-pre-wrap break-words leading-relaxed">
             {chatStream.text}
@@ -2876,7 +2939,7 @@ export function CreatePageClient({
               })}
             </div>
           )}
-          {showWebOnlyControls &&
+          {showThinkingControls &&
             renderThinkingSelect({
               id: "chat-thinking",
               value: chatThinking,
@@ -3061,6 +3124,7 @@ export function CreatePageClient({
                 error: undefined,
                 streamText: undefined,
                 streamThinking: undefined,
+                streamAgent: undefined,
               }
             : card
         )
@@ -3090,6 +3154,7 @@ export function CreatePageClient({
                   text: data.responseText || variant?.responseText,
                   streamText: undefined,
                   streamThinking: data.responseThinking,
+                  streamAgent: data.responseAgent,
                   model: data.model,
                   size: data.size || fallbackSize,
                   creditsConsumed: data.creditsConsumed,
@@ -3425,7 +3490,7 @@ export function CreatePageClient({
           ? { model: textModel }
           : {}),
         ...(imageGptModel !== "default" ? { gptModel: imageGptModel } : {}),
-        ...(showWebOnlyControls ? { thinking: imageThinking } : {}),
+        ...(showThinkingControls ? { thinking: imageThinking } : {}),
         ...(promptOptimizationAllowed ? { promptOptimization } : {}),
         ...(textMixWebFirstActive ? { mix_web_first: true } : {}),
       }),
@@ -3563,7 +3628,7 @@ export function CreatePageClient({
     if (imageGptModel !== "default") {
       formData.append("gptModel", imageGptModel);
     }
-    if (showWebOnlyControls) {
+    if (showThinkingControls) {
       formData.append("thinking", imageThinking);
     }
     if (useEditFirstImageSize) {
@@ -4078,7 +4143,7 @@ export function CreatePageClient({
               </p>
             </div>
 
-            {showWebOnlyControls && (
+            {showThinkingControls && (
               <div className="space-y-1.5">
                 <label
                   htmlFor={`text-thinking-${mode}`}
@@ -4785,7 +4850,7 @@ export function CreatePageClient({
                   </p>
                 </div>
 
-                {showWebOnlyControls && (
+                {showThinkingControls && (
                   <div className="space-y-2">
                     <label
                       htmlFor="edit-thinking"
@@ -5273,6 +5338,7 @@ export function CreatePageClient({
                                   {renderThinkingBlock(
                                     activeVariant.responseThinking
                                   )}
+                                  {renderAgentBlock(activeVariant.responseAgent)}
                                   {activeVariant.responseText && (
                                     <p
                                       className={`whitespace-pre-wrap break-words leading-relaxed ${
@@ -5714,6 +5780,7 @@ export function CreatePageClient({
                           {card.state === "text" && (
                             <div className="p-3 text-sm leading-relaxed">
                               {renderThinkingBlock(card.streamThinking)}
+                              {renderAgentBlock(card.streamAgent)}
                               <p className="whitespace-pre-wrap break-words">
                                 {card.text || card.streamText || ""}
                               </p>

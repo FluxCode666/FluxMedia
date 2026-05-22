@@ -308,7 +308,7 @@ function buildFallbackHistoryForStorage(params: {
     },
     {
       role: "assistant",
-      text: params.result.responseText,
+      text: params.result.responseText || "",
       variants: [assistantVariant],
       activeVariant: 0,
     },

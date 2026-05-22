@@ -17,6 +17,11 @@ export type ImageStreamEvent =
       delta: string;
     }
   | {
+      type: "agent_delta";
+      index?: number;
+      delta: string;
+    }
+  | {
       type: "completed";
       generationId?: string;
       imageUrl?: string;
@@ -25,6 +30,7 @@ export type ImageStreamEvent =
       revisedPrompt?: string;
       responseText?: string;
       responseThinking?: string;
+      responseAgent?: string;
       webConversation?: {
         conversationId: string;
         parentMessageId: string;

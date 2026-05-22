@@ -25,6 +25,7 @@ export interface GenerateImageResult {
   upstreamRevisedPrompt?: string;
   responseText?: string;
   responseThinking?: string;
+  responseAgent?: string;
   webConversation?: ChatGptWebConversationState;
   error?: string;
   upstreamResetAt?: string;
@@ -42,6 +43,7 @@ export interface ImageGenerationCallbacks {
   onPartialImage?: (image: PartialImageResult) => Promise<void> | void;
   onTextDelta?: (delta: string) => Promise<void> | void;
   onThinkingDelta?: (delta: string) => Promise<void> | void;
+  onAgentDelta?: (delta: string) => Promise<void> | void;
 }
 
 export type ImageQuality = "auto" | "low" | "medium" | "high";

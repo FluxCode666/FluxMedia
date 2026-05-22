@@ -71,9 +71,9 @@ const VALID_QUALITIES = new Set<ImageQuality>([
 const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
 const DEFAULT_RESPONSES_MODEL = GPT54_CHAT_MODEL;
 const DEFAULT_RESPONSES_IMAGE_INSTRUCTIONS =
-  "You are an image generation assistant. Use the image_generation tool when the user asks for an image, edit, or visual output.";
+  "You are a multimodal assistant. Use web_search when current or external information is needed, and use image_generation when the user asks for an image, edit, or visual output.";
 const ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS =
-  "Use the user's original image prompt exactly as written when calling the image_generation tool. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation.";
+  "You are a multimodal assistant. Use web_search when current or external information is needed. When calling image_generation, use the user's original image prompt exactly as written. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation.";
 
 type ImageOutput = {
   b64_json?: string;
@@ -95,6 +95,14 @@ type ImageResponsePayload = {
 
 type ResponsesOutputItem = {
   type?: string;
+  id?: string;
+  status?: string;
+  name?: string;
+  action?: unknown;
+  arguments?: string;
+  call_id?: string;
+  query?: string;
+  results?: unknown;
   result?: string;
   revised_prompt?: string;
   content?: Array<{
@@ -126,6 +134,11 @@ type ResponsesRequestMessage = {
 type ReasoningConfig = {
   effort: ThinkingLevel;
   summary?: "concise";
+};
+
+type ResponsesStreamRequestBody = Record<string, unknown> & {
+  stream?: boolean;
+  tools?: unknown[];
 };
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -613,6 +626,10 @@ function isImageGenerationTool(value: unknown) {
   return isPlainRecord(value) && value.type === "image_generation";
 }
 
+function isWebSearchTool(value: unknown) {
+  return isPlainRecord(value) && value.type === "web_search";
+}
+
 function normalizeResponsesImageTool(
   value: unknown,
   fallback: Record<string, unknown>
@@ -631,11 +648,12 @@ function normalizeResponsesImageRequestBody(
   rawBody: Record<string, unknown>,
   options: {
     fallbackTool: Record<string, unknown>;
+    additionalTools?: Record<string, unknown>[];
     instructions: string;
     stream: boolean;
     defaultToolChoice?: unknown;
   }
-) {
+): ResponsesStreamRequestBody {
   const body: Record<string, unknown> = {
     ...rawBody,
     store: false,
@@ -666,6 +684,15 @@ function normalizeResponsesImageRequestBody(
       normalizeResponsesImageTool(undefined, options.fallbackTool),
     ];
   }
+  for (const additionalTool of options.additionalTools || []) {
+    if (
+      additionalTool.type === "web_search" &&
+      (body.tools as unknown[]).some(isWebSearchTool)
+    ) {
+      continue;
+    }
+    (body.tools as unknown[]).push(additionalTool);
+  }
 
   delete body.size;
   delete body.quality;
@@ -673,7 +700,7 @@ function normalizeResponsesImageRequestBody(
   delete body.output_format;
   delete body.output_compression;
 
-  return body;
+  return body as ResponsesStreamRequestBody;
 }
 
 function isPoolAccountBackend(
@@ -914,6 +941,55 @@ function applyPromptOptimizationResultVisibility(
   };
 }
 
+function stripWebSearchTool(body: ResponsesStreamRequestBody) {
+  const tools = Array.isArray(body.tools)
+    ? body.tools.filter((tool) => !isWebSearchTool(tool))
+    : body.tools;
+  return {
+    ...body,
+    tools,
+  };
+}
+
+function isUnsupportedWebSearchError(result: GenerateImageResult) {
+  if (!result.error) return false;
+  const message = result.error.toLowerCase();
+  return (
+    message.includes("web_search") &&
+    (message.includes("unsupported") ||
+      message.includes("not supported") ||
+      message.includes("invalid") ||
+      message.includes("unknown") ||
+      message.includes("unrecognized") ||
+      message.includes("not available"))
+  );
+}
+
+async function fetchResponses(
+  config: ApiConfig,
+  requestBody: ResponsesStreamRequestBody,
+  options: {
+    signal?: AbortSignal;
+    stream: boolean;
+  },
+  callbacks?: ImageGenerationCallbacks
+) {
+  const response = await fetch(
+    `${stripTrailingSlash(config.baseUrl)}/responses`,
+    {
+      method: "POST",
+      signal: options.signal,
+      headers: getHeaders(config, {
+        "Content-Type": "application/json",
+        Accept: options.stream ? "text/event-stream" : "application/json",
+      }),
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  return await parseResponsesResponse(response, callbacks);
+}
+
 function getDataUrl(image: ImageInputFile) {
   if (image.url?.startsWith("http://") || image.url?.startsWith("https://")) {
     return image.url;
@@ -1134,6 +1210,7 @@ function parseResponsesOutput(
   let revisedPrompt: string | undefined;
   let responseText: string | undefined;
   let responseThinking: string | undefined;
+  let responseAgent: string | undefined;
 
   for (const item of output || []) {
     if (item.type === "reasoning" && item.summary) {
@@ -1163,6 +1240,13 @@ function parseResponsesOutput(
         .trim();
       if (text) responseText = responseText ? `${responseText}\n${text}` : text;
     }
+
+    const agentLine = describeResponsesToolItem(item, { done: true });
+    if (agentLine) {
+      responseAgent = responseAgent
+        ? `${responseAgent}\n${agentLine}`
+        : agentLine;
+    }
   }
 
   if (!imageBase64 && !responseText && !responseThinking) return null;
@@ -1172,7 +1256,80 @@ function parseResponsesOutput(
     upstreamRevisedPrompt: revisedPrompt,
     responseText,
     responseThinking,
+    responseAgent,
   };
+}
+
+function compactToolText(value: unknown, maxLength = 140) {
+  if (typeof value !== "string") return undefined;
+  const compacted = value.replace(/\s+/g, " ").trim();
+  if (!compacted) return undefined;
+  return compacted.length > maxLength
+    ? `${compacted.slice(0, maxLength - 3)}...`
+    : compacted;
+}
+
+function compactToolJson(value: unknown, maxLength = 140) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return compactToolText(value, maxLength);
+  try {
+    return compactToolText(JSON.stringify(value), maxLength);
+  } catch {
+    return undefined;
+  }
+}
+
+function describeResponsesToolItem(
+  item: ResponsesOutputItem | undefined,
+  options: { done?: boolean } = {}
+) {
+  if (!item?.type) return null;
+
+  if (item.type === "image_generation_call") {
+    return options.done
+      ? `图片生成: ${item.status || (item.result ? "completed" : "finished")}`
+      : "图片生成: started";
+  }
+
+  if (item.type === "web_search_call") {
+    const query = compactToolText(item.query);
+    const suffix = query ? ` - ${query}` : item.status ? ` - ${item.status}` : "";
+    return `${options.done ? "联网搜索完成" : "联网搜索"}${suffix}`;
+  }
+
+  if (item.type === "function_call") {
+    const name = item.name ? ` ${item.name}` : "";
+    const args = compactToolText(item.arguments);
+    return `调用工具${name}${args ? ` - ${args}` : ""}`;
+  }
+
+  if (item.type.endsWith("_call")) {
+    const detail =
+      compactToolText(item.query) ||
+      compactToolText(item.name) ||
+      compactToolJson(item.action) ||
+      item.status;
+    return `${options.done ? "工具完成" : "运行工具"}: ${item.type}${
+      detail ? ` - ${detail}` : ""
+    }`;
+  }
+
+  return null;
+}
+
+function shouldReportResponsesToolItem(
+  eventName: string,
+  item: ResponsesOutputItem | undefined
+) {
+  if (!item?.type) return false;
+  if (item.type === "message" || item.type === "reasoning") return false;
+  if (
+    item.type === "image_generation_call" &&
+    eventName === "response.output_item.done"
+  ) {
+    return true;
+  }
+  return item.type.endsWith("_call");
 }
 
 function extractResponseCompletedPayload(
@@ -1216,15 +1373,37 @@ async function processResponsesEventPayload(
 
   if (eventName === "response.output_item.done") {
     const item = payload.item as ResponsesOutputItem | undefined;
+    if (shouldReportResponsesToolItem(eventName, item)) {
+      const line = describeResponsesToolItem(item, { done: true });
+      if (line) {
+        await callbacks?.onAgentDelta?.(`${line}\n`);
+        state.responseAgent = `${state.responseAgent || ""}${line}\n`;
+      }
+    }
     if (item?.type === "image_generation_call" && item.result) {
       const partialImage = {
         imageBase64: item.result,
       };
       await callbacks?.onPartialImage?.(partialImage);
       state.fallbackResult = {
+        ...(state.fallbackResult || {}),
         imageBase64: item.result,
         upstreamRevisedPrompt: item.revised_prompt,
+        responseAgent:
+          state.fallbackResult?.responseAgent || state.responseAgent,
       };
+    }
+    return null;
+  }
+
+  if (eventName === "response.output_item.added") {
+    const item = payload.item as ResponsesOutputItem | undefined;
+    if (shouldReportResponsesToolItem(eventName, item)) {
+      const line = describeResponsesToolItem(item);
+      if (line) {
+        await callbacks?.onAgentDelta?.(`${line}\n`);
+        state.responseAgent = `${state.responseAgent || ""}${line}\n`;
+      }
     }
     return null;
   }
@@ -1236,6 +1415,8 @@ async function processResponsesEventPayload(
       state.fallbackResult = {
         ...(state.fallbackResult || {}),
         responseText: `${state.fallbackResult?.responseText || ""}${delta}`,
+        responseAgent:
+          state.fallbackResult?.responseAgent || state.responseAgent,
       };
     }
     return null;
@@ -1248,6 +1429,8 @@ async function processResponsesEventPayload(
       state.fallbackResult = {
         ...(state.fallbackResult || {}),
         responseThinking: `${state.fallbackResult?.responseThinking || ""}${delta}`,
+        responseAgent:
+          state.fallbackResult?.responseAgent || state.responseAgent,
       };
     }
     return null;
@@ -1259,7 +1442,10 @@ async function processResponsesEventPayload(
     );
     const result = parseResponsesOutput(completedPayload.output);
     if (result) {
-      state.completedResult = result;
+      state.completedResult = {
+        ...result,
+        responseAgent: state.responseAgent || result.responseAgent,
+      };
     }
   }
 
@@ -1407,6 +1593,7 @@ async function parseResponsesResponse(
 type EventStreamParseState = {
   completedResult: GenerateImageResult | null;
   fallbackResult: GenerateImageResult | null;
+  responseAgent?: string;
 };
 
 async function processEventPayload(
@@ -1722,8 +1909,7 @@ export async function generateImage(
         useStream: config.useStream,
       });
       return {
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -1841,8 +2027,7 @@ export async function editImage(
         useStream: config.useStream,
       });
       return {
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       };
     }
   }
@@ -1989,42 +2174,53 @@ export async function generateChatImage(
       ? { effort: thinking, summary: "concise" }
       : undefined;
 
-    const requestBody =
+    const stream = Boolean(params.stream || config.useStream);
+    const webSearchTool = { type: "web_search" };
+    const requestBody: ResponsesStreamRequestBody =
       params.rawResponsesBody && isPlainRecord(params.rawResponsesBody)
         ? normalizeResponsesImageRequestBody(params.rawResponsesBody, {
             fallbackTool: tool,
+            additionalTools: [webSearchTool],
             instructions,
-            stream: Boolean(params.stream || config.useStream),
+            stream,
           })
         : {
             model,
             input,
-            tools: [tool],
+            tools: [tool, webSearchTool],
             instructions,
             store: false,
             ...(reasoning ? { reasoning } : {}),
-            ...(params.stream || config.useStream ? { stream: true } : {}),
+            ...(stream ? { stream: true } : {}),
           };
 
-    const response = await fetch(
-      `${stripTrailingSlash(config.baseUrl)}/responses`,
+    const result = await fetchResponses(
+      config,
+      requestBody,
       {
-        method: "POST",
         signal: params.signal,
-        headers: getHeaders(config, {
-          "Content-Type": "application/json",
-          Accept:
-            params.stream || config.useStream
-              ? "text/event-stream"
-              : "application/json",
-        }),
-        body: JSON.stringify(requestBody),
-      }
+        stream,
+      },
+      callbacks
     );
 
-    return applyPromptOptimizationResultVisibility(
-      await parseResponsesResponse(response, callbacks)
-    );
+    if (isUnsupportedWebSearchError(result)) {
+      await callbacks?.onAgentDelta?.(
+        "联网搜索工具不可用，已切换为无联网 Codex/Responses 重试\n"
+      );
+      const fallbackResult = await fetchResponses(
+        config,
+        stripWebSearchTool(requestBody),
+        {
+          signal: params.signal,
+          stream,
+        },
+        callbacks
+      );
+      return applyPromptOptimizationResultVisibility(fallbackResult);
+    }
+
+    return applyPromptOptimizationResultVisibility(result);
   } catch (error) {
     logImageRequestError(error, {
       operation: "chat",

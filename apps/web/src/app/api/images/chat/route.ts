@@ -528,6 +528,9 @@ export const POST = withApiLogging(async (request: NextRequest) => {
                 onThinkingDelta: async (delta) => {
                   await emit({ type: "thinking_delta", index, delta });
                 },
+                onAgentDelta: async (delta) => {
+                  await emit({ type: "agent_delta", index, delta });
+                },
               }),
               onResult: async (result) => {
                 if (result.error) {
