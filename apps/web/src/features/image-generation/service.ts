@@ -1,7 +1,6 @@
 import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
 import {
-  canUseCustomApi,
   GPT52_CHAT_MODEL,
   GPT54_CHAT_MODEL,
   GPT54_MINI_CHAT_MODEL,
@@ -9,6 +8,7 @@ import {
   RESPONSES_IMAGE_MODELS,
 } from "@repo/shared/config/subscription-plan";
 import { logError, logWarn } from "@repo/shared/logger";
+import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
@@ -1592,7 +1592,7 @@ export async function getUserApiConfig(
   userId: string
 ): Promise<ApiConfig | null> {
   const plan = await getUserPlan(userId);
-  if (!canUseCustomApi(plan.plan)) {
+  if (!(await canUsePlanCapability(plan.plan, "customApi.configure"))) {
     return null;
   }
 

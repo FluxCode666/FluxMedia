@@ -1,4 +1,8 @@
 import { withApiLogging } from "@repo/shared/api-logger";
+import {
+  canUsePlanCapability,
+  getPlanLimits,
+} from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { lookup } from "node:dns/promises";
@@ -39,8 +43,6 @@ import type {
   ThinkingLevel,
 } from "@/features/image-generation/types";
 
-const MAX_EDIT_IMAGES = 16;
-const MAX_BATCH_COUNT = 10;
 const VALID_QUALITIES = new Set<ImageQuality>([
   "auto",
   "low",
@@ -147,15 +149,15 @@ function getText(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getCount(formData: FormData) {
+function getCount(formData: FormData, maxBatchCount: number) {
   const value = getText(formData, "n");
   if (!value) return 1;
   if (!/^\d+$/.test(value)) {
     throw new Error("n must be an integer.");
   }
   const count = Number(value);
-  if (count < 1 || count > MAX_BATCH_COUNT) {
-    throw new Error(`n must be between 1 and ${MAX_BATCH_COUNT}.`);
+  if (count < 1 || count > maxBatchCount) {
+    throw new Error(`n must be between 1 and ${maxBatchCount}.`);
   }
   return count;
 }
@@ -480,8 +482,16 @@ export const postExternalImageEdits = withApiLogging(
         "invalid_api_key"
       );
     }
+    if (!(await canUsePlanCapability(auth.plan, "externalApi.images.edit"))) {
+      return openAIImageError(
+        "External image editing is not enabled for this plan.",
+        403,
+        "insufficient_plan"
+      );
+    }
 
     const plan = await getUserPlan(auth.userId);
+    const planLimits = await getPlanLimits(plan.plan);
     const uploadLimits = await getPlanUploadLimits(plan.plan);
     const maxImageBytes = uploadLimits.maxFileSizeBytes;
     const maxRequestBytes = uploadLimits.maxUploadBytes;
@@ -548,10 +558,15 @@ export const postExternalImageEdits = withApiLogging(
 
     let count = 1;
     try {
-      count = getCount(formData);
+      count = getCount(formData, planLimits.maxBatchCount);
     } catch (error) {
       return openAIImageError(
         error instanceof Error ? error.message : "Invalid n."
+      );
+    }
+    if (count > planLimits.maxBatchCount) {
+      return openAIImageError(
+        `n must be between 1 and ${planLimits.maxBatchCount}.`
       );
     }
 
@@ -573,9 +588,19 @@ export const postExternalImageEdits = withApiLogging(
     if (imageReferences.length === 0) {
       return openAIImageError("At least one source image is required.");
     }
-    if (imageReferences.length > MAX_EDIT_IMAGES) {
+    if (imageReferences.length > planLimits.maxEditImages) {
       return openAIImageError(
-        `No more than ${MAX_EDIT_IMAGES} images are allowed.`
+        `No more than ${planLimits.maxEditImages} images are allowed.`
+      );
+    }
+    if (
+      wantsImageStreamResponse(request, getOptionalBoolean(formData, "stream")) &&
+      !(await canUsePlanCapability(plan.plan, "externalApi.streaming"))
+    ) {
+      return openAIImageError(
+        "External API streaming is not enabled for this plan.",
+        403,
+        "insufficient_plan"
       );
     }
 

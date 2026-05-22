@@ -10,7 +10,7 @@ import type {
   ModerationBlockRiskLevel,
   SubscriptionPlan,
 } from "../config/subscription-plan";
-import { normalizeModerationBlockRiskLevelForPlan } from "../config/subscription-plan";
+import { normalizePlanModerationBlockRiskLevel } from "../subscription/services/plan-capabilities";
 import { logError, logWarn } from "../logger";
 import {
   getRuntimeSettingBoolean,
@@ -180,16 +180,16 @@ async function getAliyunBlockRiskLevel(): Promise<AliyunRiskLevel> {
     : "medium";
 }
 
-function getEffectiveAliyunBlockRiskLevel(
+async function getEffectiveAliyunBlockRiskLevel(
   blockRiskLevel: AliyunRiskLevel,
   userPlan?: SubscriptionPlan,
   userModerationBlockRiskLevel?: ModerationBlockRiskLevel
-): AliyunRiskLevel {
+): Promise<AliyunRiskLevel> {
   if (!userPlan) {
     return blockRiskLevel;
   }
 
-  const planLevel = normalizeModerationBlockRiskLevelForPlan(
+  const planLevel = await normalizePlanModerationBlockRiskLevel(
     userPlan,
     userModerationBlockRiskLevel
   );
@@ -561,7 +561,7 @@ async function moderateWithAliyun(
   }
 
   const isImageMode = input.mode === "image" || Boolean(input.images?.length);
-  const blockRiskLevel = getEffectiveAliyunBlockRiskLevel(
+  const blockRiskLevel = await getEffectiveAliyunBlockRiskLevel(
     await getAliyunBlockRiskLevel(),
     input.userPlan,
     input.userModerationBlockRiskLevel

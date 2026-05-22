@@ -12,7 +12,7 @@ import { syncSystemSettingsToEnvFiles } from "../env-file";
 
 const settingUpdateSchema = z.object({
   key: z.string().min(1),
-  value: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  value: z.unknown().optional(),
   clear: z.boolean().optional(),
 });
 

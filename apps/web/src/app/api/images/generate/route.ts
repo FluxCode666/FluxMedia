@@ -1,5 +1,7 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { auth } from "@repo/shared/auth";
+import { getPlanLimits } from "@repo/shared/subscription/services/plan-capabilities";
+import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -29,7 +31,7 @@ const generateImageSchema = z.object({
   gpt_model: z.string().optional(),
   thinking: z.enum(["none", "low", "medium", "high", "xhigh"]).optional(),
   stream: z.boolean().optional(),
-  count: z.number().int().min(1).max(10).optional(),
+  count: z.number().int().min(1).max(100).optional(),
   quality: z.enum(["auto", "low", "medium", "high"]).optional(),
   moderation: z.enum(["auto", "low"]).optional(),
 });
@@ -70,6 +72,15 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse(parsed.error.issues[0]?.message || "Invalid request");
   }
 
+  const plan = await getUserPlan(session.user.id);
+  const planLimits = await getPlanLimits(plan.plan);
+  const count = parsed.data.count || 1;
+  if (count > planLimits.maxBatchCount) {
+    return errorResponse(
+      `count must be between 1 and ${planLimits.maxBatchCount}.`
+    );
+  }
+
   const input = {
     mode: "generate" as const,
     userId: session.user.id,
@@ -84,7 +95,6 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     quality: parsed.data.quality || "auto",
     moderation: parsed.data.moderation || "auto",
   };
-  const count = parsed.data.count || 1;
 
   try {
     const useStreamResponse = wantsStreamResponse(request, parsed.data.stream);

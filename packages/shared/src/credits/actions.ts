@@ -16,7 +16,6 @@ import { getBaseUrl } from "../config/payment";
 import {
   getPlanFromPriceId,
   isPlanAtLeast,
-  PLAN_PRIVILEGES,
   type SubscriptionPlan,
 } from "../config/subscription-plan";
 import { creem } from "../payment/creem";
@@ -29,6 +28,7 @@ import { logEvent } from "../logger/index";
 import { actionClient, protectedAction } from "../safe-action";
 import { getUserPlanType } from "../subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "../system-settings";
+import { getPlanMonthlyCredits } from "../subscription/services/plan-capabilities";
 
 import {
   CREDIT_CONFIG_DEFAULTS,
@@ -360,7 +360,7 @@ export const grantMonthlySubscriptionCredits = withPublicCreditsAction(
         plan = resolved;
       }
     }
-    const creditsAmount = PLAN_PRIVILEGES[plan].monthlyCredits;
+    const creditsAmount = await getPlanMonthlyCredits(plan);
 
     // 月度积分，下个月过期
     const expiresAt = new Date();

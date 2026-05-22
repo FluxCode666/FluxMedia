@@ -14,6 +14,7 @@ import {
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import { logWarn } from "@repo/shared/logger";
+import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
@@ -1562,6 +1563,9 @@ export async function listImageBackendGroupOptions(options?: {
 export async function listSelectableImageBackendGroups(
   plan?: SubscriptionPlan
 ) {
+  if (plan && !(await canUsePlanCapability(plan, "backendGroups.select"))) {
+    return [];
+  }
   return await listImageBackendGroupOptions({ userSelectableOnly: true, plan });
 }
 
@@ -1579,6 +1583,9 @@ export async function setUserImageBackendPreference(
   groupId: string | null,
   plan: SubscriptionPlan
 ) {
+  if (groupId && !(await canUsePlanCapability(plan, "backendGroups.select"))) {
+    throw new Error("当前套餐不可手动选择生图分组");
+  }
   if (groupId) {
     const [group] = await db
       .select({

@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  canUseChat,
-  canUseGpt55Chat,
-  canUsePromptOptimization,
   GPT52_CHAT_MODEL,
   GPT54_CHAT_MODEL,
   GPT54_MINI_CHAT_MODEL,
@@ -12,6 +9,7 @@ import {
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import { formatCredits } from "@repo/shared/credits/format";
+import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { Button } from "@repo/ui/components/button";
 import { Checkbox } from "@repo/ui/components/checkbox";
 import { Input } from "@repo/ui/components/input";
@@ -243,7 +241,6 @@ const defaultDimensions = parseImageSize(DEFAULT_IMAGE_SIZE) || {
 const shouldOptimizeStoredImage = (imageUrl: string | undefined) =>
   Boolean(imageUrl?.startsWith("/api/storage/"));
 
-const MAX_EDIT_IMAGES = 16;
 const DEFAULT_MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MAX_EDIT_REQUEST_BYTES = 75 * 1024 * 1024;
 const CHAT_TEXT_ONLY_CREDITS = 1;
@@ -271,7 +268,7 @@ const MODERATION_OPTIONS: Array<{ value: ImageModeration; label: string }> = [
   { value: "auto", label: "Auto" },
   { value: "low", label: "Low" },
 ];
-const BATCH_OPTIONS = [1, 2, 4, 6, 8, 10] as const;
+const DEFAULT_BATCH_OPTIONS = [1, 2, 4, 6, 8, 10] as const;
 const WATERFALL_LOAD_SIZE = 5;
 const WATERFALL_MAX_CONCURRENT = WATERFALL_LOAD_SIZE * 3;
 const CHAT_MODEL_OPTIONS: Array<{
@@ -328,6 +325,7 @@ interface CreatePageClientProps {
   balance: number;
   recentGenerations: RecentGeneration[];
   plan: SubscriptionPlan;
+  capabilities: PlanCapabilitySnapshot;
   uploadLimits: {
     maxFileSizeBytes: number;
     maxUploadBytes: number;
@@ -640,7 +638,7 @@ async function urlToEditImageFile(
 export function CreatePageClient({
   balance: initialBalance,
   recentGenerations: initialRecent,
-  plan,
+  capabilities,
   uploadLimits,
   backendGroups,
   selectedBackendGroupId,
@@ -753,9 +751,18 @@ export function CreatePageClient({
     }
     return message;
   };
-  const chatAllowed = canUseChat(plan);
-  const gpt55ChatAllowed = canUseGpt55Chat(plan);
-  const promptOptimizationAllowed = canUsePromptOptimization(plan);
+  const chatAllowed = capabilities.features["imageGeneration.chat"];
+  const gpt55ChatAllowed = capabilities.features["models.gpt55"];
+  const promptOptimizationAllowed =
+    capabilities.features["promptOptimization.control"];
+  const maxBatchCount = capabilities.limits.maxBatchCount;
+  const maxEditImages = capabilities.limits.maxEditImages;
+  const maxChatImages = capabilities.limits.maxChatImages;
+  const batchOptions = DEFAULT_BATCH_OPTIONS.filter(
+    (count) => count <= maxBatchCount
+  );
+  const safeBatchOptions =
+    batchOptions.length > 0 ? batchOptions : ([1] as number[]);
   const maxImageBytes =
     uploadLimits.maxFileSizeBytes || DEFAULT_MAX_IMAGE_BYTES;
   const maxEditRequestBytes =
@@ -804,6 +811,11 @@ export function CreatePageClient({
   const [batchCount, setBatchCount] = useState(1);
   const [lineBatchRepeatCount, setLineBatchRepeatCount] = useState(1);
   const [editBatchCount, setEditBatchCount] = useState(1);
+  useEffect(() => {
+    setBatchCount((value) => Math.min(value, maxBatchCount));
+    setLineBatchRepeatCount((value) => Math.min(value, maxBatchCount));
+    setEditBatchCount((value) => Math.min(value, maxBatchCount));
+  }, [maxBatchCount]);
   const [textModel, setTextModel] = useState("default");
   const [editModel, setEditModel] = useState("default");
   const [useEditFirstImageSize, setUseEditFirstImageSize] = useState(true);
@@ -1809,15 +1821,15 @@ export function CreatePageClient({
     if (!accepted.length) return;
 
     setChatAttachments((prev) => {
-      const slots = MAX_EDIT_IMAGES - prev.length;
+      const slots = maxChatImages - prev.length;
       if (slots <= 0) {
         for (const item of accepted) {
           revokePreview(item.previewUrl);
         }
         toast.error(
           copy(
-            `Attach up to ${MAX_EDIT_IMAGES} reference images`,
-            `最多可添加 ${MAX_EDIT_IMAGES} 张参考图片`
+            `Attach up to ${maxChatImages} reference images`,
+            `最多可添加 ${maxChatImages} 张参考图片`
           )
         );
         return prev;
@@ -1866,11 +1878,11 @@ export function CreatePageClient({
       toast.success(copy("Reference image is already attached", "参考图片已添加"));
       return;
     }
-    if (chatAttachments.length >= MAX_EDIT_IMAGES) {
+    if (chatAttachments.length >= maxChatImages) {
       toast.error(
         copy(
-          `Attach up to ${MAX_EDIT_IMAGES} reference images`,
-          `最多可添加 ${MAX_EDIT_IMAGES} 张参考图片`
+          `Attach up to ${maxChatImages} reference images`,
+          `最多可添加 ${maxChatImages} 张参考图片`
         )
       );
       return;
@@ -2277,7 +2289,7 @@ export function CreatePageClient({
             size="icon-sm"
             onClick={() => chatImageInputRef.current?.click()}
             disabled={
-              isChatGenerating || chatAttachments.length >= MAX_EDIT_IMAGES
+              isChatGenerating || chatAttachments.length >= maxChatImages
             }
             title={copy("Attach reference image", "添加参考图片")}
           >
@@ -3025,15 +3037,15 @@ export function CreatePageClient({
 
     if (!accepted.length) return;
     setEditImages((prev) => {
-      const slots = MAX_EDIT_IMAGES - prev.length;
+      const slots = maxEditImages - prev.length;
       if (slots <= 0) {
         for (const item of accepted) {
           revokePreview(item.previewUrl);
         }
         toast.error(
           copy(
-            `Upload up to ${MAX_EDIT_IMAGES} source images`,
-            `最多可上传 ${MAX_EDIT_IMAGES} 张源图片`
+            `Upload up to ${maxEditImages} source images`,
+            `最多可上传 ${maxEditImages} 张源图片`
           )
         );
         return prev;
@@ -3299,11 +3311,11 @@ export function CreatePageClient({
       return;
     }
 
-    if (editImages.length >= MAX_EDIT_IMAGES) {
+    if (editImages.length >= maxEditImages) {
       toast.error(
         copy(
-          `Upload up to ${MAX_EDIT_IMAGES} source images`,
-          `最多可上传 ${MAX_EDIT_IMAGES} 张源图片`
+          `Upload up to ${maxEditImages} source images`,
+          `最多可上传 ${maxEditImages} 张源图片`
         )
       );
       return;
@@ -3362,7 +3374,14 @@ export function CreatePageClient({
   const textSettingsPanel = (mode: TextGenerationMode) => {
     const isLineMode = mode === "lines";
     const countValue = isLineMode ? lineBatchRepeatCount : batchCount;
-    const setCountValue = isLineMode ? setLineBatchRepeatCount : setBatchCount;
+    const setCountValue = (value: number) => {
+      const normalized = Math.min(Math.max(1, value), maxBatchCount);
+      if (isLineMode) {
+        setLineBatchRepeatCount(normalized);
+      } else {
+        setBatchCount(normalized);
+      }
+    };
     const formattedCost = isLineMode
       ? formattedLineBatchCreditCost
       : formattedTextBatchCreditCost;
@@ -3469,7 +3488,7 @@ export function CreatePageClient({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {BATCH_OPTIONS.map((count) => (
+                  {safeBatchOptions.map((count) => (
                     <SelectItem key={count} value={String(count)}>
                       {imageCountLabel(count)}
                     </SelectItem>
@@ -3826,8 +3845,8 @@ export function CreatePageClient({
                   </span>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {copy(
-                      `Upload PNG, JPEG, or WebP. Up to ${MAX_EDIT_IMAGES} images, ${formatMegabytes(maxEditRequestBytes)} total.`,
-                      `上传 PNG、JPEG 或 WebP，最多 ${MAX_EDIT_IMAGES} 张，总大小不超过 ${formatMegabytes(maxEditRequestBytes)}。`
+                      `Upload PNG, JPEG, or WebP. Up to ${maxEditImages} images, ${formatMegabytes(maxEditRequestBytes)} total.`,
+                      `上传 PNG、JPEG 或 WebP，最多 ${maxEditImages} 张，总大小不超过 ${formatMegabytes(maxEditRequestBytes)}。`
                     )}
                   </p>
                 </div>
@@ -3835,7 +3854,7 @@ export function CreatePageClient({
                   type="button"
                   variant="outline"
                   onClick={() => imageInputRef.current?.click()}
-                  disabled={isEditing || editImages.length >= MAX_EDIT_IMAGES}
+                  disabled={isEditing || editImages.length >= maxEditImages}
                 >
                   <Upload className="mr-2 h-4 w-4" />
                   {copy("Upload images", "上传图片")}
@@ -4187,14 +4206,18 @@ export function CreatePageClient({
                   </label>
                   <Select
                     value={String(editBatchCount)}
-                    onValueChange={(value) => setEditBatchCount(Number(value))}
+                    onValueChange={(value) =>
+                      setEditBatchCount(
+                        Math.min(Math.max(1, Number(value)), maxBatchCount)
+                      )
+                    }
                     disabled={isEditing}
                   >
                     <SelectTrigger id="edit-batch-count" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {BATCH_OPTIONS.map((count) => (
+                      {safeBatchOptions.map((count) => (
                         <SelectItem key={count} value={String(count)}>
                           {imageCountLabel(count)}
                         </SelectItem>
@@ -4808,7 +4831,7 @@ export function CreatePageClient({
                           variant="ghost"
                           size="icon-sm"
                           onClick={() => batchImageInputRef.current?.click()}
-                          disabled={chatAttachments.length >= MAX_EDIT_IMAGES}
+                          disabled={chatAttachments.length >= maxChatImages}
                           title={copy("Attach reference image", "添加参考图片")}
                         >
                           <ImagePlus className="h-4 w-4" />

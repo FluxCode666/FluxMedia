@@ -166,6 +166,9 @@ export function BillingSection() {
   } = useAction(getMyTransactions);
   const userPlan = (planResult.data?.plan as PlanType) || "free";
   const planConfig = PLAN_PRIVILEGES[userPlan as SubscriptionPlan];
+  const monthlyCredits =
+    planResult.data?.capabilities?.limits.monthlyCredits ??
+    planConfig.monthlyCredits;
   const isCancelPending = planResult.data?.cancelAtPeriodEnd ?? false;
 
   // 取消订阅
@@ -269,7 +272,7 @@ export function BillingSection() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-semibold">
-                    {planConfig.name} Plan
+                    {planResult.data?.planName ?? planConfig.name} Plan
                   </h3>
                   <Badge variant="secondary">{t("currentPlan.current")}</Badge>
                 </div>
@@ -364,7 +367,7 @@ export function BillingSection() {
                 {t("currentPlan.monthlyCredits")}
               </p>
               <p className="font-medium">
-                {planConfig.monthlyCredits.toLocaleString("en-US")} credits
+                {monthlyCredits.toLocaleString("en-US")} credits
               </p>
             </div>
             <div>

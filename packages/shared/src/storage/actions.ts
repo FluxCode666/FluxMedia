@@ -9,6 +9,8 @@
 import { z } from "zod";
 
 import { protectedAction } from "../safe-action";
+import { getPlanCapabilitySnapshot } from "../subscription/services/plan-capabilities";
+import { getUserPlan } from "../subscription/services/user-plan";
 import { getRuntimeSettingString } from "../system-settings";
 
 import { getStorageProvider } from "./providers";
@@ -87,6 +89,9 @@ export const getSignedUploadUrlAction = withStorageAction("getSignedUploadUrl")
       throw new Error("文件路径无效：必须包含用户 ID");
     }
 
+    const { plan } = await getUserPlan(userId);
+    const capabilities = await getPlanCapabilitySnapshot(plan);
+
     // 获取签名上传 URL
     const provider = await getStorageProvider();
     const uploadUrl = await provider.getSignedUploadUrl(
@@ -99,6 +104,7 @@ export const getSignedUploadUrlAction = withStorageAction("getSignedUploadUrl")
       uploadUrl,
       key,
       bucket,
+      maxFileSizeBytes: capabilities.limits.maxFileSizeBytes,
     };
   });
 

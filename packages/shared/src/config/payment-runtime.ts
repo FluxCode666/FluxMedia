@@ -2,7 +2,6 @@ import {
   getBaseUrl,
   getPricingPlansFromConfig,
   paymentConfig,
-  SUBSCRIPTION_MONTHLY_CREDITS,
 } from "./payment";
 import {
   type PaymentConfig,
@@ -17,6 +16,7 @@ import {
   getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "../system-settings";
+import { getPlanMonthlyCredits } from "../subscription/services/plan-capabilities";
 
 export type PaidPlanId = "starter" | "pro" | "ultra" | "enterprise";
 
@@ -66,26 +66,10 @@ function getDefaultPaymentProvider(): RuntimePaymentProvider {
 
 export async function getSubscriptionMonthlyCredits() {
   return {
-    starter: await getRuntimeSettingNumber(
-      "PLAN_STARTER_MONTHLY_CREDITS",
-      SUBSCRIPTION_MONTHLY_CREDITS.starter,
-      { positive: true }
-    ),
-    pro: await getRuntimeSettingNumber(
-      "PLAN_PRO_MONTHLY_CREDITS",
-      SUBSCRIPTION_MONTHLY_CREDITS.pro,
-      { positive: true }
-    ),
-    ultra: await getRuntimeSettingNumber(
-      "PLAN_ULTRA_MONTHLY_CREDITS",
-      SUBSCRIPTION_MONTHLY_CREDITS.ultra,
-      { positive: true }
-    ),
-    enterprise: await getRuntimeSettingNumber(
-      "PLAN_ENTERPRISE_MONTHLY_CREDITS",
-      SUBSCRIPTION_MONTHLY_CREDITS.enterprise,
-      { positive: true }
-    ),
+    starter: await getPlanMonthlyCredits("starter"),
+    pro: await getPlanMonthlyCredits("pro"),
+    ultra: await getPlanMonthlyCredits("ultra"),
+    enterprise: await getPlanMonthlyCredits("enterprise"),
   } as const;
 }
 

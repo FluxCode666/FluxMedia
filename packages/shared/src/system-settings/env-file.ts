@@ -14,7 +14,12 @@ function quoteEnvValue(value: string) {
 }
 
 function serializeEnvLine(key: string, value: unknown) {
-  const text = typeof value === "string" ? value : String(value);
+  const text =
+    typeof value === "string"
+      ? value
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
   return `${key}=${quoteEnvValue(text)}`;
 }
 

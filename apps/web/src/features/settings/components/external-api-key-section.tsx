@@ -6,6 +6,7 @@ import {
   type ModerationBlockRiskLevel,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
@@ -104,7 +105,11 @@ export function ExternalApiKeySection() {
   const [loading, setLoading] = useState(true);
   const [externalApiAllowed, setExternalApiAllowed] = useState(false);
   const [userPlan, setUserPlan] = useState<SubscriptionPlan>("free");
-  const moderationOptions = getAllowedModerationBlockRiskLevels(userPlan);
+  const [capabilities, setCapabilities] =
+    useState<PlanCapabilitySnapshot | null>(null);
+  const moderationOptions =
+    capabilities?.moderation.allowedBlockRiskLevels ||
+    getAllowedModerationBlockRiskLevels(userPlan);
   const moderationOptionSet = new Set(moderationOptions);
 
   const { execute: loadKeys, isPending: isRefreshing } = useAction(
@@ -193,10 +198,14 @@ export function ExternalApiKeySection() {
     getMyPlanAction().then((result) => {
       const plan = result?.data?.plan || "free";
       setUserPlan(plan);
+      setCapabilities(result?.data?.capabilities ?? null);
       setExternalApiAllowed(
-        result?.data?.plan ? canUseExternalApi(result.data.plan) : false
+        result?.data?.capabilities?.features["externalApi.keys.manage"] ??
+          (result?.data?.plan ? canUseExternalApi(result.data.plan) : false)
       );
-      const allowed = getAllowedModerationBlockRiskLevels(plan);
+      const allowed =
+        result?.data?.capabilities?.moderation.allowedBlockRiskLevels ||
+        getAllowedModerationBlockRiskLevels(plan);
       setNewKeyModerationLevel(allowed.at(-1) || "low");
     });
   }, [loadKeys]);

@@ -6,15 +6,14 @@
 
 import { eq } from "drizzle-orm";
 import {
-  formatFileSizeLimit,
   getPlanFromPriceId,
   getPlanPrivileges,
   getUpgradeMessage,
-  isWithinFileSizeLimit,
   type SubscriptionPlan,
 } from "../../config/subscription-plan";
 import { db } from "@repo/database";
 import { subscription } from "@repo/database/schema";
+import { getPlanUploadLimits } from "./upload-limits";
 
 // ============================================
 // 类型定义
@@ -188,11 +187,12 @@ export async function checkFileSizePrivilege(
 ): Promise<PrivilegeCheckResult> {
   const { plan } = await getUserPlan(userId);
 
-  if (isWithinFileSizeLimit(plan, fileSizeBytes)) {
+  const limits = await getPlanUploadLimits(plan);
+  if (fileSizeBytes <= limits.maxFileSizeBytes) {
     return { allowed: true };
   }
 
-  const limit = formatFileSizeLimit(plan);
+  const limit = `${limits.maxFileSizeBytes / (1024 * 1024)}MB`;
   const actualSize = `${(fileSizeBytes / (1024 * 1024)).toFixed(1)}MB`;
 
   return {

@@ -24,6 +24,7 @@ import {
 } from "@repo/ui/components/select";
 import { Switch } from "@repo/ui/components/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
+import { Textarea } from "@repo/ui/components/textarea";
 
 import {
   getSystemSettingsAction,
@@ -45,12 +46,16 @@ type SettingSnapshotItem = SettingDefinition & {
   updatedAt: string | null;
 };
 
-type DraftValue = string | number | boolean;
+type DraftValue = string | number | boolean | unknown;
 type SettingUpdate = {
   key: string;
   value?: DraftValue;
   clear?: boolean;
 };
+
+function formatJsonExample(value: unknown) {
+  return JSON.stringify(value ?? {}, null, 2);
+}
 
 function normalizeDraftValue(setting: SettingSnapshotItem): DraftValue {
   if (setting.valueType === "boolean") {
@@ -61,12 +66,25 @@ function normalizeDraftValue(setting: SettingSnapshotItem): DraftValue {
     if (setting.stored && setting.value !== "") return Number(setting.value);
     return typeof setting.defaultValue === "number" ? setting.defaultValue : "";
   }
+  if (setting.valueType === "json") {
+    if (setting.value) return setting.value;
+    if (typeof setting.defaultValue === "string") return setting.defaultValue;
+    if (setting.defaultValue !== undefined) {
+      return formatJsonExample(setting.defaultValue);
+    }
+    return "";
+  }
   return setting.value || "";
 }
 
 function toSubmitValue(setting: SettingSnapshotItem, value: DraftValue) {
   if (setting.valueType === "boolean") return Boolean(value);
   if (setting.valueType === "number") return Number(value);
+  if (setting.valueType === "json") {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed ? JSON.parse(trimmed) : "";
+  }
   return String(value ?? "");
 }
 
@@ -109,6 +127,23 @@ function SettingInput({
           ))}
         </SelectContent>
       </Select>
+    );
+  }
+
+  if (setting.valueType === "json") {
+    const placeholder =
+      setting.exampleValue !== undefined
+        ? formatJsonExample(setting.exampleValue)
+        : "{}";
+    return (
+      <Textarea
+        value={String(value ?? "")}
+        rows={18}
+        className="min-h-72 resize-y font-mono text-xs"
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      />
     );
   }
 
@@ -193,23 +228,28 @@ export function SystemSettingsPanel() {
 
   const handleSave = () => {
     const payload: SettingUpdate[] = [];
-    for (const setting of settings) {
-      if (clearKeys[setting.key]) {
-        payload.push({ key: setting.key, clear: true });
-        continue;
+    try {
+      for (const setting of settings) {
+        if (clearKeys[setting.key]) {
+          payload.push({ key: setting.key, clear: true });
+          continue;
+        }
+        const value = drafts[setting.key];
+        if (
+          setting.secret &&
+          typeof value === "string" &&
+          value.trim() === ""
+        ) {
+          continue;
+        }
+        payload.push({
+          key: setting.key,
+          value: toSubmitValue(setting, value ?? ""),
+        });
       }
-      const value = drafts[setting.key];
-      if (
-        setting.secret &&
-        typeof value === "string" &&
-        value.trim() === ""
-      ) {
-        continue;
-      }
-      payload.push({
-        key: setting.key,
-        value: toSubmitValue(setting, value ?? ""),
-      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "配置格式错误");
+      return;
     }
 
     if (payload.length === 0) {
@@ -365,6 +405,13 @@ export function SystemSettingsPanel() {
                           保存后将清空此项的后台配置，环境变量兜底仍可能生效。
                         </p>
                       )}
+                      {setting.valueType === "json" &&
+                        setting.exampleValue !== undefined &&
+                        !setting.configured && (
+                          <p className="text-xs text-muted-foreground">
+                            留空表示使用代码默认矩阵，并继续兼容旧上传/月积分配置。占位内容只是示例，填写 JSON 后保存才会启用自定义矩阵。
+                          </p>
+                        )}
                       {setting.updatedAt && (
                         <p className="text-xs text-muted-foreground">
                           最近更新:{" "}

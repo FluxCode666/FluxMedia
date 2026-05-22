@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { db, user } from "@repo/database";
 import { updateProfileSchema } from "@/features/settings/schemas";
-import { normalizeModerationBlockRiskLevelForPlan } from "@repo/shared/config/subscription-plan";
+import { normalizePlanModerationBlockRiskLevel } from "@repo/shared/subscription/services/plan-capabilities";
 import { protectedAction } from "@repo/shared/safe-action";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 
@@ -47,7 +47,7 @@ export const updateProfileAction = protectedAction
     if (data.moderationBlockRiskLevel !== undefined) {
       const { plan } = await getUserPlan(ctx.userId);
       updateData.moderationBlockRiskLevel =
-        normalizeModerationBlockRiskLevelForPlan(
+        await normalizePlanModerationBlockRiskLevel(
           plan,
           data.moderationBlockRiskLevel
         );

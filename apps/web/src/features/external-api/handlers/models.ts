@@ -1,6 +1,7 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
 import { getExternalModelsForUser } from "@/features/external-api/models";
 
@@ -22,6 +23,13 @@ export const getExternalModels = withApiLogging(
     const auth = await authenticateExternalApiRequest(request);
     if (!auth) {
       return openAIError("Invalid or missing API key", 401, "invalid_api_key");
+    }
+    if (!(await canUsePlanCapability(auth.plan, "externalApi.models.list"))) {
+      return openAIError(
+        "External API model listing is not enabled for this plan.",
+        403,
+        "insufficient_plan"
+      );
     }
 
     return NextResponse.json(await getExternalModelsForUser(auth.userId), {

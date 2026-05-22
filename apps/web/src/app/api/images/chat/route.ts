@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { withApiLogging } from "@repo/shared/api-logger";
 import { auth } from "@repo/shared/auth";
-import { canUseChat } from "@repo/shared/config/subscription-plan";
+import {
+  canUsePlanCapability,
+  getPlanLimits,
+} from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { type NextRequest, NextResponse } from "next/server";
@@ -31,7 +34,6 @@ import type {
   ThinkingLevel,
 } from "@/features/image-generation/types";
 
-const MAX_CHAT_IMAGES = 16;
 const VALID_QUALITIES = new Set<ImageQuality>([
   "auto",
   "low",
@@ -46,8 +48,6 @@ const VALID_THINKING = new Set<ThinkingLevel>([
   "high",
   "xhigh",
 ]);
-const MAX_BATCH_COUNT = 10;
-const MAX_CHAT_CONTEXT_CHARS = 30_000;
 
 function getPreferredBackendMemberId(history: ChatHistoryMessage[]) {
   for (let index = history.length - 1; index >= 0; index--) {
@@ -70,15 +70,15 @@ function getText(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getCount(formData: FormData) {
+function getCount(formData: FormData, maxBatchCount: number) {
   const value = getText(formData, "count");
   if (!value) return 1;
   if (!/^\d+$/.test(value)) {
     throw new Error("count must be an integer.");
   }
   const count = Number(value);
-  if (count < 1 || count > MAX_BATCH_COUNT) {
-    throw new Error(`count must be between 1 and ${MAX_BATCH_COUNT}.`);
+  if (count < 1 || count > maxBatchCount) {
+    throw new Error(`count must be between 1 and ${maxBatchCount}.`);
   }
   return count;
 }
@@ -145,7 +145,10 @@ function getImageFiles(formData: FormData) {
   return images;
 }
 
-function getHistory(formData: FormData): ChatHistoryMessage[] {
+function getHistory(
+  formData: FormData,
+  maxChatImages: number
+): ChatHistoryMessage[] {
   const value = getText(formData, "history");
   if (!value) return [];
 
@@ -169,7 +172,7 @@ function getHistory(formData: FormData): ChatHistoryMessage[] {
     const imageUrls = Array.isArray(source.imageUrls)
       ? source.imageUrls
           .filter((url): url is string => typeof url === "string")
-          .slice(0, MAX_CHAT_IMAGES)
+          .slice(0, maxChatImages)
       : [];
     const variants = Array.isArray(source.variants)
       ? source.variants
@@ -270,17 +273,18 @@ function limitChatContext(params: {
   apiPrompt?: string;
   promptOptimization?: boolean;
   history: ChatHistoryMessage[];
+  maxChatContextChars: number;
 }): { history: ChatHistoryMessage[]; error?: string } {
   const currentPrompt =
     params.promptOptimization === false
       ? params.prompt
       : params.apiPrompt || params.prompt;
-  let remaining = MAX_CHAT_CONTEXT_CHARS - currentPrompt.length;
+  let remaining = params.maxChatContextChars - currentPrompt.length;
 
   if (remaining < 0) {
     return {
       history: [],
-      error: `Chat input context must be no more than ${MAX_CHAT_CONTEXT_CHARS} characters.`,
+      error: `Chat input context must be no more than ${params.maxChatContextChars} characters.`,
     };
   }
 
@@ -314,9 +318,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const plan = await getUserPlan(session.user.id);
-  if (!canUseChat(plan.plan)) {
+  if (!(await canUsePlanCapability(plan.plan, "imageGeneration.chat"))) {
     return errorResponse("Chat mode requires Pro plan or higher.", 403);
   }
+  const planLimits = await getPlanLimits(plan.plan);
   const uploadLimits = await getPlanUploadLimits(plan.plan);
   const maxImageBytes = uploadLimits.maxFileSizeBytes;
   const maxRequestBytes = uploadLimits.maxUploadBytes;
@@ -350,7 +355,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   );
   let history: ChatHistoryMessage[] = [];
   try {
-    history = getHistory(formData);
+    history = getHistory(formData, planLimits.maxChatImages);
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Invalid history."
@@ -361,6 +366,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     apiPrompt,
     promptOptimization,
     history,
+    maxChatContextChars: planLimits.maxChatContextChars,
   });
   if (limitedContext.error) {
     return errorResponse(limitedContext.error);
@@ -399,7 +405,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
 
   let count = 1;
   try {
-    count = getCount(formData);
+    count = getCount(formData, planLimits.maxBatchCount);
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Invalid count."
@@ -411,8 +417,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     getText(formData, "imageModel") ||
     getText(formData, "image_model") ||
     undefined;
-  if (sourceFiles.length > MAX_CHAT_IMAGES) {
-    return errorResponse(`No more than ${MAX_CHAT_IMAGES} images are allowed.`);
+  if (sourceFiles.length > planLimits.maxChatImages) {
+    return errorResponse(
+      `No more than ${planLimits.maxChatImages} images are allowed.`
+    );
   }
 
   try {
@@ -457,6 +465,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           images: await buildImages(),
           history,
           preferredBackendMemberId,
+          maxChatContextChars: planLimits.maxChatContextChars,
           size,
           model,
           imageModel,

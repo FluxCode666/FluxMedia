@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
 import {
+  canUsePlanCapability,
+  getPlanLimits,
+} from "@repo/shared/subscription/services/plan-capabilities";
+import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
   getImageBase64,
@@ -32,7 +37,7 @@ const externalImageGenerationSchema = z.object({
   thinking: z
     .enum(["minimal", "none", "low", "medium", "high", "xhigh"])
     .optional(),
-  n: z.number().int().min(1).max(10).optional(),
+  n: z.number().int().min(1).max(100).optional(),
   size: z
     .string()
     .optional()
@@ -99,6 +104,15 @@ export const postExternalImageGenerations = withApiLogging(
         "invalid_api_key"
       );
     }
+    if (
+      !(await canUsePlanCapability(auth.plan, "externalApi.images.generate"))
+    ) {
+      return openAIImageError(
+        "External image generation is not enabled for this plan.",
+        403,
+        "insufficient_plan"
+      );
+    }
 
     let body: unknown;
     try {
@@ -121,6 +135,25 @@ export const postExternalImageGenerations = withApiLogging(
       );
     }
 
+    const plan = await getUserPlan(auth.userId);
+    const limits = await getPlanLimits(plan.plan);
+    const count = parsed.data.n || 1;
+    if (count > limits.maxBatchCount) {
+      return openAIImageError(
+        `n must be between 1 and ${limits.maxBatchCount}.`
+      );
+    }
+    if (
+      wantsImageStreamResponse(request, parsed.data.stream) &&
+      !(await canUsePlanCapability(plan.plan, "externalApi.streaming"))
+    ) {
+      return openAIImageError(
+        "External API streaming is not enabled for this plan.",
+        403,
+        "insufficient_plan"
+      );
+    }
+
     const input = {
       mode: "generate" as const,
       userId: auth.userId,
@@ -137,7 +170,6 @@ export const postExternalImageGenerations = withApiLogging(
       quality: parsed.data.quality,
       moderation: parsed.data.moderation || "auto",
     };
-    const count = parsed.data.n || 1;
     const responseFormat = parsed.data.response_format || "b64_json";
 
     if (wantsImageStreamResponse(request, parsed.data.stream)) {

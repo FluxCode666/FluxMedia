@@ -38,6 +38,7 @@
     "./support/components/ticket-message-form": "./src/support/components/ticket-message-form.tsx",
     "./subscription/actions/get-user-plan": "./src/subscription/actions/get-user-plan.ts",
     "./subscription/components/plan-badge": "./src/subscription/components/plan-badge.tsx",
+    "./subscription/services/plan-capabilities": "./src/subscription/services/plan-capabilities.ts",
     "./subscription/services/user-plan": "./src/subscription/services/user-plan.ts",
     "./subscription/services/upload-limits": "./src/subscription/services/upload-limits.ts",
     "./mail/*": "./src/mail/*",

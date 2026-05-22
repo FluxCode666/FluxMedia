@@ -8,11 +8,11 @@ import { z } from "zod";
 import { db } from "@repo/database";
 import { externalApiKey } from "@repo/database/schema";
 import { listImageBackendGroupOptions } from "@/features/image-backend-pool/service";
-import {
-  canUseExternalApi,
-  normalizeModerationBlockRiskLevelForPlan,
-} from "@repo/shared/config/subscription-plan";
 import { protectedAction } from "@repo/shared/safe-action";
+import {
+  canUsePlanCapability,
+  normalizePlanModerationBlockRiskLevel,
+} from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 
 const API_KEY_PREFIX = "g2i";
@@ -30,7 +30,7 @@ const withExternalApiKeyAction = (name: string) =>
 
 async function ensureExternalApiAllowed(userId: string) {
   const plan = await getUserPlan(userId);
-  if (!canUseExternalApi(plan.plan)) {
+  if (!(await canUsePlanCapability(plan.plan, "externalApi.keys.manage"))) {
     throw new Error("External API access requires Starter plan or higher.");
   }
   return plan.plan;
@@ -41,6 +41,9 @@ async function normalizeSelectableGenerationGroupId(
   plan: Awaited<ReturnType<typeof getUserPlan>>["plan"]
 ) {
   if (!groupId || groupId === "default") return null;
+  if (!(await canUsePlanCapability(plan, "backendGroups.select"))) {
+    throw new Error("当前套餐不可手动选择生图分组");
+  }
   const groups = await listImageBackendGroupOptions({
     userSelectableOnly: true,
     plan,
@@ -103,7 +106,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
       keyPrefix,
       keyHash: hashApiKey(apiKey),
       lastFour: apiKey.slice(-4),
-      moderationBlockRiskLevel: normalizeModerationBlockRiskLevelForPlan(
+      moderationBlockRiskLevel: await normalizePlanModerationBlockRiskLevel(
         plan,
         parsedInput.moderationBlockRiskLevel
       ),
@@ -159,7 +162,7 @@ export const updateExternalApiKeyModeration = withExternalApiKeyAction(
   )
   .action(async ({ parsedInput, ctx }) => {
     const plan = await ensureExternalApiAllowed(ctx.userId);
-    const normalized = normalizeModerationBlockRiskLevelForPlan(
+    const normalized = await normalizePlanModerationBlockRiskLevel(
       plan,
       parsedInput.moderationBlockRiskLevel
     );

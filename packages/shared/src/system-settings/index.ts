@@ -77,6 +77,24 @@ export async function getSystemSettingValue(
   return values.get(key);
 }
 
+function parseJsonText(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return JSON.parse(trimmed) as unknown;
+}
+
+export async function getRuntimeSettingJson(key: SettingKey) {
+  const value = await getSystemSettingValue(key);
+  if (value !== undefined) {
+    if (typeof value === "string") return parseJsonText(value);
+    return value;
+  }
+
+  const envValue = process.env[key];
+  if (!envValue?.trim()) return undefined;
+  return parseJsonText(envValue);
+}
+
 export async function getSystemSettingString(key: SettingKey) {
   const value = await getSystemSettingValue(key);
   if (typeof value === "string") return value.trim() || undefined;
@@ -173,6 +191,20 @@ function coerceValue(definition: SettingDefinition, value: unknown) {
       throw new Error(`${definition.label} 必须是有效数字`);
     }
     return numeric;
+  }
+
+  if (definition.valueType === "json") {
+    if (value === undefined || value === null) return "";
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return "";
+      try {
+        return JSON.parse(trimmed) as unknown;
+      } catch {
+        throw new Error(`${definition.label} 必须是有效 JSON`);
+      }
+    }
+    return value;
   }
 
   const text = typeof value === "string" ? value.trim() : String(value ?? "");
@@ -347,7 +379,9 @@ export async function getAdminSystemSettingsSnapshot() {
     const displayValue = isSecret
       ? ""
       : hasStoredValue
-        ? String(row.value)
+        ? typeof row.value === "object"
+          ? JSON.stringify(row.value, null, 2)
+          : String(row.value)
         : hasEnvValue
           ? envValue.trim()
           : "";

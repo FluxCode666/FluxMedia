@@ -10,7 +10,12 @@ export type SettingCategory =
   | "credits"
   | "analytics";
 
-export type SettingValueType = "string" | "number" | "boolean" | "select";
+export type SettingValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "select"
+  | "json";
 
 export type SettingKey =
   | "NEXT_PUBLIC_APP_URL"
@@ -42,6 +47,7 @@ export type SettingKey =
   | "EPAY_DEFAULT_PAYMENT_TYPE"
   | "NEXT_PUBLIC_EPAY_DEFAULT_PAYMENT_TYPE"
   | "BILLING_YEARLY_ENABLED"
+  | "PLAN_CAPABILITY_MATRIX"
   | "PLAN_STARTER_MONTHLY_CREDITS"
   | "PLAN_PRO_MONTHLY_CREDITS"
   | "PLAN_ULTRA_MONTHLY_CREDITS"
@@ -155,8 +161,66 @@ export interface SettingDefinition {
   requiresRestart?: boolean;
   requiresRebuild?: boolean;
   options?: Array<{ label: string; value: string }>;
-  defaultValue?: string | number | boolean;
+  defaultValue?: unknown;
+  exampleValue?: unknown;
 }
+
+const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
+  version: 1,
+  features: {
+    "imageGeneration.text": "free",
+    "imageGeneration.edit": "free",
+    "imageGeneration.chat": "pro",
+    "imageGeneration.batch": "free",
+    "promptOptimization.control": "pro",
+    "models.gpt55": "ultra",
+    "customApi.configure": "starter",
+    "backendGroups.select": "free",
+    "externalApi.keys.manage": "starter",
+    "externalApi.models.list": "starter",
+    "externalApi.chat.completions": "starter",
+    "externalApi.images.generate": "starter",
+    "externalApi.images.edit": "starter",
+    "externalApi.responses": "pro",
+    "externalApi.streaming": "starter",
+    "moderation.riskLevelControl": "ultra",
+    "moderation.onlyFailureSettlement": "ultra",
+  },
+  limits: {
+    free: {
+      maxFileMb: 5,
+      maxUploadMb: 75,
+      queuePriority: "normal",
+      imageGenerationConcurrency: 2,
+      monthlyCredits: 100,
+      maxBatchCount: 10,
+      maxEditImages: 16,
+      maxChatImages: 16,
+      maxChatContextChars: 30000,
+    },
+    pro: {
+      maxFileMb: 50,
+      maxUploadMb: 75,
+      queuePriority: "priority",
+      imageGenerationConcurrency: 15,
+      monthlyCredits: 20000,
+      maxBatchCount: 10,
+      maxEditImages: 16,
+      maxChatImages: 16,
+      maxChatContextChars: 30000,
+    },
+  },
+  moderation: {
+    ultra: {
+      defaultBlockRiskLevel: "medium",
+      maxBlockRiskLevel: "medium",
+    },
+    enterprise: {
+      defaultBlockRiskLevel: "high",
+      maxBlockRiskLevel: "high",
+    },
+  },
+};
 
 export const SYSTEM_SETTING_DEFINITIONS = [
   {
@@ -339,6 +403,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "plans",
     valueType: "boolean",
     defaultValue: true,
+  },
+  {
+    key: "PLAN_CAPABILITY_MATRIX",
+    label: "套餐能力矩阵",
+    description:
+      "JSON 配置。统一控制套餐功能门槛、上传限制、批量数量、并发、队列优先级、月积分和审核等级。留空时使用代码默认矩阵，并兼容下方旧上传/月积分配置。",
+    category: "plans",
+    valueType: "json",
+    exampleValue: PLAN_CAPABILITY_MATRIX_EXAMPLE,
   },
   {
     key: "PLAN_STARTER_MONTHLY_CREDITS",

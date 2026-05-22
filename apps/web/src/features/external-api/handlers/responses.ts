@@ -1,7 +1,10 @@
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { withApiLogging } from "@repo/shared/api-logger";
-import { canUseExternalResponsesImageApi } from "@repo/shared/config/subscription-plan";
+import {
+  canUsePlanCapability,
+  getPlanLimits,
+} from "@repo/shared/subscription/services/plan-capabilities";
 import { logError } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -606,15 +609,27 @@ export const postExternalResponses = withApiLogging(
     }
 
     const plan = await getUserPlan(auth.userId);
-    if (!canUseExternalResponsesImageApi(plan.plan)) {
+    if (!(await canUsePlanCapability(plan.plan, "externalApi.responses"))) {
       return openAIImageError(
         "External Responses image generation requires Pro plan or higher.",
         403,
         "insufficient_plan"
       );
     }
+    if (
+      wantsImageStreamResponse(request, parsed.data.stream) &&
+      !(await canUsePlanCapability(plan.plan, "externalApi.streaming"))
+    ) {
+      return openAIImageError(
+        "External API streaming is not enabled for this plan.",
+        403,
+        "insufficient_plan"
+      );
+    }
 
-    if (!isExternalResponsesImageModelAllowed(parsed.data.model, plan.plan)) {
+    if (
+      !(await isExternalResponsesImageModelAllowed(parsed.data.model, plan.plan))
+    ) {
       return openAIImageError(
         "Unsupported model for this plan. Use /v1/models to list available Responses image models."
       );
@@ -653,6 +668,7 @@ export const postExternalResponses = withApiLogging(
       );
     }
 
+    const limits = await getPlanLimits(plan.plan);
     const input = {
       mode: "chat" as const,
       userId: auth.userId,
@@ -661,6 +677,7 @@ export const postExternalResponses = withApiLogging(
       preferredBackendMemberId,
       prompt,
       history: requestHistory,
+      maxChatContextChars: limits.maxChatContextChars,
       images,
       moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,

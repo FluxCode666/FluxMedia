@@ -113,6 +113,8 @@ export interface GetUploadUrlResult {
   key: string;
   /** 存储桶名称 */
   bucket: string;
+  /** 当前套餐单文件大小上限 */
+  maxFileSizeBytes?: number;
 }
 
 // ============================================

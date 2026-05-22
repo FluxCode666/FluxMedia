@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@repo/shared/auth/server";
 
 import { getCreditsBalance } from "@repo/shared/credits/core";
+import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getLocale } from "next-intl/server";
@@ -31,6 +32,7 @@ export default async function CreatePage() {
       listSelectableImageBackendGroups(plan.plan),
       getUserImageBackendPreference(user.id),
     ]);
+  const capabilities = await getPlanCapabilitySnapshot(plan.plan);
 
   const balance = creditsData?.balance || 0;
 
@@ -53,6 +55,7 @@ export default async function CreatePage() {
       balance={balance}
       recentGenerations={recents}
       plan={plan.plan}
+      capabilities={capabilities}
       uploadLimits={uploadLimits}
       backendGroups={backendGroups.map((group) => ({
         id: group.id,

@@ -107,7 +107,10 @@ export function ApiConfigForm() {
           getMyPlanAction(),
         ]);
         setCustomApiAllowed(
-          planResult?.data?.plan ? canUseCustomApi(planResult.data.plan) : false
+          planResult?.data?.capabilities?.features["customApi.configure"] ??
+            (planResult?.data?.plan
+              ? canUseCustomApi(planResult.data.plan)
+              : false)
         );
         if (configResult?.data) {
           setBaseUrl(configResult.data.baseUrl);

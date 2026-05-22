@@ -2,7 +2,6 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { db } from "@repo/database";
 import { externalApiKey, user } from "@repo/database/schema";
 import {
-  canUseExternalApi,
   isModerationBlockRiskLevel,
   type ModerationBlockRiskLevel,
 } from "@repo/shared/config/subscription-plan";
@@ -60,9 +59,6 @@ export async function authenticateExternalApiRequest(request: Request) {
   }
 
   const plan = await getUserPlan(apiKey.userId);
-  if (!canUseExternalApi(plan.plan)) {
-    return null;
-  }
 
   await db
     .update(externalApiKey)
@@ -72,6 +68,7 @@ export async function authenticateExternalApiRequest(request: Request) {
   return {
     apiKeyId: apiKey.id,
     userId: apiKey.userId,
+    plan: plan.plan,
     moderationBlockRiskLevel: (
       isModerationBlockRiskLevel(apiKey.moderationBlockRiskLevel)
         ? apiKey.moderationBlockRiskLevel

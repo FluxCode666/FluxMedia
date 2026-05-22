@@ -1,5 +1,6 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import { auth } from "@repo/shared/auth";
+import { getPlanLimits } from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { randomUUID } from "node:crypto";
@@ -29,7 +30,6 @@ import type {
   ThinkingLevel,
 } from "@/features/image-generation/types";
 
-const MAX_EDIT_IMAGES = 16;
 const VALID_QUALITIES = new Set<ImageQuality>([
   "auto",
   "low",
@@ -44,8 +44,6 @@ const VALID_THINKING = new Set<ThinkingLevel>([
   "high",
   "xhigh",
 ]);
-const MAX_BATCH_COUNT = 10;
-
 function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
@@ -55,15 +53,15 @@ function getText(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getCount(formData: FormData, key: string) {
+function getCount(formData: FormData, key: string, maxBatchCount: number) {
   const value = getText(formData, key);
   if (!value) return 1;
   if (!/^\d+$/.test(value)) {
     throw new Error(`${key} must be an integer.`);
   }
   const count = Number(value);
-  if (count < 1 || count > MAX_BATCH_COUNT) {
-    throw new Error(`${key} must be between 1 and ${MAX_BATCH_COUNT}.`);
+  if (count < 1 || count > maxBatchCount) {
+    throw new Error(`${key} must be between 1 and ${maxBatchCount}.`);
   }
   return count;
 }
@@ -108,6 +106,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const plan = await getUserPlan(session.user.id);
+  const planLimits = await getPlanLimits(plan.plan);
   const uploadLimits = await getPlanUploadLimits(plan.plan);
   const maxImageBytes = uploadLimits.maxFileSizeBytes;
   const maxRequestBytes = uploadLimits.maxUploadBytes;
@@ -159,7 +158,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   const moderation = moderationValue as ImageModeration;
   let count = 1;
   try {
-    count = getCount(formData, "count");
+    count = getCount(formData, "count", planLimits.maxBatchCount);
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Invalid count."
@@ -183,8 +182,10 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     return errorResponse("At least one source image is required.");
   }
 
-  if (sourceFiles.length > MAX_EDIT_IMAGES) {
-    return errorResponse(`No more than ${MAX_EDIT_IMAGES} images are allowed.`);
+  if (sourceFiles.length > planLimits.maxEditImages) {
+    return errorResponse(
+      `No more than ${planLimits.maxEditImages} images are allowed.`
+    );
   }
 
   try {

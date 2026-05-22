@@ -1,13 +1,5 @@
 import { db } from "@repo/database";
 import { generation, user } from "@repo/database/schema";
-import {
-  canUseChat,
-  canUseGpt55Chat,
-  canUseModerationOnlyFailureSettlement,
-  canUsePromptOptimization,
-  normalizeModerationBlockRiskLevelForPlan,
-  PLAN_PRIVILEGES,
-} from "@repo/shared/config/subscription-plan";
 import { consumeCredits } from "@repo/shared/credits/core";
 import {
   IMAGE_GENERATION_PENDING_TIMEOUT_MS,
@@ -16,6 +8,11 @@ import {
 } from "@repo/shared/generation-maintenance";
 import { moderateContent } from "@repo/shared/moderation";
 import { getStorageProvider } from "@repo/shared/storage/providers";
+import {
+  getPlanCapabilitySnapshot,
+  getPlanQueueSettings,
+  normalizePlanModerationBlockRiskLevel,
+} from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { and, eq, sql } from "drizzle-orm";
@@ -73,10 +70,10 @@ type RunImageGenerationInput =
       apiKeyId?: string;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
+      maxChatContextChars?: number;
     } & ChatImageParams);
 
 const CHAT_TEXT_ONLY_CREDITS = 1;
-const MAX_CHAT_CONTEXT_CHARS = 30_000;
 const TEXT_MODERATION_ONLY_CREDITS =
   getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
 const FULL_REFUND_GENERATION_ERROR_PATTERNS = [
@@ -380,7 +377,7 @@ async function getUserModerationBlockRiskLevel(
   requested?: ModerationBlockRiskLevel
 ) {
   if (requested) {
-    return normalizeModerationBlockRiskLevelForPlan(plan, requested);
+    return await normalizePlanModerationBlockRiskLevel(plan, requested);
   }
 
   const [row] = await db
@@ -389,7 +386,7 @@ async function getUserModerationBlockRiskLevel(
     .where(eq(user.id, userId))
     .limit(1);
 
-  return normalizeModerationBlockRiskLevelForPlan(
+  return await normalizePlanModerationBlockRiskLevel(
     plan,
     row?.moderationBlockRiskLevel
   );
@@ -414,19 +411,22 @@ export async function runImageGenerationForUser(
     (await getRuntimeSettingString("NEXT_PUBLIC_GENERATIONS_BUCKET_NAME")) ||
     "generations";
   const userPlan = await getUserPlan(input.userId);
+  const planCapabilities = await getPlanCapabilitySnapshot(userPlan.plan);
+  const queueSettings = await getPlanQueueSettings(userPlan.plan);
   const moderationBlockRiskLevel = await getUserModerationBlockRiskLevel(
     input.userId,
     userPlan.plan,
     input.moderationBlockRiskLevel
   );
-  const moderationFailureCredits = canUseModerationOnlyFailureSettlement(
-    userPlan.plan
-  )
+  const moderationFailureCredits = planCapabilities.features[
+    "moderation.onlyFailureSettlement"
+  ]
     ? isTextOnlyChatInput
       ? Math.min(TEXT_MODERATION_ONLY_CREDITS, CHAT_TEXT_ONLY_CREDITS)
       : creditCost.moderationOnlyCredits
     : initialCreditCharge;
-  const promptOptimizationAllowed = canUsePromptOptimization(userPlan.plan);
+  const promptOptimizationAllowed =
+    planCapabilities.features["promptOptimization.control"];
   const explicitPromptOptimization =
     input.promptOptimization !== undefined || Boolean(input.apiPrompt);
 
@@ -444,12 +444,57 @@ export async function runImageGenerationForUser(
   const moderationPrompt =
     input.mode === "chat" || !promptOptimization ? input.prompt : apiPrompt;
 
-  if (input.mode === "chat" && !canUseChat(userPlan.plan)) {
+  if (
+    input.mode === "generate" &&
+    !planCapabilities.features["imageGeneration.text"]
+  ) {
+    return {
+      error: "Text image generation is not enabled for this plan.",
+      generationId,
+    };
+  }
+  if (
+    input.mode === "edit" &&
+    !planCapabilities.features["imageGeneration.edit"]
+  ) {
+    return {
+      error: "Image editing is not enabled for this plan.",
+      generationId,
+    };
+  }
+  if (
+    input.mode === "chat" &&
+    !planCapabilities.features["imageGeneration.chat"]
+  ) {
     return {
       error: "Chat mode requires Pro plan or higher.",
       generationId,
     };
   }
+  const requestedCount =
+    input.mode === "generate" || input.mode === "edit" || input.mode === "chat"
+      ? input.n || 1
+      : 1;
+  if (
+    requestedCount > 1 &&
+    !planCapabilities.features["imageGeneration.batch"]
+  ) {
+    return {
+      error: "Batch image generation is not enabled for this plan.",
+      generationId,
+    };
+  }
+  if (requestedCount > planCapabilities.limits.maxBatchCount) {
+    return {
+      error: `Image count must be no more than ${planCapabilities.limits.maxBatchCount}.`,
+      generationId,
+    };
+  }
+  const maxChatContextChars =
+    input.mode === "chat"
+      ? input.maxChatContextChars ||
+        planCapabilities.limits.maxChatContextChars
+      : planCapabilities.limits.maxChatContextChars;
   if (
     input.mode === "chat" &&
     getChatContextLength({
@@ -457,10 +502,10 @@ export async function runImageGenerationForUser(
       apiPrompt,
       promptOptimization,
       history: input.history,
-    }) > MAX_CHAT_CONTEXT_CHARS
+    }) > maxChatContextChars
   ) {
     return {
-      error: `Chat input context must be no more than ${MAX_CHAT_CONTEXT_CHARS} characters.`,
+      error: `Chat input context must be no more than ${maxChatContextChars} characters.`,
       generationId,
     };
   }
@@ -500,7 +545,7 @@ export async function runImageGenerationForUser(
         gptModel = input.model?.trim() || config.model?.trim() || undefined;
       } else {
         gptModel = await getResponsesModel(config, input.model, {
-          allowGpt55: canUseGpt55Chat(userPlan.plan),
+          allowGpt55: planCapabilities.features["models.gpt55"],
         });
       }
       const requestedImageModel = getImageModel(input.imageModel, config.model);
@@ -522,7 +567,7 @@ export async function runImageGenerationForUser(
       gptModel = await resolveRequestedPoolGptModel({
         config,
         model: input.gptModel,
-        allowGpt55: canUseGpt55Chat(userPlan.plan),
+        allowGpt55: planCapabilities.features["models.gpt55"],
       });
       recordModel = imageModel;
     }
@@ -544,9 +589,8 @@ export async function runImageGenerationForUser(
     return await withImageGenerationQueue(
       {
         userId: input.userId,
-        priority: PLAN_PRIVILEGES[userPlan.plan].queuePriority,
-        userConcurrency:
-          PLAN_PRIVILEGES[userPlan.plan].imageGenerationConcurrency,
+        priority: queueSettings.priority,
+        userConcurrency: queueSettings.userConcurrency,
       },
       () =>
         runQueuedImageGenerationForUser({
@@ -571,6 +615,7 @@ export async function runImageGenerationForUser(
           imageModel,
           gptModel,
           recordModel,
+          allowGpt55: planCapabilities.features["models.gpt55"],
         })
     );
   } catch (error) {
@@ -606,6 +651,7 @@ async function runQueuedImageGenerationForUser({
   imageModel,
   gptModel,
   recordModel,
+  allowGpt55,
 }: {
   input: RunImageGenerationInput;
   callbacks?: ImageGenerationCallbacks;
@@ -628,6 +674,7 @@ async function runQueuedImageGenerationForUser({
   imageModel: string;
   gptModel?: string;
   recordModel: string;
+  allowGpt55: boolean;
 }): Promise<ImageGenerationOperationResult> {
   const startedAt = Date.now();
   const promptOptimizationMetadata = buildPromptOptimizationMetadata({
@@ -931,7 +978,7 @@ async function runQueuedImageGenerationForUser({
               size,
               model: gptModel,
               imageModel,
-              allowGpt55: canUseGpt55Chat(userPlan.plan),
+              allowGpt55,
               quality: input.quality,
               n: input.n,
               moderation: input.moderation,

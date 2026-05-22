@@ -48,6 +48,7 @@ import {
   type ModerationBlockRiskLevel,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import {
   deleteAccountAction,
@@ -97,8 +98,16 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [userPlan, setUserPlan] = useState<SubscriptionPlan>("free");
-  const moderationOptions = getAllowedModerationBlockRiskLevels(userPlan);
-  const moderationControlAllowed = canUseModerationRiskLevelControl(userPlan);
+  const [capabilities, setCapabilities] =
+    useState<PlanCapabilitySnapshot | null>(null);
+  const moderationOptions =
+    capabilities?.moderation.allowedBlockRiskLevels ||
+    getAllowedModerationBlockRiskLevels(userPlan);
+  const moderationControlAllowed =
+    capabilities?.features["moderation.riskLevelControl"] ??
+    canUseModerationRiskLevelControl(userPlan);
+  const avatarMaxFileSizeBytes =
+    capabilities?.limits.maxFileSizeBytes ?? MAX_FILE_SIZE;
   const normalizeTab = useCallback((value: string | null) => {
     if (
       value === "security" ||
@@ -148,7 +157,10 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       if (result?.data?.plan) {
         const nextPlan = result.data.plan;
         setUserPlan(nextPlan);
-        const allowed = getAllowedModerationBlockRiskLevels(nextPlan);
+        setCapabilities(result.data.capabilities ?? null);
+        const allowed =
+          result.data.capabilities?.moderation.allowedBlockRiskLevels ||
+          getAllowedModerationBlockRiskLevels(nextPlan);
         const current = form.getValues("moderationBlockRiskLevel");
         if (current && !allowed.includes(current)) {
           form.setValue("moderationBlockRiskLevel", allowed.at(-1) || "low");
@@ -245,9 +257,9 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > avatarMaxFileSizeBytes) {
       toast.error(
-        t("errors.fileTooLarge", { size: MAX_FILE_SIZE / 1024 / 1024 })
+        t("errors.fileTooLarge", { size: avatarMaxFileSizeBytes / 1024 / 1024 })
       );
       return;
     }
@@ -271,6 +283,15 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
 
       if (!uploadUrlResult?.data?.uploadUrl) {
         throw new Error(t("errors.uploadFailed"));
+      }
+      const signedMaxFileSizeBytes =
+        uploadUrlResult.data.maxFileSizeBytes || avatarMaxFileSizeBytes;
+      if (file.size > signedMaxFileSizeBytes) {
+        throw new Error(
+          t("errors.fileTooLarge", {
+            size: signedMaxFileSizeBytes / 1024 / 1024,
+          })
+        );
       }
 
       const uploadResponse = await fetch(uploadUrlResult.data.uploadUrl, {
@@ -516,7 +537,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
                 {isUploadingAvatar
                   ? t("avatar.uploading")
                   : t("avatar.supportedFormats", {
-                      size: MAX_FILE_SIZE / 1024 / 1024,
+                      size: avatarMaxFileSizeBytes / 1024 / 1024,
                     })}
               </p>
             </div>
