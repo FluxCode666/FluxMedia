@@ -2,6 +2,8 @@ export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const LEGACY_IMAGE_MODEL = "gpt-image-1";
 export const IMAGE_MODEL_PREFIX = "gpt-image-";
 export const AUTO_IMAGE_SIZE = "auto";
+export const IMAGE_1K_BASE_EDGE = 1248;
+export const IMAGE_1K_BASE_SIZE = `${IMAGE_1K_BASE_EDGE}x${IMAGE_1K_BASE_EDGE}`;
 export const DEFAULT_IMAGE_SIZE = "1024x1024";
 export const IMAGE_DIMENSION_STEP = 16;
 export const MIN_IMAGE_DIMENSION = 256;
@@ -47,7 +49,7 @@ export function getImageModel(model?: string | null, fallback?: string | null) {
 
 export const IMAGE_RESOLUTION_PRESETS = [
   { value: AUTO_IMAGE_SIZE, label: "Auto", detail: "Backend decides" },
-  { value: "1024x1024", label: "Square", detail: "1024 × 1024" },
+  { value: IMAGE_1K_BASE_SIZE, label: "1K Square", detail: "1248 × 1248" },
   { value: "1536x1024", label: "Landscape", detail: "1536 × 1024" },
   { value: "1024x1536", label: "Portrait", detail: "1024 × 1536" },
   { value: "2048x2048", label: "2K Square", detail: "2048 × 2048" },
@@ -127,6 +129,13 @@ export function parseImageSize(size: string): ImageDimensions | null {
   if (!Number.isInteger(width) || !Number.isInteger(height)) return null;
 
   return { width, height };
+}
+
+export function isOneKImageSize(size?: string | null) {
+  if (!size || size.trim().toLowerCase() === AUTO_IMAGE_SIZE) return false;
+  const dimensions = parseImageSize(size);
+  if (!dimensions) return false;
+  return Math.max(dimensions.width, dimensions.height) <= IMAGE_1K_BASE_EDGE;
 }
 
 export function normalizeImageSize(width: number, height: number) {

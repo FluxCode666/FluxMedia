@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   AUTO_IMAGE_SIZE,
+  IMAGE_1K_BASE_SIZE,
   IMAGE_RESOLUTION_PRESETS,
+  isOneKImageSize,
   validateImageSize,
 } from "../../apps/web/src/features/image-generation/resolution";
 
@@ -26,5 +28,13 @@ describe("image resolution", () => {
 
   it("exposes auto as a UI preset", () => {
     expect(IMAGE_RESOLUTION_PRESETS[0]?.value).toBe(AUTO_IMAGE_SIZE);
+  });
+
+  it("uses 1248 as the 1K routing baseline", () => {
+    expect(IMAGE_RESOLUTION_PRESETS[1]?.value).toBe(IMAGE_1K_BASE_SIZE);
+    expect(isOneKImageSize("1248x1248")).toBe(true);
+    expect(isOneKImageSize("1248x704")).toBe(true);
+    expect(isOneKImageSize("1536x1024")).toBe(false);
+    expect(isOneKImageSize(AUTO_IMAGE_SIZE)).toBe(false);
   });
 });

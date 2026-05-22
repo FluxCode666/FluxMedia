@@ -144,6 +144,11 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     "promptOptimization",
     "prompt_optimization"
   );
+  const mixWebFirst = getOptionalBoolean(
+    formData,
+    "mixWebFirst",
+    "mix_web_first"
+  );
 
   const size = getText(formData, "size") || undefined;
   if (size) {
@@ -261,6 +266,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           outputFormat,
           outputCompression,
           n: 1,
+          mixWebFirst,
           images: await filesToImageInputs(sourceFiles, moderationImages),
           mask:
             maskFile instanceof File

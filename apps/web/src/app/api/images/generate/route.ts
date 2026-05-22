@@ -42,6 +42,8 @@ const generateImageSchema = z.object({
   outputFormat: z.enum(["png", "jpeg", "webp"]).optional(),
   output_compression: z.number().int().min(0).max(100).optional(),
   outputCompression: z.number().int().min(0).max(100).optional(),
+  mixWebFirst: z.boolean().optional(),
+  mix_web_first: z.boolean().optional(),
 });
 
 function errorResponse(message: string, status = 400) {
@@ -108,6 +110,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     outputCompression: normalizeOutputCompression(
       parsed.data.output_compression ?? parsed.data.outputCompression
     ),
+    mixWebFirst: parsed.data.mixWebFirst ?? parsed.data.mix_web_first,
   };
 
   try {

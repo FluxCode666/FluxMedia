@@ -359,6 +359,11 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     "promptOptimization",
     "prompt_optimization"
   );
+  const mixWebFirst = getOptionalBoolean(
+    formData,
+    "mixWebFirst",
+    "mix_web_first"
+  );
   let history: ChatHistoryMessage[] = [];
   try {
     history = getHistory(formData, planLimits.maxChatImages);
@@ -495,6 +500,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           outputCompression,
           stream: useStreamResponse,
           thinking,
+          mixWebFirst,
         },
         onPartialImage
       );

@@ -45,6 +45,7 @@ type ResolveBackendOptions = {
   apiKeyId?: string;
   requestKind: ImageBackendRequestKind;
   preferredMemberId?: string;
+  accountBackendPreference?: ImageBackendAccountBackend;
 };
 
 type PoolMember =
@@ -381,6 +382,8 @@ function isRecoverableBackendError(error?: string | null) {
     normalized.includes("empty response") ||
     normalized.includes("non-json responses api response") ||
     normalized.includes("non-json images api response") ||
+    normalized.includes("returned no image output") ||
+    normalized.includes("api returned no image data") ||
     normalized.includes("http 500") ||
     normalized.includes("status_code=500") ||
     normalized.includes("status code 500") ||
@@ -967,7 +970,8 @@ async function selectPoolMember(
   groupMetadata?: Record<string, unknown> | null,
   requestKind?: ImageBackendRequestKind,
   excluded?: Set<string>,
-  preferredMemberId?: string
+  preferredMemberId?: string,
+  accountBackendPreference?: ImageBackendAccountBackend
 ): Promise<PoolMember | null> {
   const apiGroupFilter = groupId
     ? eq(imageBackendApi.groupId, groupId)
@@ -1028,26 +1032,30 @@ async function selectPoolMember(
       .limit(50),
   ]);
 
-  const apiMembers: PoolMember[] = apiRows.map((row) => ({
-    type: "api",
-    id: row.id,
-    groupId: row.groupId,
-    name: row.name,
-    baseUrl: row.baseUrl,
-    apiKey: row.apiKey,
-    model: row.model,
-    useStream: row.useStream,
-    contentSafetyEnabled: row.contentSafetyEnabled,
-    priority: row.priority,
-    concurrency: 1,
-    lastUsedAt: row.lastUsedAt,
-    createdAt: row.createdAt,
-  }));
+  const apiMembers: PoolMember[] = accountBackendPreference
+    ? []
+    : apiRows.map((row) => ({
+        type: "api",
+        id: row.id,
+        groupId: row.groupId,
+        name: row.name,
+        baseUrl: row.baseUrl,
+        apiKey: row.apiKey,
+        model: row.model,
+        useStream: row.useStream,
+        contentSafetyEnabled: row.contentSafetyEnabled,
+        priority: row.priority,
+        concurrency: 1,
+        lastUsedAt: row.lastUsedAt,
+        createdAt: row.createdAt,
+      }));
 
   const accountMembers: PoolMember[] = accountRows
     .filter((row) => {
       const backend = normalizeAccountBackend(row.implementationMode);
       return (
+        (!accountBackendPreference ||
+          accountBackendPreference === backend) &&
         groupBackendAllowsAccount(groupMetadata, backend) &&
         accountBackendAllowsRequest(
           backend,
@@ -1232,7 +1240,8 @@ async function resolvePoolMember(
     group.metadata,
     options.requestKind,
     options.excluded,
-    options.preferredMemberId
+    options.preferredMemberId,
+    options.accountBackendPreference
   );
   if (!member) {
     if (requestedGroup.explicit) {

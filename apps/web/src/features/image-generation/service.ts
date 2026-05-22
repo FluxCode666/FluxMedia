@@ -20,7 +20,10 @@ import {
   reportImageBackendResult,
   resolveImageBackendPoolConfig,
 } from "@/features/image-backend-pool/service";
-import type { ImageBackendRequestKind } from "@/features/image-backend-pool/types";
+import type {
+  ImageBackendAccountBackend,
+  ImageBackendRequestKind,
+} from "@/features/image-backend-pool/types";
 import {
   editImageWithChatGptWeb,
   generateImageWithChatGptWeb,
@@ -734,7 +737,8 @@ function poolBackendMemberKey(config: ApiConfig) {
 
 async function retryPoolBackendResult(
   config: ApiConfig,
-  run: (candidate: ApiConfig) => Promise<GenerateImageResult>
+  run: (candidate: ApiConfig) => Promise<GenerateImageResult>,
+  options?: { mixWebFirst?: boolean }
 ) {
   if (
     !config.backend?.reportResult ||
@@ -746,6 +750,8 @@ async function retryPoolBackendResult(
 
   const requestKind = config.backend.requestKind;
   const excluded = new Set<string>();
+  let accountBackendPreference: ImageBackendAccountBackend | undefined =
+    options?.mixWebFirst ? "web" : undefined;
   let candidate = config;
   let lastResult: GenerateImageResult | null = null;
   let attempt = 0;
@@ -813,18 +819,50 @@ async function retryPoolBackendResult(
         apiKeyId: config.backend.apiKeyId,
         requestKind,
         excludedMemberKeys: Array.from(excluded),
+        accountBackendPreference,
       });
     } catch (error) {
       if (error instanceof ImageBackendPoolUnavailableError) {
-        logWarn("生图后端没有可切换的账号池成员", {
-          attempt,
-          requestKind,
-          excludedCount: excluded.size,
-          lastError: result.error,
-        });
-        break;
+        if (accountBackendPreference === "web") {
+          logWarn("混合分组 1K Web 优先阶段已无可用账号，切换 Codex", {
+            attempt,
+            requestKind,
+            excludedCount: excluded.size,
+            lastError: result.error,
+          });
+          accountBackendPreference = "responses";
+          try {
+            next = await resolveImageBackendPoolConfig({
+              userId: config.backend.userId,
+              apiKeyId: config.backend.apiKeyId,
+              requestKind,
+              excludedMemberKeys: Array.from(excluded),
+              accountBackendPreference,
+            });
+          } catch (fallbackError) {
+            if (fallbackError instanceof ImageBackendPoolUnavailableError) {
+              logWarn("生图后端没有可切换的账号池成员", {
+                attempt,
+                requestKind,
+                excludedCount: excluded.size,
+                lastError: result.error,
+              });
+              break;
+            }
+            throw fallbackError;
+          }
+        } else {
+          logWarn("生图后端没有可切换的账号池成员", {
+            attempt,
+            requestKind,
+            excludedCount: excluded.size,
+            lastError: result.error,
+          });
+          break;
+        }
+      } else {
+        throw error;
       }
-      throw error;
     }
     if (!next?.config?.backend) break;
     if (poolBackendMemberKey(next.config) === memberKey) {
@@ -1593,6 +1631,7 @@ export async function getEffectiveConfig(
     apiKeyId?: string;
     requestKind?: ImageBackendRequestKind;
     preferredMemberId?: string;
+    accountBackendPreference?: ImageBackendAccountBackend;
   }
 ): Promise<{
   config: ApiConfig;
@@ -1609,6 +1648,7 @@ export async function getEffectiveConfig(
         apiKeyId: options.apiKeyId,
         requestKind: options.requestKind,
         preferredMemberId: options.preferredMemberId,
+        accountBackendPreference: options.accountBackendPreference,
       });
     } catch (error) {
       if (error instanceof ImageBackendPoolUnavailableError) {
@@ -1631,8 +1671,10 @@ export async function generateImage(
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   if (config.backend?.reportResult) {
-    return retryPoolBackendResult(config, (candidate) =>
-      generateImage(candidate, params, callbacks)
+    return retryPoolBackendResult(
+      config,
+      (candidate) => generateImage(candidate, params, callbacks),
+      { mixWebFirst: params.mixWebFirst }
     );
   }
 
@@ -1748,8 +1790,10 @@ export async function editImage(
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   if (config.backend?.reportResult) {
-    return retryPoolBackendResult(config, (candidate) =>
-      editImage(candidate, params, callbacks)
+    return retryPoolBackendResult(
+      config,
+      (candidate) => editImage(candidate, params, callbacks),
+      { mixWebFirst: params.mixWebFirst }
     );
   }
 
@@ -1864,8 +1908,10 @@ export async function generateChatImage(
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
   if (config.backend?.reportResult) {
-    return retryPoolBackendResult(config, (candidate) =>
-      generateChatImage(candidate, params, callbacks)
+    return retryPoolBackendResult(
+      config,
+      (candidate) => generateChatImage(candidate, params, callbacks),
+      { mixWebFirst: params.mixWebFirst }
     );
   }
 

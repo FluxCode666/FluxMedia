@@ -69,7 +69,9 @@ import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
   getImageCreditCost,
+  IMAGE_1K_BASE_EDGE,
   IMAGE_DIMENSION_STEP,
+  isOneKImageSize,
   MAX_IMAGE_DIMENSION,
   normalizeImageSize,
   normalizeValidImageSize,
@@ -196,6 +198,7 @@ type ImageSizeDialogValue = {
   auto: boolean;
   width: number;
   height: number;
+  mixWebFirst: boolean;
 };
 
 function getNearestSupportedSizeForRatio(
@@ -229,6 +232,7 @@ function inferImageSizeDialogState(value: ImageSizeDialogValue) {
       base: "1k" as ImageSizeBase,
       ratio: "1:1" as ImageAspectRatio,
       customRatio: "1:1",
+      mixWebFirst: value.mixWebFirst,
     };
   }
 
@@ -241,6 +245,7 @@ function inferImageSizeDialogState(value: ImageSizeDialogValue) {
           base: base.value,
           ratio: ratio.value,
           customRatio: ratio.value,
+          mixWebFirst: value.mixWebFirst,
         };
       }
     }
@@ -255,6 +260,7 @@ function inferImageSizeDialogState(value: ImageSizeDialogValue) {
     customRatio: `${Math.round(value.width / divisor)}:${Math.round(
       value.height / divisor
     )}`,
+    mixWebFirst: value.mixWebFirst,
   };
 }
 
@@ -340,6 +346,7 @@ function ImageSizeDialog({
   title,
   copy,
   validationMessage,
+  showMixRouting,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -348,6 +355,7 @@ function ImageSizeDialog({
   title: string;
   copy: (en: string, zh: string) => string;
   validationMessage: (message?: string) => string | undefined;
+  showMixRouting?: boolean;
 }) {
   const initial = inferImageSizeDialogState(value);
   const [mode, setMode] = useState<ImageSizeMode>(initial.mode);
@@ -357,6 +365,7 @@ function ImageSizeDialog({
   const [customRatioOpen, setCustomRatioOpen] = useState(false);
   const [customWidth, setCustomWidth] = useState(value.width);
   const [customHeight, setCustomHeight] = useState(value.height);
+  const [mixWebFirst, setMixWebFirst] = useState(value.mixWebFirst);
 
   useEffect(() => {
     if (!open) return;
@@ -368,7 +377,8 @@ function ImageSizeDialog({
     setCustomRatioOpen(false);
     setCustomWidth(value.width);
     setCustomHeight(value.height);
-  }, [open, value.auto, value.width, value.height]);
+    setMixWebFirst(value.mixWebFirst);
+  }, [open, value.auto, value.width, value.height, value.mixWebFirst]);
 
   const selectedRatio =
     IMAGE_ASPECT_RATIOS.find((item) => item.value === ratio) ||
@@ -393,6 +403,10 @@ function ImageSizeDialog({
         ? normalizedCustomSize
         : ratioSize;
   const previewCheck = validateImageSize(previewSize);
+  const mixRoutingAvailable = Boolean(
+    showMixRouting && isOneKImageSize(previewSize)
+  );
+  const effectiveMixWebFirst = mixRoutingAvailable && mixWebFirst;
   const canConfirm =
     mode === "auto" ||
     (mode === "custom"
@@ -402,14 +416,24 @@ function ImageSizeDialog({
   const apply = () => {
     if (!canConfirm) return;
     if (mode === "auto") {
-      onConfirm({ auto: true, width: value.width, height: value.height });
+      onConfirm({
+        auto: true,
+        width: value.width,
+        height: value.height,
+        mixWebFirst: false,
+      });
       onOpenChange(false);
       return;
     }
     const size = mode === "custom" ? normalizedCustomSize : ratioSize;
     const dimensions = parseImageSize(size);
     if (!dimensions) return;
-    onConfirm({ auto: false, width: dimensions.width, height: dimensions.height });
+    onConfirm({
+      auto: false,
+      width: dimensions.width,
+      height: dimensions.height,
+      mixWebFirst: effectiveMixWebFirst,
+    });
     onOpenChange(false);
   };
 
@@ -596,6 +620,43 @@ function ImageSizeDialog({
             </p>
           </div>
 
+          {showMixRouting && (
+            <label
+              className={`flex items-start gap-3 rounded-2xl border border-border bg-muted/20 p-4 text-xs leading-5 text-muted-foreground ${
+                mixRoutingAvailable ? "cursor-pointer" : "cursor-not-allowed"
+              }`}
+            >
+              <Checkbox
+                checked={effectiveMixWebFirst}
+                onCheckedChange={(checked) => setMixWebFirst(checked === true)}
+                disabled={!mixRoutingAvailable}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium text-foreground">
+                  {copy(
+                    "1K mixed group Web-first routing",
+                    "1K 混合分组优先走 Web"
+                  )}
+                </span>
+                <span className="mt-1 block">
+                  {copy(
+                    "When the active backend group is mixed and the selected size is in the 1K tier (up to 1248px on the longest edge), try all available Web accounts first; if they fail or are exhausted, fall back to Codex/Responses accounts. Web does not support exact resolution, image model, quality, output format, or OAI moderation controls, so unrelated controls are disabled while this is enabled.",
+                    "当前后端分组为混合分组且选择 1K 档（最长边不超过 1248px）时，会优先遍历所有可用 Web 账号；失败或耗尽后再回退到 Codex/Responses 账号。Web 不支持精确分辨率、图片模型、质量、输出格式、OAI 审核等控制，因此开启后无关选项会置灰。"
+                  )}
+                </span>
+                {!mixRoutingAvailable && (
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                    {copy(
+                      "Available only when the selected size is in the 1K tier.",
+                      "仅在当前尺寸属于 1K 档时可用。"
+                    )}
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <Button
               type="button"
@@ -659,7 +720,7 @@ const OUTPUT_FORMAT_OPTIONS: Array<{
   { value: "webp", label: "WebP" },
 ];
 const IMAGE_SIZE_BASES: Array<{ value: ImageSizeBase; label: string; edge: number }> = [
-  { value: "1k", label: "1K", edge: 1024 },
+  { value: "1k", label: "1K", edge: IMAGE_1K_BASE_EDGE },
   { value: "2k", label: "2K", edge: 2048 },
   { value: "4k", label: "4K", edge: 3840 },
 ];
@@ -1051,7 +1112,6 @@ export function CreatePageClient({
   const isWebOnlyBackend = activeBackendType === "web";
   const isResponsesOnlyBackend = activeBackendType === "responses";
   const showImageModelControls = !isWebOnlyBackend;
-  const showResponsesOnlyControls = !isWebOnlyBackend;
   const showWebOnlyControls = !isResponsesOnlyBackend;
   const imageCountLabel = (count: number) =>
     copy(`${count} image${count > 1 ? "s" : ""}`, `${count} 张图片`);
@@ -1218,6 +1278,9 @@ export function CreatePageClient({
   const [useAutoSize, setUseAutoSize] = useState(false);
   const [width, setWidth] = useState(defaultDimensions.width);
   const [height, setHeight] = useState(defaultDimensions.height);
+  const [textMixWebFirst, setTextMixWebFirst] = useState(true);
+  const [editMixWebFirst, setEditMixWebFirst] = useState(true);
+  const [chatMixWebFirst, setChatMixWebFirst] = useState(true);
   const [quality, setQuality] = useState<ImageQuality>("auto");
   const [moderation, setModeration] = useState<ImageModeration>("auto");
   const [outputFormat, setOutputFormat] =
@@ -1380,12 +1443,22 @@ export function CreatePageClient({
   const isDrawingRef = useRef(false);
   const lastMaskPointRef = useRef<{ x: number; y: number } | null>(null);
   const textSizeDialogValue = useMemo(
-    () => ({ auto: useAutoSize, width, height }),
-    [height, useAutoSize, width]
+    () => ({
+      auto: useAutoSize,
+      width,
+      height,
+      mixWebFirst: textMixWebFirst,
+    }),
+    [height, textMixWebFirst, useAutoSize, width]
   );
   const editSizeDialogValue = useMemo(
-    () => ({ auto: useAutoEditSize, width: editWidth, height: editHeight }),
-    [editHeight, editWidth, useAutoEditSize]
+    () => ({
+      auto: useAutoEditSize,
+      width: editWidth,
+      height: editHeight,
+      mixWebFirst: editMixWebFirst,
+    }),
+    [editHeight, editMixWebFirst, editWidth, useAutoEditSize]
   );
   const chatSizeDialogValue = useMemo(
     () =>
@@ -1394,12 +1467,19 @@ export function CreatePageClient({
             auto: useAutoChatEditSize,
             width: chatEditWidth,
             height: chatEditHeight,
+            mixWebFirst: chatMixWebFirst,
           }
-        : { auto: useAutoSize, width, height },
+        : {
+            auto: useAutoSize,
+            width,
+            height,
+            mixWebFirst: chatMixWebFirst,
+          },
     [
       chatAttachments.length,
       chatEditHeight,
       chatEditWidth,
+      chatMixWebFirst,
       height,
       useAutoChatEditSize,
       useAutoSize,
@@ -1436,6 +1516,7 @@ export function CreatePageClient({
   const chatCustomEditSize = useAutoChatEditSize
     ? AUTO_IMAGE_SIZE
     : manualChatCustomEditSize;
+  const canUseMixWebFirstRouting = activeBackendType === "mixed" && !customApiActive;
   const firstImageOriginalSize = useMemo(
     () =>
       firstImageSize
@@ -1475,6 +1556,31 @@ export function CreatePageClient({
     chatAttachments.length > 0 ? chatEditImageCreditCost : CHAT_TEXT_ONLY_CREDITS;
   const batchFallbackSize =
     chatAttachments.length > 0 ? chatCustomEditSize : size;
+  const textMixWebFirstActive =
+    canUseMixWebFirstRouting && textMixWebFirst && isOneKImageSize(size);
+  const editMixWebFirstActive =
+    canUseMixWebFirstRouting &&
+    editMixWebFirst &&
+    Boolean(effectiveEditSize) &&
+    isOneKImageSize(effectiveEditSize);
+  const chatMixWebFirstActive =
+    canUseMixWebFirstRouting &&
+    chatMixWebFirst &&
+    isOneKImageSize(chatAttachments.length > 0 ? chatCustomEditSize : size);
+  const currentModeMixWebFirstActive =
+    activeMode === "image"
+      ? editMixWebFirstActive
+      : activeMode === "chat"
+        ? chatMixWebFirstActive
+        : textMixWebFirstActive;
+  const disableResponsesOnlyControls =
+    isWebOnlyBackend || currentModeMixWebFirstActive;
+  const responsesOnlyDisabledReason = currentModeMixWebFirstActive
+    ? copy(
+        "Disabled while 1K mixed routing tries Web first. These controls apply after fallback to Codex/Responses.",
+        "1K 混合路由优先走 Web 时置灰；这些控制仅在回退到 Codex/Responses 后生效。"
+      )
+    : undefined;
   const batchSingleCreditCost = getImageCreditCost(batchFallbackSize, {
     imageModerationCount: chatAttachments.length,
   });
@@ -1830,6 +1936,9 @@ export function CreatePageClient({
     formData.append("stream", "true");
     if (promptOptimizationAllowed) {
       formData.append("prompt_optimization", String(promptOptimization));
+    }
+    if (chatMixWebFirstActive) {
+      formData.append("mix_web_first", "true");
     }
     attachments.forEach(({ file }) => {
       formData.append(attachments.length === 1 ? "image" : "image[]", file);
@@ -3243,6 +3352,7 @@ export function CreatePageClient({
         ...(imageGptModel !== "default" ? { gptModel: imageGptModel } : {}),
         ...(showWebOnlyControls ? { thinking: imageThinking } : {}),
         ...(promptOptimizationAllowed ? { promptOptimization } : {}),
+        ...(textMixWebFirstActive ? { mix_web_first: true } : {}),
       }),
     });
 
@@ -3393,6 +3503,9 @@ export function CreatePageClient({
     formData.append("count", String(editBatchCount));
     if (promptOptimizationAllowed) {
       formData.append("prompt_optimization", String(promptOptimization));
+    }
+    if (editMixWebFirstActive) {
+      formData.append("mix_web_first", "true");
     }
 
     setIsEditing(true);
@@ -3824,12 +3937,21 @@ export function CreatePageClient({
       : batchCostSuffix(batchCount);
 
     return (
-    <div className="space-y-4 rounded-lg border border-border bg-background p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-4 rounded-lg border border-border bg-background p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {showImageModelControls && (
-              <div className="space-y-1.5">
+              <div
+                className={`space-y-1.5 ${
+                  textMixWebFirstActive ? "opacity-55" : ""
+                }`}
+                title={
+                  textMixWebFirstActive
+                    ? responsesOnlyDisabledReason
+                    : undefined
+                }
+              >
                 <label
                   htmlFor={`text-model-${mode}`}
                   className="text-xs font-medium text-muted-foreground"
@@ -3839,7 +3961,7 @@ export function CreatePageClient({
                 <Select
                   value={textModel}
                   onValueChange={setTextModel}
-                  disabled={busy}
+                  disabled={busy || textMixWebFirstActive}
                 >
                   <SelectTrigger
                     id={`text-model-${mode}`}
@@ -3883,18 +4005,18 @@ export function CreatePageClient({
 
             {showWebOnlyControls && (
               <div className="space-y-1.5">
-              <label
-                htmlFor={`text-thinking-${mode}`}
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {labelWithHelp(copy("Thinking", "思考强度"), thinkingHelpText)}
-              </label>
-              {renderThinkingSelect({
-                id: `text-thinking-${mode}`,
-                value: imageThinking,
-                onChange: setImageThinking,
-                disabled: busy,
-              })}
+                <label
+                  htmlFor={`text-thinking-${mode}`}
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  {labelWithHelp(copy("Thinking", "思考强度"), thinkingHelpText)}
+                </label>
+                {renderThinkingSelect({
+                  id: `text-thinking-${mode}`,
+                  value: imageThinking,
+                  onChange: setImageThinking,
+                  disabled: busy,
+                })}
               </div>
             )}
 
@@ -3951,8 +4073,13 @@ export function CreatePageClient({
             </div>
           </div>
 
-          {showResponsesOnlyControls && (
-            <div className="grid gap-3 sm:grid-cols-2">
+          {!isWebOnlyBackend && (
+            <div
+              className={`grid gap-3 sm:grid-cols-2 ${
+                disableResponsesOnlyControls ? "opacity-55" : ""
+              }`}
+              title={responsesOnlyDisabledReason}
+            >
               <div className="space-y-1.5">
                 <label
                   htmlFor={`image-quality-${mode}`}
@@ -3963,7 +4090,7 @@ export function CreatePageClient({
                 <Select
                   value={quality}
                   onValueChange={(value) => setQuality(value as ImageQuality)}
-                  disabled={busy}
+                  disabled={busy || disableResponsesOnlyControls}
                 >
                   <SelectTrigger
                     id={`image-quality-${mode}`}
@@ -3995,7 +4122,7 @@ export function CreatePageClient({
                   onValueChange={(value) =>
                     setOutputFormat(value as ImageOutputFormat)
                   }
-                  disabled={busy}
+                  disabled={busy || disableResponsesOnlyControls}
                 >
                   <SelectTrigger
                     id={`image-output-format-${mode}`}
@@ -4039,7 +4166,7 @@ export function CreatePageClient({
                         )
                       )
                     }
-                    disabled={busy}
+                    disabled={busy || disableResponsesOnlyControls}
                     title={outputCompressionHelpText}
                   />
                 </div>
@@ -4056,7 +4183,7 @@ export function CreatePageClient({
                   onValueChange={(value) =>
                     setModeration(value as ImageModeration)
                   }
-                  disabled={busy}
+                  disabled={busy || disableResponsesOnlyControls}
                 >
                   <SelectTrigger
                     id={`image-oai-moderation-${mode}`}
@@ -4074,6 +4201,11 @@ export function CreatePageClient({
                 </Select>
               </div>
             </div>
+          )}
+          {responsesOnlyDisabledReason && !isWebOnlyBackend && (
+            <p className="text-xs text-muted-foreground">
+              {responsesOnlyDisabledReason}
+            </p>
           )}
         </div>
 
@@ -4514,34 +4646,46 @@ export function CreatePageClient({
 
               <div className="space-y-4 rounded-lg border border-border bg-background p-4">
                 {showImageModelControls && (
-                <div className="space-y-2">
-                  <label
-                    htmlFor="edit-model"
-                    className="text-sm font-medium text-foreground"
+                  <div
+                    className={`space-y-2 ${
+                      editMixWebFirstActive ? "opacity-55" : ""
+                    }`}
+                    title={
+                      editMixWebFirstActive
+                        ? responsesOnlyDisabledReason
+                        : undefined
+                    }
                   >
-                    {labelWithHelp(copy("Image model", "图片模型"), imageModelHelpText)}
-                  </label>
-                  <Select
-                    value={editModel}
-                    onValueChange={setEditModel}
-                    disabled={isEditing}
-                  >
-                    <SelectTrigger
-                      id="edit-model"
-                      className="w-full"
-                      title={imageModelHelpText}
+                    <label
+                      htmlFor="edit-model"
+                      className="text-sm font-medium text-foreground"
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EDIT_MODEL_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {editModelLabel(option.label)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      {labelWithHelp(
+                        copy("Image model", "图片模型"),
+                        imageModelHelpText
+                      )}
+                    </label>
+                    <Select
+                      value={editModel}
+                      onValueChange={setEditModel}
+                      disabled={isEditing || editMixWebFirstActive}
+                    >
+                      <SelectTrigger
+                        id="edit-model"
+                        className="w-full"
+                        title={imageModelHelpText}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EDIT_MODEL_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {editModelLabel(option.label)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 )}
 
                 <div className="space-y-2">
@@ -4567,25 +4711,33 @@ export function CreatePageClient({
                 </div>
 
                 {showWebOnlyControls && (
-                <div className="space-y-2">
-                  <label
-                    htmlFor="edit-thinking"
-                    className="text-sm font-medium text-foreground"
-                  >
-                    {labelWithHelp(copy("Thinking", "思考强度"), thinkingHelpText)}
-                  </label>
-                  {renderThinkingSelect({
-                    id: "edit-thinking",
-                    value: imageThinking,
-                    onChange: setImageThinking,
-                    disabled: isEditing,
-                  })}
-                </div>
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="edit-thinking"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      {labelWithHelp(
+                        copy("Thinking", "思考强度"),
+                        thinkingHelpText
+                      )}
+                    </label>
+                    {renderThinkingSelect({
+                      id: "edit-thinking",
+                      value: imageThinking,
+                      onChange: setImageThinking,
+                      disabled: isEditing,
+                    })}
+                  </div>
                 )}
 
-                {showResponsesOnlyControls && (
+                {!isWebOnlyBackend && (
                   <>
-                    <div className="space-y-2">
+                    <div
+                      className={`space-y-2 ${
+                        editMixWebFirstActive ? "opacity-55" : ""
+                      }`}
+                      title={editMixWebFirstActive ? responsesOnlyDisabledReason : undefined}
+                    >
                       <label
                         htmlFor="edit-quality"
                         className="text-sm font-medium text-foreground"
@@ -4597,7 +4749,7 @@ export function CreatePageClient({
                         onValueChange={(value) =>
                           setQuality(value as ImageQuality)
                         }
-                        disabled={isEditing}
+                        disabled={isEditing || editMixWebFirstActive}
                       >
                         <SelectTrigger id="edit-quality" className="w-full">
                           <SelectValue />
@@ -4612,7 +4764,12 @@ export function CreatePageClient({
                       </Select>
                     </div>
 
-                    <div className="space-y-2">
+                    <div
+                      className={`space-y-2 ${
+                        editMixWebFirstActive ? "opacity-55" : ""
+                      }`}
+                      title={editMixWebFirstActive ? responsesOnlyDisabledReason : undefined}
+                    >
                       <label
                         htmlFor="edit-output-format"
                         className="text-sm font-medium text-foreground"
@@ -4627,7 +4784,7 @@ export function CreatePageClient({
                         onValueChange={(value) =>
                           setOutputFormat(value as ImageOutputFormat)
                         }
-                        disabled={isEditing}
+                        disabled={isEditing || editMixWebFirstActive}
                       >
                         <SelectTrigger
                           id="edit-output-format"
@@ -4647,7 +4804,12 @@ export function CreatePageClient({
                     </div>
 
                     {outputFormat !== "png" && (
-                      <div className="space-y-2">
+                      <div
+                        className={`space-y-2 ${
+                          editMixWebFirstActive ? "opacity-55" : ""
+                        }`}
+                        title={editMixWebFirstActive ? responsesOnlyDisabledReason : undefined}
+                      >
                         <label
                           htmlFor="edit-output-compression"
                           className="text-sm font-medium text-foreground"
@@ -4672,13 +4834,18 @@ export function CreatePageClient({
                               )
                             )
                           }
-                          disabled={isEditing}
+                          disabled={isEditing || editMixWebFirstActive}
                           title={outputCompressionHelpText}
                         />
                       </div>
                     )}
 
-                    <div className="space-y-2">
+                    <div
+                      className={`space-y-2 ${
+                        editMixWebFirstActive ? "opacity-55" : ""
+                      }`}
+                      title={editMixWebFirstActive ? responsesOnlyDisabledReason : undefined}
+                    >
                       <label
                         htmlFor="edit-oai-moderation"
                         className="text-sm font-medium text-foreground"
@@ -4690,7 +4857,7 @@ export function CreatePageClient({
                         onValueChange={(value) =>
                           setModeration(value as ImageModeration)
                         }
-                        disabled={isEditing}
+                        disabled={isEditing || editMixWebFirstActive}
                       >
                         <SelectTrigger
                           id="edit-oai-moderation"
@@ -4708,6 +4875,11 @@ export function CreatePageClient({
                       </Select>
                     </div>
                   </>
+                )}
+                {editMixWebFirstActive && responsesOnlyDisabledReason && !isWebOnlyBackend && (
+                  <p className="text-xs text-muted-foreground">
+                    {responsesOnlyDisabledReason}
+                  </p>
                 )}
 
                 <div className="space-y-2">
@@ -5745,8 +5917,10 @@ export function CreatePageClient({
         value={textSizeDialogValue}
         copy={copy}
         validationMessage={validationMessage}
+        showMixRouting={canUseMixWebFirstRouting}
         onConfirm={(next) => {
           setUseAutoSize(next.auto);
+          setTextMixWebFirst(next.mixWebFirst);
           if (!next.auto) {
             setWidth(next.width);
             setHeight(next.height);
@@ -5760,9 +5934,11 @@ export function CreatePageClient({
         value={editSizeDialogValue}
         copy={copy}
         validationMessage={validationMessage}
+        showMixRouting={canUseMixWebFirstRouting}
         onConfirm={(next) => {
           setUseEditFirstImageSize(false);
           setUseAutoEditSize(next.auto);
+          setEditMixWebFirst(next.mixWebFirst);
           if (!next.auto) {
             setEditWidth(next.width);
             setEditHeight(next.height);
@@ -5776,7 +5952,9 @@ export function CreatePageClient({
         value={chatSizeDialogValue}
         copy={copy}
         validationMessage={validationMessage}
+        showMixRouting={canUseMixWebFirstRouting}
         onConfirm={(next) => {
+          setChatMixWebFirst(next.mixWebFirst);
           if (chatAttachments.length > 0) {
             setUseAutoChatEditSize(next.auto);
             if (!next.auto) {

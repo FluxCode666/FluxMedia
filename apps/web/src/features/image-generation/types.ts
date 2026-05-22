@@ -15,6 +15,7 @@ export interface GenerateImageParams {
   moderation?: ImageModeration;
   outputFormat?: ImageOutputFormat;
   outputCompression?: number;
+  mixWebFirst?: boolean;
 }
 
 export interface GenerateImageResult {
@@ -80,6 +81,7 @@ export interface EditImageParams {
   moderation?: ImageModeration;
   outputFormat?: ImageOutputFormat;
   outputCompression?: number;
+  mixWebFirst?: boolean;
 }
 
 export interface ChatImageParams {
@@ -102,6 +104,7 @@ export interface ChatImageParams {
   stream?: boolean;
   thinking?: ThinkingLevel;
   rawResponsesBody?: unknown;
+  mixWebFirst?: boolean;
 }
 
 export interface ChatGptWebConversationState {

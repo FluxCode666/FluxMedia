@@ -18,6 +18,7 @@ import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { and, eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { ImageBackendPoolUnavailableError } from "@/features/image-backend-pool/service";
 import type { ImageBackendRequestKind } from "@/features/image-backend-pool/types";
 import {
   detectImageOutputFormatFromBuffer,
@@ -30,6 +31,7 @@ import {
   DEFAULT_IMAGE_SIZE,
   getImageCreditCostBreakdown,
   getImageModel,
+  isOneKImageSize,
   normalizeImageSize,
   roundCreditAmount,
 } from "./resolution";
@@ -61,6 +63,7 @@ type RunImageGenerationInput =
       apiKeyId?: string;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
+      mixWebFirst?: boolean;
     } & GenerateImageParams)
   | ({
       mode: "edit";
@@ -69,6 +72,7 @@ type RunImageGenerationInput =
       apiKeyId?: string;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
+      mixWebFirst?: boolean;
     } & EditImageParams)
   | ({
       mode: "chat";
@@ -78,6 +82,7 @@ type RunImageGenerationInput =
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
       maxChatContextChars?: number;
+      mixWebFirst?: boolean;
     } & ChatImageParams);
 
 const CHAT_TEXT_ONLY_CREDITS = 1;
@@ -410,6 +415,7 @@ export async function runImageGenerationForUser(
 ): Promise<ImageGenerationOperationResult> {
   const generationId = input.generationId || nanoid();
   const size = input.size || DEFAULT_IMAGE_SIZE;
+  const mixWebFirst = Boolean(input.mixWebFirst && isOneKImageSize(size));
   const inputImages = getInputImages(input);
   const creditCost = getImageCreditCostBreakdown(size, {
     imageModerationCount: inputImages.length,
@@ -534,12 +540,26 @@ export async function runImageGenerationForUser(
         : "chat");
   let effectiveConfig: Awaited<ReturnType<typeof getEffectiveConfig>>;
   try {
-    effectiveConfig = await getEffectiveConfig(userConfig, {
-      userId: input.userId,
-      apiKeyId: input.apiKeyId,
-      requestKind: backendRequestKind,
-      preferredMemberId: input.preferredBackendMemberId,
-    });
+    try {
+      effectiveConfig = await getEffectiveConfig(userConfig, {
+        userId: input.userId,
+        apiKeyId: input.apiKeyId,
+        requestKind: backendRequestKind,
+        preferredMemberId: input.preferredBackendMemberId,
+        accountBackendPreference: mixWebFirst ? "web" : undefined,
+      });
+    } catch (error) {
+      if (!mixWebFirst || !(error instanceof ImageBackendPoolUnavailableError)) {
+        throw error;
+      }
+      effectiveConfig = await getEffectiveConfig(userConfig, {
+        userId: input.userId,
+        apiKeyId: input.apiKeyId,
+        requestKind: backendRequestKind,
+        preferredMemberId: input.preferredBackendMemberId,
+        accountBackendPreference: "responses",
+      });
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "当前没有可用的生图后端",
@@ -705,6 +725,7 @@ async function runQueuedImageGenerationForUser({
     gptModel,
     recordModel,
   });
+  const mixWebFirst = Boolean(input.mixWebFirst && isOneKImageSize(size));
 
   await db.insert(generation).values({
     id: generationId,
@@ -1005,6 +1026,7 @@ async function runQueuedImageGenerationForUser({
               moderation: input.moderation,
               outputFormat: input.outputFormat,
               outputCompression: input.outputCompression,
+              mixWebFirst,
             },
             callbacks
           )
@@ -1030,6 +1052,7 @@ async function runQueuedImageGenerationForUser({
                 stream: input.stream,
                 thinking: input.thinking,
                 rawResponsesBody: input.rawResponsesBody,
+                mixWebFirst,
               },
               callbacks
             )
@@ -1049,6 +1072,7 @@ async function runQueuedImageGenerationForUser({
                 moderation: input.moderation,
                 outputFormat: input.outputFormat,
                 outputCompression: input.outputCompression,
+                mixWebFirst,
               },
               callbacks
             );
