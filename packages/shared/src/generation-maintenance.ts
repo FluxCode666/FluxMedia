@@ -3,11 +3,12 @@ import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { db } from "@repo/database";
 import { creditsBatch, generation } from "@repo/database/schema";
 import { grantCredits } from "./credits/core";
+import { getFailedGenerationTargetCreditsFromMetadata } from "./generation-settlement";
 import { logError } from "./logger";
 
 export const IMAGE_GENERATION_PENDING_TIMEOUT_MS = 10 * 60 * 1000;
 export const IMAGE_GENERATION_TIMEOUT_ERROR =
-  "Image generation timed out after 10 minutes. Credits were refunded.";
+  "Image generation timed out after 10 minutes. Generation credits were refunded.";
 
 type ExpireStalePendingGenerationsOptions = {
   userId?: string;
@@ -86,6 +87,7 @@ export async function expireStalePendingGenerations(
       userId: generation.userId,
       prompt: generation.prompt,
       creditsConsumed: generation.creditsConsumed,
+      metadata: generation.metadata,
       createdAt: generation.createdAt,
     })
     .from(generation)
@@ -101,7 +103,13 @@ export async function expireStalePendingGenerations(
   }> = [];
 
   for (const row of staleRows) {
-    const creditsToRefund = Math.max(0, Number(row.creditsConsumed) || 0);
+    const chargedCredits = Math.max(0, Number(row.creditsConsumed) || 0);
+    const targetCredits = getFailedGenerationTargetCreditsFromMetadata({
+      reason: "generation_error",
+      chargedCredits,
+      metadata: row.metadata,
+    });
+    const creditsToRefund = Math.max(0, chargedCredits - targetCredits);
     const sourceRef = `${row.id}:timeout-refund`;
 
     const [updated] = await db
@@ -116,6 +124,7 @@ export async function expireStalePendingGenerations(
               reason: "pending_timeout",
               timeoutMs,
               expiredAt: now.toISOString(),
+              targetCredits,
               refundSourceRef: sourceRef,
               refundCredits: creditsToRefund,
             },
@@ -137,7 +146,7 @@ export async function expireStalePendingGenerations(
           userId: row.userId,
           amount: creditsToRefund,
           sourceRef,
-          description: `Refund timed out image generation: ${row.prompt.slice(
+          description: `Refund timed out image generation charge: ${row.prompt.slice(
             0,
             50
           )}`,
@@ -153,7 +162,7 @@ export async function expireStalePendingGenerations(
         await db
           .update(generation)
           .set({
-            creditsConsumed: 0,
+            creditsConsumed: targetCredits,
             metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
               {
                 timeoutRefund: {

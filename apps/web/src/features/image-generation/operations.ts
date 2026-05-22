@@ -6,6 +6,7 @@ import {
   IMAGE_GENERATION_TIMEOUT_ERROR,
   refundGenerationCredits,
 } from "@repo/shared/generation-maintenance";
+import { getFailedGenerationTargetCredits } from "@repo/shared/generation-settlement";
 import { moderateContent } from "@repo/shared/moderation";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import {
@@ -76,9 +77,6 @@ type RunImageGenerationInput =
 const CHAT_TEXT_ONLY_CREDITS = 1;
 const TEXT_MODERATION_ONLY_CREDITS =
   getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
-const FULL_REFUND_GENERATION_ERROR_PATTERNS = [
-  "ChatGPT Web backend returned no image output",
-];
 
 export type ImageGenerationOperationResult = {
   error?: string;
@@ -119,13 +117,6 @@ async function toImageBuffer(result: {
 
 function isPendingGeneration(generationId: string) {
   return and(eq(generation.id, generationId), eq(generation.status, "pending"));
-}
-
-function shouldFullyRefundGenerationError(error?: string) {
-  if (!error) return false;
-  return FULL_REFUND_GENERATION_ERROR_PATTERNS.some((pattern) =>
-    error.toLowerCase().includes(pattern.toLowerCase())
-  );
 }
 
 function readUInt24LE(buffer: Buffer, offset: number) {
@@ -838,7 +829,12 @@ async function runQueuedImageGenerationForUser({
     Date.now() - startedAt > IMAGE_GENERATION_PENDING_TIMEOUT_MS;
   const failTimedOutGeneration =
     async (): Promise<ImageGenerationOperationResult> => {
-      const creditsToRefund = chargedCredits;
+      const targetCredits = getFailedGenerationTargetCredits({
+        reason: "generation_error",
+        moderationFailureCredits,
+        moderationOnlyCredits: creditCost.moderationOnlyCredits,
+      });
+      const creditsToRefund = Math.max(0, chargedCredits - targetCredits);
       const refundSourceRef = `${generationId}:timeout-refund`;
 
       const [updated] = await db
@@ -846,7 +842,7 @@ async function runQueuedImageGenerationForUser({
         .set({
           status: "failed",
           error: IMAGE_GENERATION_TIMEOUT_ERROR,
-          creditsConsumed: creditsToRefund,
+          creditsConsumed: chargedCredits,
           completedAt: new Date(),
           metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
             {
@@ -854,6 +850,7 @@ async function runQueuedImageGenerationForUser({
                 reason: "runtime_timeout",
                 timeoutMs: IMAGE_GENERATION_PENDING_TIMEOUT_MS,
                 elapsedMs: Date.now() - startedAt,
+                targetCredits,
                 refundCredits: creditsToRefund,
                 refundSourceRef,
               },
@@ -868,7 +865,10 @@ async function runQueuedImageGenerationForUser({
           await refundChargedCredits(
             creditsToRefund,
             refundSourceRef,
-            `Refund timed out image generation: ${input.prompt.slice(0, 50)}`
+            `Refund timed out image generation charge: ${input.prompt.slice(
+              0,
+              50
+            )}`
           );
           await db
             .update(generation)
@@ -915,8 +915,12 @@ async function runQueuedImageGenerationForUser({
   }
 
   if (moderation.decision === "block" || moderation.decision === "error") {
-    const targetCredits =
-      moderation.decision === "block" ? moderationFailureCredits : 0;
+    const targetCredits = getFailedGenerationTargetCredits({
+      reason:
+        moderation.decision === "block" ? "moderation_block" : "moderation_error",
+      moderationFailureCredits,
+      moderationOnlyCredits: creditCost.moderationOnlyCredits,
+    });
     try {
       await settleChargedCredits(
         targetCredits,
@@ -952,29 +956,11 @@ async function runQueuedImageGenerationForUser({
     };
   }
 
-  const result =
-    input.mode === "edit"
-      ? await editImage(
-          config,
-          {
-            prompt: input.prompt,
-            apiPrompt,
-            promptOptimization,
-            signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
-            images: input.images,
-            mask: input.mask,
-            size: input.size,
-            model: imageModel,
-            gptModel,
-            thinking: input.thinking,
-            quality: input.quality,
-            n: input.n,
-            moderation: input.moderation,
-          },
-          callbacks
-        )
-      : input.mode === "chat"
-        ? await generateChatImage(
+  let result: GenerateImageResult;
+  try {
+    result =
+      input.mode === "edit"
+        ? await editImage(
             config,
             {
               prompt: input.prompt,
@@ -982,46 +968,105 @@ async function runQueuedImageGenerationForUser({
               promptOptimization,
               signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
               images: input.images,
-              history: input.history,
-              size,
-              model: gptModel,
-              imageModel,
-              allowGpt55,
-              quality: input.quality,
-              n: input.n,
-              moderation: input.moderation,
-              stream: input.stream,
-              thinking: input.thinking,
-              rawResponsesBody: input.rawResponsesBody,
-            },
-            callbacks
-          )
-        : await generateImage(
-            config,
-            {
-              prompt: input.prompt,
-              apiPrompt,
-              promptOptimization,
-              signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
-              size,
+              mask: input.mask,
+              size: input.size,
               model: imageModel,
               gptModel,
               thinking: input.thinking,
-              n: input.n,
               quality: input.quality,
+              n: input.n,
               moderation: input.moderation,
             },
             callbacks
-          );
+          )
+        : input.mode === "chat"
+          ? await generateChatImage(
+              config,
+              {
+                prompt: input.prompt,
+                apiPrompt,
+                promptOptimization,
+                signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
+                images: input.images,
+                history: input.history,
+                size,
+                model: gptModel,
+                imageModel,
+                allowGpt55,
+                quality: input.quality,
+                n: input.n,
+                moderation: input.moderation,
+                stream: input.stream,
+                thinking: input.thinking,
+                rawResponsesBody: input.rawResponsesBody,
+              },
+              callbacks
+            )
+          : await generateImage(
+              config,
+              {
+                prompt: input.prompt,
+                apiPrompt,
+                promptOptimization,
+                signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
+                size,
+                model: imageModel,
+                gptModel,
+                thinking: input.thinking,
+                n: input.n,
+                quality: input.quality,
+                moderation: input.moderation,
+              },
+              callbacks
+            );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Image generation failed";
+    const targetCredits = getFailedGenerationTargetCredits({
+      reason: "generation_error",
+      moderationFailureCredits,
+      moderationOnlyCredits: creditCost.moderationOnlyCredits,
+    });
+    try {
+      await settleChargedCredits(
+        targetCredits,
+        "content-moderation",
+        `${generationId}:generation-exception`,
+        `Settle failed generation exception: ${input.prompt.substring(0, 50)}`,
+        {
+          generationId,
+          creditCost,
+          error: message,
+        }
+      );
+    } catch {
+      /* best effort settlement */
+    }
+    await db
+      .update(generation)
+      .set({
+        status: "failed",
+        error: message,
+        creditsConsumed: chargedCredits,
+      })
+      .where(isPendingGeneration(generationId));
+    return {
+      error: message,
+      generationId,
+      creditsConsumed: chargedCredits,
+    };
+  }
 
   if (isTimedOut()) {
     return failTimedOutGeneration();
   }
 
   if (result.error) {
-    const failureTargetCredits = shouldFullyRefundGenerationError(result.error)
-      ? 0
-      : moderationFailureCredits;
+    const failureTargetCredits = getFailedGenerationTargetCredits({
+      reason: "generation_error",
+      moderationFailureCredits,
+      moderationOnlyCredits: creditCost.moderationOnlyCredits,
+    });
     try {
       await settleChargedCredits(
         failureTargetCredits,
@@ -1150,7 +1195,11 @@ async function runQueuedImageGenerationForUser({
       .where(isPendingGeneration(generationId));
     try {
       await settleChargedCredits(
-        moderationFailureCredits,
+        getFailedGenerationTargetCredits({
+          reason: "storage_error",
+          moderationFailureCredits,
+          moderationOnlyCredits: creditCost.moderationOnlyCredits,
+        }),
         "content-moderation",
         `${generationId}:storage-error`,
         `Settle storage failure: ${input.prompt.substring(0, 50)}`,
@@ -1195,6 +1244,28 @@ async function runQueuedImageGenerationForUser({
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Insufficient credits";
+    try {
+      await settleChargedCredits(
+        getFailedGenerationTargetCredits({
+          reason: "settlement_error",
+          moderationFailureCredits,
+          moderationOnlyCredits: creditCost.moderationOnlyCredits,
+        }),
+        "content-moderation",
+        `${generationId}:settlement-error`,
+        `Settle image generation settlement failure: ${input.prompt.substring(
+          0,
+          50
+        )}`,
+        {
+          generationId,
+          creditCost,
+          error: message,
+        }
+      );
+    } catch {
+      /* best effort settlement */
+    }
     await db
       .update(generation)
       .set({

@@ -223,6 +223,13 @@ function getProcessSettingValue(definition: SettingDefinition) {
   return coerceValue(definition, envValue);
 }
 
+function getDefaultSettingValue(definition: SettingDefinition) {
+  if (definition.secret) return undefined;
+  if (definition.exampleValue !== undefined) return definition.exampleValue;
+  if (definition.defaultValue !== undefined) return definition.defaultValue;
+  return undefined;
+}
+
 export async function importSystemSettingsFromEnv(options?: {
   updatedBy?: string;
   overwrite?: boolean;
@@ -270,6 +277,52 @@ export async function importSystemSettingsFromEnv(options?: {
         updatedBy: sql`excluded.updated_by`,
         updatedAt: now,
       },
+    });
+
+  clearSystemSettingsCache();
+  return values.map((value) => value.key);
+}
+
+export async function initializeMissingSystemSettingsDefaults(options?: {
+  updatedBy?: string;
+}) {
+  const rows = await db
+    .select({
+      key: systemSetting.key,
+      value: systemSetting.value,
+    })
+    .from(systemSetting);
+
+  const storedKeys = new Set(
+    rows
+      .filter((row) => normalizeStoredValue(row.value) !== undefined)
+      .map((row) => row.key)
+  );
+  const now = new Date();
+  const values = SYSTEM_SETTING_DEFINITIONS.flatMap((definition) => {
+    if (storedKeys.has(definition.key)) return [];
+
+    const value = getDefaultSettingValue(definition);
+    if (value === undefined || value === "") return [];
+
+    return [
+      {
+        key: definition.key,
+        value,
+        isSecret: false,
+        ...(options?.updatedBy ? { updatedBy: options.updatedBy } : {}),
+        updatedAt: now,
+      },
+    ];
+  });
+
+  if (values.length === 0) return [] as SettingKey[];
+
+  await db
+    .insert(systemSetting)
+    .values(values)
+    .onConflictDoNothing({
+      target: systemSetting.key,
     });
 
   clearSystemSettingsCache();

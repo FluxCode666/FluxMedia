@@ -270,7 +270,7 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
     {
       id: "payg_starter",
       name: "Pay as you go",
-      description: "One-time credits",
+      description: "One-time credits priced like Starter",
       credits: 5000,
       price: 20,
       popular: true,
@@ -279,22 +279,15 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
       pricesByPlan: {
         free: 20,
         starter: 20,
-        pro: 18,
-        ultra: 16,
-        enterprise: 15,
-      },
-      creemProductIdsByPlan: {
-        free: "credits_payg_starter_free",
-        starter: "credits_payg_starter_starter",
-        pro: "credits_payg_starter_pro",
-        ultra: "credits_payg_starter_ultra",
-        enterprise: "credits_payg_starter_enterprise",
+        pro: 20,
+        ultra: 20,
+        enterprise: 20,
       },
     },
     {
       id: "enterprise_resource",
       name: "Enterprise Resource Pack",
-      description: "Enterprise-only resource pack",
+      description: "Enterprise-only 5,000-credit resource pack",
       credits: 5000,
       price: 15,
       visible: false,
@@ -304,7 +297,6 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
       pricesByPlan: {
         enterprise: 15,
       },
-      creemProductId: "credits_enterprise_resource",
     },
   ],
 };

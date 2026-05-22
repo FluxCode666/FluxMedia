@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Loader2, Save, Trash2 } from "lucide-react";
+import { Database, Download, Loader2, Save, Trash2 } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import { Textarea } from "@repo/ui/components/textarea";
 import {
   getSystemSettingsAction,
   importSystemSettingsFromEnvAction,
+  initializeSystemSettingsDefaultsAction,
   updateSystemSettingsAction,
 } from "../actions";
 import { SETTING_CATEGORIES } from "../definitions";
@@ -835,6 +836,18 @@ export function SystemSettingsPanel() {
       },
     }
   );
+  const { execute: initializeDefaults, isPending: isInitializing } = useAction(
+    initializeSystemSettingsDefaultsAction,
+    {
+      onSuccess: ({ data }) => {
+        if (data?.message) toast.success(data.message);
+        loadSettings();
+      },
+      onError: ({ error }) => {
+        toast.error(error.serverError || "初始化默认配置失败");
+      },
+    }
+  );
 
   useEffect(() => {
     loadSettings();
@@ -907,7 +920,7 @@ export function SystemSettingsPanel() {
     setClearKeys((current) => ({ ...current, [key]: true }));
   };
 
-  const disabled = isLoading || isSaving || isImporting;
+  const disabled = isLoading || isSaving || isImporting || isInitializing;
 
   return (
     <div className="space-y-6">
@@ -919,6 +932,19 @@ export function SystemSettingsPanel() {
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => initializeDefaults()}
+            disabled={disabled}
+          >
+            {isInitializing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Database className="mr-2 h-4 w-4" />
+            )}
+            初始化默认配置
+          </Button>
           <Button
             type="button"
             variant="outline"

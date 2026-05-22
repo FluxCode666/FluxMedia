@@ -58,6 +58,9 @@ cd GPT2Image-Pro
 pnpm install
 cp .env.example .env.local
 # 至少填写 DATABASE_URL、BETTER_AUTH_SECRET、BETTER_AUTH_URL、NEXT_PUBLIC_APP_URL
+mkdir -p apps/web
+cp .env.local apps/web/.env.local
+# 修改环境变量后记得同步这两份文件；根目录用于数据库/脚本，apps/web/.env.local 用于 Next 开发与构建
 pnpm db:push
 pnpm dev:web
 ```
@@ -88,7 +91,7 @@ pnpm db:studio
 | 历史 | `/dashboard/history` | 任务历史、失败原因、积分结算 |
 | 系统文档 | `/dashboard/backend-help` | 后端与接口说明 |
 | 外接 API | `/dashboard/external-api` | 用户创建本站对外 API Key |
-| 账单与用量 | `/dashboard/billing` | 账单、订阅、用量两个小 Tab |
+| 账单与用量 | `/dashboard/billing` | 账单和用量两个子 Tab；订阅和按量包归到账单 |
 | 设置 | `/dashboard/settings` | 用户个人设置和接入其他站 API |
 | 工单 | `/dashboard/support` | 用户工单，未读回复有红点提示 |
 
@@ -301,7 +304,7 @@ openssl rand -base64 32
 openssl rand -hex 32
 ```
 
-生产部署时，Next 应用实际需要能读到环境变量。当前脚本会把 `.env.prod` 复制为根目录 `.env.local`。如果你直接在服务器运行 monorepo，建议同时准备：
+生产运行建议同时准备根目录和 `apps/web` 两份 env 文件。根目录用于 workspace 工具，`apps/web/.env.local` 用于 Next 构建和运行：
 
 ```bash
 cp .env.prod .env.local
@@ -312,7 +315,7 @@ chmod 600 .env.local apps/web/.env.local
 
 后台系统设置保存后，会尽量同步到 `/root/GPT2Image-Pro/apps/web/.env.local` 和 `/home/user1/GPT2Image-Pro/apps/web/.env.local`。如果你的路径不同，以数据库设置为准，或手工同步 env 文件。
 
-### 3. 数据库
+### 3. 数据库初始化
 
 ```bash
 pnpm install
@@ -321,9 +324,11 @@ pnpm db:push
 
 如需导入当前环境变量到后台系统设置，进入管理员后台：`/dashboard/admin/settings` -> “导入当前环境变量”。
 
-### 4. 源码部署并用 PM2 运行
+首次启动会把缺失的非密钥默认配置写入 `system_setting`，例如套餐能力矩阵、套餐价格、按量积分包、审核和后端冷却默认值；已有数据库配置不会被覆盖。管理员也可在“系统设置”里点击“初始化默认配置”手工补齐旧库。
 
-当前推荐直接在服务器保留完整 monorepo 源码，构建 `@repo/web`，再用 standalone server 启动：
+### 4. 源码部署（推荐）
+
+推荐在服务器保留完整 monorepo 源码，构建 `@repo/web`，再用 PM2 托管 standalone server：
 
 ```bash
 cd /root/GPT2Image-Pro
@@ -332,18 +337,10 @@ pnpm install --frozen-lockfile
 cp .env.prod .env.local
 cp .env.prod apps/web/.env.local
 pnpm build:web
-PORT=3303 NODE_ENV=production node apps/web/.next/standalone/apps/web/server.js
-```
-
-用 PM2 托管：
-
-```bash
-pm2 start apps/web/.next/standalone/apps/web/server.js \
+PORT=3303 NODE_ENV=production pm2 start apps/web/.next/standalone/apps/web/server.js \
   --name GPT2Image-Pro \
   --update-env \
-  --time \
-  -- \
-  -p 3303
+  --time
 pm2 save
 ```
 
@@ -362,32 +359,36 @@ pm2 restart GPT2Image-Pro --update-env
 pm2 save
 ```
 
+后续更新：
+
+```bash
+cd /root/GPT2Image-Pro
+git pull
+pnpm install --frozen-lockfile
+cp .env.prod .env.local
+cp .env.prod apps/web/.env.local
+pnpm build:web
+PORT=3303 NODE_ENV=production pm2 restart GPT2Image-Pro --update-env
+```
+
 ### 5. Docker 部署
 
 仓库提供 `Dockerfile.web`，可以把 `.env.local` 作为 build secret 和运行时 env_file：
 
 ```bash
 cp .env.prod .env.local
+# Docker 容器内本地存储路径应指向挂载目录；源码部署才使用 /root/GPT2Image-Pro/storage
+# 将 .env.local 中 LOCAL_STORAGE_PATH 改为 /app/storage，或改用 S3/R2/MinIO
 docker compose up -d --build web
 ```
 
-Go sidecar 有单独 Dockerfile：
+默认 `docker-compose.yml` 暴露宿主机 `3000` 对应容器内 `3000`；源码部署示例使用 `3303`。Nginx `proxy_pass` 需要按实际运行端口调整。
 
-```bash
-docker build -f Dockerfile.chatgpt-web-proxy -t gpt2image-chatgpt-web-proxy .
-docker run -d --name chatgpt-web-proxy \
-  --restart unless-stopped \
-  -p 127.0.0.1:3021:3021 \
-  -e CHATGPT_WEB_PROXY_BIND=:3021 \
-  -e CHATGPT_WEB_PROXY_SECRET=<same-secret> \
-  gpt2image-chatgpt-web-proxy
-```
+如果使用 Docker 部署 Web 站，Go sidecar 也可以按下面的“Go ChatGPT Web TLS Sidecar”章节单独运行成容器或 systemd 服务。确保 Web 容器能访问 `CHATGPT_WEB_PROXY_URL`。
 
-### 6. Windows 打包脚本说明
+### 6. 静态资源版本
 
-仓库仍保留 `deploy-build.bat` 和 `start-prod.sh`，用于早期单体 `.next` 打包流程。当前主应用位于 `apps/web`，如果继续使用这两个脚本，需要确认打包内容包含 `apps/web/.next`、`apps/web/public`、`packages/*`、`apps/web/package.json` 等 monorepo standalone 运行所需文件。未确认前，生产环境优先使用上面的源码部署或 Docker 部署。
-
-静态资源版本建议每次前端构建改一个新前缀，避免浏览器拿旧 chunk：
+建议每次前端构建改一个新前缀，避免浏览器拿旧 chunk：
 
 ```env
 NEXT_PUBLIC_ASSET_PREFIX=/next-assets-v20260522-yourtag
@@ -395,9 +396,15 @@ NEXT_PUBLIC_ASSET_PREFIX=/next-assets-v20260522-yourtag
 
 改动 `NEXT_PUBLIC_ASSET_PREFIX` 后必须重新构建并重启。应用 middleware 会把 `/next-assets-*` 或 `/gpt2-assets-*` 下的 `/_next/*` 请求重写回 Next 静态资源。
 
-### 7. Nginx 反向代理
+### 7. 历史打包脚本说明
+
+仓库仍保留 `deploy-build.bat` 和 `start-prod.sh`，但它们来自早期单体 `.next` 打包流程。当前主应用位于 `apps/web`，生产环境优先使用上面的源码部署或 Docker 部署。如果继续使用旧脚本，需要先确认打包内容包含 `apps/web/.next`、`apps/web/public`、`packages/*`、`apps/web/package.json` 等 monorepo standalone 运行所需文件。
+
+### 8. Nginx 反向代理
 
 示例：
+
+下面示例按源码部署的 `3303` 端口编写；如果使用默认 Docker compose，请改为 `http://127.0.0.1:3000`。
 
 ```nginx
 server {
@@ -496,7 +503,7 @@ CHATGPT_WEB_PROXY_SECRET=<same-secret>
 
 ## Crontab 定时任务
 
-先配置 `CRON_SECRET`，所有 cron POST 都需要：
+先配置 `CRON_SECRET`。健康检查 GET 不需要鉴权，真正执行任务的 POST 必须带 Bearer Token：
 
 ```bash
 export APP_URL=https://your-domain.com

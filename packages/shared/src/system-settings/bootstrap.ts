@@ -1,6 +1,9 @@
 import { db } from "@repo/database";
 import { systemSetting } from "@repo/database/schema";
-import { importMissingSystemSettingsFromEnv } from ".";
+import {
+  importMissingSystemSettingsFromEnv,
+  initializeMissingSystemSettingsDefaults,
+} from ".";
 
 let bootstrapped = false;
 
@@ -10,6 +13,7 @@ export async function bootstrapSystemSettingsEnv() {
 
   try {
     await importMissingSystemSettingsFromEnv();
+    await initializeMissingSystemSettingsDefaults();
 
     const rows = await db
       .select({
@@ -21,7 +25,11 @@ export async function bootstrapSystemSettingsEnv() {
     for (const row of rows) {
       if (row.value === null || row.value === undefined) continue;
       const value =
-        typeof row.value === "string" ? row.value.trim() : String(row.value);
+        typeof row.value === "string"
+          ? row.value.trim()
+          : typeof row.value === "object"
+            ? JSON.stringify(row.value)
+            : String(row.value);
       if (value) {
         process.env[row.key] = value;
       }

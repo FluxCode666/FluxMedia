@@ -6,6 +6,7 @@ import { adminAction } from "../../safe-action";
 import {
   getAdminSystemSettingsSnapshot,
   importSystemSettingsFromEnv,
+  initializeMissingSystemSettingsDefaults,
   setSystemSettings,
 } from "../index";
 import { syncSystemSettingsToEnvFiles } from "../env-file";
@@ -67,5 +68,24 @@ export const importSystemSettingsFromEnvAction = adminAction
         importedKeys.length > 0
           ? `已导入 ${importedKeys.length} 个环境变量配置`
           : "没有可导入的环境变量配置",
+    };
+  });
+
+export const initializeSystemSettingsDefaultsAction = adminAction
+  .metadata({ action: "system-settings.initializeDefaults" })
+  .action(async ({ ctx }) => {
+    const initializedKeys = await initializeMissingSystemSettingsDefaults({
+      updatedBy: ctx.userId,
+    });
+    const envSync = await syncSystemSettingsToEnvFiles();
+
+    return {
+      success: true,
+      initializedKeys,
+      envFiles: envSync.files,
+      message:
+        initializedKeys.length > 0
+          ? `已初始化 ${initializedKeys.length} 个默认配置`
+          : "默认配置已存在，无需初始化",
     };
   });
