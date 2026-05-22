@@ -846,14 +846,14 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       description:
         "走 ChatGPT 网页生图能力，适合复用 Web 账号额度，但不是严格参数化的 Images/Responses API。",
       valid: [
-        "分辨率不可严格控制；size 只能作为提示/记录参考，不能保证按请求尺寸输出。",
-        "不能保证 4K 输出；是否出高分辨率取决于 ChatGPT Web 当前能力和账号状态。",
+        "**分辨率不可严格控制；size 只能作为提示/记录参考，不能保证按请求尺寸输出。**",
+        "**不能保证 4K 输出；是否出高分辨率取决于 ChatGPT Web 当前能力和账号状态。**",
         "可控制主 GPT 对话模型和 Web 思考强度；图片模型字段不会映射成独立 Web 生图模型。",
         "关闭提示词优化时会发送原始 prompt，并把 Web 思考强度压到 instant，尽量减少平台侧改写。",
       ],
       invalid: [
-        "不用于外部 /v1/responses；该接口只调度 Codex/Responses 或外接 Responses API 后端。",
-        "不保证支持所有 Responses 模型名。",
+        "外部 /v1/responses 会适配进统一 chat 生成链路，但调度类型仍是 responses；当前只会选择 Codex/Responses 分组或外接 Responses API 后端，不会转到 Web 账号池。",
+        "外部 /v1/responses 的 model 为空时使用后端默认；显式传入时需在 /v1/models 返回列表内，超出列表会被本站拦截。",
         "不保证完全不改写提示词；ChatGPT Web 上游仍可能理解、补全或改写。",
       ],
     },
@@ -866,6 +866,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "图片模型传给 image_generation 工具 model。",
         "size、quality、moderation、参考图、mask 会组装进 Responses 工具请求。",
         "支持外部 /v1/responses；也可承接 /v1/images/generations 和 /v1/images/edits 的内部转换。",
+        "关闭提示词优化时，会通过指令引导模型不要修改提示词；这是尽力约束，不能保证上游一定完全照做。",
       ],
       invalid: [
         "不是 ChatGPT Web，不支持 Web 专属能力或 Web 额度语义。",
@@ -891,7 +892,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       rows: [
         ["开启提示词优化", "平台可使用优化后的提示词，Web 思考强度按选择值传入。"],
         ["关闭提示词优化", "平台发送原始提示词，Web 强制使用 instant，尽量减少改写。"],
-        ["Codex/Responses", "按请求字段传入，具体是否改写由上游模型和工具决定。"],
+        ["Codex/Responses", "关闭提示词优化时通过指令要求模型不要修改提示词，但具体是否改写仍由上游模型和工具决定。"],
         ["外接 API", "平台尽量透传，最终行为取决于外接服务。"],
       ],
     },
@@ -1724,14 +1725,14 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       description:
         "Uses ChatGPT Web image generation. It can reuse Web account quota, but it is not a strictly parameterized Images/Responses API.",
       valid: [
-        "Resolution is not strictly controllable; size is only a hint/record value and output may differ.",
-        "4K output is not guaranteed; high-resolution output depends on current ChatGPT Web capability and account state.",
+        "**Resolution is not strictly controllable; size is only a hint/record value and output may differ.**",
+        "**4K output is not guaranteed; high-resolution output depends on current ChatGPT Web capability and account state.**",
         "The main GPT conversation model and Web thinking level can be controlled; image model is not mapped to a separate Web image model.",
         "When prompt optimization is off, GPT2IMAGE sends the original prompt and forces Web thinking to instant to reduce platform-side rewriting.",
       ],
       invalid: [
-        "Not used for external /v1/responses; that endpoint selects Codex/Responses or external Responses API backends.",
-        "Does not guarantee support for every Responses model name.",
+        "External /v1/responses is adapted into the shared chat generation path, but its scheduling type remains responses; it only selects Codex/Responses groups or external Responses API backends, not Web account pools.",
+        "For external /v1/responses, an empty model uses the backend default; explicit models must be listed by /v1/models or GPT2IMAGE rejects them.",
         "Cannot guarantee prompt text is never interpreted, expanded, or revised by ChatGPT Web upstream.",
       ],
     },
@@ -1744,6 +1745,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "Image model is sent as the image_generation tool model.",
         "size, quality, moderation, reference images, and mask are assembled into the Responses tool request.",
         "Supports external /v1/responses and can also handle converted /v1/images/generations and /v1/images/edits requests.",
+        "When prompt optimization is off, GPT2IMAGE instructs the model not to modify the prompt; this is best effort and upstream may still deviate.",
       ],
       invalid: [
         "Not ChatGPT Web, so Web-only capability or quota semantics do not apply.",
@@ -1769,7 +1771,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       rows: [
         ["Prompt optimization on", "Optimized prompt may be used; Web thinking follows the selected value."],
         ["Prompt optimization off", "Original prompt is sent; Web is forced to instant to minimize changes."],
-        ["Codex/Responses", "Fields are passed when supported; final behavior depends on upstream model/tool behavior."],
+        ["Codex/Responses", "When prompt optimization is off, GPT2IMAGE instructs the model not to modify the prompt, but final behavior still depends on the upstream model/tool."],
         ["External API", "The platform passes through where possible; the external service decides final behavior."],
       ],
     },
@@ -1816,11 +1818,25 @@ function ListBlock({
       {items.map((item) => (
         <li className="flex gap-2" key={item}>
           <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${color}`} />
-          <span>{item}</span>
+          <span>{renderEmphasis(item)}</span>
         </li>
       ))}
     </ul>
   );
+}
+
+function renderEmphasis(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong className="font-semibold text-foreground" key={`${part}-${index}`}>
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
 }
 
 function RouteDiagram({
