@@ -17,6 +17,7 @@ import {
   bulkUpdateImageBackendAccounts,
   importImageBackendAccountsFromRefreshTokens,
   importImageBackendWebAccountsFromAccessTokens,
+  isSub2ApiPostgresConfigured,
   listAdminImageBackendPool,
   listImageBackendGroupOptions,
   listSelectableImageBackendGroups,
@@ -103,6 +104,14 @@ export const getAdminImageBackendPoolAction = withImageBackendPoolAdminAction(
 ).action(async () => {
   const pool = await listAdminImageBackendPool();
   return pool;
+});
+
+export const getSub2ApiSyncStatusAction = withImageBackendPoolAdminAction(
+  "sub2ApiSyncStatus"
+).action(async () => {
+  return {
+    configured: await isSub2ApiPostgresConfigured(),
+  };
 });
 
 export const getSub2ApiSourceGroupsAction = withImageBackendPoolAdminAction(

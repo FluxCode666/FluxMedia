@@ -65,6 +65,7 @@ import {
   deleteImageBackendMemberAction,
   getAdminImageBackendPoolAction,
   getSub2ApiSourceGroupsAction,
+  getSub2ApiSyncStatusAction,
   importImageBackendAccountsFromRefreshTokensAction,
   importImageBackendWebAccountsFromAccessTokensAction,
   refreshImageBackendAccountInfoAction,
@@ -570,6 +571,9 @@ export function ImageBackendPoolAdminPanel() {
   const [accountPage, setAccountPage] = useState(1);
   const [isManualImportOpen, setIsManualImportOpen] = useState(false);
   const [isWebAtImportOpen, setIsWebAtImportOpen] = useState(false);
+  const [sub2ApiConfigured, setSub2ApiConfigured] = useState<boolean | null>(
+    null
+  );
   const [importForm, setImportForm] = useState({
     sourceGroupId: "default",
     webGroupId: "default",
@@ -696,6 +700,11 @@ export function ImageBackendPoolAdminPanel() {
   const effectiveManualImportSyncMode = manualImportForm.useMobileRt
     ? manualImportForm.syncMode
     : ("responses" as TokenSyncMode);
+  const isSub2ApiSyncUnavailable = sub2ApiConfigured !== true;
+  const sub2ApiUnavailableMessage =
+    sub2ApiConfigured === false
+      ? "未配置 SUB2API_POSTGRES_URL，不能同步 Sub2API 账号。"
+      : "正在检查 Sub2API 连接配置。";
   const authSessionUrl = "https://chatgpt.com/api/auth/session";
 
   const resetGroupForm = () =>
@@ -851,13 +860,35 @@ export function ImageBackendPoolAdminPanel() {
 
   const reload = () => loadPool();
 
+  const { execute: loadSub2ApiSyncStatus } = useAction(
+    getSub2ApiSyncStatusAction,
+    {
+      onSuccess: ({ data }) => {
+        const configured = Boolean(data?.configured);
+        setSub2ApiConfigured(configured);
+        if (!configured) {
+          setSub2ApiSourceGroups([]);
+        }
+      },
+      onError: () => setSub2ApiConfigured(false),
+    }
+  );
+
   const { execute: loadSub2ApiSourceGroups, isPending: isLoadingSourceGroups } =
     useAction(getSub2ApiSourceGroupsAction, {
       onSuccess: ({ data }) => {
         setSub2ApiSourceGroups((data?.groups || []) as Sub2ApiSourceGroup[]);
+        setSub2ApiConfigured(true);
       },
-      onError: ({ error }) =>
-        toast.error(error.serverError || "加载 Sub2API 来源分组失败"),
+      onError: ({ error }) => {
+        const message = error.serverError || "加载 Sub2API 来源分组失败";
+        if (message.includes("SUB2API_POSTGRES_URL")) {
+          setSub2ApiConfigured(false);
+          setSub2ApiSourceGroups([]);
+          return;
+        }
+        toast.error(message);
+      },
     });
 
   const { execute: saveGroup, isPending: isSavingGroup } = useAction(
@@ -1027,6 +1058,10 @@ export function ImageBackendPoolAdminPanel() {
 
   const runSub2ApiSync = async () => {
     if (isSyncingSub2Api) return;
+    if (sub2ApiConfigured === false) {
+      toast.error("未配置 SUB2API_POSTGRES_URL，不能同步 Sub2API 账号");
+      return;
+    }
     setIsSyncingSub2Api(true);
 
     const batchSize = Math.max(
@@ -1222,8 +1257,14 @@ export function ImageBackendPoolAdminPanel() {
 
   useEffect(() => {
     loadPool();
-    loadSub2ApiSourceGroups();
-  }, [loadPool, loadSub2ApiSourceGroups]);
+    loadSub2ApiSyncStatus();
+  }, [loadPool, loadSub2ApiSyncStatus]);
+
+  useEffect(() => {
+    if (sub2ApiConfigured) {
+      loadSub2ApiSourceGroups();
+    }
+  }, [loadSub2ApiSourceGroups, sub2ApiConfigured]);
 
   useEffect(() => {
     setAccountPage(1);
@@ -2482,6 +2523,12 @@ export function ImageBackendPoolAdminPanel() {
                 的当前 AT 同步为 Web/同时账号，不刷新也不回写 Sub2API 的
                 RT。
               </p>
+              {isSub2ApiSyncUnavailable && (
+                <div className="flex gap-2 rounded-md border border-dashed border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{sub2ApiUnavailableMessage}</span>
+                </div>
+              )}
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                 <Select
                   value={importForm.sourceGroupId}
@@ -2491,6 +2538,7 @@ export function ImageBackendPoolAdminPanel() {
                       sourceGroupId: value,
                     }))
                   }
+                  disabled={isSub2ApiSyncUnavailable}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sub2API 来源分组" />
@@ -2510,7 +2558,7 @@ export function ImageBackendPoolAdminPanel() {
                   type="button"
                   variant="outline"
                   onClick={() => loadSub2ApiSourceGroups()}
-                  disabled={isLoadingSourceGroups}
+                  disabled={isSub2ApiSyncUnavailable || isLoadingSourceGroups}
                 >
                   {isLoadingSourceGroups ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2531,6 +2579,7 @@ export function ImageBackendPoolAdminPanel() {
                 </div>
                 <Switch
                   checked={importForm.allowMobileRtImport}
+                  disabled={isSub2ApiSyncUnavailable}
                   onCheckedChange={(checked) =>
                     setImportForm((current) => ({
                       ...current,
@@ -2549,6 +2598,7 @@ export function ImageBackendPoolAdminPanel() {
                       planFilter: value as Sub2ApiPlanFilter,
                     }))
                   }
+                  disabled={isSub2ApiSyncUnavailable}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="套餐筛选" />
@@ -2575,7 +2625,9 @@ export function ImageBackendPoolAdminPanel() {
                       syncMode: value as TokenSyncMode,
                     }))
                   }
-                  disabled={!importForm.allowMobileRtImport}
+                  disabled={
+                    isSub2ApiSyncUnavailable || !importForm.allowMobileRtImport
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -2594,6 +2646,7 @@ export function ImageBackendPoolAdminPanel() {
                   <Label>接入内容安全审核</Label>
                   <Switch
                     checked={importForm.contentSafetyEnabled}
+                    disabled={isSub2ApiSyncUnavailable}
                     onCheckedChange={(checked) =>
                       setImportForm((current) => ({
                         ...current,
@@ -2612,7 +2665,10 @@ export function ImageBackendPoolAdminPanel() {
                       webGroupId: value,
                     }))
                   }
-                  disabled={effectiveImportSyncMode === "responses"}
+                  disabled={
+                    isSub2ApiSyncUnavailable ||
+                    effectiveImportSyncMode === "responses"
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Web 账号分组" />
@@ -2633,7 +2689,9 @@ export function ImageBackendPoolAdminPanel() {
                       responsesGroupId: value,
                     }))
                   }
-                  disabled={effectiveImportSyncMode === "web"}
+                  disabled={
+                    isSub2ApiSyncUnavailable || effectiveImportSyncMode === "web"
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Codex/Responses 账号分组" />
@@ -2652,6 +2710,7 @@ export function ImageBackendPoolAdminPanel() {
                 min={1}
                 max={500}
                 value={importForm.limit}
+                disabled={isSub2ApiSyncUnavailable}
                 onChange={(event) =>
                   setImportForm((current) => ({
                     ...current,
@@ -2660,7 +2719,10 @@ export function ImageBackendPoolAdminPanel() {
                 }
               />
               <div className="space-y-3">
-                <Button onClick={runSub2ApiSync} disabled={isSyncingSub2Api}>
+                <Button
+                  onClick={runSub2ApiSync}
+                  disabled={isSub2ApiSyncUnavailable || isSyncingSub2Api}
+                >
                   {isSyncingSub2Api && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}

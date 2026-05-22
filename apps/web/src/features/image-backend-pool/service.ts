@@ -3031,6 +3031,10 @@ async function getOptionalSub2ApiPostgresConnectionString() {
   return connectionString || "";
 }
 
+export async function isSub2ApiPostgresConfigured() {
+  return Boolean(await getOptionalSub2ApiPostgresConnectionString());
+}
+
 async function getSub2ApiPostgresConnectionString() {
   const connectionString = await getOptionalSub2ApiPostgresConnectionString();
   if (!connectionString) {
