@@ -135,6 +135,7 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       contentSafety: safetyOverrideSchema.default("inherit"),
       backendType: groupBackendTypeSchema.default("mixed"),
       minPlan: subscriptionPlanSchema,
+      childGroupIds: z.array(z.string().trim().min(1)).max(100).default([]),
       priority: z.coerce.number().int().min(0).max(10000).default(50),
     })
   )
@@ -149,6 +150,7 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       contentSafetyEnabled: fromSafetyOverride(parsedInput.contentSafety),
       backendType: parsedInput.backendType,
       minPlan: parsedInput.minPlan,
+      childGroupIds: parsedInput.childGroupIds,
       priority: parsedInput.priority,
     });
     return { success: true, id };

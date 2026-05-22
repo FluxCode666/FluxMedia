@@ -43,6 +43,7 @@ import {
   CircleOff,
   Database,
   ExternalLink,
+  FolderTree,
   Loader2,
   Pencil,
   Plug,
@@ -87,6 +88,7 @@ type Group = {
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
+  childGroupIds: string[];
   priority: number;
   apiCount: number;
   accountCount: number;
@@ -290,6 +292,16 @@ function groupBackendTypeLabel(value: ImageBackendGroupBackendType) {
   if (value === "web") return "仅 Web";
   if (value === "responses") return "仅 Codex";
   return "混合";
+}
+
+function childGroupNames(groups: Group[], childGroupIds: string[]) {
+  if (!childGroupIds.length) return "无子分组";
+  return childGroupIds
+    .map(
+      (childGroupId) =>
+        groups.find((group) => group.id === childGroupId)?.name || childGroupId
+    )
+    .join("、");
 }
 
 function formatDate(value: Date | string | null) {
@@ -502,6 +514,7 @@ export function ImageBackendPoolAdminPanel() {
     contentSafety: "inherit" as ContentSafetyFormValue,
     backendType: "mixed" as GroupBackendTypeFormValue,
     minPlan: "free" as SubscriptionPlan,
+    childGroupIds: [] as string[],
     priority: 50,
   });
   const [accountForm, setAccountForm] = useState({
@@ -596,6 +609,16 @@ export function ImageBackendPoolAdminPanel() {
       ...groups.map((group) => ({ id: group.id, name: group.name })),
     ],
     [groups]
+  );
+  const childGroupOptions = useMemo(
+    () =>
+      groups.filter(
+        (group) =>
+          group.backendType !== "mixed" &&
+          group.id !== groupForm.id &&
+          !(group.childGroupIds || []).length
+      ),
+    [groups, groupForm.id]
   );
   const selectedAccountIdSet = useMemo(
     () => new Set(selectedAccountIds),
@@ -718,6 +741,7 @@ export function ImageBackendPoolAdminPanel() {
       contentSafety: "inherit" as ContentSafetyFormValue,
       backendType: "mixed" as GroupBackendTypeFormValue,
       minPlan: "free" as SubscriptionPlan,
+      childGroupIds: [] as string[],
       priority: 50,
     });
 
@@ -787,6 +811,7 @@ export function ImageBackendPoolAdminPanel() {
       contentSafety: safetyValue(group.contentSafetyEnabled),
       backendType: group.backendType || "mixed",
       minPlan: group.minPlan || "free",
+      childGroupIds: group.childGroupIds || [],
       priority: group.priority,
     });
   };
@@ -1403,6 +1428,8 @@ export function ImageBackendPoolAdminPanel() {
                     setGroupForm((current) => ({
                       ...current,
                       backendType: value as GroupBackendTypeFormValue,
+                      childGroupIds:
+                        value === "mixed" ? current.childGroupIds : [],
                     }))
                   }
                 >
@@ -1424,6 +1451,70 @@ export function ImageBackendPoolAdminPanel() {
                     )?.detail
                   }
                 </p>
+              </div>
+              <div
+                className={cn(
+                  "space-y-2 rounded-md border p-3",
+                  groupForm.backendType !== "mixed" &&
+                    "bg-muted/30 text-muted-foreground"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <FolderTree className="h-4 w-4 text-muted-foreground" />
+                  <Label>嵌套子分组</Label>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  仅 mixed 分组可嵌套一层子分组，子分组必须是仅 Web 或仅
+                  Codex/Responses。调度时会先进入 mixed
+                  父组，再按请求类型筛选父组和子组内的可用成员。
+                </p>
+                {groupForm.backendType === "mixed" ? (
+                  childGroupOptions.length ? (
+                    <div className="grid max-h-52 gap-2 overflow-y-auto pr-1">
+                      {childGroupOptions.map((group) => (
+                        <Label
+                          key={group.id}
+                          className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{group.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {groupBackendTypeLabel(group.backendType)} · 账号{" "}
+                              {group.accountCount} · API {group.apiCount}
+                            </span>
+                          </span>
+                          <Checkbox
+                            checked={groupForm.childGroupIds.includes(group.id)}
+                            onCheckedChange={(checked) =>
+                              setGroupForm((current) => ({
+                                ...current,
+                                childGroupIds: checked
+                                  ? Array.from(
+                                      new Set([
+                                        ...current.childGroupIds,
+                                        group.id,
+                                      ])
+                                    )
+                                  : current.childGroupIds.filter(
+                                      (childGroupId) =>
+                                        childGroupId !== group.id
+                                    ),
+                              }))
+                            }
+                          />
+                        </Label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                      暂无可嵌套的非 mixed 分组。
+                    </div>
+                  )
+                ) : (
+                  <div className="rounded-md border border-dashed p-3 text-xs">
+                    当前分组类型不能嵌套子分组。
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>最低套餐</Label>
@@ -1511,6 +1602,11 @@ export function ImageBackendPoolAdminPanel() {
                       <Badge variant="outline">
                         {groupBackendTypeLabel(group.backendType)}
                       </Badge>
+                      {group.childGroupIds.length > 0 && (
+                        <Badge variant="secondary">
+                          子分组 {group.childGroupIds.length}
+                        </Badge>
+                      )}
                       <Badge
                         variant={
                           group.contentSafetyEnabled === false
@@ -1525,6 +1621,11 @@ export function ImageBackendPoolAdminPanel() {
                       {group.description || "无说明"} · 优先级 {group.priority}{" "}
                       · 账号 {group.accountCount} · API {group.apiCount}
                     </p>
+                    {group.childGroupIds.length > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        嵌套：{childGroupNames(groups, group.childGroupIds)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -1695,7 +1796,8 @@ export function ImageBackendPoolAdminPanel() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    作为负载分母：运行中请求数 / 并发权重。值越大，同优先级下越容易分到更多请求。
+                    作为负载分母：运行中请求数 /
+                    并发权重。值越大，同优先级下越容易分到更多请求。
                   </p>
                 </div>
               </div>
@@ -2512,16 +2614,16 @@ export function ImageBackendPoolAdminPanel() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Database className="h-4 w-4" />同步 Sub2API 账号
+                <Database className="h-4 w-4" />
+                同步 Sub2API 账号
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                连接 Sub2API Postgres，只同步 OpenAI OAuth 账号。默认排除
-                free 套餐并只同步 Codex/Responses，复用 Sub2API 当前
+                连接 Sub2API Postgres，只同步 OpenAI OAuth 账号。默认排除 free
+                套餐并只同步 Codex/Responses，复用 Sub2API 当前
                 access_token；勾选 Mobile RT 后才会把 Sub 中 mobile client
-                的当前 AT 同步为 Web/同时账号，不刷新也不回写 Sub2API 的
-                RT。
+                的当前 AT 同步为 Web/同时账号，不刷新也不回写 Sub2API 的 RT。
               </p>
               {isSub2ApiSyncUnavailable && (
                 <div className="flex gap-2 rounded-md border border-dashed border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-200">
@@ -2690,7 +2792,8 @@ export function ImageBackendPoolAdminPanel() {
                     }))
                   }
                   disabled={
-                    isSub2ApiSyncUnavailable || effectiveImportSyncMode === "web"
+                    isSub2ApiSyncUnavailable ||
+                    effectiveImportSyncMode === "web"
                   }
                 >
                   <SelectTrigger>

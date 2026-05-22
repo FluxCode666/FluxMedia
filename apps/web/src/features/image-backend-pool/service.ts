@@ -13,6 +13,7 @@ import {
   normalizeSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import { validateNestedGroupConfig } from "@repo/shared/image-backend/nested-groups";
 import { logWarn } from "@repo/shared/logger";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
@@ -22,7 +23,17 @@ import {
   getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
-import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { Pool } from "pg";
 
@@ -53,6 +64,8 @@ type PoolMember =
       type: "api";
       id: string;
       groupId: string | null;
+      groupMetadata: Record<string, unknown> | null;
+      groupContentSafetyEnabled: boolean | null;
       name: string;
       baseUrl: string;
       apiKey: string;
@@ -68,6 +81,8 @@ type PoolMember =
       type: "account";
       id: string;
       groupId: string | null;
+      groupMetadata: Record<string, unknown> | null;
+      groupContentSafetyEnabled: boolean | null;
       name: string;
       accessToken: string;
       model: string | null;
@@ -125,6 +140,13 @@ type BackendMetadata = Record<string, unknown> & {
 type ImageBackendGroupMetadata = Record<string, unknown> & {
   minPlan?: unknown;
   backendType?: unknown;
+  childGroupIds?: unknown;
+};
+
+type SelectableGroupContext = {
+  id: string;
+  metadata: Record<string, unknown> | null;
+  contentSafetyEnabled: boolean | null;
 };
 
 const CHATGPT_CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex";
@@ -207,13 +229,30 @@ function getGroupBackendType(
   return normalizeGroupBackendType(asGroupMetadata(metadata).backendType);
 }
 
+function normalizeGroupChildGroupIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+}
+
+function getGroupChildGroupIds(
+  metadata: Record<string, unknown> | null | undefined
+) {
+  return normalizeGroupChildGroupIds(asGroupMetadata(metadata).childGroupIds);
+}
+
 function groupBackendAllowsRequest(
   metadata: Record<string, unknown> | null | undefined,
   requestKind: ImageBackendRequestKind
 ) {
   const backendType = getGroupBackendType(metadata);
   if (requestKind === "responses") {
-    return backendType === "responses";
+    return backendType === "responses" || backendType === "mixed";
   }
   return true;
 }
@@ -965,19 +1004,99 @@ async function ensureGroupUsable(
   return group ?? null;
 }
 
+async function listSelectableGroupContexts(
+  group: {
+    id: string;
+    metadata: Record<string, unknown> | null;
+    contentSafetyEnabled: boolean | null;
+  },
+  plan: SubscriptionPlan,
+  requestKind: ImageBackendRequestKind
+): Promise<SelectableGroupContext[]> {
+  const contexts: SelectableGroupContext[] = [
+    {
+      id: group.id,
+      metadata: group.metadata,
+      contentSafetyEnabled: group.contentSafetyEnabled,
+    },
+  ];
+  if (getGroupBackendType(group.metadata) !== "mixed") return contexts;
+
+  const childGroupIds = getGroupChildGroupIds(group.metadata).filter(
+    (childGroupId) => childGroupId !== group.id
+  );
+  if (!childGroupIds.length) return contexts;
+
+  const childGroups = await db
+    .select({
+      id: imageBackendGroup.id,
+      metadata: imageBackendGroup.metadata,
+      contentSafetyEnabled: imageBackendGroup.contentSafetyEnabled,
+    })
+    .from(imageBackendGroup)
+    .where(
+      and(
+        inArray(imageBackendGroup.id, childGroupIds),
+        eq(imageBackendGroup.isEnabled, true)
+      )
+    );
+  const childGroupMap = new Map(childGroups.map((child) => [child.id, child]));
+
+  for (const childGroupId of childGroupIds) {
+    const child = childGroupMap.get(childGroupId);
+    if (!child) continue;
+    if (!canUseBackendGroupForPlan(child.metadata, plan)) continue;
+    if (getGroupBackendType(child.metadata) === "mixed") continue;
+    if (getGroupChildGroupIds(child.metadata).length) continue;
+    if (!groupBackendAllowsRequest(child.metadata, requestKind)) continue;
+    contexts.push({
+      id: child.id,
+      metadata: child.metadata,
+      contentSafetyEnabled: child.contentSafetyEnabled,
+    });
+  }
+
+  return contexts;
+}
+
 async function selectPoolMember(
   groupId: string | null,
   groupMetadata?: Record<string, unknown> | null,
+  groupContentSafetyEnabled?: boolean | null,
+  groupContexts?: SelectableGroupContext[],
   requestKind?: ImageBackendRequestKind,
   excluded?: Set<string>,
   preferredMemberId?: string,
   accountBackendPreference?: ImageBackendAccountBackend
 ): Promise<PoolMember | null> {
-  const apiGroupFilter = groupId
-    ? eq(imageBackendApi.groupId, groupId)
-    : sql`true`;
-  const accountGroupFilter = groupId
-    ? eq(imageBackendAccount.groupId, groupId)
+  const contexts =
+    groupContexts && groupContexts.length
+      ? groupContexts
+      : groupId
+        ? [
+            {
+              id: groupId,
+              metadata: groupMetadata ?? null,
+              contentSafetyEnabled: groupContentSafetyEnabled ?? null,
+            },
+          ]
+        : [];
+  const contextMap = new Map(contexts.map((context) => [context.id, context]));
+  const groupIds = contexts.map((context) => context.id);
+  const apiGroupFilter = groupIds.length
+    ? inArray(imageBackendApi.groupId, groupIds)
+    : groupId
+      ? eq(imageBackendApi.groupId, groupId)
+      : sql`true`;
+  const accountGroupFilter = groupIds.length
+    ? inArray(imageBackendAccount.groupId, groupIds)
+    : groupId
+      ? eq(imageBackendAccount.groupId, groupId)
+      : sql`true`;
+  const requiredAccountBackend =
+    requestKind === "responses" ? "responses" : accountBackendPreference;
+  const accountBackendFilter = requiredAccountBackend
+    ? eq(imageBackendAccount.implementationMode, requiredAccountBackend)
     : sql`true`;
   const now = new Date();
 
@@ -1013,6 +1132,7 @@ async function selectPoolMember(
         and(
           eq(imageBackendAccount.isEnabled, true),
           accountGroupFilter,
+          accountBackendFilter,
           isBackendAvailableStatus(
             imageBackendAccount.status,
             imageBackendAccount.cooldownUntil,
@@ -1034,29 +1154,47 @@ async function selectPoolMember(
 
   const apiMembers: PoolMember[] = accountBackendPreference
     ? []
-    : apiRows.map((row) => ({
-        type: "api",
-        id: row.id,
-        groupId: row.groupId,
-        name: row.name,
-        baseUrl: row.baseUrl,
-        apiKey: row.apiKey,
-        model: row.model,
-        useStream: row.useStream,
-        contentSafetyEnabled: row.contentSafetyEnabled,
-        priority: row.priority,
-        concurrency: 1,
-        lastUsedAt: row.lastUsedAt,
-        createdAt: row.createdAt,
-      }));
+    : apiRows
+        .filter((row) => {
+          const context = row.groupId ? contextMap.get(row.groupId) : null;
+          const metadata = context?.metadata ?? groupMetadata;
+          return groupBackendAllowsRequest(
+            metadata,
+            requestKind || "image_generation"
+          );
+        })
+        .map((row) => {
+          const context = row.groupId ? contextMap.get(row.groupId) : null;
+          return {
+            type: "api",
+            id: row.id,
+            groupId: row.groupId,
+            groupMetadata: context?.metadata ?? groupMetadata ?? null,
+            groupContentSafetyEnabled:
+              context?.contentSafetyEnabled ??
+              groupContentSafetyEnabled ??
+              null,
+            name: row.name,
+            baseUrl: row.baseUrl,
+            apiKey: row.apiKey,
+            model: row.model,
+            useStream: row.useStream,
+            contentSafetyEnabled: row.contentSafetyEnabled,
+            priority: row.priority,
+            concurrency: 1,
+            lastUsedAt: row.lastUsedAt,
+            createdAt: row.createdAt,
+          };
+        });
 
   const accountMembers: PoolMember[] = accountRows
     .filter((row) => {
       const backend = normalizeAccountBackend(row.implementationMode);
+      const context = row.groupId ? contextMap.get(row.groupId) : null;
+      const metadata = context?.metadata ?? groupMetadata;
       return (
-        (!accountBackendPreference ||
-          accountBackendPreference === backend) &&
-        groupBackendAllowsAccount(groupMetadata, backend) &&
+        (!accountBackendPreference || accountBackendPreference === backend) &&
+        groupBackendAllowsAccount(metadata, backend) &&
         accountBackendAllowsRequest(
           backend,
           requestKind || "image_generation"
@@ -1068,6 +1206,16 @@ async function selectPoolMember(
       type: "account",
       id: row.id,
       groupId: row.groupId,
+      groupMetadata:
+        (row.groupId ? contextMap.get(row.groupId)?.metadata : null) ??
+        groupMetadata ??
+        null,
+      groupContentSafetyEnabled:
+        (row.groupId
+          ? contextMap.get(row.groupId)?.contentSafetyEnabled
+          : null) ??
+        groupContentSafetyEnabled ??
+        null,
       name: row.name,
       accessToken: row.accessToken,
       model: row.model,
@@ -1134,13 +1282,13 @@ async function touchSelectedMember(member: PoolMember) {
 }
 
 function toResolvedPoolConfig(
-  groupId: string,
-  groupContentSafetyEnabled: boolean | null,
+  fallbackGroupId: string,
   member: PoolMember,
   options: ResolveBackendOptions
 ): ResolvedImageBackendPoolConfig {
+  const groupId = member.groupId || fallbackGroupId;
   const contentSafetyEnabled = effectiveContentSafety(
-    groupContentSafetyEnabled,
+    member.groupContentSafetyEnabled,
     member.contentSafetyEnabled
   );
 
@@ -1238,6 +1386,12 @@ async function resolvePoolMember(
   const member = await selectPoolMember(
     group.id,
     group.metadata,
+    group.contentSafetyEnabled,
+    await listSelectableGroupContexts(
+      group,
+      userPlan.plan,
+      options.requestKind
+    ),
     options.requestKind,
     options.excluded,
     options.preferredMemberId,
@@ -1266,7 +1420,6 @@ export async function resolveImageBackendPoolConfig(
   await touchSelectedMember(resolved.member);
   const result = toResolvedPoolConfig(
     resolved.group.id,
-    resolved.group.contentSafetyEnabled,
     resolved.member,
     options
   );
@@ -1571,6 +1724,7 @@ export async function listImageBackendGroupOptions(options?: {
       ...group,
       minPlan: getGroupMinPlan(metadata),
       backendType: getGroupBackendType(metadata),
+      childGroupIds: getGroupChildGroupIds(metadata),
     }));
 }
 
@@ -1650,10 +1804,38 @@ type UpsertGroupInput = {
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
+  childGroupIds?: string[];
   priority: number;
 };
 
+async function normalizeUpsertGroupChildGroupIds(input: UpsertGroupInput) {
+  const groups = await db
+    .select({
+      id: imageBackendGroup.id,
+      name: imageBackendGroup.name,
+      metadata: imageBackendGroup.metadata,
+    })
+    .from(imageBackendGroup)
+    .orderBy(asc(imageBackendGroup.createdAt));
+  const result = validateNestedGroupConfig({
+    groupId: input.id,
+    backendType: input.backendType,
+    childGroupIds: input.childGroupIds,
+    groups: groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      backendType: getGroupBackendType(group.metadata),
+      childGroupIds: getGroupChildGroupIds(group.metadata),
+    })),
+  });
+  if (!result.ok) throw new Error(result.error);
+
+  return result.childGroupIds;
+}
+
 export async function upsertImageBackendGroup(input: UpsertGroupInput) {
+  const childGroupIds = await normalizeUpsertGroupChildGroupIds(input);
+
   if (input.isDefault) {
     await db.update(imageBackendGroup).set({
       isDefault: false,
@@ -1671,6 +1853,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       ...asGroupMetadata(existing?.metadata),
       minPlan: input.minPlan,
       backendType: input.backendType,
+      childGroupIds,
     };
     await db
       .update(imageBackendGroup)
@@ -1698,7 +1881,11 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
     isDefault: input.isDefault,
     isUserSelectable: input.isUserSelectable,
     contentSafetyEnabled: input.contentSafetyEnabled,
-    metadata: { minPlan: input.minPlan, backendType: input.backendType },
+    metadata: {
+      minPlan: input.minPlan,
+      backendType: input.backendType,
+      childGroupIds,
+    },
     priority: input.priority,
   });
   return id;
@@ -2838,7 +3025,8 @@ async function getSub2ApiHealthOverride(account: Sub2ApiTokenAccount): Promise<{
     );
     return {
       status: "limited",
-      cooldownUntil: account.sourceCooldownUntil ?? cooldownFromMinutes(minutes),
+      cooldownUntil:
+        account.sourceCooldownUntil ?? cooldownFromMinutes(minutes),
       lastError: message || "Sub2API 标记账号限流",
     };
   }
@@ -2873,7 +3061,8 @@ async function getSub2ApiHealthOverride(account: Sub2ApiTokenAccount): Promise<{
     );
     return {
       status: "active",
-      cooldownUntil: account.sourceCooldownUntil ?? cooldownFromMinutes(minutes),
+      cooldownUntil:
+        account.sourceCooldownUntil ?? cooldownFromMinutes(minutes),
       lastError: message || "Sub2API 标记账号临时不可用",
     };
   }
@@ -2917,11 +3106,13 @@ async function getExistingSub2ApiSyncedAccountState(
   return existing ?? null;
 }
 
-function shouldPreserveLocalUnavailableState(existing?: {
-  status: string;
-  cooldownUntil: Date | null;
-  isEnabled: boolean;
-} | null) {
+function shouldPreserveLocalUnavailableState(
+  existing?: {
+    status: string;
+    cooldownUntil: Date | null;
+    isEnabled: boolean;
+  } | null
+) {
   if (!existing) return false;
   if (!existing.isEnabled) return true;
   if (existing.status === "error" || existing.status === "limited") return true;
@@ -3497,8 +3688,8 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       skipped,
       failed: failedByMode.web + failedByMode.responses,
       failedByMode,
-    refreshTokenWriteBackCount: 0,
-  };
+      refreshTokenWriteBackCount: 0,
+    };
   } finally {
     await pool.end();
   }
@@ -3523,9 +3714,8 @@ async function getDefaultGroupIdForBackend(
       asc(imageBackendGroup.createdAt)
     );
   return (
-    rows.find((group) =>
-      groupBackendAllowsAccount(group.metadata, backend)
-    )?.id ?? null
+    rows.find((group) => groupBackendAllowsAccount(group.metadata, backend))
+      ?.id ?? null
   );
 }
 
@@ -3542,9 +3732,7 @@ async function getAutoSub2ApiSyncMetadata() {
   );
 }
 
-async function setAutoSub2ApiSyncMetadata(
-  metadata: AutoSub2ApiSyncMetadata
-) {
+async function setAutoSub2ApiSyncMetadata(metadata: AutoSub2ApiSyncMetadata) {
   const now = new Date();
   await db
     .insert(systemSetting)
@@ -3952,6 +4140,7 @@ export async function listAdminImageBackendPool() {
     contentSafetyEnabled: group.contentSafetyEnabled,
     backendType: getGroupBackendType(group.metadata),
     minPlan: getGroupMinPlan(group.metadata),
+    childGroupIds: getGroupChildGroupIds(group.metadata),
     priority: group.priority,
     apiCount: apiCountMap.get(group.id) ?? 0,
     accountCount: accountCountMap.get(group.id) ?? 0,
