@@ -3024,10 +3024,15 @@ async function applySub2ApiHealthToExistingAccount(
     .where(eq(imageBackendAccount.id, existingId));
 }
 
-async function getSub2ApiPostgresConnectionString() {
+async function getOptionalSub2ApiPostgresConnectionString() {
   const connectionString =
     (await getRuntimeSettingString("SUB2API_POSTGRES_URL")) ||
     process.env.SUB2API_POSTGRES_URL?.trim();
+  return connectionString || "";
+}
+
+async function getSub2ApiPostgresConnectionString() {
+  const connectionString = await getOptionalSub2ApiPostgresConnectionString();
   if (!connectionString) {
     throw new Error("请先配置 SUB2API_POSTGRES_URL");
   }
@@ -3579,6 +3584,25 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
       reason: "disabled",
       intervalMinutes: 0,
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (!(await getOptionalSub2ApiPostgresConnectionString())) {
+    const skippedAt = new Date().toISOString();
+    const previousMetadata = await getAutoSub2ApiSyncMetadata();
+    await setAutoSub2ApiSyncMetadata({
+      ...previousMetadata,
+      lastSkippedAt: skippedAt,
+      lastStatus: "skipped",
+      lastError: undefined,
+      lastErrorAt: undefined,
+    });
+    return {
+      success: true,
+      jobSkipped: true,
+      reason: "sub2api_not_configured",
+      intervalMinutes: 0,
+      timestamp: skippedAt,
     };
   }
 
