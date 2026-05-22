@@ -57,6 +57,16 @@ function formatJsonExample(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function getJsonSettingHint(key: string) {
+  if (key === "PLAN_CAPABILITY_MATRIX") {
+    return "留空表示使用代码默认矩阵，并继续兼容旧上传/月积分配置。占位内容只是示例，填写 JSON 后保存才会启用自定义矩阵；套餐积分配额和上传限制在 limits.* 中配置。";
+  }
+  if (key === "CREDIT_PACKAGE_MATRIX") {
+    return "留空表示使用代码默认积分包。占位内容只是示例，填写 JSON 后保存才会启用自定义积分包；pricesByPlan 可按套餐配置不同价格，Creem 按套餐定价时需配置对应产品 ID。";
+  }
+  return "留空表示使用代码默认值。占位内容只是示例，填写 JSON 后保存才会启用自定义配置。";
+}
+
 function normalizeDraftValue(setting: SettingSnapshotItem): DraftValue {
   if (setting.valueType === "boolean") {
     if (setting.stored) return setting.value === "true";
@@ -409,7 +419,7 @@ export function SystemSettingsPanel() {
                         setting.exampleValue !== undefined &&
                         !setting.configured && (
                           <p className="text-xs text-muted-foreground">
-                            留空表示使用代码默认矩阵，并继续兼容旧上传/月积分配置。占位内容只是示例，填写 JSON 后保存才会启用自定义矩阵；套餐积分配额在 limits.*.monthlyCredits 中配置。
+                            {getJsonSettingHint(setting.key)}
                           </p>
                         )}
                       {setting.updatedAt && (

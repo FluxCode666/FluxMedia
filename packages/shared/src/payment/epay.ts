@@ -29,6 +29,7 @@ export interface EpayMetadata {
   planId?: string;
   packageId?: string;
   quantity?: number;
+  creditPlan?: string;
   checkoutMode?: "new_subscription" | "upgrade";
   expectedAmount?: number;
   originalAmount?: number;
@@ -458,6 +459,7 @@ export function encodeEpayMetadata(metadata: EpayMetadata): string {
   if (metadata.planId) compact.l = metadata.planId;
   if (metadata.packageId) compact.g = metadata.packageId;
   if (metadata.quantity && metadata.quantity > 1) compact.q = metadata.quantity;
+  if (metadata.creditPlan) compact.x = metadata.creditPlan;
 
   if (metadata.checkoutMode === "upgrade") {
     compact.m = "u";
@@ -512,6 +514,7 @@ function normalizeEpayMetadata(
   const priceId = metadata.priceId ?? metadata.p;
   const planId = metadata.planId ?? metadata.l;
   const packageId = metadata.packageId ?? metadata.g;
+  const creditPlan = metadata.creditPlan ?? metadata.x;
   const numberValue = (value: unknown) =>
     typeof value === "number"
       ? value
@@ -548,6 +551,7 @@ function normalizeEpayMetadata(
     ...(typeof priceId === "string" && { priceId }),
     ...(typeof planId === "string" && { planId }),
     ...(typeof packageId === "string" && { packageId }),
+    ...(typeof creditPlan === "string" && { creditPlan }),
     ...(typeof quantity === "number" &&
       Number.isFinite(quantity) &&
       quantity > 0 && {

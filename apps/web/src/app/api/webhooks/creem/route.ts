@@ -2,12 +2,18 @@ import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { getSubscriptionMonthlyCredits } from "@repo/shared/config/payment-runtime";
-import { getPlanFromPriceId } from "@repo/shared/config/subscription-plan";
+import {
+  getPlanFromPriceId,
+  isSubscriptionPlan,
+} from "@repo/shared/config/subscription-plan";
 import { db } from "@repo/database";
 import { creditsBatch, subscription, user } from "@repo/database/schema";
 import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
-import { getRuntimeCreditPackageById } from "@repo/shared/credits/packages";
+import {
+  getCreditPackagePriceForPlan,
+  getRuntimeCreditPackageById,
+} from "@repo/shared/credits/packages";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import {
   type CreemCheckoutCompletedData,
@@ -182,6 +188,11 @@ async function handleCreditPurchase(
 ) {
   const packageId = data.metadata?.packageId;
   const orderId = data.order?.id ?? data.id;
+  const purchasePlan = isSubscriptionPlan(data.metadata?.planId)
+    ? data.metadata.planId
+    : isSubscriptionPlan(data.metadata?.creditPlan)
+      ? data.metadata.creditPlan
+      : "free";
 
   if (!packageId) {
     logger.error(
@@ -194,6 +205,7 @@ async function handleCreditPurchase(
   // 从服务端配置查找积分数量（不信任客户端 metadata.credits）
   const pkg = await getRuntimeCreditPackageById(packageId, {
     includeHidden: true,
+    plan: purchasePlan,
   });
   if (!pkg) {
     logger.error(
@@ -205,6 +217,7 @@ async function handleCreditPurchase(
 
   const quantity = 1;
   const creditsAmount = pkg.credits * quantity;
+  const unitPrice = getCreditPackagePriceForPlan(pkg, purchasePlan);
 
   // 幂等性检查：同一订单只发放一次积分
   const sourceRef = `credit_purchase:${orderId}`;
@@ -247,8 +260,9 @@ async function handleCreditPurchase(
         paymentType: "one-time",
         quantity,
         unitCredits: pkg.credits,
-        unitPrice: pkg.price,
-        paidMoney: pkg.price * quantity,
+        unitPrice,
+        paidMoney: unitPrice * quantity,
+        planId: purchasePlan,
       },
     });
 

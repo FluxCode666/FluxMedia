@@ -13,7 +13,6 @@ import {
 } from "@repo/shared/credits/actions";
 import {
   CREDIT_PACKAGES,
-  ENTERPRISE_RESOURCE_PACKAGE_ID,
   isCreditPackageVisible,
 } from "@repo/shared/credits/config";
 import { Badge } from "@repo/ui/components/badge";
@@ -41,6 +40,8 @@ type CreditPackageCard = {
   price: number;
   description: string;
   popular: boolean;
+  allowQuantity?: boolean;
+  maxQuantity?: number;
 };
 
 const FALLBACK_PACKAGES: CreditPackageCard[] = CREDIT_PACKAGES.filter(
@@ -52,6 +53,12 @@ const FALLBACK_PACKAGES: CreditPackageCard[] = CREDIT_PACKAGES.filter(
   price: pkg.price,
   description: pkg.description,
   popular: "popular" in pkg ? pkg.popular : false,
+  allowQuantity:
+    "allowQuantity" in pkg ? Boolean(pkg.allowQuantity) : false,
+  maxQuantity:
+    "maxQuantity" in pkg && typeof pkg.maxQuantity === "number"
+      ? pkg.maxQuantity
+      : 1,
 }));
 
 const PACKAGE_NAMES_ZH: Record<string, string> = {
@@ -67,7 +74,7 @@ const PACKAGE_DESCRIPTIONS_ZH: Record<string, string> = {
   pro: "更多积分，更适合高频创作",
 };
 
-const MAX_ENTERPRISE_PACK_QUANTITY = 999;
+const DEFAULT_MAX_PACKAGE_QUANTITY = 999;
 
 function submitEpayForm(url: string, params: Record<string, string>) {
   const form = document.createElement("form");
@@ -143,7 +150,7 @@ export function BuyCreditPackagesView() {
     execute({
       packageId,
       quantity:
-        packageId === ENTERPRISE_RESOURCE_PACKAGE_ID
+        packages.find((pkg) => pkg.id === packageId)?.allowQuantity
           ? (quantities[packageId] ?? 1)
           : 1,
     });
@@ -157,7 +164,7 @@ export function BuyCreditPackagesView() {
         packages.map((pkg) => [
           pkg.id,
           Math.min(
-            MAX_ENTERPRISE_PACK_QUANTITY,
+            pkg.maxQuantity ?? DEFAULT_MAX_PACKAGE_QUANTITY,
             Math.max(1, Math.trunc(quantities[pkg.id] ?? 1))
           ),
         ])
@@ -168,7 +175,8 @@ export function BuyCreditPackagesView() {
     setQuantities((current) => ({
       ...current,
       [packageId]: Math.min(
-        MAX_ENTERPRISE_PACK_QUANTITY,
+        packages.find((pkg) => pkg.id === packageId)?.maxQuantity ??
+          DEFAULT_MAX_PACKAGE_QUANTITY,
         Math.max(1, Math.trunc(Number.isFinite(value) ? value : 1))
       ),
     }));
@@ -202,7 +210,7 @@ export function BuyCreditPackagesView() {
       >
         {packages.map((pkg) => {
           const isPopular = pkg.popular;
-          const isEnterprisePack = pkg.id === ENTERPRISE_RESOURCE_PACKAGE_ID;
+          const allowQuantity = Boolean(pkg.allowQuantity);
           const quantity = normalizedQuantities[pkg.id] ?? 1;
           const totalCredits = pkg.credits * quantity;
           const totalPrice = pkg.price * quantity;
@@ -238,7 +246,7 @@ export function BuyCreditPackagesView() {
                     {totalCredits.toLocaleString()}
                   </span>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {isEnterprisePack
+                    {allowQuantity
                       ? copy(
                           `${pkg.credits.toLocaleString()} credits x ${quantity}`,
                           `${pkg.credits.toLocaleString()} 积分 x ${quantity}`
@@ -257,7 +265,7 @@ export function BuyCreditPackagesView() {
                   </span>
                 </div>
 
-                {isEnterprisePack && (
+                {allowQuantity && (
                   <div className="w-full space-y-2">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>{copy("Quantity", "购买数量")}</span>
@@ -286,7 +294,7 @@ export function BuyCreditPackagesView() {
                       <Input
                         type="number"
                         min={1}
-                        max={MAX_ENTERPRISE_PACK_QUANTITY}
+                        max={pkg.maxQuantity ?? DEFAULT_MAX_PACKAGE_QUANTITY}
                         value={quantity}
                         className="h-8 border-0 text-center shadow-none focus-visible:ring-0"
                         disabled={isPending || isPackagesLoading}
@@ -303,7 +311,8 @@ export function BuyCreditPackagesView() {
                         size="icon"
                         className="h-8 w-8 rounded-none"
                         disabled={
-                          quantity >= MAX_ENTERPRISE_PACK_QUANTITY ||
+                          quantity >=
+                            (pkg.maxQuantity ?? DEFAULT_MAX_PACKAGE_QUANTITY) ||
                           isPending ||
                           isPackagesLoading
                         }

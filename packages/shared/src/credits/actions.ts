@@ -32,12 +32,13 @@ import { getPlanMonthlyCredits } from "../subscription/services/plan-capabilitie
 
 import {
   CREDIT_CONFIG_DEFAULTS,
-  ENTERPRISE_RESOURCE_PACKAGE_ID,
   isCreditPackageVisible,
 } from "./config";
 import {
   getRuntimeCreditPackageById,
   getRuntimeCreditPackages,
+  getCreditPackageCreemProductIdForPlan,
+  getCreditPackagePriceForPlan,
 } from "./packages";
 import {
   AccountFrozenError,
@@ -472,27 +473,31 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
     const requestedQuantity = parsedInput.quantity ?? 1;
 
     // 查找套餐配置
+    const userPlan = await getUserPlanForCreditsAction(userId);
     const pkg = await getRuntimeCreditPackageById(packageId, {
       includeHidden: true,
+      plan: userPlan,
     });
     if (!pkg) {
       throw new Error("无效的积分套餐");
     }
-    const userPlan = await getUserPlanForCreditsAction(userId);
-    const isEnterprisePack = pkg.id === ENTERPRISE_RESOURCE_PACKAGE_ID;
-    if (!isEnterprisePack && !isCreditPackageVisible(pkg)) {
+    if (!isCreditPackageVisible(pkg) && !pkg.requiresPlan) {
       throw new Error("无效的积分套餐");
     }
-    if (isEnterprisePack && !isPlanAtLeast(userPlan, "enterprise")) {
-      throw new Error("企业资源包仅企业版套餐可购买");
+    if (pkg.requiresPlan && !isPlanAtLeast(userPlan, pkg.requiresPlan)) {
+      throw new Error("当前套餐不可购买该积分包");
     }
-    if (!isEnterprisePack && requestedQuantity !== 1) {
+    if (!pkg.allowQuantity && requestedQuantity !== 1) {
       throw new Error("该积分包不支持数量购买");
     }
 
-    const quantity = isEnterprisePack ? requestedQuantity : 1;
+    const quantity = pkg.allowQuantity ? requestedQuantity : 1;
+    if (pkg.maxQuantity && quantity > pkg.maxQuantity) {
+      throw new Error(`购买数量不能超过 ${pkg.maxQuantity}`);
+    }
+    const unitPrice = getCreditPackagePriceForPlan(pkg, userPlan);
     const creditsAmount = pkg.credits * quantity;
-    const totalPrice = pkg.price * quantity;
+    const totalPrice = unitPrice * quantity;
 
     const baseUrl = getBaseUrl();
 
@@ -518,6 +523,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         outTradeNo,
         packageId: pkg.id,
         quantity,
+        creditPlan: userPlan,
       };
       await saveEpayOrder(metadata, totalPrice);
       const checkout = await createRuntimeEpayPurchase({
@@ -540,7 +546,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
     // 注意：Creem 需要预先在后台创建产品，这里使用 packageId 作为 product_id
     // 实际使用时需要在 Creem 后台创建对应的积分产品
     const checkout = await creem.createCheckout({
-      product_id: `credits_${packageId}`, // 需要在 Creem 后台创建对应产品
+      product_id: getCreditPackageCreemProductIdForPlan(pkg, userPlan),
       success_url:
         successUrl ??
         `${baseUrl}/dashboard/billing?success=true&credits=${creditsAmount}`,
@@ -551,6 +557,8 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         credits: String(creditsAmount),
         packageId: pkg.id,
         quantity: String(quantity),
+        planId: userPlan,
+        unitPrice: String(unitPrice),
       },
     });
 
@@ -566,20 +574,21 @@ export const getCreditPackages = withProtectedCreditsAction(
   const userPlan = await getUserPlanForCreditsAction(ctx.userId);
   const packages = await getRuntimeCreditPackages({
     includeHidden: isPlanAtLeast(userPlan, "enterprise"),
+    plan: userPlan,
   });
   return packages
     .filter((pkg) => {
-      if (pkg.id === ENTERPRISE_RESOURCE_PACKAGE_ID) {
-        return isPlanAtLeast(userPlan, "enterprise");
-      }
+      if (pkg.requiresPlan) return isPlanAtLeast(userPlan, pkg.requiresPlan);
       return isCreditPackageVisible(pkg);
     })
     .map((pkg) => ({
       id: pkg.id,
       name: pkg.name,
       credits: pkg.credits,
-      price: pkg.price,
+      price: getCreditPackagePriceForPlan(pkg, userPlan),
       description: pkg.description,
       popular: "popular" in pkg ? pkg.popular : false,
+      allowQuantity: Boolean(pkg.allowQuantity),
+      maxQuantity: pkg.maxQuantity ?? 1,
     }));
 });

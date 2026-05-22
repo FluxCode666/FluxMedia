@@ -1,3 +1,5 @@
+import type { SubscriptionPlan } from "../config/subscription-plan";
+
 /**
  * 积分系统配置
  *
@@ -32,13 +34,33 @@ export const ENTERPRISE_RESOURCE_PACKAGE_ID = "enterprise_resource";
 export const ENTERPRISE_RESOURCE_PACKAGE_DEFAULT_CREDITS = 5000;
 export const ENTERPRISE_RESOURCE_PACKAGE_DEFAULT_PRICE = 15;
 
+export type CreditPackagePlanMap<T> = Partial<Record<SubscriptionPlan, T>>;
+
 /**
- * 积分包配置（一次性购买）
+ * 积分包配置（一次性购买）。
  *
- * payg_starter 的实际价格与积分数会在服务端按 Starter 月付配置解析，
- * 这里保留默认值用于客户端首屏和历史记录兜底。
- *
- * 旧积分包保留为隐藏项，用于兼容可能已创建但尚未回调的历史订单。
+ * price 是兜底价格；pricesByPlan 可按用户当前套餐覆盖价格。
+ * Creem 一次性产品价格在 Creem 后台预建，按套餐定价时需要配置对应
+ * creemProductIdsByPlan；Epay 会直接使用站内计算出的价格。
+ */
+export type CreditPackageConfig = {
+  id: string;
+  name: string;
+  credits: number;
+  price: number;
+  description: string;
+  popular?: boolean;
+  visible?: boolean;
+  requiresPlan?: SubscriptionPlan;
+  allowQuantity?: boolean;
+  maxQuantity?: number;
+  pricesByPlan?: CreditPackagePlanMap<number>;
+  creemProductId?: string;
+  creemProductIdsByPlan?: CreditPackagePlanMap<string>;
+};
+
+/**
+ * 默认积分包。旧积分包保留为隐藏项，用于兼容可能已创建但尚未回调的历史订单。
  */
 export const CREDIT_PACKAGES = [
   {
@@ -56,6 +78,8 @@ export const CREDIT_PACKAGES = [
     price: ENTERPRISE_RESOURCE_PACKAGE_DEFAULT_PRICE,
     description: "Enterprise-only 5,000-credit resource pack",
     requiresPlan: "enterprise",
+    allowQuantity: true,
+    maxQuantity: 999,
     visible: false,
   },
   {
@@ -82,17 +106,17 @@ export const CREDIT_PACKAGES = [
     description: "Maximum credits, maximum savings",
     visible: false,
   },
-] as const;
+] as const satisfies readonly CreditPackageConfig[];
 
 /**
  * 积分套餐类型
  */
-export type CreditPackage = (typeof CREDIT_PACKAGES)[number];
+export type CreditPackage = CreditPackageConfig;
 
 /**
  * 套餐 ID 类型
  */
-export type CreditPackageId = CreditPackage["id"];
+export type CreditPackageId = string;
 
 export function isCreditPackageVisible(pkg: { id: string; visible?: boolean }) {
   return !("visible" in pkg) || pkg.visible !== false;

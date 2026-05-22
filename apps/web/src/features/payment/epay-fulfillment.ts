@@ -10,6 +10,7 @@ import {
 import {
   getPlanFromPriceId,
   isPlanAtLeast,
+  isSubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import {
   CREDIT_CONFIG_DEFAULTS,
@@ -19,7 +20,10 @@ import {
   grantCredits,
   voidActiveSubscriptionCreditsForUpgrade,
 } from "@repo/shared/credits/core";
-import { getRuntimeCreditPackageById } from "@repo/shared/credits/packages";
+import {
+  getCreditPackagePriceForPlan,
+  getRuntimeCreditPackageById,
+} from "@repo/shared/credits/packages";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import { getUserPlanType } from "@repo/shared/subscription/services/user-plan";
 import {
@@ -138,8 +142,14 @@ async function handleCreditPurchase(
     throw new Error("Missing credit package ID");
   }
 
+  const currentPlan = await getUserPlanType(userId);
+  const metadata = await getEpayOrderMetadata(verifyInfo.outTradeNo);
+  const purchasePlan = isSubscriptionPlan(metadata?.creditPlan)
+    ? metadata.creditPlan
+    : currentPlan;
   const pkg = await getRuntimeCreditPackageById(packageId, {
     includeHidden: true,
+    plan: purchasePlan,
   });
   if (!pkg) {
     throw new Error(`Unknown credit package: ${packageId}`);
@@ -147,16 +157,17 @@ async function handleCreditPurchase(
   const normalizedQuantity =
     Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
   const isEnterpriseResourcePack = packageId === ENTERPRISE_RESOURCE_PACKAGE_ID;
-  if (
-    isEnterpriseResourcePack &&
-    !isPlanAtLeast(await getUserPlanType(userId), "enterprise")
-  ) {
+  if (isEnterpriseResourcePack && !isPlanAtLeast(currentPlan, "enterprise")) {
     throw new Error(
       "Enterprise resource pack purchase requires Enterprise plan"
     );
   }
+  if (pkg.requiresPlan && !isPlanAtLeast(currentPlan, pkg.requiresPlan)) {
+    throw new Error("Credit package purchase requires a higher plan");
+  }
   const creditsAmount = pkg.credits * normalizedQuantity;
-  const expectedAmount = pkg.price * normalizedQuantity;
+  const expectedAmount =
+    getCreditPackagePriceForPlan(pkg, purchasePlan) * normalizedQuantity;
 
   if (!isExpectedEpayAmount(verifyInfo, expectedAmount)) {
     throw new Error("Epay amount does not match credit package price");

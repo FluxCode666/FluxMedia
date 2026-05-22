@@ -66,6 +66,7 @@ export type SettingKey =
   | "PLAN_ULTRA_YEARLY_AMOUNT"
   | "PLAN_ENTERPRISE_MONTHLY_AMOUNT"
   | "PLAN_ENTERPRISE_YEARLY_AMOUNT"
+  | "CREDIT_PACKAGE_MATRIX"
   | "ENTERPRISE_RESOURCE_PACK_CREDITS"
   | "ENTERPRISE_RESOURCE_PACK_PRICE"
   | "CONTENT_MODERATION_ENABLED"
@@ -217,6 +218,50 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
       maxBlockRiskLevel: "high",
     },
   },
+};
+
+const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
+  packages: [
+    {
+      id: "payg_starter",
+      name: "Pay as you go",
+      description: "One-time credits",
+      credits: 5000,
+      price: 20,
+      popular: true,
+      visible: true,
+      allowQuantity: false,
+      pricesByPlan: {
+        free: 20,
+        starter: 20,
+        pro: 18,
+        ultra: 16,
+        enterprise: 15,
+      },
+      creemProductIdsByPlan: {
+        free: "credits_payg_starter_free",
+        starter: "credits_payg_starter_starter",
+        pro: "credits_payg_starter_pro",
+        ultra: "credits_payg_starter_ultra",
+        enterprise: "credits_payg_starter_enterprise",
+      },
+    },
+    {
+      id: "enterprise_resource",
+      name: "Enterprise Resource Pack",
+      description: "Enterprise-only resource pack",
+      credits: 5000,
+      price: 15,
+      visible: false,
+      requiresPlan: "enterprise",
+      allowQuantity: true,
+      maxQuantity: 999,
+      pricesByPlan: {
+        enterprise: 15,
+      },
+      creemProductId: "credits_enterprise_resource",
+    },
+  ],
 };
 
 export const SYSTEM_SETTING_DEFINITIONS = [
@@ -409,86 +454,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "plans",
     valueType: "json",
     exampleValue: PLAN_CAPABILITY_MATRIX_EXAMPLE,
-  },
-  {
-    key: "PLAN_FREE_MAX_FILE_MB",
-    label: "Free 单图上传 MB",
-    description: "Free 套餐单张输入图片或蒙版的大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 5,
-  },
-  {
-    key: "PLAN_FREE_MAX_UPLOAD_MB",
-    label: "Free 总上传 MB",
-    description: "Free 套餐单次图生图/对话上传的总大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 75,
-  },
-  {
-    key: "PLAN_STARTER_MAX_FILE_MB",
-    label: "Starter 单图上传 MB",
-    description: "Starter 套餐单张输入图片或蒙版的大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 20,
-  },
-  {
-    key: "PLAN_STARTER_MAX_UPLOAD_MB",
-    label: "Starter 总上传 MB",
-    description: "Starter 套餐单次图生图/对话上传的总大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 75,
-  },
-  {
-    key: "PLAN_PRO_MAX_FILE_MB",
-    label: "Pro 单图上传 MB",
-    description: "Pro 套餐单张输入图片或蒙版的大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 50,
-  },
-  {
-    key: "PLAN_PRO_MAX_UPLOAD_MB",
-    label: "Pro 总上传 MB",
-    description: "Pro 套餐单次图生图/对话上传的总大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 75,
-  },
-  {
-    key: "PLAN_ULTRA_MAX_FILE_MB",
-    label: "Ultra 单图上传 MB",
-    description: "Ultra 套餐单张输入图片或蒙版的大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 100,
-  },
-  {
-    key: "PLAN_ULTRA_MAX_UPLOAD_MB",
-    label: "Ultra 总上传 MB",
-    description: "Ultra 套餐单次图生图/对话上传的总大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 100,
-  },
-  {
-    key: "PLAN_ENTERPRISE_MAX_FILE_MB",
-    label: "Enterprise 单图上传 MB",
-    description: "Enterprise 套餐单张输入图片或蒙版的大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 200,
-  },
-  {
-    key: "PLAN_ENTERPRISE_MAX_UPLOAD_MB",
-    label: "Enterprise 总上传 MB",
-    description: "Enterprise 套餐单次图生图/对话上传的总大小上限。",
-    category: "plans",
-    valueType: "number",
-    defaultValue: 200,
   },
   {
     key: "PLAN_STARTER_MONTHLY_AMOUNT",
@@ -1161,20 +1126,13 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 365,
   },
   {
-    key: "ENTERPRISE_RESOURCE_PACK_CREDITS",
-    label: "企业资源包积分",
-    description: "每份企业资源包发放的积分数量。",
+    key: "CREDIT_PACKAGE_MATRIX",
+    label: "按量积分包配置",
+    description:
+      "JSON 配置。统一控制一次性积分包的积分数、显示状态、最低可购买套餐、是否允许数量购买，以及不同套餐对应价格。Epay 会直接按站内价格收款；Creem 按套餐定价时需要在 creemProductIdsByPlan 中配置对应预建产品 ID。",
     category: "credits",
-    valueType: "number",
-    defaultValue: 5000,
-  },
-  {
-    key: "ENTERPRISE_RESOURCE_PACK_PRICE",
-    label: "企业资源包价格",
-    description: "每份企业资源包价格，单位 CNY。",
-    category: "credits",
-    valueType: "number",
-    defaultValue: 15,
+    valueType: "json",
+    exampleValue: CREDIT_PACKAGE_MATRIX_EXAMPLE,
   },
   {
     key: "NEXT_PUBLIC_GA_ID",
