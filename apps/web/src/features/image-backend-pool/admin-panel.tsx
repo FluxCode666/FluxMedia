@@ -49,6 +49,7 @@ import {
   RefreshCw,
   Search,
   Server,
+  TimerReset,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -243,6 +244,12 @@ const ACCOUNT_METRIC_CARDS = [
     icon: CircleAlert,
   },
   {
+    key: "cooling",
+    label: "冷却中账号",
+    color: "text-sky-600",
+    icon: TimerReset,
+  },
+  {
     key: "error",
     label: "错误账号",
     color: "text-destructive",
@@ -408,6 +415,9 @@ function summarizeAccounts(
       account.status === "limited" ||
       getWebAccountInfo(account)?.status === "limited"
   ).length;
+  const cooling = accounts.filter((account) =>
+    isCoolingDown(account.cooldownUntil)
+  ).length;
   const active = accounts.filter((account) =>
     accountMatchesStatusFilter(account, "active")
   ).length;
@@ -437,7 +447,7 @@ function summarizeAccounts(
           )
         );
 
-  return { total, active, limited, error, disabled, quota };
+  return { total, active, limited, cooling, error, disabled, quota };
 }
 
 function safetyValue(value: boolean | null): ContentSafetyFormValue {

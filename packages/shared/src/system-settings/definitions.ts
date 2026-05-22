@@ -888,7 +888,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "IMAGE_BACKEND_OVERLOAD_COOLDOWN_MINUTES",
     label: "后端 529/过载兜底恢复分钟",
     description:
-      "账号/API 返回 529、overloaded、temporarily unavailable、server overloaded 时的兜底冷却时间；如上游返回恢复时间，会优先按上游时间恢复。",
+      "账号/API 返回 529、overloaded、temporarily unavailable、server overloaded 时的冷却时间；过载类错误不使用上游 reset 时间。",
     category: "models",
     valueType: "number",
     defaultValue: 15,
@@ -906,7 +906,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "IMAGE_BACKEND_UNSUPPORTED_MODEL_COOLDOWN_MINUTES",
     label: "后端模型不支持兜底恢复分钟",
     description:
-      "账号额度未用完但返回不支持该模型、model not supported、unsupported model 时的兜底冷却时间；如上游返回恢复时间，会优先按上游时间恢复。",
+      "账号额度未用完但返回不支持该模型、model not supported、unsupported model 时的冷却时间；模型不支持错误不使用上游 reset 时间。",
     category: "models",
     valueType: "number",
     defaultValue: 15,
@@ -915,7 +915,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "IMAGE_BACKEND_TEMPORARY_ERROR_COOLDOWN_MINUTES",
     label: "后端临时错误兜底恢复分钟",
     description:
-      "超时、连接失败、502/503/504 等临时错误的兜底冷却时间；如上游返回恢复时间，会优先按上游时间恢复。",
+      "超时、连接失败、500、502、503、504 等临时错误的冷却时间；临时错误不使用上游 reset 时间。",
     category: "models",
     valueType: "number",
     defaultValue: 15,

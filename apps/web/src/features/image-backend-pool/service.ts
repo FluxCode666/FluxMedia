@@ -618,8 +618,11 @@ function resolveCooldownDate(
   input?: Pick<
     ImageBackendReportResultInput,
     "upstreamResetAt" | "retryAfterSeconds"
-  >
+  >,
+  options?: { useUpstreamReset?: boolean }
 ) {
+  if (!options?.useUpstreamReset) return fallback;
+
   const now = new Date();
   const retryAfter = Number(input?.retryAfterSeconds);
   if (Number.isFinite(retryAfter) && retryAfter > 0) {
@@ -692,7 +695,8 @@ async function classifyFailure(
       cooldownUntil: resolveCooldownDate(
         error || null,
         cooldownFromMinutes(minutes),
-        input
+        input,
+        { useUpstreamReset: true }
       ),
     };
   }
@@ -722,7 +726,8 @@ async function classifyFailure(
       cooldownUntil: resolveCooldownDate(
         error || null,
         cooldownFromMinutes(minutes),
-        input
+        input,
+        { useUpstreamReset: true }
       ),
     };
   }

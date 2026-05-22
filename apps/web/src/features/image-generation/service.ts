@@ -34,6 +34,7 @@ import {
   normalizeImageModel,
   parseImageSize,
 } from "./resolution";
+import { getCodexRetryAfterSeconds } from "./retry-metadata";
 import {
   buildResponsesImageEditRequest,
   buildResponsesImageGenerationRequest,
@@ -303,13 +304,6 @@ function getHeaderValue(headers: Headers, names: string[]) {
   return null;
 }
 
-function parseHeaderNumber(headers: Headers, name: string) {
-  const value = headers.get(name);
-  if (!value?.trim()) return undefined;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : undefined;
-}
-
 function parseRetryAfterHeader(value: string | null) {
   if (!value) return undefined;
   const numeric = Number(value);
@@ -356,52 +350,6 @@ function parseDurationMs(value: string) {
     return sum;
   }, 0);
   return total > 0 ? total : null;
-}
-
-function getCodexRetryAfterSeconds(headers: Headers) {
-  // Codex reports two windows, currently commonly 5h (300m) and 7d (10080m).
-  // When a window is exhausted, use that window's reset-after seconds.
-  const windows = [
-    {
-      usedPercent: parseHeaderNumber(headers, "x-codex-primary-used-percent"),
-      resetAfterSeconds: parseHeaderNumber(
-        headers,
-        "x-codex-primary-reset-after-seconds"
-      ),
-      windowMinutes: parseHeaderNumber(
-        headers,
-        "x-codex-primary-window-minutes"
-      ),
-    },
-    {
-      usedPercent: parseHeaderNumber(headers, "x-codex-secondary-used-percent"),
-      resetAfterSeconds: parseHeaderNumber(
-        headers,
-        "x-codex-secondary-reset-after-seconds"
-      ),
-      windowMinutes: parseHeaderNumber(
-        headers,
-        "x-codex-secondary-window-minutes"
-      ),
-    },
-  ].filter(
-    (item) =>
-      item.resetAfterSeconds &&
-      item.resetAfterSeconds > 0 &&
-      item.windowMinutes &&
-      item.windowMinutes > 0
-  );
-
-  if (!windows.length) return undefined;
-
-  const exhausted = windows.filter(
-    (item) => item.usedPercent !== undefined && item.usedPercent >= 100
-  );
-  if (exhausted.length) {
-    return Math.max(...exhausted.map((item) => item.resetAfterSeconds || 0));
-  }
-
-  return Math.max(...windows.map((item) => item.resetAfterSeconds || 0));
 }
 
 function getResponseRetryMetadata(response: Response) {
