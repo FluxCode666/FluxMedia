@@ -45,6 +45,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ImagePlus,
+  FileText,
   Loader2,
   Maximize2,
   MessageSquare,
@@ -153,12 +154,15 @@ type EditImageFile = {
   sourceId?: string;
 };
 
-type ChatAttachment = EditImageFile;
+type ChatAttachment = EditImageFile & {
+  kind: "image" | "file";
+};
 
 type ChatAttachmentPreview = {
   id: string;
   name: string;
-  previewUrl: string;
+  previewUrl?: string;
+  kind?: "image" | "file";
 };
 
 type ChatVariant = {
@@ -698,6 +702,9 @@ const DEFAULT_MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MAX_EDIT_REQUEST_BYTES = 75 * 1024 * 1024;
 const CHAT_TEXT_ONLY_CREDITS = 1;
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
+const CHAT_FILE_ACCEPT =
+  ".txt,.md,.markdown,.csv,.json,.jsonl,.yaml,.yml,.log,.xml,.html,.htm,.css,.js,.jsx,.ts,.tsx,.mjs,.cjs,.py,.java,.go,.rs,.c,.cc,.cpp,.h,.hpp,.sql,.sh,.toml,.ini,.env,text/*,application/json,application/xml";
+const CHAT_ATTACHMENT_ACCEPT = `${IMAGE_ACCEPT},${CHAT_FILE_ACCEPT}`;
 const TEXT_MODEL_OPTIONS = [
   { value: "default", label: "Default" },
   { value: "gpt-image-2", label: "GPT Image 2" },
@@ -804,6 +811,26 @@ interface CreatePageClientProps {
 
 function isImageFile(file: File) {
   return ["image/png", "image/jpeg", "image/webp"].includes(file.type);
+}
+
+function isReadableChatFile(file: File) {
+  const type = file.type.toLowerCase();
+  if (type.startsWith("text/")) return true;
+  if (
+    [
+      "application/json",
+      "application/jsonl",
+      "application/ld+json",
+      "application/xml",
+      "application/x-yaml",
+      "application/yaml",
+    ].includes(type)
+  ) {
+    return true;
+  }
+  return /\.(txt|md|markdown|csv|json|jsonl|ya?ml|log|xml|html?|css|jsx?|tsx?|mjs|cjs|py|java|go|rs|c|cc|cpp|h|hpp|sql|sh|toml|ini|env)$/i.test(
+    file.name
+  );
 }
 
 function revokePreview(url: string) {
@@ -940,7 +967,7 @@ function sanitizePersistedChatMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.slice(-80).map((message) => ({
     ...message,
     attachments: message.attachments?.filter(
-      (attachment) => !attachment.previewUrl.startsWith("blob:")
+      (attachment) => !attachment.previewUrl?.startsWith("blob:")
     ),
   }));
 }
@@ -1041,14 +1068,19 @@ function getActiveChatVariant(message: ChatMessage) {
 }
 
 function getMessageImageUrls(message: ChatMessage) {
-  return (message.attachments || [])
-    .map((attachment) => attachment.previewUrl)
-    .filter(
-      (url) =>
-        url.startsWith("data:image/") ||
+  const urls: string[] = [];
+  for (const attachment of message.attachments || []) {
+    const url = attachment.previewUrl;
+    if (
+      url &&
+      (url.startsWith("data:image/") ||
         url.startsWith("http://") ||
-        url.startsWith("https://")
-    );
+        url.startsWith("https://"))
+    ) {
+      urls.push(url);
+    }
+  }
+  return urls;
 }
 
 function toChatHistory(messages: ChatMessage[]) {
@@ -1358,7 +1390,7 @@ export function CreatePageClient({
               );
               return prev;
             }
-            return [...prev, item];
+            return [...prev, { ...item, kind: "image" }];
           });
           setActiveMode("chat");
           toast.success(copy("Reference image attached to chat", "参考图片已添加到对话"));
@@ -1458,6 +1490,10 @@ export function CreatePageClient({
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const lastMaskPointRef = useRef<{ x: number; y: number } | null>(null);
+  const chatImageAttachmentCount = chatAttachments.filter(
+    (item) => item.kind === "image"
+  ).length;
+  const hasChatImageAttachments = chatImageAttachmentCount > 0;
   const textSizeDialogValue = useMemo(
     () => ({
       auto: useAutoSize,
@@ -1478,7 +1514,7 @@ export function CreatePageClient({
   );
   const chatSizeDialogValue = useMemo(
     () =>
-      chatAttachments.length > 0
+      hasChatImageAttachments
         ? {
             auto: useAutoChatEditSize,
             width: chatEditWidth,
@@ -1492,10 +1528,10 @@ export function CreatePageClient({
             mixWebFirst: chatMixWebFirst,
           },
     [
-      chatAttachments.length,
       chatEditHeight,
       chatEditWidth,
       chatMixWebFirst,
+      hasChatImageAttachments,
       height,
       useAutoChatEditSize,
       useAutoSize,
@@ -1581,16 +1617,8 @@ export function CreatePageClient({
       )
     : getImageCreditCost(undefined, moderationCostOptions);
   const editBatchCreditCost = editImageCreditCost * editBatchCount;
-  const chatEditImageCreditCost = chatCustomEditSize
-    ? getImageCreditCost(
-        chatCustomEditSize,
-        getModerationCostOptions(chatAttachments.length)
-      )
-    : getImageCreditCost(undefined, moderationCostOptions);
-  const chatSingleCreditCost =
-    chatAttachments.length > 0 ? chatEditImageCreditCost : CHAT_TEXT_ONLY_CREDITS;
-  const batchFallbackSize =
-    chatAttachments.length > 0 ? chatCustomEditSize : size;
+  const chatSingleCreditCost = CHAT_TEXT_ONLY_CREDITS;
+  const batchFallbackSize = hasChatImageAttachments ? chatCustomEditSize : size;
   const textMixWebFirstActive =
     canUseMixWebFirstRouting && textMixWebFirst && isOneKImageSize(size);
   const editMixWebFirstActive =
@@ -1601,7 +1629,7 @@ export function CreatePageClient({
   const chatMixWebFirstActive =
     canUseMixWebFirstRouting &&
     chatMixWebFirst &&
-    isOneKImageSize(chatAttachments.length > 0 ? chatCustomEditSize : size);
+    isOneKImageSize(hasChatImageAttachments ? chatCustomEditSize : size);
   const currentModeMixWebFirstActive =
     activeMode === "image"
       ? editMixWebFirstActive
@@ -1618,7 +1646,7 @@ export function CreatePageClient({
     : undefined;
   const batchSingleCreditCost = getImageCreditCost(
     batchFallbackSize,
-    getModerationCostOptions(chatAttachments.length)
+    getModerationCostOptions(chatImageAttachmentCount)
   );
   const formattedBalance = formatCredits(balance);
   const formattedTextBatchCreditCost = formatCredits(textBatchCreditCost);
@@ -1644,7 +1672,8 @@ export function CreatePageClient({
   );
   const busy = isGenerating || isEditing || isChatGenerating;
   const firstPreviewUrl = editImages[0]?.previewUrl || null;
-  const chatFirstPreviewUrl = chatAttachments[0]?.previewUrl || null;
+  const chatFirstPreviewUrl =
+    chatAttachments.find((item) => item.kind === "image")?.previewUrl || null;
   const autoSizeLabel = copy("Auto", "自动");
   const editDisplaySize =
     effectiveEditSize === AUTO_IMAGE_SIZE
@@ -1665,7 +1694,7 @@ export function CreatePageClient({
   const loadingSize =
     activeMode === "image" && effectiveEditSize
       ? effectiveEditSize
-      : activeMode === "chat" && chatAttachments.length > 0
+      : activeMode === "chat" && hasChatImageAttachments
         ? chatCustomEditSize
         : size;
   const loadingDimensions = parseImageSize(loadingSize) || defaultDimensions;
@@ -1981,8 +2010,9 @@ export function CreatePageClient({
     streamMessageId?: string;
     streamCardId?: string;
   }) => {
+    const hasImageAttachment = attachments.some((item) => item.kind === "image");
     const requestSize =
-      attachments.length > 0
+      hasImageAttachment
         ? chatCustomEditSize
         : validateImageSize(fallbackSize).valid
           ? fallbackSize
@@ -2012,8 +2042,19 @@ export function CreatePageClient({
     if (chatMixWebFirstActive) {
       formData.append("mix_web_first", "true");
     }
-    attachments.forEach(({ file }) => {
-      formData.append(attachments.length === 1 ? "image" : "image[]", file);
+    const imageAttachments = attachments.filter((item) => item.kind === "image");
+    const fileAttachments = attachments.filter((item) => item.kind === "file");
+    imageAttachments.forEach(({ file }) => {
+      formData.append(
+        imageAttachments.length === 1 ? "image" : "image[]",
+        file
+      );
+    });
+    fileAttachments.forEach(({ file }) => {
+      formData.append(
+        fileAttachments.length === 1 ? "file" : "file[]",
+        file
+      );
     });
 
     const response = await fetch("/api/images/chat", {
@@ -2542,16 +2583,17 @@ export function CreatePageClient({
   };
 
   const addChatAttachments = async (files: FileList | File[] | null) => {
-    const imageFiles = Array.from(files || []);
-    if (!imageFiles.length) return;
+    const uploadFiles = Array.from(files || []);
+    if (!uploadFiles.length) return;
 
     const accepted: ChatAttachment[] = [];
-    for (const file of imageFiles) {
-      if (!isImageFile(file)) {
+    for (const file of uploadFiles) {
+      const isImage = isImageFile(file);
+      if (!isImage && !isReadableChatFile(file)) {
         toast.error(copy("Unsupported file type", "不支持的文件类型"), {
           description: copy(
-            "Use PNG, JPEG, or WebP images.",
-            "请使用 PNG、JPEG 或 WebP 图片。"
+            "Use PNG/JPEG/WebP images, or text/code files.",
+            "请使用 PNG/JPEG/WebP 图片，或文本/代码文件。"
           ),
         });
         continue;
@@ -2566,9 +2608,13 @@ export function CreatePageClient({
         continue;
       }
       try {
-        accepted.push({ file, previewUrl: await readFileAsDataUrl(file) });
+        accepted.push({
+          file,
+          kind: isImage ? "image" : "file",
+          previewUrl: isImage ? await readFileAsDataUrl(file) : "",
+        });
       } catch {
-        toast.error(copy("Failed to load image", "图片加载失败"), {
+        toast.error(copy("Failed to load attachment", "附件加载失败"), {
           description:
             file.name ||
             copy(
@@ -2585,12 +2631,12 @@ export function CreatePageClient({
       const slots = maxChatImages - prev.length;
       if (slots <= 0) {
         for (const item of accepted) {
-          revokePreview(item.previewUrl);
+          revokePreview(item.previewUrl || "");
         }
         toast.error(
           copy(
-            `Attach up to ${maxChatImages} reference images`,
-            `最多可添加 ${maxChatImages} 张参考图片`
+            `Attach up to ${maxChatImages} files`,
+            `最多可添加 ${maxChatImages} 个附件`
           )
         );
         return prev;
@@ -2598,13 +2644,13 @@ export function CreatePageClient({
 
       const next = accepted.slice(0, slots);
       for (const item of accepted.slice(slots)) {
-        revokePreview(item.previewUrl);
+        revokePreview(item.previewUrl || "");
       }
       if (accepted.length > slots) {
         toast.error(
           copy(
-            `Only ${slots} more reference image(s) can be added`,
-            `还可以再添加 ${slots} 张参考图片`
+            `Only ${slots} more attachment(s) can be added`,
+            `还可以再添加 ${slots} 个附件`
           )
         );
       }
@@ -2615,7 +2661,7 @@ export function CreatePageClient({
   const removeChatAttachment = (index: number) => {
     setChatAttachments((prev) => {
       const target = prev[index];
-      if (target) revokePreview(target.previewUrl);
+      if (target) revokePreview(target.previewUrl || "");
       const next = prev.filter((_, itemIndex) => itemIndex !== index);
       return next;
     });
@@ -2624,7 +2670,7 @@ export function CreatePageClient({
   const clearChatAttachments = () => {
     setChatAttachments((prev) => {
       for (const item of prev) {
-        revokePreview(item.previewUrl);
+        revokePreview(item.previewUrl || "");
       }
       return [];
     });
@@ -2651,7 +2697,7 @@ export function CreatePageClient({
 
     try {
       const item = await urlToEditImageFile(imageUrl, name, sourceId);
-      setChatAttachments((prev) => [...prev, item]);
+      setChatAttachments((prev) => [...prev, { ...item, kind: "image" }]);
       setActiveMode("chat");
       toast.success(copy("Reference image attached to chat", "参考图片已添加到对话"));
     } catch (error) {
@@ -2877,7 +2923,7 @@ export function CreatePageClient({
   };
 
   const renderChatInput = () => {
-    const isEditChat = chatAttachments.length > 0;
+    const isEditChat = hasChatImageAttachments;
     const activeChatSize = isEditChat ? chatCustomEditSize : size;
 
     return (
@@ -2891,20 +2937,29 @@ export function CreatePageClient({
             {chatAttachments.map((item, index) => (
               <button
                 type="button"
-                key={`${item.file.name}-${item.previewUrl}`}
+                key={`${item.file.name}-${item.previewUrl || item.file.size}`}
                 className="group relative h-12 w-12 overflow-hidden rounded-md border bg-muted"
                 onClick={() => removeChatAttachment(index)}
                 disabled={isChatGenerating}
-                title={copy("Remove reference image", "移除参考图片")}
+                title={copy("Remove attachment", "移除附件")}
               >
-                <Image
-                  src={item.previewUrl}
-                  alt={item.file.name || copy(`Reference ${index + 1}`, `参考图片 ${index + 1}`)}
-                  fill
-                  sizes="48px"
-                  className="object-cover"
-                  unoptimized
-                />
+                {item.kind === "image" && item.previewUrl ? (
+                  <Image
+                    src={item.previewUrl}
+                    alt={
+                      item.file.name ||
+                      copy(`Reference ${index + 1}`, `参考图片 ${index + 1}`)
+                    }
+                    fill
+                    sizes="48px"
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center px-1">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                  </span>
+                )}
                 <span className="absolute inset-0 hidden items-center justify-center bg-background/70 group-hover:flex">
                   <X className="h-3.5 w-3.5 text-foreground" />
                 </span>
@@ -2994,9 +3049,9 @@ export function CreatePageClient({
             disabled={
               isChatGenerating || chatAttachments.length >= maxChatImages
             }
-            title={copy("Attach reference image", "添加参考图片")}
+            title={copy("Attach image or file", "添加图片或文件")}
           >
-            <ImagePlus className="h-4 w-4" />
+            <Upload className="h-4 w-4" />
           </Button>
           <Textarea
             value={chatPrompt}
@@ -3028,7 +3083,7 @@ export function CreatePageClient({
             ref={chatImageInputRef}
             type="file"
             multiple
-            accept={IMAGE_ACCEPT}
+            accept={CHAT_ATTACHMENT_ACCEPT}
             className="sr-only"
             onChange={(event) => {
               void addChatAttachments(event.target.files);
@@ -3041,11 +3096,12 @@ export function CreatePageClient({
   };
 
   const addBatchAttachments = async (files: FileList | File[] | null) => {
-    await addChatAttachments(files);
+    const imageFiles = Array.from(files || []).filter(isImageFile);
+    await addChatAttachments(imageFiles);
   };
 
   const getBatchFallbackSize = () => {
-    return chatAttachments.length > 0 ? chatCustomEditSize : size;
+    return hasChatImageAttachments ? chatCustomEditSize : size;
   };
 
   const validateChatAttachments = (attachments: ChatAttachment[]) => {
@@ -3057,8 +3113,8 @@ export function CreatePageClient({
     if (totalUploadSize > maxEditRequestBytes) {
       toast.error(copy("Upload is too large", "上传内容过大"), {
         description: copy(
-          `Reference images total ${formatMegabytes(totalUploadSize)}. Keep the total under ${formatMegabytes(maxEditRequestBytes)}.`,
-          `参考图片总大小为 ${formatMegabytes(totalUploadSize)}，请控制在 ${formatMegabytes(maxEditRequestBytes)} 以内。`
+          `Attachments total ${formatMegabytes(totalUploadSize)}. Keep the total under ${formatMegabytes(maxEditRequestBytes)}.`,
+          `附件总大小为 ${formatMegabytes(totalUploadSize)}，请控制在 ${formatMegabytes(maxEditRequestBytes)} 以内。`
         ),
       });
       return false;
@@ -3090,7 +3146,9 @@ export function CreatePageClient({
 
     const creditsPerRequest = getImageCreditCost(
       fallbackSize,
-      getModerationCostOptions(attachments.length)
+      getModerationCostOptions(
+        attachments.filter((item) => item.kind === "image").length
+      )
     );
     const pendingCredits = batchActiveRequestsRef.current * creditsPerRequest;
     const requiredCredits = creditsPerRequest * loadSize + pendingCredits;
@@ -3254,7 +3312,10 @@ export function CreatePageClient({
     const files = Array.from(event.clipboardData?.items || [])
       .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file && isImageFile(file)));
+      .filter(
+        (file): file is File =>
+          Boolean(file && (isImageFile(file) || isReadableChatFile(file)))
+      );
 
     if (!files.length) return;
     event.preventDefault();
@@ -3273,10 +3334,12 @@ export function CreatePageClient({
       ...item,
       file: cloneFile(item.file),
     }));
-    const isEditRequest = attachments.length > 0;
-    const fallbackSize = isEditRequest ? chatCustomEditSize : size;
-    const cost = isEditRequest ? chatEditImageCreditCost : CHAT_TEXT_ONLY_CREDITS;
-    const outputSizeCheck = isEditRequest ? chatCustomEditSizeCheck : sizeCheck;
+    const hasImageAttachment = attachments.some((item) => item.kind === "image");
+    const fallbackSize = hasImageAttachment ? chatCustomEditSize : size;
+    const cost = CHAT_TEXT_ONLY_CREDITS;
+    const outputSizeCheck = hasImageAttachment
+      ? chatCustomEditSizeCheck
+      : sizeCheck;
 
     if (!customApiActive && balance < cost) {
       showGenerationError("Insufficient credits");
@@ -3288,7 +3351,7 @@ export function CreatePageClient({
       });
       return;
     }
-    if (isEditRequest) {
+    if (attachments.length > 0) {
       const totalUploadSize = attachments.reduce(
         (total, item) => total + item.file.size,
         0
@@ -3296,8 +3359,8 @@ export function CreatePageClient({
       if (totalUploadSize > maxEditRequestBytes) {
         toast.error(copy("Upload is too large", "上传内容过大"), {
           description: copy(
-            `Reference images total ${formatMegabytes(totalUploadSize)}. Keep the total under ${formatMegabytes(maxEditRequestBytes)}.`,
-            `参考图片总大小为 ${formatMegabytes(totalUploadSize)}，请控制在 ${formatMegabytes(maxEditRequestBytes)} 以内。`
+            `Attachments total ${formatMegabytes(totalUploadSize)}. Keep the total under ${formatMegabytes(maxEditRequestBytes)}.`,
+            `附件总大小为 ${formatMegabytes(totalUploadSize)}，请控制在 ${formatMegabytes(maxEditRequestBytes)} 以内。`
           ),
         });
         return;
@@ -3305,9 +3368,11 @@ export function CreatePageClient({
     }
 
     const attachmentPreviews = attachments.map((item) => ({
-      id: item.sourceId || item.previewUrl,
+      id: item.sourceId || item.previewUrl || item.file.name,
       name: item.file.name,
-      previewUrl: URL.createObjectURL(item.file),
+      previewUrl:
+        item.kind === "image" ? URL.createObjectURL(item.file) : undefined,
+      kind: item.kind,
     }));
     const userMessageId = createLocalId();
     const assistantMessageId = createLocalId();
@@ -3324,7 +3389,7 @@ export function CreatePageClient({
       {
         id: assistantMessageId,
         role: "assistant",
-        text: isEditRequest
+        text: hasImageAttachment
           ? copy("Editing image...", "正在编辑图片...")
           : copy("Generating image...", "正在生成图片..."),
         createdAt: new Date().toISOString(),
@@ -5246,7 +5311,7 @@ export function CreatePageClient({
                     disabled={isChatGenerating}
                   >
                     <X className="h-4 w-4" />
-                    {copy("Clear references", "清除参考图")}
+                    {copy("Clear attachments", "清除附件")}
                   </Button>
                 )}
               </div>
@@ -5311,14 +5376,21 @@ export function CreatePageClient({
                                           key={attachment.id}
                                           className="relative h-12 w-12 overflow-hidden rounded-md border border-primary-foreground/25 bg-muted"
                                         >
-                                          <Image
-                                            src={attachment.previewUrl}
-                                            alt={attachment.name}
-                                            fill
-                                            sizes="48px"
-                                            className="object-cover"
-                                            unoptimized
-                                          />
+                                          {attachment.kind === "file" ||
+                                          !attachment.previewUrl ? (
+                                            <span className="flex h-full w-full items-center justify-center">
+                                              <FileText className="h-5 w-5 text-muted-foreground" />
+                                            </span>
+                                          ) : (
+                                            <Image
+                                              src={attachment.previewUrl}
+                                              alt={attachment.name}
+                                              fill
+                                              sizes="48px"
+                                              className="object-cover"
+                                              unoptimized
+                                            />
+                                          )}
                                         </div>
                                       ))}
                                     </div>
@@ -5580,9 +5652,11 @@ export function CreatePageClient({
                       onPaste={handleChatPaste}
                       className="space-y-3"
                     >
-                      {chatAttachments.length > 0 && (
+                      {hasChatImageAttachments && (
                         <div className="flex flex-wrap justify-center gap-2">
-                          {chatAttachments.map((item, index) => (
+                          {chatAttachments
+                            .filter((item) => item.kind === "image")
+                            .map((item, index) => (
                             <button
                               type="button"
                               key={`${item.file.name}-${item.previewUrl}`}
@@ -5591,7 +5665,7 @@ export function CreatePageClient({
                               title={copy("Remove reference image", "移除参考图片")}
                             >
                               <Image
-                                src={item.previewUrl}
+                                src={item.previewUrl || ""}
                                 alt={item.file.name}
                                 fill
                                 sizes="48px"
@@ -6097,7 +6171,7 @@ export function CreatePageClient({
         showMixRouting={canUseMixWebFirstRouting}
         onConfirm={(next) => {
           setChatMixWebFirst(next.mixWebFirst);
-          if (chatAttachments.length > 0) {
+          if (hasChatImageAttachments) {
             setUseAutoChatEditSize(next.auto);
             if (!next.auto) {
               setChatEditWidth(next.width);

@@ -54,6 +54,55 @@ const VALID_THINKING = new Set<ThinkingLevel>([
   "high",
   "xhigh",
 ]);
+const MAX_CHAT_FILE_CONTEXT_CHARS = 24_000;
+const CHAT_FILE_ACCEPT_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".markdown",
+  ".csv",
+  ".json",
+  ".jsonl",
+  ".yaml",
+  ".yml",
+  ".log",
+  ".xml",
+  ".html",
+  ".htm",
+  ".css",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".java",
+  ".go",
+  ".rs",
+  ".c",
+  ".cc",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".sql",
+  ".sh",
+  ".toml",
+  ".ini",
+  ".env",
+]);
+const CHAT_FILE_ACCEPT_TYPES = new Set([
+  "application/json",
+  "application/jsonl",
+  "application/ld+json",
+  "application/xml",
+  "application/x-yaml",
+  "application/yaml",
+  "text/csv",
+  "text/html",
+  "text/markdown",
+  "text/plain",
+  "text/xml",
+]);
 
 function getPreferredBackendMemberId(history: ChatHistoryMessage[]) {
   for (let index = history.length - 1; index >= 0; index--) {
@@ -149,6 +198,69 @@ function getImageFiles(formData: FormData) {
   }
 
   return images;
+}
+
+function getAttachmentFiles(formData: FormData) {
+  const files: File[] = [];
+
+  for (const [key, value] of formData.entries()) {
+    if (
+      value instanceof File &&
+      (key === "file" ||
+        key === "file[]" ||
+        key === "attachment" ||
+        key === "attachment[]" ||
+        key.startsWith("file_") ||
+        key.startsWith("attachment_"))
+    ) {
+      files.push(value);
+    }
+  }
+
+  return files;
+}
+
+function getFileExtension(name: string) {
+  const normalized = name.trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  return index >= 0 ? normalized.slice(index) : "";
+}
+
+function isReadableChatFile(file: File) {
+  const type = (file.type || "").toLowerCase();
+  if (type.startsWith("text/") || CHAT_FILE_ACCEPT_TYPES.has(type)) {
+    return true;
+  }
+  return CHAT_FILE_ACCEPT_EXTENSIONS.has(getFileExtension(file.name || ""));
+}
+
+function sanitizeFileText(value: string) {
+  return value.replace(/\u0000/g, "").replace(/\r\n/g, "\n");
+}
+
+async function buildFileContext(files: File[], maxChars: number) {
+  if (!files.length) return "";
+
+  let remaining = Math.min(maxChars, MAX_CHAT_FILE_CONTEXT_CHARS);
+  const parts: string[] = [];
+  for (const file of files) {
+    if (remaining <= 0) break;
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const text = sanitizeFileText(buffer.toString("utf8"));
+    const header = `\n--- ${file.name || "attachment"} (${file.type || "text/plain"}, ${file.size} bytes) ---\n`;
+    const available = Math.max(0, remaining - header.length);
+    if (available <= 0) break;
+    const clipped = text.slice(0, available);
+    parts.push(`${header}${clipped}`);
+    remaining -= header.length + clipped.length;
+    if (clipped.length < text.length) {
+      parts.push("\n[File content truncated]\n");
+      break;
+    }
+  }
+
+  if (!parts.length) return "";
+  return `Attached local files are included below. Use them as request context; do not assume access to server filesystem paths.${parts.join("")}`;
 }
 
 function getHistory(
@@ -277,14 +389,18 @@ function trimHistoryMessageText(
 function limitChatContext(params: {
   prompt: string;
   apiPrompt?: string;
+  fileContext?: string;
   promptOptimization?: boolean;
   history: ChatHistoryMessage[];
   maxChatContextChars: number;
 }): { history: ChatHistoryMessage[]; error?: string } {
-  const currentPrompt =
+  const basePrompt =
     params.promptOptimization === false
       ? params.prompt
       : params.apiPrompt || params.prompt;
+  const currentPrompt = params.fileContext
+    ? `${basePrompt}\n\n${params.fileContext}`
+    : basePrompt;
   let remaining = params.maxChatContextChars - currentPrompt.length;
 
   if (remaining < 0) {
@@ -372,9 +488,54 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       error instanceof Error ? error.message : "Invalid history."
     );
   }
+  const sourceFiles = getImageFiles(formData);
+  const attachmentFiles = getAttachmentFiles(formData);
+  if (sourceFiles.length + attachmentFiles.length > planLimits.maxChatImages) {
+    return errorResponse(
+      `No more than ${planLimits.maxChatImages} attachments are allowed.`
+    );
+  }
+
+  let fileContext = "";
+  try {
+    for (const file of attachmentFiles) {
+      if (!isReadableChatFile(file)) {
+        return errorResponse(
+          "Attachments must be text, code, JSON, CSV, Markdown, XML, YAML, or log files."
+        );
+      }
+      if (file.size <= 0) {
+        return errorResponse(`${file.name || "Attachment"} is empty.`);
+      }
+      if (file.size > maxImageBytes) {
+        return errorResponse(
+          `${file.name || "Attachment"} exceeds the ${formatMegabytes(maxImageBytes)} limit.`,
+          413
+        );
+      }
+    }
+    const totalAttachmentSize =
+      getTotalUploadSize(sourceFiles) + getTotalUploadSize(attachmentFiles);
+    if (totalAttachmentSize > maxRequestBytes) {
+      return errorResponse(
+        `Total upload size must be no more than ${formatMegabytes(maxRequestBytes)}.`,
+        413
+      );
+    }
+    fileContext = await buildFileContext(
+      attachmentFiles,
+      Math.max(0, planLimits.maxChatContextChars - prompt.length)
+    );
+  } catch (error) {
+    return errorResponse(
+      error instanceof Error ? error.message : "Failed to read attachments."
+    );
+  }
+
   const limitedContext = limitChatContext({
     prompt,
     apiPrompt,
+    fileContext,
     promptOptimization,
     history,
     maxChatContextChars: planLimits.maxChatContextChars,
@@ -385,7 +546,6 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   history = normalizeHistoryImageUrls(request, limitedContext.history);
   const preferredBackendMemberId = getPreferredBackendMemberId(history);
 
-  const sourceFiles = getImageFiles(formData);
   let size = getText(formData, "size") || DEFAULT_IMAGE_SIZE;
   const sizeCheck = validateImageSize(size);
   if (!sizeCheck.valid) {
@@ -441,12 +601,6 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     getText(formData, "imageModel") ||
     getText(formData, "image_model") ||
     undefined;
-  if (sourceFiles.length > planLimits.maxChatImages) {
-    return errorResponse(
-      `No more than ${planLimits.maxChatImages} images are allowed.`
-    );
-  }
-
   try {
     for (const file of sourceFiles) {
       validateImageFile(file, {
@@ -455,7 +609,8 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       });
     }
 
-    const totalUploadSize = getTotalUploadSize(sourceFiles);
+    const totalUploadSize =
+      getTotalUploadSize(sourceFiles) + getTotalUploadSize(attachmentFiles);
     if (totalUploadSize > maxRequestBytes) {
       return errorResponse(
         `Total upload size must be no more than ${formatMegabytes(maxRequestBytes)}.`,
@@ -485,6 +640,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           generationId,
           prompt,
           apiPrompt,
+          fileContext,
           promptOptimization,
           images: await buildImages(),
           history,

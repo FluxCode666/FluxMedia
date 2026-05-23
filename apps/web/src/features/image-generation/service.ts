@@ -71,9 +71,9 @@ const VALID_QUALITIES = new Set<ImageQuality>([
 const VALID_MODERATION = new Set<ImageModeration>(["auto", "low"]);
 const DEFAULT_RESPONSES_MODEL = GPT54_CHAT_MODEL;
 const DEFAULT_RESPONSES_IMAGE_INSTRUCTIONS =
-  "You are a multimodal assistant. Use web_search when current or external information is needed, and use image_generation when the user asks for an image, edit, or visual output.";
+  "You are a multimodal assistant. Use web_search when current or external information is needed, use code_interpreter when calculation or file analysis helps, and use image_generation when the user asks for an image, edit, or visual output.";
 const ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS =
-  "You are a multimodal assistant. Use web_search when current or external information is needed. When calling image_generation, use the user's original image prompt exactly as written. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation.";
+  "You are a multimodal assistant. Use web_search when current or external information is needed, and use code_interpreter when calculation or file analysis helps. When calling image_generation, use the user's original image prompt exactly as written. Do not rewrite, expand, translate, polish, or optimize the latest user prompt before image generation.";
 
 type ImageOutput = {
   b64_json?: string;
@@ -630,6 +630,10 @@ function isWebSearchTool(value: unknown) {
   return isPlainRecord(value) && value.type === "web_search";
 }
 
+function isCodeInterpreterTool(value: unknown) {
+  return isPlainRecord(value) && value.type === "code_interpreter";
+}
+
 function normalizeResponsesImageTool(
   value: unknown,
   fallback: Record<string, unknown>
@@ -688,6 +692,12 @@ function normalizeResponsesImageRequestBody(
     if (
       additionalTool.type === "web_search" &&
       (body.tools as unknown[]).some(isWebSearchTool)
+    ) {
+      continue;
+    }
+    if (
+      additionalTool.type === "code_interpreter" &&
+      (body.tools as unknown[]).some(isCodeInterpreterTool)
     ) {
       continue;
     }
@@ -941,9 +951,19 @@ function applyPromptOptimizationResultVisibility(
   };
 }
 
-function stripWebSearchTool(body: ResponsesStreamRequestBody) {
+function stripToolTypes(
+  body: ResponsesStreamRequestBody,
+  blockedTypes: Set<string>
+) {
   const tools = Array.isArray(body.tools)
-    ? body.tools.filter((tool) => !isWebSearchTool(tool))
+    ? body.tools.filter(
+        (tool) =>
+          !(
+            isPlainRecord(tool) &&
+            typeof tool.type === "string" &&
+            blockedTypes.has(tool.type)
+          )
+      )
     : body.tools;
   return {
     ...body,
@@ -951,18 +971,21 @@ function stripWebSearchTool(body: ResponsesStreamRequestBody) {
   };
 }
 
-function isUnsupportedWebSearchError(result: GenerateImageResult) {
-  if (!result.error) return false;
+function getUnsupportedToolTypes(result: GenerateImageResult) {
+  if (!result.error) return new Set<string>();
   const message = result.error.toLowerCase();
-  return (
-    message.includes("web_search") &&
-    (message.includes("unsupported") ||
-      message.includes("not supported") ||
-      message.includes("invalid") ||
-      message.includes("unknown") ||
-      message.includes("unrecognized") ||
-      message.includes("not available"))
-  );
+  const looksUnsupported =
+    message.includes("unsupported") ||
+    message.includes("not supported") ||
+    message.includes("invalid") ||
+    message.includes("unknown") ||
+    message.includes("unrecognized") ||
+    message.includes("not available");
+  if (!looksUnsupported) return new Set<string>();
+  const types = new Set<string>();
+  if (message.includes("web_search")) types.add("web_search");
+  if (message.includes("code_interpreter")) types.add("code_interpreter");
+  return types;
 }
 
 async function fetchResponses(
@@ -1080,12 +1103,14 @@ function buildResponsesInput(
 function getEffectivePrompt(params: {
   prompt: string;
   apiPrompt?: string;
+  fileContext?: string;
   promptOptimization?: boolean;
 }) {
-  if (params.promptOptimization === false) {
-    return params.prompt;
-  }
-  return params.apiPrompt || params.prompt;
+  const prompt =
+    params.promptOptimization === false
+      ? params.prompt
+      : params.apiPrompt || params.prompt;
+  return params.fileContext ? `${prompt}\n\n${params.fileContext}` : prompt;
 }
 
 function appendImageParams(
@@ -1149,6 +1174,7 @@ function toGenerateImageResult(image: ImageOutput): GenerateImageResult {
   const result: GenerateImageResult = {};
   if (image.b64_json) result.imageBase64 = image.b64_json;
   if (image.url) result.imageUrl = image.url;
+  if (image.b64_json || image.url) result.imageOutputCount = 1;
   if (image.revised_prompt) result.upstreamRevisedPrompt = image.revised_prompt;
   return result;
 }
@@ -1211,6 +1237,7 @@ function parseResponsesOutput(
   let responseText: string | undefined;
   let responseThinking: string | undefined;
   let responseAgent: string | undefined;
+  let imageOutputCount = 0;
 
   for (const item of output || []) {
     if (item.type === "reasoning" && item.summary) {
@@ -1228,6 +1255,7 @@ function parseResponsesOutput(
 
     if (item.type === "image_generation_call" && item.result) {
       imageBase64 = item.result;
+      imageOutputCount += 1;
       if (item.revised_prompt) revisedPrompt = item.revised_prompt;
       continue;
     }
@@ -1253,6 +1281,7 @@ function parseResponsesOutput(
 
   return {
     imageBase64,
+    imageOutputCount: imageOutputCount || undefined,
     upstreamRevisedPrompt: revisedPrompt,
     responseText,
     responseThinking,
@@ -1388,6 +1417,7 @@ async function processResponsesEventPayload(
       state.fallbackResult = {
         ...(state.fallbackResult || {}),
         imageBase64: item.result,
+        imageOutputCount: (state.fallbackResult?.imageOutputCount || 0) + 1,
         upstreamRevisedPrompt: item.revised_prompt,
         responseAgent:
           state.fallbackResult?.responseAgent || state.responseAgent,
@@ -1444,6 +1474,10 @@ async function processResponsesEventPayload(
     if (result) {
       state.completedResult = {
         ...result,
+        imageOutputCount: Math.max(
+          result.imageOutputCount || 0,
+          state.fallbackResult?.imageOutputCount || 0
+        ),
         responseAgent: state.responseAgent || result.responseAgent,
       };
     }
@@ -1674,7 +1708,12 @@ async function processEventBlock(
 
 function finishEventStream(state: EventStreamParseState): GenerateImageResult {
   const result = state.completedResult || state.fallbackResult;
-  if (result) return result;
+  if (result) {
+    return {
+      ...result,
+      responseAgent: result.responseAgent || state.responseAgent,
+    };
+  }
 
   return { error: "API returned no image data" };
 }
@@ -2104,9 +2143,16 @@ export async function generateChatImage(
     allowGpt55: params.allowGpt55,
   });
   if (isPoolAccountBackend(config, "web")) {
+    const webPrompt =
+      params.fileContext && params.promptOptimization === false
+        ? `${params.prompt}\n\n${params.fileContext}`
+        : params.prompt;
+    const webApiPrompt = params.fileContext
+      ? `${params.apiPrompt || params.prompt}\n\n${params.fileContext}`
+      : params.apiPrompt;
     const webParams = {
-      prompt: params.prompt,
-      apiPrompt: params.apiPrompt,
+      prompt: webPrompt,
+      apiPrompt: webApiPrompt,
       promptOptimization: params.promptOptimization,
       history: params.history,
       size: params.size,
@@ -2175,26 +2221,29 @@ export async function generateChatImage(
       : undefined;
 
     const stream = Boolean(params.stream || config.useStream);
-    const webSearchTool = { type: "web_search" };
+    const defaultAdditionalTools = [
+      { type: "web_search" },
+      { type: "code_interpreter", container: { type: "auto" } },
+    ];
     const requestBody: ResponsesStreamRequestBody =
       params.rawResponsesBody && isPlainRecord(params.rawResponsesBody)
         ? normalizeResponsesImageRequestBody(params.rawResponsesBody, {
             fallbackTool: tool,
-            additionalTools: [webSearchTool],
+            additionalTools: defaultAdditionalTools,
             instructions,
             stream,
           })
         : {
             model,
             input,
-            tools: [tool, webSearchTool],
+            tools: [tool, ...defaultAdditionalTools],
             instructions,
             store: false,
             ...(reasoning ? { reasoning } : {}),
             ...(stream ? { stream: true } : {}),
           };
 
-    const result = await fetchResponses(
+    let result = await fetchResponses(
       config,
       requestBody,
       {
@@ -2204,20 +2253,39 @@ export async function generateChatImage(
       callbacks
     );
 
-    if (isUnsupportedWebSearchError(result)) {
+    const unsupportedTools = getUnsupportedToolTypes(result);
+    if (unsupportedTools.size > 0) {
       await callbacks?.onAgentDelta?.(
-        "联网搜索工具不可用，已切换为无联网 Codex/Responses 重试\n"
+        `部分 Codex/Responses 工具不可用，已移除 ${Array.from(unsupportedTools).join(", ")} 后重试\n`
       );
-      const fallbackResult = await fetchResponses(
+      result = await fetchResponses(
         config,
-        stripWebSearchTool(requestBody),
+        stripToolTypes(requestBody, unsupportedTools),
         {
           signal: params.signal,
           stream,
         },
         callbacks
       );
-      return applyPromptOptimizationResultVisibility(fallbackResult);
+
+      const secondUnsupportedTools = getUnsupportedToolTypes(result);
+      if (secondUnsupportedTools.size > 0) {
+        await callbacks?.onAgentDelta?.(
+          "扩展工具仍不可用，已切换为仅保留图片生成工具重试\n"
+        );
+        result = await fetchResponses(
+          config,
+          stripToolTypes(
+            requestBody,
+            new Set(["web_search", "code_interpreter"])
+          ),
+          {
+            signal: params.signal,
+            stream,
+          },
+          callbacks
+        );
+      }
     }
 
     return applyPromptOptimizationResultVisibility(result);

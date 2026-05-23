@@ -21,6 +21,7 @@ export interface GenerateImageParams {
 export interface GenerateImageResult {
   imageBase64?: string;
   imageUrl?: string;
+  imageOutputCount?: number;
   revisedPrompt?: string;
   upstreamRevisedPrompt?: string;
   responseText?: string;
@@ -89,6 +90,7 @@ export interface EditImageParams {
 export interface ChatImageParams {
   prompt: string;
   apiPrompt?: string;
+  fileContext?: string;
   promptOptimization?: boolean;
   signal?: AbortSignal;
   moderationBlockRiskLevel?: ModerationBlockRiskLevel;

@@ -266,13 +266,17 @@ function getChatHistoryText(message: ChatHistoryMessage) {
 function getChatContextLength(params: {
   prompt: string;
   apiPrompt?: string;
+  fileContext?: string;
   promptOptimization?: boolean;
   history?: ChatHistoryMessage[];
 }) {
-  const currentPrompt =
+  const basePrompt =
     params.promptOptimization === false
       ? params.prompt
       : params.apiPrompt || params.prompt;
+  const currentPrompt = params.fileContext
+    ? `${basePrompt}\n\n${params.fileContext}`
+    : basePrompt;
 
   return (
     currentPrompt.length +
@@ -421,7 +425,7 @@ export async function runImageGenerationForUser(
   const size = input.size || DEFAULT_IMAGE_SIZE;
   const mixWebFirst = Boolean(input.mixWebFirst && isOneKImageSize(size));
   const inputImages = getInputImages(input);
-  const isTextOnlyChatInput = input.mode === "chat" && inputImages.length === 0;
+  const isChatInput = input.mode === "chat";
   const bucket =
     (await getRuntimeSettingString("NEXT_PUBLIC_GENERATIONS_BUCKET_NAME")) ||
     "generations";
@@ -510,6 +514,7 @@ export async function runImageGenerationForUser(
     getChatContextLength({
       prompt: input.prompt,
       apiPrompt,
+      fileContext: input.fileContext,
       promptOptimization,
       history: input.history,
     }) > maxChatContextChars
@@ -567,12 +572,12 @@ export async function runImageGenerationForUser(
     imageModerationCount: moderationImageCount,
   });
   const creditsPerImage = creditCost.totalCredits;
-  const initialCreditCharge = isTextOnlyChatInput
+  const initialCreditCharge = isChatInput
     ? CHAT_TEXT_ONLY_CREDITS
     : creditsPerImage;
   const moderationFailureCredits = moderationEnabled
     ? planCapabilities.features["moderation.onlyFailureSettlement"]
-      ? isTextOnlyChatInput
+      ? isChatInput
         ? Math.min(TEXT_MODERATION_ONLY_CREDITS, CHAT_TEXT_ONLY_CREDITS)
         : creditCost.moderationOnlyCredits
       : initialCreditCharge
@@ -645,7 +650,7 @@ export async function runImageGenerationForUser(
           inputImages,
           creditCost,
           creditsPerImage,
-          isTextOnlyChatInput,
+          isChatInput,
           initialCreditCharge,
           bucket,
           userPlan,
@@ -682,7 +687,7 @@ async function runQueuedImageGenerationForUser({
   inputImages,
   creditCost,
   creditsPerImage,
-  isTextOnlyChatInput,
+  isChatInput,
   initialCreditCharge,
   bucket,
   userPlan,
@@ -706,7 +711,7 @@ async function runQueuedImageGenerationForUser({
   inputImages: ImageInputFile[];
   creditCost: ReturnType<typeof getImageCreditCostBreakdown>;
   creditsPerImage: number;
-  isTextOnlyChatInput: boolean;
+  isChatInput: boolean;
   initialCreditCharge: number;
   bucket: string;
   userPlan: Awaited<ReturnType<typeof getUserPlan>>;
@@ -771,6 +776,7 @@ async function runQueuedImageGenerationForUser({
               ...modelMetadata,
               ...promptOptimizationMetadata,
               imageCount: input.images?.length || 0,
+              fileContextChars: input.fileContext?.length || 0,
               quality: input.quality || "auto",
               moderation: input.moderation || "auto",
               outputFormat: input.outputFormat || null,
@@ -858,8 +864,8 @@ async function runQueuedImageGenerationForUser({
       await consumeCredits({
         userId: input.userId,
         amount: initialCreditCharge,
-        serviceName: isTextOnlyChatInput ? "chat-input" : "image-generation",
-        description: isTextOnlyChatInput
+        serviceName: isChatInput ? "chat-input" : "image-generation",
+        description: isChatInput
           ? `Chat input: ${input.prompt.substring(0, 50)}`
           : `Image generation: ${input.prompt.substring(0, 50)}`,
         metadata: {
@@ -1046,6 +1052,7 @@ async function runQueuedImageGenerationForUser({
               {
                 prompt: input.prompt,
                 apiPrompt,
+                fileContext: input.fileContext,
                 promptOptimization,
                 signal: AbortSignal.timeout(IMAGE_GENERATION_PENDING_TIMEOUT_MS),
                 images: input.images,
@@ -1167,7 +1174,7 @@ async function runQueuedImageGenerationForUser({
 
   if (!result.imageBase64 && !result.imageUrl) {
     let finalChargedCredits = chargedCredits;
-    if (isTextOnlyChatInput) {
+    if (isChatInput) {
       try {
         await settleChargedCredits(
           CHAT_TEXT_ONLY_CREDITS,
@@ -1208,7 +1215,7 @@ async function runQueuedImageGenerationForUser({
         metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
           {
             ...buildRevisedPromptMetadata({ input, apiPrompt, result }),
-            ...(isTextOnlyChatInput
+            ...(isChatInput
               ? {
                   chatTextOnlyCharge: {
                     credits: useCredits ? CHAT_TEXT_ONLY_CREDITS : 0,
@@ -1308,9 +1315,16 @@ async function runQueuedImageGenerationForUser({
     imageModerationCount: moderationEnabled ? inputImages.length : 0,
   });
   const actualCreditsPerImage = actualCreditCost.totalCredits;
+  const billableImageOutputCount = Math.max(
+    1,
+    Math.floor(result.imageOutputCount || 1)
+  );
+  const targetSuccessCredits = isChatInput
+    ? CHAT_TEXT_ONLY_CREDITS + actualCreditsPerImage * billableImageOutputCount
+    : actualCreditsPerImage;
   try {
     await settleChargedCredits(
-      actualCreditsPerImage,
+      targetSuccessCredits,
       "image-generation",
       `${generationId}:image-actual-size`,
       `Settle image generation: ${input.prompt.substring(0, 50)}`,
@@ -1321,6 +1335,8 @@ async function runQueuedImageGenerationForUser({
         actualSize,
         requestedCreditCost: creditCost,
         actualCreditCost,
+        chatRoundCredits: isChatInput ? CHAT_TEXT_ONLY_CREDITS : 0,
+        billableImageOutputCount,
       }
     );
   } catch (error) {
@@ -1390,6 +1406,8 @@ async function runQueuedImageGenerationForUser({
             actualFormatDetected: actualOutputFormatDetected,
             requestedCreditCost: creditCost,
             actualCreditCost,
+            chatRoundCredits: isChatInput ? CHAT_TEXT_ONLY_CREDITS : 0,
+            billableImageOutputCount,
           },
         }
       )}::jsonb`,
