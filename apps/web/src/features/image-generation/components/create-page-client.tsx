@@ -585,6 +585,14 @@ type ImageAspectRatio =
 type ActiveMode = "text" | "image" | "chat" | "agent" | "waterfall";
 type VisualOutputMode = "text-single" | "text-lines" | "image";
 
+type VisualPendingGenerationState = {
+  mode: VisualOutputMode;
+  prompt: string;
+  size: string;
+  generationIds: string[];
+  createdAt: string;
+};
+
 type BackendGroupOption = {
   id: string;
   name: string;
@@ -1081,6 +1089,8 @@ const CHAT_CONVERSATIONS_STORAGE_KEY = "gpt2image_chat_conversations_v1";
 const CHAT_ACTIVE_CONVERSATION_STORAGE_KEY =
   "gpt2image_active_chat_conversation_v1";
 const WATERFALL_STORAGE_KEY = "gpt2image_waterfall_state_v1";
+const VISUAL_PENDING_STORAGE_KEY = "gpt2image_visual_pending_v1";
+const VISUAL_PENDING_TTL_MS = 60 * 60 * 1000;
 const CHAT_CONTEXT_MESSAGE_LIMIT = 8;
 const CHAT_CONVERSATION_LIMIT = 30;
 const PROMPT_IMAGE_REFERENCE_PATTERN = /@(?:第)?\d+轮图\d+|@图\d+/;
@@ -1372,6 +1382,90 @@ function getCursorAfterInsertedMention(mention: MentionState, token: string) {
 
 function createGenerationId() {
   return nanoid();
+}
+
+function sanitizeVisualPendingState(
+  value: unknown
+): VisualPendingGenerationState | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<VisualPendingGenerationState>;
+  if (
+    item.mode !== "text-single" &&
+    item.mode !== "text-lines" &&
+    item.mode !== "image"
+  ) {
+    return null;
+  }
+  if (
+    typeof item.prompt !== "string" ||
+    typeof item.size !== "string" ||
+    typeof item.createdAt !== "string" ||
+    !Array.isArray(item.generationIds)
+  ) {
+    return null;
+  }
+  const generationIds = item.generationIds.filter(
+    (id): id is string => typeof id === "string" && id.length > 0
+  );
+  if (generationIds.length === 0) return null;
+  if (Date.now() - new Date(item.createdAt).getTime() > VISUAL_PENDING_TTL_MS) {
+    return null;
+  }
+  return {
+    mode: item.mode,
+    prompt: item.prompt,
+    size: item.size,
+    generationIds,
+    createdAt: item.createdAt,
+  };
+}
+
+function readVisualPendingStates() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(VISUAL_PENDING_STORAGE_KEY);
+    if (!raw) return [];
+    return (JSON.parse(raw) as unknown[])
+      .map(sanitizeVisualPendingState)
+      .filter((item): item is VisualPendingGenerationState => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function writeVisualPendingStates(items: VisualPendingGenerationState[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const validItems = items
+      .map(sanitizeVisualPendingState)
+      .filter((item): item is VisualPendingGenerationState => Boolean(item));
+    if (validItems.length === 0) {
+      window.localStorage.removeItem(VISUAL_PENDING_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      VISUAL_PENDING_STORAGE_KEY,
+      JSON.stringify(validItems.slice(-20))
+    );
+  } catch {
+    /* ignore local storage quota errors */
+  }
+}
+
+function addVisualPendingState(item: VisualPendingGenerationState) {
+  const next = [
+    ...readVisualPendingStates().filter(
+      (existing) => existing.mode !== item.mode
+    ),
+    item,
+  ];
+  writeVisualPendingStates(next);
+}
+
+function removeVisualPendingState(mode: VisualOutputMode) {
+  writeVisualPendingStates(
+    readVisualPendingStates().filter((item) => item.mode !== mode)
+  );
 }
 
 function readFileAsDataUrl(file: File) {
@@ -2157,6 +2251,7 @@ export function CreatePageClient({
   const chatConversationsRef = useRef<ChatConversation[]>([]);
   const didLoadChatRef = useRef(false);
   const didApplyReferenceParamRef = useRef(false);
+  const didRestoreVisualPendingRef = useRef(false);
   const batchLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const batchScrollRef = useRef<HTMLDivElement | null>(null);
   const batchActiveRequestsRef = useRef(0);
@@ -3806,6 +3901,99 @@ export function CreatePageClient({
     return variants;
   };
 
+  const restoreVisualPendingState = async (
+    pending: VisualPendingGenerationState
+  ) => {
+    const restorePrompt = pending.prompt;
+    setVisualModeLoading(pending.mode, { size: pending.size });
+    setVisualResults((prev) => ({ ...prev, [pending.mode]: null }));
+    if (pending.mode === "text-single") {
+      setPrompt((value) => value || restorePrompt);
+      setTextMode("single");
+      setActiveMode("text");
+      setIsTextSingleGenerating(true);
+    } else if (pending.mode === "text-lines") {
+      setTextMode("lines");
+      setActiveMode("text");
+      setIsTextLinesGenerating(true);
+    } else {
+      setActiveMode("image");
+      setIsEditing(true);
+    }
+
+    const sleep = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+    const startedAt = Date.now();
+    let done = false;
+    try {
+      while (Date.now() - startedAt < VISUAL_PENDING_TTL_MS) {
+        const responses = await Promise.allSettled(
+          pending.generationIds.map(async (generationId) => {
+            const response = await fetch(`/api/images/status/${generationId}`, {
+              cache: "no-store",
+            });
+            if (!response.ok) {
+              throw new Error(`Status API error: ${response.status}`);
+            }
+            return (await response.json()) as ImageApiResult;
+          })
+        );
+        const data = responses.flatMap((response) =>
+          response.status === "fulfilled" ? [response.value] : []
+        );
+        const stillPending =
+          data.length === 0 || data.some((item) => item.status === "pending");
+        const completed = data.filter((item) => item.status === "completed");
+        if (completed.length > 0) {
+          const combined: ImageApiResult =
+            completed.length === 1
+              ? completed[0]!
+              : { results: completed, model: completed[0]?.model };
+          addSuccessfulResults(combined, restorePrompt, pending.size, {
+            previewMode: pending.mode,
+            syncCredits: false,
+          });
+          if (!stillPending) {
+            done = true;
+            break;
+          }
+        }
+        const failed = data.find((item) => item.status === "failed");
+        if (failed && !stillPending) {
+          toast.error(copy("Generation failed", "生成失败"), {
+            description: failed.error || copy("Generation failed", "生成失败"),
+          });
+          done = true;
+          break;
+        }
+        await sleep(2500);
+      }
+    } catch {
+      /* Keep the pending marker so a later revisit can poll again. */
+    } finally {
+      if (done) {
+        removeVisualPendingState(pending.mode);
+      }
+      if (pending.mode === "text-single") {
+        setIsTextSingleGenerating(false);
+      } else if (pending.mode === "text-lines") {
+        setIsTextLinesGenerating(false);
+      } else {
+        setIsEditing(false);
+      }
+      setVisualModeLoading(pending.mode, null);
+      clearVisualStreamingPreview(pending.mode);
+    }
+  };
+
+  useEffect(() => {
+    if (didRestoreVisualPendingRef.current) return;
+    didRestoreVisualPendingRef.current = true;
+    for (const pending of readVisualPendingStates()) {
+      void restoreVisualPendingState(pending);
+    }
+  }, []);
+
   const syncChargedCredits = (creditsConsumed?: number) => {
     if (!creditsConsumed || creditsConsumed <= 0) return;
     setBalance((b) => Math.round(Math.max(0, b - creditsConsumed) * 100) / 100);
@@ -5278,6 +5466,16 @@ export function CreatePageClient({
     const currentPrompt = prompt.trim();
     const requestSize = size;
     const previewMode: VisualOutputMode = "text-single";
+    const generationIds = Array.from({ length: batchCount }, () =>
+      createGenerationId()
+    );
+    addVisualPendingState({
+      mode: previewMode,
+      prompt: currentPrompt,
+      size: requestSize,
+      generationIds,
+      createdAt: new Date().toISOString(),
+    });
     setVisualResults((prev) => ({ ...prev, [previewMode]: null }));
     setVisualModeLoading(previewMode, { size: requestSize });
     clearVisualStreamingPreview(previewMode);
@@ -5288,6 +5486,7 @@ export function CreatePageClient({
         count: batchCount,
         stream: true,
         previewMode,
+        generationIds,
       });
 
       const generatedCount = addSuccessfulResults(data, currentPrompt, size, {
@@ -5301,6 +5500,7 @@ export function CreatePageClient({
             )
           : copy("Image generated", "图片已生成")
       );
+      removeVisualPendingState(previewMode);
     } catch (error) {
       const creditsConsumed =
         error instanceof Error
@@ -5325,6 +5525,7 @@ export function CreatePageClient({
     count?: number;
     stream?: boolean;
     previewMode?: VisualOutputMode;
+    generationIds?: string[];
   }) => {
     const response = await fetch("/api/images/generate", {
       method: "POST",
@@ -5337,6 +5538,12 @@ export function CreatePageClient({
         size,
         stream: Boolean(params.stream),
         count: params.count || 1,
+        ...(params.generationIds?.length === 1
+          ? { generationId: params.generationIds[0] }
+          : {}),
+        ...(params.generationIds && params.generationIds.length > 1
+          ? { generationIds: params.generationIds }
+          : {}),
         quality,
         moderation,
         output_format: outputFormat,
@@ -5389,11 +5596,22 @@ export function CreatePageClient({
 
     const requestSize = size;
     const previewMode: VisualOutputMode = "text-lines";
+    const generationIds = linePromptItems.flatMap(() =>
+      Array.from({ length: lineBatchRepeatCount }, () => createGenerationId())
+    );
+    addVisualPendingState({
+      mode: previewMode,
+      prompt: linePromptItems.join("\n"),
+      size: requestSize,
+      generationIds,
+      createdAt: new Date().toISOString(),
+    });
     setVisualResults((prev) => ({ ...prev, [previewMode]: null }));
     setVisualModeLoading(previewMode, { size: requestSize });
     clearVisualStreamingPreview(previewMode);
     setIsTextLinesGenerating(true);
     let generatedCount = 0;
+    let generationIndex = 0;
     try {
       for (const itemPrompt of linePromptItems) {
         for (
@@ -5405,7 +5623,9 @@ export function CreatePageClient({
             prompt: itemPrompt,
             count: 1,
             stream: false,
+            generationIds: [generationIds[generationIndex] || createGenerationId()],
           });
+          generationIndex += 1;
           generatedCount += addSuccessfulResults(data, itemPrompt, size, {
             previewMode,
           }).length;
@@ -5420,6 +5640,7 @@ export function CreatePageClient({
             )
           : copy("Image generated", "图片已生成")
       );
+      removeVisualPendingState(previewMode);
     } catch (error) {
       const creditsConsumed =
         error instanceof Error
@@ -5493,6 +5714,9 @@ export function CreatePageClient({
     }
 
     const currentEditPrompt = editPrompt.trim();
+    const generationIds = Array.from({ length: editBatchCount }, () =>
+      createGenerationId()
+    );
     const formData = new FormData();
     formData.append("prompt", currentEditPrompt);
     formData.append("quality", quality);
@@ -5520,6 +5744,9 @@ export function CreatePageClient({
     });
     if (maskFile) formData.append("mask", maskFile.file);
     formData.append("count", String(editBatchCount));
+    if (generationIds.length === 1) {
+      formData.append("generationId", generationIds[0]!);
+    }
     if (promptOptimizationAllowed) {
       formData.append("prompt_optimization", String(promptOptimization));
     }
@@ -5530,6 +5757,13 @@ export function CreatePageClient({
     }
 
     setVisualResults((prev) => ({ ...prev, image: null }));
+    addVisualPendingState({
+      mode: "image",
+      prompt: currentEditPrompt,
+      size: effectiveEditSize,
+      generationIds,
+      createdAt: new Date().toISOString(),
+    });
     setVisualModeLoading("image", { size: effectiveEditSize });
     setIsEditing(true);
     clearVisualStreamingPreview("image");
@@ -5567,6 +5801,7 @@ export function CreatePageClient({
             )
           : copy("Image edited", "图片已编辑")
       );
+      removeVisualPendingState("image");
     } catch (error) {
       toast.error(copy("Generation failed", "生成失败"), {
         description:
