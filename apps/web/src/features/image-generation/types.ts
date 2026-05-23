@@ -119,6 +119,7 @@ export interface ChatImageParams {
   stream?: boolean;
   thinking?: ThinkingLevel;
   agentMode?: boolean;
+  waterfallMode?: boolean;
   rawResponsesBody?: unknown;
   mixWebFirst?: boolean;
 }

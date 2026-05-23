@@ -44,6 +44,8 @@ describe("plan capability matrix defaults", () => {
     expect(matrix.features["externalApi.streaming"]).toBe("starter");
     expect(matrix.features["externalApi.responses"]).toBe("pro");
     expect(matrix.features["imageGeneration.chat"]).toBe("pro");
+    expect(matrix.features["imageGeneration.agent"]).toBe("pro");
+    expect(matrix.features["imageGeneration.waterfall"]).toBe("pro");
     expect(matrix.features["moderation.onlyFailureSettlement"]).toBe("ultra");
     expect(matrix.limits.ultra).toMatchObject({
       maxFileMb: 100,
@@ -69,6 +71,8 @@ describe("plan capability matrix defaults", () => {
         "externalApi.streaming": "ultra",
         "promptOptimization.control": "free",
         "imageGeneration.chat": "starter",
+        "imageGeneration.agent": "ultra",
+        "imageGeneration.waterfall": "pro",
         "externalApi.responses": "not-a-plan",
         "unknown.feature": "enterprise",
       },
@@ -77,6 +81,8 @@ describe("plan capability matrix defaults", () => {
     expect(matrix.features["externalApi.streaming"]).toBe("ultra");
     expect(matrix.features["promptOptimization.control"]).toBe("free");
     expect(matrix.features["imageGeneration.chat"]).toBe("starter");
+    expect(matrix.features["imageGeneration.agent"]).toBe("ultra");
+    expect(matrix.features["imageGeneration.waterfall"]).toBe("pro");
     expect(matrix.features["externalApi.responses"]).toBe(
       DEFAULT_PLAN_CAPABILITY_MATRIX.features["externalApi.responses"]
     );
@@ -292,6 +298,8 @@ describe("plan capability matrix runtime accessors", () => {
       features: {
         "externalApi.streaming": "ultra",
         "imageGeneration.chat": "starter",
+        "imageGeneration.agent": "ultra",
+        "imageGeneration.waterfall": "pro",
       },
       limits: {
         ultra: {
@@ -323,6 +331,15 @@ describe("plan capability matrix runtime accessors", () => {
     await expect(canUsePlanCapability("starter", "imageGeneration.chat")).resolves.toBe(
       true
     );
+    await expect(canUsePlanCapability("pro", "imageGeneration.agent")).resolves.toBe(
+      false
+    );
+    await expect(canUsePlanCapability("ultra", "imageGeneration.agent")).resolves.toBe(
+      true
+    );
+    await expect(
+      canUsePlanCapability("pro", "imageGeneration.waterfall")
+    ).resolves.toBe(true);
 
     await expect(getPlanLimits("ultra")).resolves.toMatchObject({
       maxFileMb: 150,

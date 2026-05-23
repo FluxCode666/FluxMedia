@@ -440,10 +440,6 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const plan = await getUserPlan(session.user.id);
-  if (!(await canUsePlanCapability(plan.plan, "imageGeneration.chat"))) {
-    return errorResponse("Chat mode requires Pro plan or higher.", 403);
-  }
-  const planLimits = await getPlanLimits(plan.plan);
   const uploadLimits = await getPlanUploadLimits(plan.plan);
   const maxImageBytes = uploadLimits.maxFileSizeBytes;
   const maxRequestBytes = uploadLimits.maxUploadBytes;
@@ -482,6 +478,22 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   );
   const agentMode =
     getOptionalBoolean(formData, "agentMode", "agent_mode") === true;
+  const waterfallMode =
+    getOptionalBoolean(formData, "waterfallMode", "waterfall_mode") === true;
+  const requiredCapability = agentMode
+    ? "imageGeneration.agent"
+    : waterfallMode
+      ? "imageGeneration.waterfall"
+      : "imageGeneration.chat";
+  if (!(await canUsePlanCapability(plan.plan, requiredCapability))) {
+    const modeLabel = agentMode
+      ? "Agent"
+      : waterfallMode
+        ? "Waterfall"
+        : "Chat";
+    return errorResponse(`${modeLabel} mode is not enabled for this plan.`, 403);
+  }
+  const planLimits = await getPlanLimits(plan.plan);
   let history: ChatHistoryMessage[] = [];
   try {
     history = getHistory(formData, planLimits.maxChatImages);
@@ -660,6 +672,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           stream: useStreamResponse,
           thinking,
           agentMode,
+          waterfallMode,
           mixWebFirst,
         },
         onPartialImage

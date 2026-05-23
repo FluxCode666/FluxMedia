@@ -168,6 +168,8 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "imageGeneration.text": "free",
     "imageGeneration.edit": "free",
     "imageGeneration.chat": "pro",
+    "imageGeneration.agent": "pro",
+    "imageGeneration.waterfall": "pro",
     "imageGeneration.batch": "free",
     "promptOptimization.control": "pro",
     "models.gpt55": "ultra",

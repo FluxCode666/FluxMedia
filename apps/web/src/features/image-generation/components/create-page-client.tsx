@@ -1341,6 +1341,10 @@ export function CreatePageClient({
     return message;
   };
   const chatAllowed = capabilities.features["imageGeneration.chat"];
+  const agentAllowed =
+    capabilities.features["imageGeneration.agent"] ?? chatAllowed;
+  const waterfallAllowed =
+    capabilities.features["imageGeneration.waterfall"] ?? chatAllowed;
   const gpt55ChatAllowed = capabilities.features["models.gpt55"];
   const promptOptimizationAllowed =
     capabilities.features["promptOptimization.control"];
@@ -1443,13 +1447,19 @@ export function CreatePageClient({
           requestedMode === "agent" ||
           requestedMode === "waterfall"
         ) {
-          if (!chatAllowed) {
+          const modeAllowed =
+            requestedMode === "agent"
+              ? agentAllowed
+              : requestedMode === "waterfall"
+                ? waterfallAllowed
+                : chatAllowed;
+          if (!modeAllowed) {
             revokePreview(item.previewUrl);
             setActiveMode("image");
             toast.error(
               copy(
-                "Chat requires Pro plan or higher.",
-                "对话功能需要专业版或更高套餐。"
+                "This mode is not enabled for your plan.",
+                "当前套餐未开启该模式。"
               )
             );
             return;
@@ -1514,7 +1524,15 @@ export function CreatePageClient({
     return () => {
       cancelled = true;
     };
-  }, [chatAllowed, copy, maxChatImages, maxEditImages, searchParams]);
+  }, [
+    agentAllowed,
+    chatAllowed,
+    copy,
+    maxChatImages,
+    maxEditImages,
+    searchParams,
+    waterfallAllowed,
+  ]);
 
   const [textModel, setTextModel] = useState("default");
   const [editModel, setEditModel] = useState("default");
@@ -2137,6 +2155,7 @@ export function CreatePageClient({
     formData.append("count", "1");
     formData.append("stream", "true");
     formData.append("agent_mode", String(agentMode));
+    formData.append("waterfall_mode", String(Boolean(streamCardId)));
     if (promptOptimizationAllowed) {
       formData.append("prompt_optimization", String(promptOptimization));
     }
@@ -4737,11 +4756,19 @@ export function CreatePageClient({
       <Tabs
         value={activeMode}
         onValueChange={(value) => {
-          if (["chat", "agent", "waterfall"].includes(value) && !chatAllowed) {
+          const modeAllowed =
+            value === "agent"
+              ? agentAllowed
+              : value === "waterfall"
+                ? waterfallAllowed
+                : value === "chat"
+                  ? chatAllowed
+                  : true;
+          if (!modeAllowed) {
             toast.error(
               copy(
-                "Chat requires Pro plan or higher.",
-                "对话功能需要专业版或更高套餐。"
+                "This mode is not enabled for your plan.",
+                "当前套餐未开启该模式。"
               )
             );
             return;
@@ -4750,7 +4777,7 @@ export function CreatePageClient({
         }}
         className="mb-10"
       >
-        <TabsList className="mb-4 border border-border bg-muted/40">
+        <TabsList className="mb-4 h-auto flex-wrap justify-start border border-border bg-muted/40">
           <TabsTrigger value="text">
             <Wand2 className="h-4 w-4" />
             {copy("Text to image", "文生图")}
@@ -4766,21 +4793,21 @@ export function CreatePageClient({
               <span className="text-[10px] text-muted-foreground">Pro</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="agent" disabled={!chatAllowed}>
+          <TabsTrigger value="agent" disabled={!agentAllowed}>
             <Wand2 className="h-4 w-4" />
             {copy("Agent", "Agent")}
             {gpt55ChatAllowed && (
               <span className="text-[10px] text-muted-foreground">GPT-5.5</span>
             )}
-            {!chatAllowed && (
-              <span className="text-[10px] text-muted-foreground">Pro</span>
+            {!agentAllowed && (
+              <span className="text-[10px] text-muted-foreground">Locked</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="waterfall" disabled={!chatAllowed}>
+          <TabsTrigger value="waterfall" disabled={!waterfallAllowed}>
             <ImagePlus className="h-4 w-4" />
             {copy("Waterfall", "瀑布流")}
-            {!chatAllowed && (
-              <span className="text-[10px] text-muted-foreground">Pro</span>
+            {!waterfallAllowed && (
+              <span className="text-[10px] text-muted-foreground">Locked</span>
             )}
           </TabsTrigger>
         </TabsList>

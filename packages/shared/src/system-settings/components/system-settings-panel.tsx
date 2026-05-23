@@ -92,8 +92,18 @@ const FEATURE_ROWS = [
   },
   {
     key: "imageGeneration.chat",
-    label: "对话生图",
-    description: "连续对话式生图",
+    label: "普通对话",
+    description: "页面 Chat：连续对话式生图，不默认注入 Agent 工具",
+  },
+  {
+    key: "imageGeneration.agent",
+    label: "Agent 模式",
+    description: "页面 Agent：联网、工具调用、附件上下文和自动迭代",
+  },
+  {
+    key: "imageGeneration.waterfall",
+    label: "瀑布流",
+    description: "页面 Waterfall：同一提示词连续生成多张",
   },
   {
     key: "imageGeneration.batch",

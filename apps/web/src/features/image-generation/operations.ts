@@ -566,12 +566,31 @@ export async function runImageGenerationForUser(
       generationId,
     };
   }
+  if (input.mode === "chat" && input.backendRequestKind !== "responses") {
+    const chatCapability = input.agentMode
+      ? "imageGeneration.agent"
+      : input.waterfallMode
+        ? "imageGeneration.waterfall"
+        : "imageGeneration.chat";
+    const chatLabel = input.agentMode
+      ? "Agent mode"
+      : input.waterfallMode
+        ? "Waterfall mode"
+        : "Chat mode";
+    if (!planCapabilities.features[chatCapability]) {
+      return {
+        error: `${chatLabel} is not enabled for this plan.`,
+        generationId,
+      };
+    }
+  }
   if (
     input.mode === "chat" &&
-    !planCapabilities.features["imageGeneration.chat"]
+    input.backendRequestKind === "responses" &&
+    !planCapabilities.features["externalApi.responses"]
   ) {
     return {
-      error: "Chat mode requires Pro plan or higher.",
+      error: "External Responses API is not enabled for this plan.",
       generationId,
     };
   }
@@ -862,7 +881,11 @@ async function runQueuedImageGenerationForUser({
           }
         : input.mode === "chat"
           ? {
-              mode: input.agentMode ? "agent" : "chat",
+              mode: input.agentMode
+                ? "agent"
+                : input.waterfallMode
+                  ? "waterfall"
+                  : "chat",
               action: "auto",
               ...backendMetadata,
               ...modelMetadata,
