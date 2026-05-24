@@ -149,6 +149,8 @@ type ImageResponsePayload = {
 type ResponsesOutputItem = {
   type?: string;
   id?: string;
+  item_id?: string;
+  output_item_id?: string;
   status?: string;
   role?: string;
   name?: string;
@@ -1612,7 +1614,31 @@ function getAgentEventKey(event: AgentRunEvent) {
 }
 
 function getResponseItemId(item: ResponsesOutputItem | undefined) {
-  return item?.id || item?.call_id;
+  return item?.id || item?.call_id || item?.item_id || item?.output_item_id;
+}
+
+function inferToolStatusFromEventName(eventName: string): AgentRunEventStatus {
+  if (
+    eventName.endsWith(".done") ||
+    eventName.endsWith(".completed") ||
+    eventName.endsWith(".succeeded")
+  ) {
+    return "completed";
+  }
+  if (eventName.endsWith(".failed") || eventName.endsWith(".error")) {
+    return "failed";
+  }
+  if (
+    eventName.endsWith(".in_progress") ||
+    eventName.endsWith(".searching") ||
+    eventName.endsWith(".delta")
+  ) {
+    return "running";
+  }
+  if (eventName.endsWith(".added") || eventName.endsWith(".created")) {
+    return "started";
+  }
+  return "running";
 }
 
 function mergeResponseOutputItem(
@@ -1622,6 +1648,10 @@ function mergeResponseOutputItem(
   return {
     ...(previous || {}),
     ...next,
+    id: next.id ?? previous?.id,
+    call_id: next.call_id ?? previous?.call_id,
+    item_id: next.item_id ?? previous?.item_id,
+    output_item_id: next.output_item_id ?? previous?.output_item_id,
     action: next.action ?? previous?.action,
     arguments:
       typeof previous?.arguments === "string" ||
@@ -1688,6 +1718,8 @@ function getStreamDeltaItem(
     ...(delta || {}),
     id: previous?.id || delta?.id,
     call_id: previous?.call_id || delta?.call_id,
+    item_id: previous?.item_id || delta?.item_id,
+    output_item_id: previous?.output_item_id || delta?.output_item_id,
     type: previous?.type || delta?.type,
     name:
       previous?.name ||
@@ -1903,6 +1935,10 @@ function getFallbackToolEventKey(
     compactToolText(typeof payload.query === "string" ? payload.query : "") ||
     describeWebSearchAction(action) ||
     compactToolText(typeof payload.name === "string" ? payload.name : "") ||
+    compactToolText(typeof payload.item_id === "string" ? payload.item_id : "") ||
+    compactToolText(
+      typeof payload.output_item_id === "string" ? payload.output_item_id : ""
+    ) ||
     fallbackType;
   return `${fallbackType}:${detail || "active"}`;
 }
@@ -1924,6 +1960,8 @@ function getStreamToolItem(
   return updateStreamItem(state, {
     id: fallbackKey,
     call_id: fallbackKey,
+    item_id: fallbackKey,
+    output_item_id: fallbackKey,
     type: fallbackType,
     status: typeof payload.status === "string" ? payload.status : undefined,
     query: typeof payload.query === "string" ? payload.query : undefined,
@@ -2069,6 +2107,22 @@ async function processResponsesEventPayload(
       payload.item as ResponsesOutputItem | undefined
     );
     await reportResponsesToolEvent(state, callbacks, item, "started");
+    return null;
+  }
+
+  const fallbackToolType = isResponsesPartialImageEvent(streamEventName, payload)
+    ? undefined
+    : eventNameToFallbackToolType(streamEventName);
+  if (fallbackToolType) {
+    const item =
+      getStreamDeltaItem(state, payload) ||
+      getStreamToolItem(state, streamEventName, payload);
+    await reportResponsesToolEvent(
+      state,
+      callbacks,
+      item,
+      inferToolStatusFromEventName(streamEventName)
+    );
     return null;
   }
 
@@ -3141,6 +3195,7 @@ export async function generateChatImage(
         const continueReason = continueCalls
           .map((call) => call.reason)
           .find((reason): reason is string => Boolean(reason));
+        const shouldForceContinue = forceMaxRounds && round < maxRounds;
         if (continueCalls.length > 0) {
           await emitAgentProgress(callbacks, {
             kind: "tool",
@@ -3150,13 +3205,13 @@ export async function generateChatImage(
             timestamp: new Date().toISOString(),
             toolType: "continue_generation",
           });
-        }
-        const shouldForceContinue = forceMaxRounds && round < maxRounds;
-        if (shouldForceContinue && continueCalls.length === 0) {
+        } else if (forceMaxRounds) {
           await emitAgentDecision(callbacks, {
-            status: "running",
-            title: "Agent 强制继续",
-            detail: `系统已开启强制迭代，将继续执行第 ${round + 1} 轮`,
+            status: "completed",
+            title: shouldForceContinue ? "Agent 强制继续" : "Agent 强制轮数完成",
+            detail: shouldForceContinue
+              ? `系统已开启强制迭代，将继续执行第 ${round + 1} 轮`
+              : `已完成强制迭代轮数 ${maxRounds}`,
           });
         }
 
