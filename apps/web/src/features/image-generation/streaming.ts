@@ -120,7 +120,7 @@ export function createImageStreamResponse(
         }, keepAliveMs);
 
         const emit = async (event: ImageStreamEvent) => {
-          write(`data: ${JSON.stringify(event)}\n\n`);
+          write(`data: ${JSON.stringify(event)}\n\n: flush\n\n`);
         };
 
         try {
@@ -160,6 +160,7 @@ export function createImageStreamResponse(
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
         Connection: "keep-alive",
       },
     }

@@ -1376,6 +1376,12 @@ function insertMentionToken(
   return `${text.slice(0, mention.start)}${token} ${text.slice(mention.end)}`;
 }
 
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
 function getCursorAfterInsertedMention(mention: MentionState, token: string) {
   return mention.start + token.length + 1;
 }
@@ -2972,7 +2978,7 @@ export function CreatePageClient({
     const completed: ImageApiResult[] = [];
     let failed: ImageApiResult | null = null;
 
-    const processBlock = (block: string) => {
+    const processBlock = async (block: string) => {
       const data = block
         .split(/\r?\n/)
         .filter((line) => line.startsWith("data:"))
@@ -2986,6 +2992,7 @@ export function CreatePageClient({
       try {
         event = JSON.parse(data) as ImageStreamEvent;
       } catch {
+        await yieldToBrowser();
         return;
       }
 
@@ -2998,6 +3005,7 @@ export function CreatePageClient({
             setStreamingPreviewUrl(previewUrl);
           }
         }
+        await yieldToBrowser();
         return;
       }
 
@@ -3006,11 +3014,13 @@ export function CreatePageClient({
         event.type === "thinking_delta" ||
         event.type === "agent_delta"
       ) {
+        await yieldToBrowser();
         return;
       }
 
       if (event.type === "completed") {
         completed.push(event);
+        await yieldToBrowser();
         return;
       }
 
@@ -3339,6 +3349,7 @@ export function CreatePageClient({
               )
             );
           }
+          await yieldToBrowser();
         }
         return;
       }
@@ -3359,12 +3370,12 @@ export function CreatePageClient({
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() || "";
       for (const block of blocks) {
-        processBlock(block);
+        await processBlock(block);
       }
       if (done) break;
     }
 
-    if (buffer.trim()) processBlock(buffer);
+    if (buffer.trim()) await processBlock(buffer);
 
     const failedResult = failed as ImageApiResult | null;
     if (!response.ok || failedResult) {
