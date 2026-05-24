@@ -2312,7 +2312,8 @@ export function CreatePageClient({
   const isCreatePageMountedRef = useRef(false);
   const didApplyReferenceParamRef = useRef(false);
   const didRestoreVisualPendingRef = useRef(false);
-  const restoredChatGenerationIdsRef = useRef<Set<string>>(new Set());
+  const activeChatRequestGenerationIdsRef = useRef<Set<string>>(new Set());
+  const restoringChatGenerationIdsRef = useRef<Set<string>>(new Set());
   const batchLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const batchScrollRef = useRef<HTMLDivElement | null>(null);
   const batchActiveRequestsRef = useRef(0);
@@ -3216,380 +3217,406 @@ export function CreatePageClient({
     agentMode: boolean;
     signal?: AbortSignal;
   }) => {
-    const streamMode: "chat" | "agent" | undefined =
-      streamCardId && !streamMessageId
-        ? undefined
-        : agentMode
-          ? "agent"
-          : "chat";
-    const updateChatStream = (next: Omit<ChatStreamState, "mode">) => {
-      if (streamCardId && !streamMessageId) return;
-      setChatStream({ ...next, mode: streamMode });
-    };
-    const hasImageAttachment = attachments.some(
-      (item) => item.kind === "image"
-    );
-    const requestSize = hasImageAttachment
-      ? chatCustomEditSize
-      : validateImageSize(fallbackSize).valid
-        ? fallbackSize
-        : size;
-    const formData = new FormData();
-    formData.append("prompt", prompt);
-    if (generationId) formData.append("generation_id", generationId);
-    formData.append("history", JSON.stringify(toChatHistory(historyMessages)));
-    formData.append("quality", quality);
-    formData.append("moderation", moderation);
-    formData.append("output_format", outputFormat);
-    if (outputFormat !== "png") {
-      formData.append("output_compression", String(outputCompression));
+    if (generationId) {
+      activeChatRequestGenerationIdsRef.current.add(generationId);
     }
-    formData.append("model", chatModel);
-    if (showImageModelControls && chatImageModel !== "default") {
-      formData.append("image_model", chatImageModel);
-    }
-    if (showThinkingControls) {
-      formData.append("thinking", chatThinking);
-    }
-    formData.append("size", requestSize);
-    formData.append("count", "1");
-    formData.append("stream", "true");
-    formData.append(
-      "conversation_mode",
-      agentMode ? "agent" : streamCardId ? "waterfall" : "chat"
-    );
-    formData.append("agent_mode", String(agentMode));
-    if (agentMode) {
-      formData.append("agent_max_rounds", String(agentMaxRounds));
-      formData.append("agent_force_max_rounds", String(agentForceRounds));
-    }
-    formData.append("waterfall_mode", String(Boolean(streamCardId)));
-    if (promptOptimizationAllowed) {
-      formData.append("prompt_optimization", String(promptOptimization));
-    }
-    if (agentMode || hasPromptImageReference(prompt)) {
-      formData.append("requires_responses_backend", "true");
-    } else if (chatMixWebFirstActive) {
-      formData.append("mix_web_first", "true");
-    }
-    const imageAttachments = attachments.filter(
-      (item) => item.kind === "image"
-    );
-    const fileAttachments = attachments.filter((item) => item.kind === "file");
-    imageAttachments.forEach(({ file }) => {
+    const executeChatRequest = async (): Promise<ImageApiResult> => {
+      const streamMode: "chat" | "agent" | undefined =
+        streamCardId && !streamMessageId
+          ? undefined
+          : agentMode
+            ? "agent"
+            : "chat";
+      const updateChatStream = (next: Omit<ChatStreamState, "mode">) => {
+        if (streamCardId && !streamMessageId) return;
+        setChatStream({ ...next, mode: streamMode });
+      };
+      const hasImageAttachment = attachments.some(
+        (item) => item.kind === "image"
+      );
+      const requestSize = hasImageAttachment
+        ? chatCustomEditSize
+        : validateImageSize(fallbackSize).valid
+          ? fallbackSize
+          : size;
+      const formData = new FormData();
+      formData.append("prompt", prompt);
+      if (generationId) formData.append("generation_id", generationId);
       formData.append(
-        imageAttachments.length === 1 ? "image" : "image[]",
-        file
+        "history",
+        JSON.stringify(toChatHistory(historyMessages))
       );
-    });
-    fileAttachments.forEach(({ file }) => {
-      formData.append(fileAttachments.length === 1 ? "file" : "file[]", file);
-    });
-
-    const response = await fetch("/api/images/chat", {
-      method: "POST",
-      signal,
-      headers: {
-        Accept: "text/event-stream",
-      },
-      body: formData,
-    });
-
-    const createRequestError = (message: string, creditsConsumed?: number) => {
-      const error = new Error(message) as GenerationRequestError;
-      if (creditsConsumed !== undefined) {
-        error.creditsConsumed = creditsConsumed;
+      formData.append("quality", quality);
+      formData.append("moderation", moderation);
+      formData.append("output_format", outputFormat);
+      if (outputFormat !== "png") {
+        formData.append("output_compression", String(outputCompression));
       }
-      return error;
-    };
-
-    const buildStreamState = (next?: {
-      text?: string;
-      thinking?: string;
-      agent?: string;
-      agentEvents?: AgentRunEvent[];
-      imageUrl?: string;
-    }): Omit<ChatStreamState, "mode"> => ({
-      messageId: streamMessageId,
-      cardId: streamCardId,
-      generationId,
-      prompt,
-      model: chatImageModel !== "default" ? chatImageModel : chatModel,
-      size: requestSize,
-      text: next?.text ?? "",
-      thinking: next?.thinking ?? "",
-      agent: next?.agent ?? "",
-      agentEvents: next?.agentEvents ?? [],
-      imageUrl: next?.imageUrl,
-    });
-
-    const syncAssistantStreamVariant = (state: Omit<ChatStreamState, "mode">) => {
-      if (!streamMessageId || streamCardId) return;
-      setChatMessages((prev) =>
-        prev.map((message) => {
-          if (message.id !== streamMessageId) return message;
-          const variants = getChatVariants(message);
-          const currentVariant =
-            variants.find((variant) => variant.generationId === generationId) ||
-            getActiveChatVariant(message);
-          const nextVariant = mergeChatVariant(currentVariant || undefined, {
-            generationId,
-            imageUrl: state.imageUrl,
-            prompt,
-            model: chatImageModel !== "default" ? chatImageModel : chatModel,
-            size: requestSize,
-            responseText: state.text || undefined,
-            responseThinking: state.thinking || undefined,
-            responseAgent: state.agent || undefined,
-            agentEvents: state.agentEvents.length ? state.agentEvents : undefined,
-            pending: true,
-          });
-          return {
-            ...message,
-            text:
-              state.text ||
-              (state.imageUrl
-                ? copy("Generating image...", "正在生成图片...")
-                : message.text),
-            variants: replaceChatVariantByGenerationId(
-              variants.length ? variants : [nextVariant],
-              generationId,
-              [nextVariant]
-            ),
-            activeVariant: Math.max(
-              0,
-              variants.findIndex(
-                (variant) => variant.generationId === generationId
-              )
-            ),
-          };
-        })
+      formData.append("model", chatModel);
+      if (showImageModelControls && chatImageModel !== "default") {
+        formData.append("image_model", chatImageModel);
+      }
+      if (showThinkingControls) {
+        formData.append("thinking", chatThinking);
+      }
+      formData.append("size", requestSize);
+      formData.append("count", "1");
+      formData.append("stream", "true");
+      formData.append(
+        "conversation_mode",
+        agentMode ? "agent" : streamCardId ? "waterfall" : "chat"
       );
-    };
-
-    const publishStreamState = async (next?: {
-      text?: string;
-      thinking?: string;
-      agent?: string;
-      agentEvents?: AgentRunEvent[];
-      imageUrl?: string;
-    }) => {
-      const state = buildStreamState(next);
-      updateChatStream(state);
-      syncAssistantStreamVariant(state);
-      await yieldToBrowser();
-    };
-
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("text/event-stream")) {
-      const data = await readImageApiJsonResponse(response);
-      if (!response.ok || data.error) {
-        throw createRequestError(
-          data.error || `API error: ${response.status}`,
-          data.creditsConsumed
+      formData.append("agent_mode", String(agentMode));
+      if (agentMode) {
+        formData.append("agent_max_rounds", String(agentMaxRounds));
+        formData.append("agent_force_max_rounds", String(agentForceRounds));
+      }
+      formData.append("waterfall_mode", String(Boolean(streamCardId)));
+      if (promptOptimizationAllowed) {
+        formData.append("prompt_optimization", String(promptOptimization));
+      }
+      if (agentMode || hasPromptImageReference(prompt)) {
+        formData.append("requires_responses_backend", "true");
+      } else if (chatMixWebFirstActive) {
+        formData.append("mix_web_first", "true");
+      }
+      const imageAttachments = attachments.filter(
+        (item) => item.kind === "image"
+      );
+      const fileAttachments = attachments.filter(
+        (item) => item.kind === "file"
+      );
+      imageAttachments.forEach(({ file }) => {
+        formData.append(
+          imageAttachments.length === 1 ? "image" : "image[]",
+          file
         );
-      }
-      return data;
-    }
+      });
+      fileAttachments.forEach(({ file }) => {
+        formData.append(fileAttachments.length === 1 ? "file" : "file[]", file);
+      });
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("API returned an empty stream");
-    }
+      const response = await fetch("/api/images/chat", {
+        method: "POST",
+        signal,
+        headers: {
+          Accept: "text/event-stream",
+        },
+        body: formData,
+      });
 
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let failed: ImageApiResult | null = null;
-    let completed: ImageApiResult | undefined;
-    let text = "";
-    let thinking = "";
-    let agent = "";
-    let agentEvents: AgentRunEvent[] = agentMode
-      ? createOptimisticAgentRoundEvents(1)
-      : [];
-    let previewUrl: string | undefined;
-
-    const processBlock = async (block: string) => {
-      const data = block
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trimStart())
-        .join("\n")
-        .trim();
-
-      if (!data || data === "[DONE]") return;
-
-      let event: ImageStreamEvent;
-      try {
-        event = JSON.parse(data) as ImageStreamEvent;
-      } catch {
-        return;
-      }
-
-      if (event.type === "text_delta") {
-        text += event.delta;
-        await publishStreamState({
-          text,
-          thinking,
-          agent,
-          agentEvents,
-          imageUrl: previewUrl,
-        });
-        if (streamCardId) {
-          setBatchCards((prev) =>
-            prev.map((card) =>
-              card.id === streamCardId &&
-              (card.state === "loading" || card.state === "text")
-                ? { ...card, state: "text", streamText: text }
-                : card
-            )
-          );
+      const createRequestError = (
+        message: string,
+        creditsConsumed?: number
+      ) => {
+        const error = new Error(message) as GenerationRequestError;
+        if (creditsConsumed !== undefined) {
+          error.creditsConsumed = creditsConsumed;
         }
-        return;
-      }
+        return error;
+      };
 
-      if (event.type === "thinking_delta") {
-        thinking += event.delta;
-        await publishStreamState({
-          text,
-          thinking,
-          agent,
-          agentEvents,
-          imageUrl: previewUrl,
-        });
-        if (streamCardId) {
-          setBatchCards((prev) =>
-            prev.map((card) =>
-              card.id === streamCardId &&
-              (card.state === "loading" || card.state === "text")
-                ? { ...card, streamThinking: thinking }
-                : card
-            )
-          );
-        }
-        return;
-      }
+      const buildStreamState = (next?: {
+        text?: string;
+        thinking?: string;
+        agent?: string;
+        agentEvents?: AgentRunEvent[];
+        imageUrl?: string;
+      }): Omit<ChatStreamState, "mode"> => ({
+        messageId: streamMessageId,
+        cardId: streamCardId,
+        generationId,
+        prompt,
+        model: chatImageModel !== "default" ? chatImageModel : chatModel,
+        size: requestSize,
+        text: next?.text ?? "",
+        thinking: next?.thinking ?? "",
+        agent: next?.agent ?? "",
+        agentEvents: next?.agentEvents ?? [],
+        imageUrl: next?.imageUrl,
+      });
 
-      if (event.type === "agent_delta") {
-        agent += event.delta;
-        await publishStreamState({
-          text,
-          thinking,
-          agent,
-          agentEvents,
-          imageUrl: previewUrl,
-        });
-        if (streamCardId) {
-          setBatchCards((prev) =>
-            prev.map((card) =>
-              card.id === streamCardId &&
-              (card.state === "loading" || card.state === "text")
-                ? { ...card, streamAgent: agent }
-                : card
-            )
-          );
-        }
-        return;
-      }
-
-      if (event.type === "agent_event") {
-        agentEvents = appendAgentRunEvent(agentEvents, event.event);
-        const eventImageUrl = agentEventToImageUrl(event.event);
-        if (eventImageUrl) {
-          previewUrl = eventImageUrl;
-          setStreamingPreviewUrl(eventImageUrl);
-        }
-        await publishStreamState({
-          text,
-          thinking,
-          agent,
-          agentEvents,
-          imageUrl: previewUrl,
-        });
-        return;
-      }
-
-      if (event.type === "partial_image") {
-        const nextPreviewUrl = imageStreamEventToPreviewUrl(event);
-        if (nextPreviewUrl) {
-          previewUrl = nextPreviewUrl;
-          if (!event.final) {
-            agentEvents = appendAgentRunEvent(agentEvents, {
-              kind: "image_partial",
-              status: "completed",
-              title: copy("Streaming preview generated", "流式预览已生成"),
-              imageUrl: nextPreviewUrl,
-              index: event.index,
-              partialImageIndex: event.partial_image_index,
-              timestamp: new Date().toISOString(),
+      const syncAssistantStreamVariant = (
+        state: Omit<ChatStreamState, "mode">
+      ) => {
+        if (!streamMessageId || streamCardId) return;
+        setChatMessages((prev) =>
+          prev.map((message) => {
+            if (message.id !== streamMessageId) return message;
+            const variants = getChatVariants(message);
+            const currentVariant =
+              variants.find(
+                (variant) => variant.generationId === generationId
+              ) || getActiveChatVariant(message);
+            const nextVariant = mergeChatVariant(currentVariant || undefined, {
+              generationId,
+              imageUrl: state.imageUrl,
+              prompt,
+              model: chatImageModel !== "default" ? chatImageModel : chatModel,
+              size: requestSize,
+              responseText: state.text || undefined,
+              responseThinking: state.thinking || undefined,
+              responseAgent: state.agent || undefined,
+              agentEvents: state.agentEvents.length
+                ? state.agentEvents
+                : undefined,
+              pending: true,
             });
-          }
-          setStreamingPreviewUrl(nextPreviewUrl);
+            return {
+              ...message,
+              text:
+                state.text ||
+                (state.imageUrl
+                  ? copy("Generating image...", "正在生成图片...")
+                  : message.text),
+              variants: replaceChatVariantByGenerationId(
+                variants.length ? variants : [nextVariant],
+                generationId,
+                [nextVariant]
+              ),
+              activeVariant: Math.max(
+                0,
+                variants.findIndex(
+                  (variant) => variant.generationId === generationId
+                )
+              ),
+            };
+          })
+        );
+      };
+
+      const publishStreamState = async (next?: {
+        text?: string;
+        thinking?: string;
+        agent?: string;
+        agentEvents?: AgentRunEvent[];
+        imageUrl?: string;
+      }) => {
+        const state = buildStreamState(next);
+        updateChatStream(state);
+        syncAssistantStreamVariant(state);
+        await yieldToBrowser();
+      };
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream")) {
+        const data = await readImageApiJsonResponse(response);
+        if (!response.ok || data.error) {
+          throw createRequestError(
+            data.error || `API error: ${response.status}`,
+            data.creditsConsumed
+          );
+        }
+        return data;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("API returned an empty stream");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let failed: ImageApiResult | null = null;
+      let completed: ImageApiResult | undefined;
+      let text = "";
+      let thinking = "";
+      let agent = "";
+      let agentEvents: AgentRunEvent[] = agentMode
+        ? createOptimisticAgentRoundEvents(1)
+        : [];
+      let previewUrl: string | undefined;
+
+      const processBlock = async (block: string) => {
+        const data = block
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n")
+          .trim();
+
+        if (!data || data === "[DONE]") return;
+
+        let event: ImageStreamEvent;
+        try {
+          event = JSON.parse(data) as ImageStreamEvent;
+        } catch {
+          return;
+        }
+
+        if (event.type === "text_delta") {
+          text += event.delta;
           await publishStreamState({
             text,
             thinking,
             agent,
             agentEvents,
-            imageUrl: nextPreviewUrl,
+            imageUrl: previewUrl,
           });
           if (streamCardId) {
             setBatchCards((prev) =>
               prev.map((card) =>
-                card.id === streamCardId && card.state === "loading"
-                  ? { ...card, imageUrl: nextPreviewUrl }
+                card.id === streamCardId &&
+                (card.state === "loading" || card.state === "text")
+                  ? { ...card, state: "text", streamText: text }
                   : card
               )
             );
           }
+          return;
         }
-        return;
+
+        if (event.type === "thinking_delta") {
+          thinking += event.delta;
+          await publishStreamState({
+            text,
+            thinking,
+            agent,
+            agentEvents,
+            imageUrl: previewUrl,
+          });
+          if (streamCardId) {
+            setBatchCards((prev) =>
+              prev.map((card) =>
+                card.id === streamCardId &&
+                (card.state === "loading" || card.state === "text")
+                  ? { ...card, streamThinking: thinking }
+                  : card
+              )
+            );
+          }
+          return;
+        }
+
+        if (event.type === "agent_delta") {
+          agent += event.delta;
+          await publishStreamState({
+            text,
+            thinking,
+            agent,
+            agentEvents,
+            imageUrl: previewUrl,
+          });
+          if (streamCardId) {
+            setBatchCards((prev) =>
+              prev.map((card) =>
+                card.id === streamCardId &&
+                (card.state === "loading" || card.state === "text")
+                  ? { ...card, streamAgent: agent }
+                  : card
+              )
+            );
+          }
+          return;
+        }
+
+        if (event.type === "agent_event") {
+          agentEvents = appendAgentRunEvent(agentEvents, event.event);
+          const eventImageUrl = agentEventToImageUrl(event.event);
+          if (eventImageUrl) {
+            previewUrl = eventImageUrl;
+            setStreamingPreviewUrl(eventImageUrl);
+          }
+          await publishStreamState({
+            text,
+            thinking,
+            agent,
+            agentEvents,
+            imageUrl: previewUrl,
+          });
+          return;
+        }
+
+        if (event.type === "partial_image") {
+          const nextPreviewUrl = imageStreamEventToPreviewUrl(event);
+          if (nextPreviewUrl) {
+            previewUrl = nextPreviewUrl;
+            if (!event.final) {
+              agentEvents = appendAgentRunEvent(agentEvents, {
+                kind: "image_partial",
+                status: "completed",
+                title: copy("Streaming preview generated", "流式预览已生成"),
+                imageUrl: nextPreviewUrl,
+                index: event.index,
+                partialImageIndex: event.partial_image_index,
+                timestamp: new Date().toISOString(),
+              });
+            }
+            setStreamingPreviewUrl(nextPreviewUrl);
+            await publishStreamState({
+              text,
+              thinking,
+              agent,
+              agentEvents,
+              imageUrl: nextPreviewUrl,
+            });
+            if (streamCardId) {
+              setBatchCards((prev) =>
+                prev.map((card) =>
+                  card.id === streamCardId && card.state === "loading"
+                    ? { ...card, imageUrl: nextPreviewUrl }
+                    : card
+                )
+              );
+            }
+          }
+          return;
+        }
+
+        if (event.type === "completed") {
+          completed = event;
+          return;
+        }
+
+        if (event.type === "error") {
+          failed = event;
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() || "";
+        for (const block of blocks) {
+          await processBlock(block);
+        }
+        if (done) break;
       }
 
-      if (event.type === "completed") {
-        completed = event;
-        return;
+      if (buffer.trim()) await processBlock(buffer);
+
+      const failedResult = failed as ImageApiResult | null;
+      if (!response.ok || failedResult) {
+        throw createRequestError(
+          failedResult?.error || `API error: ${response.status}`,
+          failedResult?.creditsConsumed
+        );
       }
 
-      if (event.type === "error") {
-        failed = event;
+      if (!completed) {
+        throw new Error("API returned no image data");
       }
+
+      return {
+        ...completed,
+        responseText: completed.responseText || text || undefined,
+        responseThinking: completed.responseThinking || thinking || undefined,
+        responseAgent: agent || completed.responseAgent || undefined,
+        agentEvents: completed.agentEvents || agentEvents,
+        agentRoundCount: completed.agentRoundCount,
+        webConversation: completed.webConversation,
+        responsesPreviousResponse: completed.responsesPreviousResponse,
+      };
     };
 
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      const blocks = buffer.split(/\r?\n\r?\n/);
-      buffer = blocks.pop() || "";
-      for (const block of blocks) {
-        await processBlock(block);
+    try {
+      return await executeChatRequest();
+    } finally {
+      if (generationId) {
+        activeChatRequestGenerationIdsRef.current.delete(generationId);
       }
-      if (done) break;
     }
-
-    if (buffer.trim()) await processBlock(buffer);
-
-    const failedResult = failed as ImageApiResult | null;
-    if (!response.ok || failedResult) {
-      throw createRequestError(
-        failedResult?.error || `API error: ${response.status}`,
-        failedResult?.creditsConsumed
-      );
-    }
-
-    if (!completed) {
-      throw new Error("API returned no image data");
-    }
-
-    return {
-      ...completed,
-      responseText: completed.responseText || text || undefined,
-      responseThinking: completed.responseThinking || thinking || undefined,
-      responseAgent: agent || completed.responseAgent || undefined,
-      agentEvents: completed.agentEvents || agentEvents,
-      agentRoundCount: completed.agentRoundCount,
-      webConversation: completed.webConversation,
-      responsesPreviousResponse: completed.responsesPreviousResponse,
-    };
   };
 
   useEffect(() => {
@@ -4160,6 +4187,8 @@ export function CreatePageClient({
   const restorePendingChatGeneration = async (
     target: ChatPendingRestoreTarget
   ) => {
+    if (restoringChatGenerationIdsRef.current.has(target.generationId)) return;
+    restoringChatGenerationIdsRef.current.add(target.generationId);
     setActiveMode(target.mode);
     setIsChatGenerating(true);
     setChatStream({
@@ -4289,19 +4318,25 @@ export function CreatePageClient({
     } catch {
       /* Keep the pending variant so a later revisit can poll again. */
     } finally {
-      if (!isCreatePageMountedRef.current) return;
-      setIsChatGenerating(false);
-      setChatStream(null);
-      clearStreamingPreview();
+      restoringChatGenerationIdsRef.current.delete(target.generationId);
+      if (isCreatePageMountedRef.current) {
+        setIsChatGenerating(false);
+        setChatStream((current) =>
+          current?.generationId === target.generationId ? null : current
+        );
+        clearStreamingPreview();
+      }
     }
   };
 
   useEffect(() => {
     if (!didLoadChatRef.current) return;
-    if (chatStream?.generationId) return;
     const targets = findPendingChatRestoreTargets(chatConversations).filter(
       (target) => {
-        if (restoredChatGenerationIdsRef.current.has(target.generationId)) {
+        if (
+          activeChatRequestGenerationIdsRef.current.has(target.generationId) ||
+          restoringChatGenerationIdsRef.current.has(target.generationId)
+        ) {
           return false;
         }
         return chatMessages.some(
@@ -4311,7 +4346,6 @@ export function CreatePageClient({
     );
     const target = targets[0];
     if (!target) return;
-    restoredChatGenerationIdsRef.current.add(target.generationId);
     if (target.conversationId !== chatConversationId) {
       const conversation = chatConversations.find(
         (item) => item.id === target.conversationId
@@ -4323,7 +4357,12 @@ export function CreatePageClient({
       chatMessagesModeRef.current = target.mode;
     }
     void restorePendingChatGeneration(target);
-  }, [chatConversationId, chatConversations, chatMessages, chatStream?.generationId]);
+  }, [
+    chatConversationId,
+    chatConversations,
+    chatMessages,
+    chatStream?.generationId,
+  ]);
 
   const addSuccessfulResults = (
     data: ImageApiResult,
@@ -4753,16 +4792,18 @@ export function CreatePageClient({
 
     setRetryingChatMessageId(assistantId);
     setIsChatGenerating(true);
-    setChatStream(createInitialChatStreamState({
-      messageId: assistantId,
-      mode: conversationMode,
-      agentMode:
-        assistantMessage.mode === "agent" || userMessage.mode === "agent",
-      generationId,
-      prompt: userMessage.text,
-      model: chatImageModel !== "default" ? chatImageModel : chatModel,
-      size: retrySize,
-    }));
+    setChatStream(
+      createInitialChatStreamState({
+        messageId: assistantId,
+        mode: conversationMode,
+        agentMode:
+          assistantMessage.mode === "agent" || userMessage.mode === "agent",
+        generationId,
+        prompt: userMessage.text,
+        model: chatImageModel !== "default" ? chatImageModel : chatModel,
+        size: retrySize,
+      })
+    );
     setChatMessages(pendingMessages);
     persistChatConversationSnapshot({
       conversations: chatConversationsRef.current,
@@ -5177,10 +5218,10 @@ export function CreatePageClient({
         {!chatStream.text &&
           !chatStream.imageUrl &&
           chatStream.agentEvents.length === 0 && (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {copy("Generating...", "生成中...")}
-          </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {copy("Generating...", "生成中...")}
+            </div>
           )}
       </div>
     );
@@ -5865,7 +5906,9 @@ export function CreatePageClient({
       model: chatImageModel !== "default" ? chatImageModel : chatModel,
       size: fallbackSize || size,
       agentEvents:
-        conversationMode === "agent" ? createOptimisticAgentRoundEvents(1) : undefined,
+        conversationMode === "agent"
+          ? createOptimisticAgentRoundEvents(1)
+          : undefined,
       pending: true,
     });
     const conversationBeforeSend = chatMessages.filter((message) =>
@@ -5904,15 +5947,17 @@ export function CreatePageClient({
     setChatPrompt("");
     clearStreamingPreview();
     setIsChatGenerating(true);
-    setChatStream(createInitialChatStreamState({
-      messageId: assistantMessageId,
-      mode: conversationMode,
-      agentMode: conversationMode === "agent",
-      generationId,
-      prompt: currentPrompt,
-      model: chatImageModel !== "default" ? chatImageModel : chatModel,
-      size: fallbackSize || size,
-    }));
+    setChatStream(
+      createInitialChatStreamState({
+        messageId: assistantMessageId,
+        mode: conversationMode,
+        agentMode: conversationMode === "agent",
+        generationId,
+        prompt: currentPrompt,
+        model: chatImageModel !== "default" ? chatImageModel : chatModel,
+        size: fallbackSize || size,
+      })
+    );
     scrollChatToBottom();
 
     try {
@@ -6198,7 +6243,9 @@ export function CreatePageClient({
             prompt: itemPrompt,
             count: 1,
             stream: false,
-            generationIds: [generationIds[generationIndex] || createGenerationId()],
+            generationIds: [
+              generationIds[generationIndex] || createGenerationId(),
+            ],
           });
           generationIndex += 1;
           generatedCount += addSuccessfulResults(data, itemPrompt, size, {
@@ -7220,8 +7267,7 @@ export function CreatePageClient({
               {modeResult.revisedPrompt &&
                 modeResult.revisedPrompt !== modeResult.prompt && (
                   <p className="text-xs italic text-muted-foreground">
-                    {copy("Revised", "优化提示词")}:{" "}
-                    {modeResult.revisedPrompt}
+                    {copy("Revised", "优化提示词")}: {modeResult.revisedPrompt}
                   </p>
                 )}
               <div className="flex gap-2">
@@ -7397,11 +7443,7 @@ export function CreatePageClient({
               {renderVisualOutput("text-single")}
             </div>
 
-            <div
-              role="tabpanel"
-              hidden={textMode !== "lines"}
-              className="mt-0"
-            >
+            <div role="tabpanel" hidden={textMode !== "lines"} className="mt-0">
               <form onSubmit={handleTextLineBatchSubmit} className="space-y-4">
                 <Textarea
                   value={linePrompts}
@@ -8289,322 +8331,330 @@ export function CreatePageClient({
                 ) : (
                   <>
                     {visibleChatMessages.map((message) => {
-                    const variants = getChatVariants(message);
-                    const activeVariant = getActiveChatVariant(message);
-                    const activeIndex = message.activeVariant || 0;
-                    const webChoiceVariants = variants.filter(
-                      (variant) =>
-                        variant.outputRole === "choice" && variant.imageUrl
-                    );
-                    const isStreamingMessage =
-                      chatStream?.messageId === message.id;
+                      const variants = getChatVariants(message);
+                      const activeVariant = getActiveChatVariant(message);
+                      const activeIndex = message.activeVariant || 0;
+                      const webChoiceVariants = variants.filter(
+                        (variant) =>
+                          variant.outputRole === "choice" && variant.imageUrl
+                      );
+                      const isStreamingMessage =
+                        chatStream?.messageId === message.id;
 
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${
-                          message.role === "user"
-                            ? "justify-end"
-                            : "justify-start"
-                        }`}
-                      >
+                      return (
                         <div
-                          className={`max-w-[88%] ${
-                            message.role === "user" ? "text-right" : "text-left"
+                          key={message.id}
+                          className={`flex ${
+                            message.role === "user"
+                              ? "justify-end"
+                              : "justify-start"
                           }`}
                         >
                           <div
-                            className={`rounded-lg border px-3 py-3 text-sm ${
+                            className={`max-w-[88%] ${
                               message.role === "user"
-                                ? "border-primary/20 bg-primary text-primary-foreground"
-                                : "border-border bg-muted/35 text-foreground"
+                                ? "text-right"
+                                : "text-left"
                             }`}
                           >
-                            {message.role === "user" ? (
-                              <div className="flex flex-col gap-3">
-                                {message.attachments?.length ? (
-                                  <div className="flex flex-wrap justify-end gap-2">
-                                    {message.attachments.map((attachment) => (
-                                      <div
-                                        key={attachment.id}
-                                        className="relative h-12 w-12 overflow-hidden rounded-md border border-primary-foreground/25 bg-muted"
-                                      >
-                                        {attachment.kind === "file" ||
-                                        !attachment.previewUrl ? (
-                                          <span className="flex h-full w-full items-center justify-center">
-                                            <FileText className="h-5 w-5 text-muted-foreground" />
-                                          </span>
-                                        ) : (
-                                          <Image
-                                            src={attachment.previewUrl}
-                                            alt={attachment.name}
-                                            fill
-                                            sizes="48px"
-                                            className="object-cover"
-                                            unoptimized
-                                          />
-                                        )}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                <p className="whitespace-pre-wrap break-words">
-                                  {message.text}
-                                </p>
-                              </div>
-                            ) : isStreamingMessage ? (
-                              renderChatStreamBubble(message.id)
-                            ) : message.error ? (
-                              <p className="text-destructive">
-                                {message.error}
-                              </p>
-                            ) : activeVariant ? (
-                              <div>
-                                {renderThinkingBlock(
-                                  activeVariant.responseThinking,
-                                  message.mode === "agent"
-                                )}
-                                {renderAgentRoundCards(
-                                  activeVariant.agentEvents,
-                                  activeVariant.responseAgent,
-                                  message.mode === "agent"
-                                )}
-                                {activeVariant.responseText && (
-                                  <p
-                                    className={`whitespace-pre-wrap break-words leading-relaxed ${
-                                      activeVariant.imageUrl ? "mb-3" : ""
-                                    }`}
-                                  >
-                                    {activeVariant.responseText}
-                                  </p>
-                                )}
-                                {activeVariant.imageUrl && (
-                                  <div className="overflow-hidden rounded-md border bg-background">
-                                    <button
-                                      type="button"
-                                      className="group relative block w-full bg-muted"
-                                      style={{
-                                        aspectRatio: `${
-                                          parseImageSize(activeVariant.size)
-                                            ?.width || defaultDimensions.width
-                                        } / ${
-                                          parseImageSize(activeVariant.size)
-                                            ?.height || defaultDimensions.height
-                                        }`,
-                                      }}
-                                      onClick={() => {
-                                        if (activeVariant.generationId) {
-                                          setSelectedRecentId(
-                                            activeVariant.generationId
-                                          );
-                                        }
-                                      }}
-                                      title={copy(
-                                        "Open image preview",
-                                        "打开图片预览"
-                                      )}
-                                    >
-                                      <Image
-                                        src={activeVariant.imageUrl}
-                                        alt={activeVariant.prompt}
-                                        fill
-                                        sizes="(max-width: 768px) 80vw, 420px"
-                                        className="object-contain"
-                                        unoptimized={
-                                          !shouldOptimizeStoredImage(
-                                            activeVariant.imageUrl
-                                          )
-                                        }
-                                      />
-                                      <span className="absolute right-2 top-2 rounded bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                                        <Eye className="mr-1 inline h-3 w-3" />
-                                        {copy("Preview", "预览")}
-                                      </span>
-                                    </button>
-                                    <div className="flex flex-wrap gap-2 p-2">
-                                      <Button
-                                        asChild
-                                        variant="outline"
-                                        size="xs"
-                                      >
-                                        <a
-                                          href={activeVariant.imageUrl}
-                                          download
-                                          target="_blank"
-                                          rel="noopener noreferrer"
+                            <div
+                              className={`rounded-lg border px-3 py-3 text-sm ${
+                                message.role === "user"
+                                  ? "border-primary/20 bg-primary text-primary-foreground"
+                                  : "border-border bg-muted/35 text-foreground"
+                              }`}
+                            >
+                              {message.role === "user" ? (
+                                <div className="flex flex-col gap-3">
+                                  {message.attachments?.length ? (
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      {message.attachments.map((attachment) => (
+                                        <div
+                                          key={attachment.id}
+                                          className="relative h-12 w-12 overflow-hidden rounded-md border border-primary-foreground/25 bg-muted"
                                         >
-                                          <Download className="h-3 w-3" />
-                                          {copy("Download", "下载")}
-                                        </a>
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="xs"
-                                        onClick={() =>
-                                          attachResultToChat(activeVariant)
-                                        }
-                                      >
-                                        <RefreshCcw className="h-3 w-3" />
-                                        {copy("Edit next", "继续编辑")}
-                                      </Button>
+                                          {attachment.kind === "file" ||
+                                          !attachment.previewUrl ? (
+                                            <span className="flex h-full w-full items-center justify-center">
+                                              <FileText className="h-5 w-5 text-muted-foreground" />
+                                            </span>
+                                          ) : (
+                                            <Image
+                                              src={attachment.previewUrl}
+                                              alt={attachment.name}
+                                              fill
+                                              sizes="48px"
+                                              className="object-cover"
+                                              unoptimized
+                                            />
+                                          )}
+                                        </div>
+                                      ))}
                                     </div>
-                                  </div>
-                                )}
-                                {!activeVariant.responseText &&
-                                  !activeVariant.imageUrl && (
-                                    <p className="text-muted-foreground">
-                                      {copy("Response generated", "回复已生成")}
+                                  ) : null}
+                                  <p className="whitespace-pre-wrap break-words">
+                                    {message.text}
+                                  </p>
+                                </div>
+                              ) : isStreamingMessage ? (
+                                renderChatStreamBubble(message.id)
+                              ) : message.error ? (
+                                <p className="text-destructive">
+                                  {message.error}
+                                </p>
+                              ) : activeVariant ? (
+                                <div>
+                                  {renderThinkingBlock(
+                                    activeVariant.responseThinking,
+                                    message.mode === "agent"
+                                  )}
+                                  {renderAgentRoundCards(
+                                    activeVariant.agentEvents,
+                                    activeVariant.responseAgent,
+                                    message.mode === "agent"
+                                  )}
+                                  {activeVariant.responseText && (
+                                    <p
+                                      className={`whitespace-pre-wrap break-words leading-relaxed ${
+                                        activeVariant.imageUrl ? "mb-3" : ""
+                                      }`}
+                                    >
+                                      {activeVariant.responseText}
                                     </p>
                                   )}
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                {copy("Generating...", "生成中...")}
-                              </div>
-                            )}
-                          </div>
-
-                          {message.role === "assistant" && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              {variants.length > 1 && (
-                                <div className="inline-flex items-center rounded-md border border-border bg-background text-xs text-muted-foreground">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    disabled={
-                                      isChatGenerating || activeIndex === 0
-                                    }
-                                    onClick={() =>
-                                      handleChatVariantChange(message.id, -1)
-                                    }
-                                    title={copy(
-                                      "Previous variant",
-                                      "上一个版本"
-                                    )}
-                                  >
-                                    <ChevronLeft className="h-3 w-3" />
-                                  </Button>
-                                  <span className="px-2">
-                                    {activeIndex + 1} / {variants.length}
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    disabled={
-                                      isChatGenerating ||
-                                      activeIndex >= variants.length - 1
-                                    }
-                                    onClick={() =>
-                                      handleChatVariantChange(message.id, 1)
-                                    }
-                                    title={copy("Next variant", "下一个版本")}
-                                  >
-                                    <ChevronRight className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              )}
-                              {webChoiceVariants.length > 1 && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {variants.map((variant, index) => {
-                                    if (
-                                      variant.outputRole !== "choice" ||
-                                      !variant.imageUrl
-                                    ) {
-                                      return null;
-                                    }
-                                    return (
+                                  {activeVariant.imageUrl && (
+                                    <div className="overflow-hidden rounded-md border bg-background">
                                       <button
-                                        key={`${variant.generationId || index}-choice`}
                                         type="button"
-                                        className={`relative h-10 w-10 overflow-hidden rounded-md border bg-muted ${
-                                          index === activeIndex
-                                            ? "border-primary ring-1 ring-primary"
-                                            : "border-border"
-                                        }`}
-                                        onClick={() =>
-                                          handleChatVariantSelect(
-                                            message.id,
-                                            index
-                                          )
-                                        }
+                                        className="group relative block w-full bg-muted"
+                                        style={{
+                                          aspectRatio: `${
+                                            parseImageSize(activeVariant.size)
+                                              ?.width || defaultDimensions.width
+                                          } / ${
+                                            parseImageSize(activeVariant.size)
+                                              ?.height ||
+                                            defaultDimensions.height
+                                          }`,
+                                        }}
+                                        onClick={() => {
+                                          if (activeVariant.generationId) {
+                                            setSelectedRecentId(
+                                              activeVariant.generationId
+                                            );
+                                          }
+                                        }}
                                         title={copy(
-                                          `Choose image ${index + 1}`,
-                                          `选择第 ${index + 1} 张`
+                                          "Open image preview",
+                                          "打开图片预览"
                                         )}
                                       >
                                         <Image
-                                          src={variant.imageUrl}
-                                          alt={variant.prompt}
+                                          src={activeVariant.imageUrl}
+                                          alt={activeVariant.prompt}
                                           fill
-                                          sizes="40px"
+                                          sizes="(max-width: 768px) 80vw, 420px"
                                           className="object-contain"
                                           unoptimized={
                                             !shouldOptimizeStoredImage(
-                                              variant.imageUrl
+                                              activeVariant.imageUrl
                                             )
                                           }
                                         />
-                                        {index === activeIndex && (
-                                          <span className="absolute right-0.5 top-0.5 rounded-full bg-primary p-0.5 text-primary-foreground">
-                                            <Check className="h-2.5 w-2.5" />
-                                          </span>
-                                        )}
+                                        <span className="absolute right-2 top-2 rounded bg-background/90 px-2 py-1 text-[11px] font-medium text-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                                          <Eye className="mr-1 inline h-3 w-3" />
+                                          {copy("Preview", "预览")}
+                                        </span>
                                       </button>
-                                    );
-                                  })}
+                                      <div className="flex flex-wrap gap-2 p-2">
+                                        <Button
+                                          asChild
+                                          variant="outline"
+                                          size="xs"
+                                        >
+                                          <a
+                                            href={activeVariant.imageUrl}
+                                            download
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                          >
+                                            <Download className="h-3 w-3" />
+                                            {copy("Download", "下载")}
+                                          </a>
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="xs"
+                                          onClick={() =>
+                                            attachResultToChat(activeVariant)
+                                          }
+                                        >
+                                          <RefreshCcw className="h-3 w-3" />
+                                          {copy("Edit next", "继续编辑")}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {!activeVariant.responseText &&
+                                    !activeVariant.imageUrl && (
+                                      <p className="text-muted-foreground">
+                                        {copy(
+                                          "Response generated",
+                                          "回复已生成"
+                                        )}
+                                      </p>
+                                    )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  {copy("Generating...", "生成中...")}
                                 </div>
                               )}
-                              {variants.some(
-                                (variant) => variant.outputRole === "choice"
-                              ) && (
-                                <span className="text-xs text-muted-foreground">
-                                  {copy(
-                                    "Web returned multiple choices; switching syncs the selected image.",
-                                    "Web 返回了多个候选，切换时会同步选中图片。"
-                                  )}
-                                </span>
-                              )}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                disabled={isChatGenerating}
-                                onClick={() => handleChatRetry(message.id)}
-                                title={
-                                  message.error
-                                    ? copy("Retry generation", "重试生成")
-                                    : copy(
-                                        "Generate another variant",
-                                        "再生成一个版本"
-                                      )
-                                }
-                              >
-                                <RefreshCcw className="h-4 w-4" />
-                              </Button>
                             </div>
-                          )}
+
+                            {message.role === "assistant" && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                {variants.length > 1 && (
+                                  <div className="inline-flex items-center rounded-md border border-border bg-background text-xs text-muted-foreground">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      disabled={
+                                        isChatGenerating || activeIndex === 0
+                                      }
+                                      onClick={() =>
+                                        handleChatVariantChange(message.id, -1)
+                                      }
+                                      title={copy(
+                                        "Previous variant",
+                                        "上一个版本"
+                                      )}
+                                    >
+                                      <ChevronLeft className="h-3 w-3" />
+                                    </Button>
+                                    <span className="px-2">
+                                      {activeIndex + 1} / {variants.length}
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      disabled={
+                                        isChatGenerating ||
+                                        activeIndex >= variants.length - 1
+                                      }
+                                      onClick={() =>
+                                        handleChatVariantChange(message.id, 1)
+                                      }
+                                      title={copy("Next variant", "下一个版本")}
+                                    >
+                                      <ChevronRight className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                                {webChoiceVariants.length > 1 && (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {variants.map((variant, index) => {
+                                      if (
+                                        variant.outputRole !== "choice" ||
+                                        !variant.imageUrl
+                                      ) {
+                                        return null;
+                                      }
+                                      return (
+                                        <button
+                                          key={`${variant.generationId || index}-choice`}
+                                          type="button"
+                                          className={`relative h-10 w-10 overflow-hidden rounded-md border bg-muted ${
+                                            index === activeIndex
+                                              ? "border-primary ring-1 ring-primary"
+                                              : "border-border"
+                                          }`}
+                                          onClick={() =>
+                                            handleChatVariantSelect(
+                                              message.id,
+                                              index
+                                            )
+                                          }
+                                          title={copy(
+                                            `Choose image ${index + 1}`,
+                                            `选择第 ${index + 1} 张`
+                                          )}
+                                        >
+                                          <Image
+                                            src={variant.imageUrl}
+                                            alt={variant.prompt}
+                                            fill
+                                            sizes="40px"
+                                            className="object-contain"
+                                            unoptimized={
+                                              !shouldOptimizeStoredImage(
+                                                variant.imageUrl
+                                              )
+                                            }
+                                          />
+                                          {index === activeIndex && (
+                                            <span className="absolute right-0.5 top-0.5 rounded-full bg-primary p-0.5 text-primary-foreground">
+                                              <Check className="h-2.5 w-2.5" />
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {variants.some(
+                                  (variant) => variant.outputRole === "choice"
+                                ) && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {copy(
+                                      "Web returned multiple choices; switching syncs the selected image.",
+                                      "Web 返回了多个候选，切换时会同步选中图片。"
+                                    )}
+                                  </span>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  disabled={isChatGenerating}
+                                  onClick={() => handleChatRetry(message.id)}
+                                  title={
+                                    message.error
+                                      ? copy("Retry generation", "重试生成")
+                                      : copy(
+                                          "Generate another variant",
+                                          "再生成一个版本"
+                                        )
+                                  }
+                                >
+                                  <RefreshCcw className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                   </>
                 )}
 
-                {chatStream && !retryingChatMessageId && !chatStream.messageId && (
-                  <>
-                    {chatStream.mode === activeConversationMode && (
-                      <div className="flex justify-start">
-                        <div className="max-w-[88%]">
-                          {renderChatStreamBubble(undefined)}
+                {chatStream &&
+                  !retryingChatMessageId &&
+                  !chatStream.messageId && (
+                    <>
+                      {chatStream.mode === activeConversationMode && (
+                        <div className="flex justify-start">
+                          <div className="max-w-[88%]">
+                            {renderChatStreamBubble(undefined)}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                      )}
+                    </>
+                  )}
               </div>
 
               {renderChatInput()}
