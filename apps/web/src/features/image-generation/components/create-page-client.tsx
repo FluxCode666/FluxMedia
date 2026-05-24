@@ -1378,7 +1378,7 @@ function insertMentionToken(
 
 function yieldToBrowser() {
   return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
+    setTimeout(resolve, 0);
   });
 }
 
@@ -2978,7 +2978,7 @@ export function CreatePageClient({
     const completed: ImageApiResult[] = [];
     let failed: ImageApiResult | null = null;
 
-    const processBlock = async (block: string) => {
+    const processBlock = (block: string) => {
       const data = block
         .split(/\r?\n/)
         .filter((line) => line.startsWith("data:"))
@@ -2992,7 +2992,6 @@ export function CreatePageClient({
       try {
         event = JSON.parse(data) as ImageStreamEvent;
       } catch {
-        await yieldToBrowser();
         return;
       }
 
@@ -3005,7 +3004,6 @@ export function CreatePageClient({
             setStreamingPreviewUrl(previewUrl);
           }
         }
-        await yieldToBrowser();
         return;
       }
 
@@ -3014,13 +3012,11 @@ export function CreatePageClient({
         event.type === "thinking_delta" ||
         event.type === "agent_delta"
       ) {
-        await yieldToBrowser();
         return;
       }
 
       if (event.type === "completed") {
         completed.push(event);
-        await yieldToBrowser();
         return;
       }
 
@@ -3207,7 +3203,7 @@ export function CreatePageClient({
     let agentEvents: AgentRunEvent[] = [];
     let previewUrl: string | undefined;
 
-    const processBlock = (block: string) => {
+    const processBlock = async (block: string) => {
       const data = block
         .split(/\r?\n/)
         .filter((line) => line.startsWith("data:"))
@@ -3312,6 +3308,7 @@ export function CreatePageClient({
             imageUrl: previewUrl,
           }),
         });
+        await yieldToBrowser();
         return;
       }
 
