@@ -1160,6 +1160,17 @@ async function fetchAgentRoundResponses(params: {
   return result;
 }
 
+function shouldRetryAgentRoundWithManualHistory(error?: string | null) {
+  const normalized = (error || "").toLowerCase();
+  return Boolean(
+    normalized &&
+      (isPreviousResponseStateError(error || undefined) ||
+        normalized.includes("empty non-json") ||
+        normalized.includes("empty response") ||
+        normalized.includes("http 200 ok"))
+  );
+}
+
 function getUnsupportedToolTypes(result: GenerateImageResult) {
   if (!result.error) return new Set<string>();
   const message = result.error.toLowerCase();
@@ -3148,6 +3159,40 @@ export async function generateChatImage(
             callbacks,
           });
         }
+        if (
+          round > 1 &&
+          agentPreviousResponseEnabled &&
+          roundResult.error &&
+          shouldRetryAgentRoundWithManualHistory(roundResult.error)
+        ) {
+          await emitAgentDecision(callbacks, {
+            status: "completed",
+            title: "Agent 上下文重试",
+            detail:
+              "上游原生会话状态返回异常，已改用手动历史和上一版图片重试当前轮",
+          });
+          agentPreviousResponseId = undefined;
+          roundResult = await fetchAgentRoundResponses({
+            config,
+            requestBody: {
+              ...roundRequestBody,
+              input: buildAgentContinuationInput({
+                baseInput: input,
+                previousResult: mergeGenerateImageResults(roundResults),
+                currentRound: round - 1,
+                maxRounds,
+                outputFormat,
+                historyRoundIndex: responseImageRoundIndex,
+                includeImageEntities: true,
+              }),
+              previous_response_id: undefined,
+              store: false,
+            },
+            signal: params.signal,
+            stream,
+            callbacks,
+          });
+        }
         roundResults.push(roundResult);
         if (agentPreviousResponseEnabled && roundResult.responseId) {
           agentPreviousResponseId = roundResult.responseId;
@@ -3155,6 +3200,11 @@ export async function generateChatImage(
 
         if (roundResult.error) {
           if (roundResults.slice(0, -1).some(hasAgentImage)) {
+            await reportPoolBackendResult(config, {
+              error: roundResult.error,
+              upstreamResetAt: roundResult.upstreamResetAt,
+              retryAfterSeconds: roundResult.retryAfterSeconds,
+            });
             await emitAgentProgress(callbacks, {
               kind: "message",
               status: "failed",
@@ -3162,7 +3212,10 @@ export async function generateChatImage(
               detail: `后续迭代失败，已保留上一版图片：${roundResult.error}`,
               timestamp: new Date().toISOString(),
             });
-            result = mergeGenerateImageResults(roundResults.slice(0, -1));
+            result = {
+              ...mergeGenerateImageResults(roundResults.slice(0, -1)),
+              partialAgentError: roundResult.error,
+            };
             break;
           }
           result = mergeGenerateImageResults(roundResults);

@@ -35,6 +35,7 @@ export interface GenerateImageResult {
   webConversation?: ChatGptWebConversationState;
   backendMember?: StickyBackendMemberState;
   responsesPreviousResponse?: ResponsesPreviousResponseState;
+  partialAgentError?: string;
   error?: string;
   upstreamResetAt?: string;
   retryAfterSeconds?: number;
