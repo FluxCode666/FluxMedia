@@ -706,7 +706,9 @@ async function postResponsesImageRequest(
       body: JSON.stringify(requestBody),
     }
   );
-  return await parseResponsesResponse(response, callbacks);
+  return await parseResponsesResponse(response, callbacks, {
+    preferEventStream: true,
+  });
 }
 
 async function postResponsesImageRequestWithToolChoiceFallback(
@@ -1246,7 +1248,9 @@ async function fetchResponses(
     }
   );
 
-  return await parseResponsesResponse(response, callbacks);
+  return await parseResponsesResponse(response, callbacks, {
+    preferEventStream: options.stream,
+  });
 }
 
 function getEffectivePrompt(params: {
@@ -2541,7 +2545,8 @@ async function parseResponsesEventStreamText(
 
 async function parseResponsesResponse(
   response: Response,
-  callbacks?: ImageGenerationCallbacks
+  callbacks?: ImageGenerationCallbacks,
+  options: { preferEventStream?: boolean } = {}
 ): Promise<ResponsesResultWithOutput> {
   const responseRetryMetadata = getResponseRetryMetadata(response);
   if (!response.ok) {
@@ -2555,6 +2560,13 @@ async function parseResponsesResponse(
 
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("text/event-stream")) {
+    return withRetryMetadata(
+      await parseResponsesEventStreamResponse(response, callbacks),
+      responseRetryMetadata
+    );
+  }
+
+  if (options.preferEventStream && !contentType.includes("application/json")) {
     return withRetryMetadata(
       await parseResponsesEventStreamResponse(response, callbacks),
       responseRetryMetadata

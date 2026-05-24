@@ -23,7 +23,6 @@ import {
 } from "@repo/ui/components/select";
 import {
   Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@repo/ui/components/tabs";
@@ -223,6 +222,7 @@ type ChatVariant = {
   generationId?: string;
   imageUrl?: string;
   imageFileId?: string;
+  pending?: boolean;
   webImageMessageId?: string;
   webImageGroupId?: string;
   prompt: string;
@@ -266,6 +266,7 @@ type ChatResultInput = Pick<
 > & {
   webImageMessageId?: string;
   webImageGroupId?: string;
+  pending?: boolean;
   outputRole?: "final" | "agent_draft" | "choice";
 };
 
@@ -409,6 +410,10 @@ type ChatStreamState = {
   agent: string;
   agentEvents: AgentRunEvent[];
   imageUrl?: string;
+  generationId?: string;
+  prompt?: string;
+  model?: string;
+  size?: string;
 };
 
 function createInitialChatStreamState(params: {
@@ -416,6 +421,10 @@ function createInitialChatStreamState(params: {
   cardId?: string;
   mode?: "chat" | "agent";
   agentMode: boolean;
+  generationId?: string;
+  prompt?: string;
+  model?: string;
+  size?: string;
 }): ChatStreamState {
   return {
     messageId: params.messageId,
@@ -425,6 +434,10 @@ function createInitialChatStreamState(params: {
     thinking: "",
     agent: "",
     agentEvents: params.agentMode ? createOptimisticAgentRoundEvents(1) : [],
+    generationId: params.generationId,
+    prompt: params.prompt,
+    model: params.model,
+    size: params.size,
   };
 }
 
@@ -1468,6 +1481,7 @@ function sanitizeChatMessages(value: unknown): ChatMessage[] {
               prompt: value.prompt || messageText,
               model: value.model || DEFAULT_IMAGE_MODEL,
               size: value.size || DEFAULT_IMAGE_SIZE,
+              pending: value.pending === true,
               agentEvents: Array.isArray(value.agentEvents)
                 ? value.agentEvents
                     .filter((event): event is AgentRunEvent =>
@@ -1618,6 +1632,36 @@ function getChatVariants(message: ChatMessage) {
 function getActiveChatVariant(message: ChatMessage) {
   const variants = getChatVariants(message);
   return variants[message.activeVariant || 0] || variants[0] || null;
+}
+
+function mergeChatVariant(
+  variant: ChatVariant | undefined,
+  patch: Partial<ChatVariant>
+): ChatVariant {
+  return {
+    prompt: variant?.prompt || patch.prompt || "",
+    model: variant?.model || patch.model || DEFAULT_IMAGE_MODEL,
+    size: variant?.size || patch.size || DEFAULT_IMAGE_SIZE,
+    ...variant,
+    ...patch,
+  };
+}
+
+function replaceChatVariantByGenerationId(
+  variants: ChatVariant[],
+  generationId: string | undefined,
+  replacements: ChatVariant[]
+) {
+  if (!generationId) return variants.length ? variants : replacements;
+  const targetIndex = variants.findIndex(
+    (variant) => variant.generationId === generationId
+  );
+  if (targetIndex < 0) return [...variants, ...replacements];
+  return [
+    ...variants.slice(0, targetIndex),
+    ...replacements,
+    ...variants.slice(targetIndex + 1),
+  ];
 }
 
 function getMessageImageUrls(message: ChatMessage) {
@@ -2998,12 +3042,73 @@ export function CreatePageClient({
     }): Omit<ChatStreamState, "mode"> => ({
       messageId: streamMessageId,
       cardId: streamCardId,
+      generationId,
+      prompt,
+      model: chatImageModel !== "default" ? chatImageModel : chatModel,
+      size: requestSize,
       text: next?.text ?? "",
       thinking: next?.thinking ?? "",
       agent: next?.agent ?? "",
       agentEvents: next?.agentEvents ?? [],
       imageUrl: next?.imageUrl,
     });
+
+    const syncAssistantStreamVariant = (state: Omit<ChatStreamState, "mode">) => {
+      if (!streamMessageId || streamCardId) return;
+      setChatMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== streamMessageId) return message;
+          const variants = getChatVariants(message);
+          const currentVariant =
+            variants.find((variant) => variant.generationId === generationId) ||
+            getActiveChatVariant(message);
+          const nextVariant = mergeChatVariant(currentVariant || undefined, {
+            generationId,
+            imageUrl: state.imageUrl,
+            prompt,
+            model: chatImageModel !== "default" ? chatImageModel : chatModel,
+            size: requestSize,
+            responseText: state.text || undefined,
+            responseThinking: state.thinking || undefined,
+            responseAgent: state.agent || undefined,
+            agentEvents: state.agentEvents.length ? state.agentEvents : undefined,
+            pending: true,
+          });
+          return {
+            ...message,
+            text:
+              state.text ||
+              (state.imageUrl
+                ? copy("Generating image...", "正在生成图片...")
+                : message.text),
+            variants: replaceChatVariantByGenerationId(
+              variants.length ? variants : [nextVariant],
+              generationId,
+              [nextVariant]
+            ),
+            activeVariant: Math.max(
+              0,
+              variants.findIndex(
+                (variant) => variant.generationId === generationId
+              )
+            ),
+          };
+        })
+      );
+    };
+
+    const publishStreamState = async (next?: {
+      text?: string;
+      thinking?: string;
+      agent?: string;
+      agentEvents?: AgentRunEvent[];
+      imageUrl?: string;
+    }) => {
+      const state = buildStreamState(next);
+      updateChatStream(state);
+      syncAssistantStreamVariant(state);
+      await yieldToBrowser();
+    };
 
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("text/event-stream")) {
@@ -3053,14 +3158,12 @@ export function CreatePageClient({
 
       if (event.type === "text_delta") {
         text += event.delta;
-        updateChatStream({
-          ...buildStreamState({
-            text,
-            thinking,
-            agent,
-            agentEvents,
-            imageUrl: previewUrl,
-          }),
+        await publishStreamState({
+          text,
+          thinking,
+          agent,
+          agentEvents,
+          imageUrl: previewUrl,
         });
         if (streamCardId) {
           setBatchCards((prev) =>
@@ -3077,14 +3180,12 @@ export function CreatePageClient({
 
       if (event.type === "thinking_delta") {
         thinking += event.delta;
-        updateChatStream({
-          ...buildStreamState({
-            text,
-            thinking,
-            agent,
-            agentEvents,
-            imageUrl: previewUrl,
-          }),
+        await publishStreamState({
+          text,
+          thinking,
+          agent,
+          agentEvents,
+          imageUrl: previewUrl,
         });
         if (streamCardId) {
           setBatchCards((prev) =>
@@ -3101,14 +3202,12 @@ export function CreatePageClient({
 
       if (event.type === "agent_delta") {
         agent += event.delta;
-        updateChatStream({
-          ...buildStreamState({
-            text,
-            thinking,
-            agent,
-            agentEvents,
-            imageUrl: previewUrl,
-          }),
+        await publishStreamState({
+          text,
+          thinking,
+          agent,
+          agentEvents,
+          imageUrl: previewUrl,
         });
         if (streamCardId) {
           setBatchCards((prev) =>
@@ -3130,16 +3229,13 @@ export function CreatePageClient({
           previewUrl = eventImageUrl;
           setStreamingPreviewUrl(eventImageUrl);
         }
-        updateChatStream({
-          ...buildStreamState({
-            text,
-            thinking,
-            agent,
-            agentEvents,
-            imageUrl: previewUrl,
-          }),
+        await publishStreamState({
+          text,
+          thinking,
+          agent,
+          agentEvents,
+          imageUrl: previewUrl,
         });
-        await yieldToBrowser();
         return;
       }
 
@@ -3159,14 +3255,12 @@ export function CreatePageClient({
             });
           }
           setStreamingPreviewUrl(nextPreviewUrl);
-          updateChatStream({
-            ...buildStreamState({
-              text,
-              thinking,
-              agent,
-              agentEvents,
-              imageUrl: nextPreviewUrl,
-            }),
+          await publishStreamState({
+            text,
+            thinking,
+            agent,
+            agentEvents,
+            imageUrl: nextPreviewUrl,
           });
           if (streamCardId) {
             setBatchCards((prev) =>
@@ -3177,7 +3271,6 @@ export function CreatePageClient({
               )
             );
           }
-          await yieldToBrowser();
         }
         return;
       }
@@ -4124,7 +4217,36 @@ export function CreatePageClient({
       mode: assistantMessage.mode === "agent" ? "agent" : "chat",
       agentMode:
         assistantMessage.mode === "agent" || userMessage.mode === "agent",
+      generationId,
+      prompt: userMessage.text,
+      model: chatImageModel !== "default" ? chatImageModel : chatModel,
+      size: retrySize,
     }));
+    setChatMessages((prev) =>
+      prev.map((message) => {
+        if (message.id !== assistantId) return message;
+        const variants = getChatVariants(message);
+        return {
+          ...message,
+          error: undefined,
+          variants: [
+            ...variants,
+            mergeChatVariant(undefined, {
+              generationId,
+              prompt: userMessage.text,
+              model: chatImageModel !== "default" ? chatImageModel : chatModel,
+              size: retrySize,
+              agentEvents:
+                assistantMessage.mode === "agent" || userMessage.mode === "agent"
+                  ? createOptimisticAgentRoundEvents(1)
+                  : undefined,
+              pending: true,
+            }),
+          ],
+          activeVariant: variants.length,
+        };
+      })
+    );
 
     try {
       const data = await runChatRequest({
@@ -4151,7 +4273,19 @@ export function CreatePageClient({
       setChatMessages((prev) =>
         prev.map((message) => {
           if (message.id !== assistantId) return message;
-          const variants = [...getChatVariants(message), ...newVariants];
+          const existingVariants = getChatVariants(message);
+          const replacedIndex = existingVariants.findIndex(
+            (item) => item.generationId === generationId
+          );
+          const variants = replaceChatVariantByGenerationId(
+            existingVariants,
+            generationId,
+            newVariants
+          );
+          const activeVariantIndex =
+            replacedIndex >= 0
+              ? replacedIndex + newVariants.length - 1
+              : variants.length - 1;
           return {
             ...message,
             error: undefined,
@@ -4160,8 +4294,11 @@ export function CreatePageClient({
               (variant.imageUrl
                 ? copy("Image generated", "图片已生成")
                 : copy("Response generated", "回复已生成")),
-            variants,
-            activeVariant: variants.length - 1,
+            variants: variants.map((item) => ({
+              ...item,
+              pending: false,
+            })),
+            activeVariant: activeVariantIndex,
           };
         })
       );
@@ -4176,6 +4313,19 @@ export function CreatePageClient({
           ? (error as GenerationRequestError).creditsConsumed
           : undefined;
       syncChargedCredits(creditsConsumed);
+      setChatMessages((prev) =>
+        prev.map((item) =>
+          item.id === assistantId
+            ? {
+                ...item,
+                variants: getChatVariants(item).map((variant) => ({
+                  ...variant,
+                  pending: false,
+                })),
+              }
+            : item
+        )
+      );
       toast.error(copy("Retry failed", "重试失败"), { description: message });
     } finally {
       setRetryingChatMessageId(null);
@@ -5178,6 +5328,15 @@ export function CreatePageClient({
     const generationId = createGenerationId();
     const userMessageId = createLocalId();
     const assistantMessageId = createLocalId();
+    const assistantInitialVariant = mergeChatVariant(undefined, {
+      generationId,
+      prompt: currentPrompt,
+      model: chatImageModel !== "default" ? chatImageModel : chatModel,
+      size: fallbackSize || size,
+      agentEvents:
+        conversationMode === "agent" ? createOptimisticAgentRoundEvents(1) : undefined,
+      pending: true,
+    });
     const conversationBeforeSend = chatMessages.filter((message) =>
       isMessageInConversationMode(message, conversationMode)
     );
@@ -5198,6 +5357,8 @@ export function CreatePageClient({
         text: hasImageAttachment
           ? copy("Editing image...", "正在编辑图片...")
           : copy("Generating image...", "正在生成图片..."),
+        variants: [assistantInitialVariant],
+        activeVariant: 0,
         createdAt: new Date().toISOString(),
       },
     ]);
@@ -5208,6 +5369,10 @@ export function CreatePageClient({
       messageId: assistantMessageId,
       mode: conversationMode,
       agentMode: conversationMode === "agent",
+      generationId,
+      prompt: currentPrompt,
+      model: chatImageModel !== "default" ? chatImageModel : chatModel,
+      size: fallbackSize || size,
     }));
     scrollChatToBottom();
 
@@ -5257,7 +5422,10 @@ export function CreatePageClient({
                   (variant.imageUrl
                     ? copy("Image generated", "图片已生成")
                     : copy("Response generated", "回复已生成")),
-                variants,
+                variants: variants.map((item) => ({
+                  ...item,
+                  pending: false,
+                })),
                 activeVariant: variants.length - 1,
               }
             : message
@@ -5289,6 +5457,10 @@ export function CreatePageClient({
                 ...item,
                 text: copy("Generation failed", "生成失败"),
                 error: message,
+                variants: getChatVariants(item).map((variant) => ({
+                  ...variant,
+                  pending: false,
+                })),
               }
             : item
         )
@@ -6611,7 +6783,7 @@ export function CreatePageClient({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="text" className="mt-0" forceMount>
+        <div role="tabpanel" hidden={activeMode !== "text"} className="mt-0">
           <Tabs
             value={textMode}
             onValueChange={(value) => setTextMode(value as TextGenerationMode)}
@@ -6626,7 +6798,11 @@ export function CreatePageClient({
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="single" className="mt-0" forceMount>
+            <div
+              role="tabpanel"
+              hidden={textMode !== "single"}
+              className="mt-0"
+            >
               <form onSubmit={handleSubmit} className="space-y-4">
                 <Textarea
                   value={prompt}
@@ -6664,9 +6840,13 @@ export function CreatePageClient({
                 </div>
               </form>
               {renderVisualOutput("text-single")}
-            </TabsContent>
+            </div>
 
-            <TabsContent value="lines" className="mt-0" forceMount>
+            <div
+              role="tabpanel"
+              hidden={textMode !== "lines"}
+              className="mt-0"
+            >
               <form onSubmit={handleTextLineBatchSubmit} className="space-y-4">
                 <Textarea
                   value={linePrompts}
@@ -6720,11 +6900,11 @@ export function CreatePageClient({
                 </div>
               </form>
               {renderVisualOutput("text-lines")}
-            </TabsContent>
+            </div>
           </Tabs>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="image" className="mt-0" forceMount>
+        <div role="tabpanel" hidden={activeMode !== "image"} className="mt-0">
           <form
             onSubmit={handleEditSubmit}
             onPaste={handleImagePaste}
@@ -7421,12 +7601,12 @@ export function CreatePageClient({
             </div>
           </form>
           {renderVisualOutput("image")}
-        </TabsContent>
+        </div>
 
-        <TabsContent
-          value={activeMode === "agent" ? "agent" : "chat"}
+        <div
+          role="tabpanel"
+          hidden={activeMode !== "chat" && activeMode !== "agent"}
           className="mt-0"
-          forceMount
         >
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -7869,9 +8049,13 @@ export function CreatePageClient({
               {renderChatInput()}
             </div>
           </div>
-        </TabsContent>
+        </div>
 
-        <TabsContent value="waterfall" className="mt-0" forceMount>
+        <div
+          role="tabpanel"
+          hidden={activeMode !== "waterfall"}
+          className="mt-0"
+        >
           <div className="overflow-hidden rounded-lg border border-border bg-background">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -8253,7 +8437,7 @@ export function CreatePageClient({
               </div>
             )}
           </div>
-        </TabsContent>
+        </div>
       </Tabs>
 
       {recent.length > 0 && (
