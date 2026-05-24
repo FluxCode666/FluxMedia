@@ -7706,8 +7706,8 @@ export function CreatePageClient({
                       (variant) =>
                         variant.outputRole === "choice" && variant.imageUrl
                     );
-                    const isRetrying =
-                      retryingChatMessageId === message.id && chatStream;
+                    const isStreamingMessage =
+                      chatStream?.messageId === message.id;
 
                     return (
                       <div
@@ -7762,7 +7762,7 @@ export function CreatePageClient({
                                   {message.text}
                                 </p>
                               </div>
-                            ) : isRetrying ? (
+                            ) : isStreamingMessage ? (
                               renderChatStreamBubble(message.id)
                             ) : message.error ? (
                               <p className="text-destructive">
@@ -8004,7 +8004,7 @@ export function CreatePageClient({
                   </>
                 )}
 
-                {chatStream && !retryingChatMessageId && (
+                {chatStream && !retryingChatMessageId && !chatStream.messageId && (
                   <>
                     {chatStream.mode === activeConversationMode && (
                       <div className="flex justify-start">
