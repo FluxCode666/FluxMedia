@@ -1431,6 +1431,13 @@ function parseResponsesOutput(
         upstreamRevisedPrompt: item.revised_prompt,
         index: imageOutputCount - 1,
       });
+      const event = toAgentRunEvent(item, { done: true });
+      if (event) {
+        event.title = "最终图片已生成";
+        event.index = imageOutputCount - 1;
+        event.partialImageIndex = imageOutputCount - 1;
+        agentEvents.push(event);
+      }
       continue;
     }
 
@@ -2438,7 +2445,7 @@ async function processResponsesEventPayload(
           state.fallbackResult?.imageOutputCount || 0
         ),
         responseAgent: state.responseAgent || result.responseAgent,
-        agentEvents: mergeAgentEvents(result.agentEvents, state.agentEvents),
+        agentEvents: mergeAgentEvents(state.agentEvents, result.agentEvents),
       };
     }
   }
@@ -2693,7 +2700,7 @@ function finishEventStream(
     return {
       ...result,
       responseAgent: result.responseAgent || state.responseAgent,
-      agentEvents: mergeAgentEvents(result.agentEvents, state.agentEvents),
+      agentEvents: mergeAgentEvents(state.agentEvents, result.agentEvents),
     };
   }
 

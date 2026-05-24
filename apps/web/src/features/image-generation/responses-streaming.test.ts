@@ -94,4 +94,99 @@ describe("Responses streaming parser", () => {
       })
     );
   });
+
+  it("closes streamed image generation task when final image only arrives in response.completed", async () => {
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
+    const { generateChatImage } = await import("./service");
+    const imageBase64 = Buffer.from("final-image").toString("base64");
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            sseBlock("response.output_item.added", {
+              type: "response.output_item.added",
+              item: {
+                id: "ig_1",
+                type: "image_generation_call",
+                status: "in_progress",
+              },
+            }) +
+              sseBlock("response.image_generation_call.in_progress", {
+                type: "response.image_generation_call.in_progress",
+                item_id: "ig_1",
+              }) +
+              sseBlock("response.completed", {
+                type: "response.completed",
+                response: {
+                  id: "resp_test",
+                  output: [
+                    {
+                      id: "ig_1",
+                      type: "image_generation_call",
+                      status: "completed",
+                      result: imageBase64,
+                    },
+                  ],
+                },
+              })
+          )
+        );
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      })
+    );
+
+    const agentEvents: Array<{
+      id?: string;
+      status?: string;
+      title?: string;
+      toolType?: string;
+    }> = [];
+    const result = await generateChatImage(
+      {
+        baseUrl: "https://api.example.test/v1",
+        apiKey: "test-key",
+      },
+      {
+        prompt: "make an image",
+        model: "gpt-5.4",
+        stream: true,
+      },
+      {
+        onAgentEvent: (event) => {
+          agentEvents.push(event);
+        },
+      }
+    );
+
+    expect(result.imageBase64).toBe(imageBase64);
+    expect(result.agentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ig_1",
+          status: "completed",
+          title: "最终图片已生成",
+          toolType: "image_generation_call",
+        }),
+      ])
+    );
+    expect(agentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ig_1",
+          status: "running",
+          toolType: "image_generation_call",
+        }),
+      ])
+    );
+  });
 });
