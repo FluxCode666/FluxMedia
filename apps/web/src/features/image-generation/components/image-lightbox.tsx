@@ -269,7 +269,10 @@ export function ImageLightbox({
         }
       }}
     >
-      <DialogContent className="max-h-[92vh] max-w-6xl gap-0 overflow-y-auto border-border bg-background p-0 md:overflow-hidden">
+      <DialogContent
+        aria-describedby={undefined}
+        className="max-h-[92vh] max-w-6xl gap-0 overflow-y-auto border-border bg-background p-0 md:overflow-hidden"
+      >
         <DialogTitle className="sr-only">
           {copy("Image details", "图片详情")}
         </DialogTitle>

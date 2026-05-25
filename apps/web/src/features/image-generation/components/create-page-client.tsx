@@ -640,7 +640,10 @@ function ImageSizeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-md gap-0 overflow-y-auto rounded-3xl border-border p-0">
+      <DialogContent
+        aria-describedby={undefined}
+        className="max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-md gap-0 overflow-y-auto rounded-3xl border-border p-0"
+      >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <div className="space-y-6 p-6">
           <div>
