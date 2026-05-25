@@ -11,11 +11,11 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { useEffect, useRef, useState } from "react";
 import {
   getImageBaseCreditPricing,
   getImageBaseCredits,
@@ -73,6 +73,33 @@ function formatPrice(value: number) {
   return formatCredits(value);
 }
 
+function useElementWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const updateWidth = (nextWidth: number) => {
+      const roundedWidth = Math.floor(nextWidth);
+      setWidth(roundedWidth > 0 ? roundedWidth : 0);
+    };
+
+    updateWidth(element.getBoundingClientRect().width);
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateWidth(entry.contentRect.width);
+    });
+    resizeObserver.observe(element);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  return { ref, width };
+}
+
 export function ImagePricingChartCard({
   billing,
   isZh,
@@ -81,6 +108,7 @@ export function ImagePricingChartCard({
   const normalizedPricing = getImageBaseCreditPricing(pricing);
   const data = buildChartData(normalizedPricing);
   const copy = (en: string, zh: string) => (isZh ? zh : en);
+  const { ref: chartContainerRef, width: chartWidth } = useElementWidth();
   const textModerationCredits =
     TEXT_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
   const imageModerationCredits =
@@ -140,11 +168,16 @@ export function ImagePricingChartCard({
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="h-[240px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+        <div
+          className="h-[240px] min-w-0 overflow-hidden"
+          ref={chartContainerRef}
+        >
+          {chartWidth > 0 ? (
             <LineChart
               data={data}
+              height={240}
               margin={{ bottom: 8, left: 0, right: 10, top: 10 }}
+              width={chartWidth}
             >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis
@@ -182,7 +215,9 @@ export function ImagePricingChartCard({
                 type="monotone"
               />
             </LineChart>
-          </ResponsiveContainer>
+          ) : (
+            <div className="h-full w-full rounded-md bg-muted/30" />
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           {pricingItems.map((item) => (
