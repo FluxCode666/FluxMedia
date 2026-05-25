@@ -3113,6 +3113,32 @@ async function getExistingSub2ApiSyncedAccountState(
   return existing ?? null;
 }
 
+async function deleteDuplicateSub2ApiSyncedAccounts(
+  sourceAccountId: string,
+  mode: ImageBackendAccountBackend,
+  keepId: string
+) {
+  const duplicates = await db
+    .select({ id: imageBackendAccount.id })
+    .from(imageBackendAccount)
+    .where(
+      and(
+        eq(imageBackendAccount.implementationMode, mode),
+        sql`${imageBackendAccount.metadata}->>'source' = 'sub2api_postgres'`,
+        sql`${imageBackendAccount.metadata}->>'sourceAccountId' = ${sourceAccountId}`
+      )
+    );
+  const duplicateIds = duplicates
+    .map((row) => row.id)
+    .filter((id) => id !== keepId);
+  if (!duplicateIds.length) return 0;
+  const deleted = await db
+    .delete(imageBackendAccount)
+    .where(inArray(imageBackendAccount.id, duplicateIds))
+    .returning({ id: imageBackendAccount.id });
+  return deleted.length;
+}
+
 async function shouldPreserveLocalUnavailableState(
   existing?: {
     status: string;
@@ -3924,6 +3950,13 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
             account.sourceId,
             mode
           );
+          if (existing?.id) {
+            deletedCount += await deleteDuplicateSub2ApiSyncedAccounts(
+              account.sourceId,
+              mode,
+              existing.id
+            );
+          }
           const preTokenHealth = await resolveSyncedAccountHealth(
             account,
             existing
