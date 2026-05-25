@@ -22,11 +22,33 @@ describe("image backend group billing", () => {
     expect(getGroupBillingMultiplier({ costMultiplier: "3" })).toBe(3);
   });
 
-  it("uses only the selected parent group multiplier for nested dispatch", () => {
+  it("uses the selected group multiplier when dispatch stays in that group", () => {
+    expect(
+      getEffectiveBillingMultiplierForSelectedGroup({
+        selectedGroupId: "parent",
+        selectedGroupMetadata: { billingMultiplier: 2 },
+        selectedMemberGroupId: "parent",
+        selectedMemberGroupMetadata: { billingMultiplier: 5 },
+      })
+    ).toBe(2);
+  });
+
+  it("combines parent and child group multipliers for nested dispatch", () => {
+    expect(
+      getEffectiveBillingMultiplierForSelectedGroup({
+        selectedGroupId: "parent",
+        selectedGroupMetadata: { billingMultiplier: 2 },
+        selectedMemberGroupId: "child",
+        selectedMemberGroupMetadata: { billingMultiplier: 1.5 },
+      })
+    ).toBe(3);
+  });
+
+  it("does not double count child metadata when group ids are unavailable", () => {
     expect(
       getEffectiveBillingMultiplierForSelectedGroup({
         selectedGroupMetadata: { billingMultiplier: 2 },
-        selectedMemberGroupMetadata: { billingMultiplier: 5 },
+        selectedMemberGroupMetadata: { billingMultiplier: 1.5 },
       })
     ).toBe(2);
   });

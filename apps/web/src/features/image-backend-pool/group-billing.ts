@@ -27,8 +27,23 @@ export function getGroupBillingMultiplier(
 }
 
 export function getEffectiveBillingMultiplierForSelectedGroup(input: {
+  selectedGroupId?: string | null;
   selectedGroupMetadata?: Record<string, unknown> | null;
+  selectedMemberGroupId?: string | null;
   selectedMemberGroupMetadata?: Record<string, unknown> | null;
 }) {
-  return getGroupBillingMultiplier(input.selectedGroupMetadata);
+  const selectedMultiplier = getGroupBillingMultiplier(
+    input.selectedGroupMetadata
+  );
+  const memberGroupId = input.selectedMemberGroupId ?? null;
+  const selectedGroupId = input.selectedGroupId ?? null;
+
+  if (!memberGroupId || memberGroupId === selectedGroupId) {
+    return selectedMultiplier;
+  }
+
+  return normalizeGroupBillingMultiplier(
+    selectedMultiplier *
+      getGroupBillingMultiplier(input.selectedMemberGroupMetadata)
+  );
 }

@@ -1385,7 +1385,9 @@ function toResolvedPoolConfig(
 ): ResolvedImageBackendPoolConfig {
   const groupId = member.groupId || fallbackGroupId;
   const billingMultiplier = getEffectiveBillingMultiplierForSelectedGroup({
+    selectedGroupId: fallbackGroupId,
     selectedGroupMetadata: billingGroupMetadata,
+    selectedMemberGroupId: member.groupId,
     selectedMemberGroupMetadata: member.groupMetadata,
   });
   const contentSafetyEnabled = effectiveContentSafety(
