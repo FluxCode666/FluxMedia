@@ -63,6 +63,10 @@ import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  useCreateRuntimeRef,
+  useCreateRuntimeState,
+} from "@/features/image-generation/create-runtime-store";
 import type { ImageBackendGroupBackendType } from "@/features/image-backend-pool/types";
 import {
   agentEventToImageUrl,
@@ -421,21 +425,6 @@ type ChatStreamState = {
   size?: string;
 };
 
-type ChatPendingRestoreTarget = {
-  conversationId: string;
-  assistantMessageId: string;
-  mode: "chat" | "agent";
-  generationId: string;
-  prompt: string;
-  model: string;
-  size: string;
-  responseText?: string;
-  responseThinking?: string;
-  responseAgent?: string;
-  agentEvents?: AgentRunEvent[];
-  imageUrl?: string;
-};
-
 function createInitialChatStreamState(params: {
   messageId?: string;
   cardId?: string;
@@ -489,112 +478,6 @@ type WaterfallStats = {
   failed: number;
 };
 
-type StoredWaterfallState = {
-  prompt: string;
-  size: string;
-  cards: BatchCard[];
-  creditsConsumed: number;
-  stats: WaterfallStats;
-  stopped: boolean;
-  updatedAt: string;
-};
-
-function countWaterfallCards(cards: BatchCard[]): WaterfallStats {
-  return cards.reduce<WaterfallStats>(
-    (stats, card) => {
-      stats.sent += 1;
-      if (card.state === "image" || card.state === "text") {
-        stats.success += 1;
-      } else if (card.state === "error") {
-        stats.failed += 1;
-      }
-      return stats;
-    },
-    { sent: 0, success: 0, failed: 0 }
-  );
-}
-
-function clampWaterfallStats(
-  stats: Partial<WaterfallStats> | undefined,
-  cards: BatchCard[]
-): WaterfallStats {
-  const cardStats = countWaterfallCards(cards);
-  const sent = Math.max(cardStats.sent, Number(stats?.sent) || 0);
-  const success = Math.min(
-    sent,
-    Math.max(cardStats.success, Number(stats?.success) || 0)
-  );
-  const failed = Math.min(
-    sent - success,
-    Math.max(cardStats.failed, Number(stats?.failed) || 0)
-  );
-  return { sent, success, failed };
-}
-
-function sanitizeStoredWaterfallCards(
-  cards: unknown,
-  interruptedMessage: string
-): BatchCard[] {
-  if (!Array.isArray(cards)) return [];
-  return cards.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
-    const record = item as Record<string, unknown>;
-    const id = typeof record.id === "string" ? record.id : createLocalId();
-    const state =
-      record.state === "image" ||
-      record.state === "text" ||
-      record.state === "error"
-        ? record.state
-        : "error";
-    const prompt = typeof record.prompt === "string" ? record.prompt : "";
-    const cardSize =
-      typeof record.size === "string" ? record.size : DEFAULT_IMAGE_SIZE;
-    return [
-      {
-        id,
-        state,
-        aspectRatio:
-          typeof record.aspectRatio === "string"
-            ? record.aspectRatio
-            : WATERFALL_ASPECT_RATIOS[0],
-        prompt,
-        size: cardSize,
-        streamText:
-          typeof record.streamText === "string"
-            ? record.streamText
-            : undefined,
-        streamThinking:
-          typeof record.streamThinking === "string"
-            ? record.streamThinking
-            : undefined,
-        streamAgent:
-          typeof record.streamAgent === "string"
-            ? record.streamAgent
-            : undefined,
-        imageUrl:
-          typeof record.imageUrl === "string" ? record.imageUrl : undefined,
-        generationId:
-          typeof record.generationId === "string"
-            ? record.generationId
-            : undefined,
-        text: typeof record.text === "string" ? record.text : undefined,
-        error:
-          typeof record.error === "string"
-            ? record.error
-            : state === "error"
-              ? interruptedMessage
-              : undefined,
-        model: typeof record.model === "string" ? record.model : undefined,
-        creditsConsumed:
-          typeof record.creditsConsumed === "number"
-            ? record.creditsConsumed
-            : undefined,
-        saved: record.saved === true,
-      },
-    ] satisfies BatchCard[];
-  });
-}
-
 type MaskPoint = {
   x: number;
   y: number;
@@ -618,14 +501,6 @@ type ImageAspectRatio =
 
 type ActiveMode = "text" | "image" | "chat" | "agent" | "waterfall";
 type VisualOutputMode = "text-single" | "text-lines" | "image";
-
-type VisualPendingGenerationState = {
-  mode: VisualOutputMode;
-  prompt: string;
-  size: string;
-  generationIds: string[];
-  createdAt: string;
-};
 
 type BackendGroupOption = {
   id: string;
@@ -1126,10 +1001,6 @@ const CHAT_ACTIVE_CONVERSATION_STORAGE_KEY =
 const CHAT_ACTIVE_AGENT_CONVERSATION_STORAGE_KEY =
   "gpt2image_active_agent_conversation_v1";
 const CREATE_ACTIVE_MODE_STORAGE_KEY = "gpt2image_create_active_mode_v1";
-const WATERFALL_STORAGE_KEY = "gpt2image_waterfall_state_v1";
-const VISUAL_PENDING_STORAGE_KEY = "gpt2image_visual_pending_v1";
-const VISUAL_PENDING_TTL_MS = 60 * 60 * 1000;
-const CHAT_PENDING_TTL_MS = 60 * 60 * 1000;
 const CHAT_CONTEXT_MESSAGE_LIMIT = 8;
 const CHAT_CONVERSATION_LIMIT = 30;
 const PROMPT_IMAGE_REFERENCE_PATTERN = /@(?:第)?\d+轮图\d+|@图\d+/;
@@ -1274,90 +1145,6 @@ function getCursorAfterInsertedMention(mention: MentionState, token: string) {
 
 function createGenerationId() {
   return nanoid();
-}
-
-function sanitizeVisualPendingState(
-  value: unknown
-): VisualPendingGenerationState | null {
-  if (!value || typeof value !== "object") return null;
-  const item = value as Partial<VisualPendingGenerationState>;
-  if (
-    item.mode !== "text-single" &&
-    item.mode !== "text-lines" &&
-    item.mode !== "image"
-  ) {
-    return null;
-  }
-  if (
-    typeof item.prompt !== "string" ||
-    typeof item.size !== "string" ||
-    typeof item.createdAt !== "string" ||
-    !Array.isArray(item.generationIds)
-  ) {
-    return null;
-  }
-  const generationIds = item.generationIds.filter(
-    (id): id is string => typeof id === "string" && id.length > 0
-  );
-  if (generationIds.length === 0) return null;
-  if (Date.now() - new Date(item.createdAt).getTime() > VISUAL_PENDING_TTL_MS) {
-    return null;
-  }
-  return {
-    mode: item.mode,
-    prompt: item.prompt,
-    size: item.size,
-    generationIds,
-    createdAt: item.createdAt,
-  };
-}
-
-function readVisualPendingStates() {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(VISUAL_PENDING_STORAGE_KEY);
-    if (!raw) return [];
-    return (JSON.parse(raw) as unknown[])
-      .map(sanitizeVisualPendingState)
-      .filter((item): item is VisualPendingGenerationState => Boolean(item));
-  } catch {
-    return [];
-  }
-}
-
-function writeVisualPendingStates(items: VisualPendingGenerationState[]) {
-  if (typeof window === "undefined") return;
-  try {
-    const validItems = items
-      .map(sanitizeVisualPendingState)
-      .filter((item): item is VisualPendingGenerationState => Boolean(item));
-    if (validItems.length === 0) {
-      window.localStorage.removeItem(VISUAL_PENDING_STORAGE_KEY);
-      return;
-    }
-    window.localStorage.setItem(
-      VISUAL_PENDING_STORAGE_KEY,
-      JSON.stringify(validItems.slice(-20))
-    );
-  } catch {
-    /* ignore local storage quota errors */
-  }
-}
-
-function addVisualPendingState(item: VisualPendingGenerationState) {
-  const next = [
-    ...readVisualPendingStates().filter(
-      (existing) => existing.mode !== item.mode
-    ),
-    item,
-  ];
-  writeVisualPendingStates(next);
-}
-
-function removeVisualPendingState(mode: VisualOutputMode) {
-  writeVisualPendingStates(
-    readVisualPendingStates().filter((item) => item.mode !== mode)
-  );
 }
 
 function readFileAsDataUrl(file: File) {
@@ -1802,58 +1589,6 @@ function replaceChatVariantByGenerationId(
   ];
 }
 
-function findPendingChatRestoreTargetsInMessages(
-  conversationId: string,
-  messages: ChatMessage[]
-): ChatPendingRestoreTarget[] {
-  const now = Date.now();
-  const targets: ChatPendingRestoreTarget[] = [];
-  for (const message of messages) {
-    if (message.role !== "assistant") continue;
-    const mode = message.mode === "agent" ? "agent" : ("chat" as const);
-    for (const variant of getChatVariants(message)) {
-      if (!variant.pending || !variant.generationId) continue;
-      const createdAt = variant.createdAt || message.createdAt;
-      if (
-        createdAt &&
-        now - new Date(createdAt).getTime() > CHAT_PENDING_TTL_MS
-      ) {
-        continue;
-      }
-      targets.push({
-        conversationId,
-        assistantMessageId: message.id,
-        mode,
-        generationId: variant.generationId,
-        prompt: variant.prompt || message.text,
-        model: variant.model,
-        size: variant.size,
-        responseText: variant.responseText,
-        responseThinking: variant.responseThinking,
-        responseAgent: variant.responseAgent,
-        agentEvents: variant.agentEvents,
-        imageUrl: variant.imageUrl,
-      });
-    }
-  }
-  return targets;
-}
-
-function findPendingChatRestoreTargets(
-  conversations: ChatConversation[]
-): ChatPendingRestoreTarget[] {
-  const targets: ChatPendingRestoreTarget[] = [];
-  for (const conversation of conversations) {
-    targets.push(
-      ...findPendingChatRestoreTargetsInMessages(
-        conversation.id,
-        conversation.messages
-      )
-    );
-  }
-  return targets;
-}
-
 function getMessageImageUrls(message: ChatMessage) {
   const urls: string[] = [];
   for (const attachment of message.attachments || []) {
@@ -2089,66 +1824,119 @@ export function CreatePageClient({
     uploadLimits.maxFileSizeBytes || DEFAULT_MAX_IMAGE_BYTES;
   const maxEditRequestBytes =
     uploadLimits.maxUploadBytes || DEFAULT_MAX_EDIT_REQUEST_BYTES;
-  const [activeMode, setActiveMode] = useState<ActiveMode>(() =>
+  const [activeMode, setActiveMode] = useCreateRuntimeState<ActiveMode>(
+    "activeMode",
     readStoredCreateActiveMode()
   );
-  const [prompt, setPrompt] = useState("");
-  const [textMode, setTextMode] = useState<TextGenerationMode>("single");
-  const [linePrompts, setLinePrompts] = useState("");
-  const [editPrompt, setEditPrompt] = useState("");
-  const [promptOptimization, setPromptOptimization] = useState(true);
-  const [chatPrompt, setChatPrompt] = useState("");
-  const [editMention, setEditMention] = useState<MentionState | null>(null);
-  const [chatMention, setChatMention] = useState<MentionState | null>(null);
-  const [chatConversationId, setChatConversationId] = useState(() =>
-    createLocalId()
+  const [prompt, setPrompt] = useCreateRuntimeState("prompt", "");
+  const [textMode, setTextMode] =
+    useCreateRuntimeState<TextGenerationMode>("textMode", "single");
+  const [linePrompts, setLinePrompts] = useCreateRuntimeState(
+    "linePrompts",
+    ""
   );
-  const [chatConversations, setChatConversations] = useState<
+  const [editPrompt, setEditPrompt] = useCreateRuntimeState("editPrompt", "");
+  const [promptOptimization, setPromptOptimization] =
+    useCreateRuntimeState("promptOptimization", true);
+  const [chatPrompt, setChatPrompt] = useCreateRuntimeState("chatPrompt", "");
+  const [editMention, setEditMention] =
+    useCreateRuntimeState<MentionState | null>("editMention", null);
+  const [chatMention, setChatMention] =
+    useCreateRuntimeState<MentionState | null>("chatMention", null);
+  const [chatConversationId, setChatConversationId] = useCreateRuntimeState(
+    "chatConversationId",
+    () => createLocalId()
+  );
+  const [chatConversations, setChatConversations] = useCreateRuntimeState<
     ChatConversation[]
-  >([]);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
-  const [chatStream, setChatStream] = useState<ChatStreamState | null>(null);
-  const [retryingChatMessageId, setRetryingChatMessageId] = useState<
-    string | null
-  >(null);
-  const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
-  const [batchPrompt, setBatchPrompt] = useState("");
-  const [isBatchActive, setIsBatchActive] = useState(false);
-  const [isBatchLoadingMore, setIsBatchLoadingMore] = useState(false);
-  const [isBatchStopped, setIsBatchStopped] = useState(false);
-  const [waterfallCreditsConsumed, setWaterfallCreditsConsumed] = useState(0);
-  const [waterfallStats, setWaterfallStats] = useState<WaterfallStats>({
-    sent: 0,
-    success: 0,
-    failed: 0,
-  });
-  const [chatModel, setChatModel] = useState<ChatModel>(GPT54_CHAT_MODEL);
-  const [chatThinking, setChatThinking] = useState<ChatThinkingLevel>("low");
-  const [agentForceRounds, setAgentForceRounds] = useState(false);
-  const [agentMaxRounds, setAgentMaxRounds] = useState(3);
-  const [imageGptModel, setImageGptModel] = useState<ChatModel | "default">(
+  >("chatConversations", []);
+  const [chatMessages, setChatMessages] = useCreateRuntimeState<ChatMessage[]>(
+    "chatMessages",
+    []
+  );
+  const [chatAttachments, setChatAttachments] = useCreateRuntimeState<
+    ChatAttachment[]
+  >("chatAttachments", []);
+  const [chatStream, setChatStream] =
+    useCreateRuntimeState<ChatStreamState | null>("chatStream", null);
+  const [retryingChatMessageId, setRetryingChatMessageId] =
+    useCreateRuntimeState<string | null>("retryingChatMessageId", null);
+  const [batchCards, setBatchCards] = useCreateRuntimeState<BatchCard[]>(
+    "batchCards",
+    []
+  );
+  const [batchPrompt, setBatchPrompt] = useCreateRuntimeState(
+    "batchPrompt",
+    ""
+  );
+  const [isBatchActive, setIsBatchActive] =
+    useCreateRuntimeState("isBatchActive", false);
+  const [isBatchLoadingMore, setIsBatchLoadingMore] = useCreateRuntimeState(
+    "isBatchLoadingMore",
+    false
+  );
+  const [isBatchStopped, setIsBatchStopped] =
+    useCreateRuntimeState("isBatchStopped", false);
+  const [waterfallCreditsConsumed, setWaterfallCreditsConsumed] =
+    useCreateRuntimeState("waterfallCreditsConsumed", 0);
+  const [waterfallStats, setWaterfallStats] =
+    useCreateRuntimeState<WaterfallStats>("waterfallStats", {
+      sent: 0,
+      success: 0,
+      failed: 0,
+    });
+  const [chatModel, setChatModel] =
+    useCreateRuntimeState<ChatModel>("chatModel", GPT54_CHAT_MODEL);
+  const [chatThinking, setChatThinking] =
+    useCreateRuntimeState<ChatThinkingLevel>("chatThinking", "low");
+  const [agentForceRounds, setAgentForceRounds] =
+    useCreateRuntimeState("agentForceRounds", false);
+  const [agentMaxRounds, setAgentMaxRounds] =
+    useCreateRuntimeState("agentMaxRounds", 3);
+  const [imageGptModel, setImageGptModel] = useCreateRuntimeState<
+    ChatModel | "default"
+  >(
+    "imageGptModel",
     "default"
   );
-  const [imageThinking, setImageThinking] = useState<ChatThinkingLevel>("low");
-  const [chatFirstImageSize, setChatFirstImageSize] = useState<{
+  const [imageThinking, setImageThinking] =
+    useCreateRuntimeState<ChatThinkingLevel>("imageThinking", "low");
+  const [chatFirstImageSize, setChatFirstImageSize] = useCreateRuntimeState<{
     width: number;
     height: number;
-  } | null>(null);
-  const [isChatGenerating, setIsChatGenerating] = useState(false);
-  const [useAutoSize, setUseAutoSize] = useState(false);
-  const [width, setWidth] = useState(defaultDimensions.width);
-  const [height, setHeight] = useState(defaultDimensions.height);
-  const [textMixWebFirst, setTextMixWebFirst] = useState(true);
-  const [editMixWebFirst, setEditMixWebFirst] = useState(true);
-  const [chatMixWebFirst, setChatMixWebFirst] = useState(true);
-  const [quality, setQuality] = useState<ImageQuality>("auto");
-  const [moderation, setModeration] = useState<ImageModeration>("auto");
-  const [outputFormat, setOutputFormat] = useState<ImageOutputFormat>("png");
-  const [outputCompression, setOutputCompression] = useState(100);
-  const [batchCount, setBatchCount] = useState(1);
-  const [lineBatchRepeatCount, setLineBatchRepeatCount] = useState(1);
-  const [editBatchCount, setEditBatchCount] = useState(1);
+  } | null>("chatFirstImageSize", null);
+  const [isChatGenerating, setIsChatGenerating] =
+    useCreateRuntimeState("isChatGenerating", false);
+  const [useAutoSize, setUseAutoSize] =
+    useCreateRuntimeState("useAutoSize", false);
+  const [width, setWidth] = useCreateRuntimeState(
+    "width",
+    defaultDimensions.width
+  );
+  const [height, setHeight] = useCreateRuntimeState(
+    "height",
+    defaultDimensions.height
+  );
+  const [textMixWebFirst, setTextMixWebFirst] =
+    useCreateRuntimeState("textMixWebFirst", true);
+  const [editMixWebFirst, setEditMixWebFirst] =
+    useCreateRuntimeState("editMixWebFirst", true);
+  const [chatMixWebFirst, setChatMixWebFirst] =
+    useCreateRuntimeState("chatMixWebFirst", true);
+  const [quality, setQuality] =
+    useCreateRuntimeState<ImageQuality>("quality", "auto");
+  const [moderation, setModeration] =
+    useCreateRuntimeState<ImageModeration>("moderation", "auto");
+  const [outputFormat, setOutputFormat] =
+    useCreateRuntimeState<ImageOutputFormat>("outputFormat", "png");
+  const [outputCompression, setOutputCompression] =
+    useCreateRuntimeState("outputCompression", 100);
+  const [batchCount, setBatchCount] =
+    useCreateRuntimeState("batchCount", 1);
+  const [lineBatchRepeatCount, setLineBatchRepeatCount] =
+    useCreateRuntimeState("lineBatchRepeatCount", 1);
+  const [editBatchCount, setEditBatchCount] =
+    useCreateRuntimeState("editBatchCount", 1);
   useEffect(() => {
     setBatchCount((value) => Math.min(value, maxBatchCount));
     setLineBatchRepeatCount((value) => Math.min(value, maxBatchCount));
@@ -2275,73 +2063,134 @@ export function CreatePageClient({
     waterfallAllowed,
   ]);
 
-  const [textModel, setTextModel] = useState("default");
-  const [editModel, setEditModel] = useState("default");
-  const [chatImageModel, setChatImageModel] = useState("default");
-  const [useEditFirstImageSize, setUseEditFirstImageSize] = useState(true);
-  const [useAutoEditSize, setUseAutoEditSize] = useState(false);
-  const [useAutoChatEditSize, setUseAutoChatEditSize] = useState(false);
+  const [textModel, setTextModel] =
+    useCreateRuntimeState("textModel", "default");
+  const [editModel, setEditModel] =
+    useCreateRuntimeState("editModel", "default");
+  const [chatImageModel, setChatImageModel] =
+    useCreateRuntimeState("chatImageModel", "default");
+  const [useEditFirstImageSize, setUseEditFirstImageSize] =
+    useCreateRuntimeState("useEditFirstImageSize", true);
+  const [useAutoEditSize, setUseAutoEditSize] =
+    useCreateRuntimeState("useAutoEditSize", false);
+  const [useAutoChatEditSize, setUseAutoChatEditSize] = useCreateRuntimeState(
+    "useAutoChatEditSize",
+    false
+  );
   const [textSizeDialogOpen, setTextSizeDialogOpen] = useState(false);
   const [editSizeDialogOpen, setEditSizeDialogOpen] = useState(false);
   const [chatSizeDialogOpen, setChatSizeDialogOpen] = useState(false);
-  const [editWidth, setEditWidth] = useState(defaultDimensions.width);
-  const [editHeight, setEditHeight] = useState(defaultDimensions.height);
-  const [chatEditWidth, setChatEditWidth] = useState(defaultDimensions.width);
-  const [chatEditHeight, setChatEditHeight] = useState(
+  const [editWidth, setEditWidth] = useCreateRuntimeState(
+    "editWidth",
+    defaultDimensions.width
+  );
+  const [editHeight, setEditHeight] = useCreateRuntimeState(
+    "editHeight",
     defaultDimensions.height
   );
-  const [editImages, setEditImages] = useState<EditImageFile[]>([]);
-  const [maskFile, setMaskFile] = useState<EditImageFile | null>(null);
-  const [maskEditorOpen, setMaskEditorOpen] = useState(false);
-  const [maskPoints, setMaskPoints] = useState<MaskPoint[]>([]);
-  const [maskBrushSize, setMaskBrushSize] = useState(32);
-  const [firstImageSize, setFirstImageSize] = useState<{
+  const [chatEditWidth, setChatEditWidth] = useCreateRuntimeState(
+    "chatEditWidth",
+    defaultDimensions.width
+  );
+  const [chatEditHeight, setChatEditHeight] = useCreateRuntimeState(
+    "chatEditHeight",
+    defaultDimensions.height
+  );
+  const [editImages, setEditImages] = useCreateRuntimeState<EditImageFile[]>(
+    "editImages",
+    []
+  );
+  const [maskFile, setMaskFile] =
+    useCreateRuntimeState<EditImageFile | null>("maskFile", null);
+  const [maskEditorOpen, setMaskEditorOpen] =
+    useCreateRuntimeState("maskEditorOpen", false);
+  const [maskPoints, setMaskPoints] = useCreateRuntimeState<MaskPoint[]>(
+    "maskPoints",
+    []
+  );
+  const [maskBrushSize, setMaskBrushSize] =
+    useCreateRuntimeState("maskBrushSize", 32);
+  const [firstImageSize, setFirstImageSize] = useCreateRuntimeState<{
     width: number;
     height: number;
-  } | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isTextSingleGenerating, setIsTextSingleGenerating] = useState(false);
-  const [isTextLinesGenerating, setIsTextLinesGenerating] = useState(false);
-  const [, setStreamingPreviewUrl] = useState<string | null>(null);
-  const [visualPreviewUrls, setVisualPreviewUrls] = useState<
+  } | null>("firstImageSize", null);
+  const [isEditing, setIsEditing] =
+    useCreateRuntimeState("isEditing", false);
+  const [isTextSingleGenerating, setIsTextSingleGenerating] =
+    useCreateRuntimeState("isTextSingleGenerating", false);
+  const [isTextLinesGenerating, setIsTextLinesGenerating] =
+    useCreateRuntimeState("isTextLinesGenerating", false);
+  const [, setStreamingPreviewUrl] = useCreateRuntimeState<string | null>(
+    "streamingPreviewUrl",
+    null
+  );
+  const [visualPreviewUrls, setVisualPreviewUrls] = useCreateRuntimeState<
     Partial<Record<VisualOutputMode, string | null>>
-  >({});
-  const [visualLoading, setVisualLoading] = useState<
+  >("visualPreviewUrls", {});
+  const [visualLoading, setVisualLoading] = useCreateRuntimeState<
     Partial<Record<VisualOutputMode, { size: string } | null>>
-  >({});
-  const [balance, setBalance] = useState(initialBalance);
-  const [result, setResult] = useState<ResultState | null>(null);
-  const [visualResults, setVisualResults] = useState<
+  >("visualLoading", {});
+  const [balance, setBalance] =
+    useCreateRuntimeState("balance", initialBalance);
+  const [result, setResult] =
+    useCreateRuntimeState<ResultState | null>("result", null);
+  const [visualResults, setVisualResults] = useCreateRuntimeState<
     Partial<Record<VisualOutputMode, ResultState | null>>
-  >({});
-  const [recent, setRecent] = useState<ChatRecentGeneration[]>(initialRecent);
-  const [selectedRecentId, setSelectedRecentId] = useState<string | null>(null);
+  >("visualResults", {});
+  const [recent, setRecent] = useCreateRuntimeState<ChatRecentGeneration[]>(
+    "recent",
+    initialRecent
+  );
+  const [selectedRecentId, setSelectedRecentId] = useCreateRuntimeState<
+    string | null
+  >("selectedRecentId", null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const batchImageInputRef = useRef<HTMLInputElement | null>(null);
   const editPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const chatPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement | null>(null);
-  const chatConversationsRef = useRef<ChatConversation[]>([]);
-  const didLoadChatRef = useRef(false);
-  const chatMessagesConversationIdRef = useRef<string | null>(null);
-  const chatMessagesModeRef = useRef<ConversationMode | null>(null);
+  const chatConversationsRef = useCreateRuntimeRef<ChatConversation[]>(
+    "chatConversationsRef",
+    []
+  );
+  const didLoadChatRef = useCreateRuntimeRef("didLoadChatRef", false);
+  const chatMessagesConversationIdRef = useCreateRuntimeRef<string | null>(
+    "chatMessagesConversationIdRef",
+    null
+  );
+  const chatMessagesModeRef = useCreateRuntimeRef<ConversationMode | null>(
+    "chatMessagesModeRef",
+    null
+  );
   const isCreatePageMountedRef = useRef(false);
   const didApplyReferenceParamRef = useRef(false);
-  const didRestoreVisualPendingRef = useRef(false);
-  const activeChatRequestGenerationIdsRef = useRef<Set<string>>(new Set());
-  const restoringChatGenerationIdsRef = useRef<Set<string>>(new Set());
+  const activeChatRequestGenerationIdsRef = useCreateRuntimeRef<Set<string>>(
+    "activeChatRequestGenerationIdsRef",
+    () => new Set()
+  );
   const batchLoadTriggerRef = useRef<HTMLDivElement | null>(null);
   const batchScrollRef = useRef<HTMLDivElement | null>(null);
-  const batchActiveRequestsRef = useRef(0);
-  const batchPromptRef = useRef("");
-  const batchSizeRef = useRef(DEFAULT_IMAGE_SIZE);
-  const batchLoadingMoreRef = useRef(false);
-  const batchStoppedRef = useRef(false);
-  const batchAbortControllersRef = useRef<Map<string, AbortController>>(
-    new Map()
+  const batchActiveRequestsRef = useCreateRuntimeRef(
+    "batchActiveRequestsRef",
+    0
   );
-  const didRestoreWaterfallRef = useRef(false);
+  const batchPromptRef = useCreateRuntimeRef("batchPromptRef", "");
+  const batchSizeRef = useCreateRuntimeRef(
+    "batchSizeRef",
+    DEFAULT_IMAGE_SIZE
+  );
+  const batchLoadingMoreRef = useCreateRuntimeRef(
+    "batchLoadingMoreRef",
+    false
+  );
+  const batchStoppedRef = useCreateRuntimeRef("batchStoppedRef", false);
+  const batchAbortControllersRef = useCreateRuntimeRef<
+    Map<string, AbortController>
+  >(
+    "batchAbortControllersRef",
+    () => new Map()
+  );
   const triggerBatchGenerationRef = useRef<
     ((options?: { retryCardId?: string }) => Promise<void>) | null
   >(null);
@@ -2669,12 +2518,23 @@ export function CreatePageClient({
       : mode === "text-single"
         ? isTextSingleGenerating
         : isTextLinesGenerating;
+  const hasActiveRuntimeTask =
+    isEditing ||
+    isTextSingleGenerating ||
+    isTextLinesGenerating ||
+    isChatGenerating ||
+    isBatchActive;
   const setVisualModeLoading = (
     mode: VisualOutputMode,
     value: { size: string } | null
   ) => {
     setVisualLoading((prev) => ({ ...prev, [mode]: value }));
   };
+  useEffect(() => {
+    if (hasActiveRuntimeTask) return;
+    setBalance(initialBalance);
+    setRecent(initialRecent);
+  }, [hasActiveRuntimeTask, initialBalance, initialRecent]);
   useEffect(() => {
     if (activeMode !== "agent" || effectiveAgentAllowed) return;
     setActiveMode("chat");
@@ -3650,88 +3510,17 @@ export function CreatePageClient({
   };
 
   useEffect(() => {
-    if (didRestoreWaterfallRef.current) return;
-    didRestoreWaterfallRef.current = true;
+    if (didLoadChatRef.current) return;
     try {
-      const raw = window.localStorage.getItem(WATERFALL_STORAGE_KEY);
-      if (!raw) return;
-      const interruptedMessage = isZh
-        ? "页面刷新前未完成"
-        : "Interrupted by page refresh";
-      const parsed = JSON.parse(raw) as Partial<StoredWaterfallState>;
-      const cards = sanitizeStoredWaterfallCards(
-        parsed.cards,
-        interruptedMessage
-      );
-      if (!cards.length) return;
-      const prompt = typeof parsed.prompt === "string" ? parsed.prompt : "";
-      const restoredSize =
-        typeof parsed.size === "string" ? parsed.size : batchFallbackSize;
-      const stats = clampWaterfallStats(parsed.stats, cards);
-      batchPromptRef.current = prompt;
-      batchSizeRef.current = restoredSize;
-      batchStoppedRef.current = parsed.stopped !== false;
-      setBatchPrompt(prompt);
-      setBatchCards(cards);
-      setWaterfallCreditsConsumed(
-        typeof parsed.creditsConsumed === "number"
-          ? parsed.creditsConsumed
-          : 0
-      );
-      setWaterfallStats(stats);
-      setIsBatchStopped(parsed.stopped !== false);
-      setIsBatchActive(true);
-      setActiveMode("waterfall");
-    } catch {
-      window.localStorage.removeItem(WATERFALL_STORAGE_KEY);
-    }
-  }, [batchFallbackSize, isZh]);
-
-  useEffect(() => {
-    if (!didRestoreWaterfallRef.current) return;
-    try {
-      if (!isBatchActive || batchCards.length === 0) {
-        window.localStorage.removeItem(WATERFALL_STORAGE_KEY);
+      if (chatMessages.length > 0 || chatConversations.length > 0) {
+        chatConversationsRef.current = chatConversations;
+        chatMessagesConversationIdRef.current = chatConversationId;
+        chatMessagesModeRef.current = chatMessages.length
+          ? inferChatConversationMode(chatMessages)
+          : null;
         return;
       }
-      const interruptedMessage = isZh
-        ? "页面刷新前未完成"
-        : "Interrupted by page refresh";
-      const storedCards = batchCards.map((card) =>
-        card.state === "loading"
-          ? {
-              ...card,
-              state: "error" as const,
-              error: interruptedMessage,
-            }
-          : card
-      );
-      const payload: StoredWaterfallState = {
-        prompt: batchPromptRef.current || batchPrompt,
-        size: batchSizeRef.current || batchFallbackSize,
-        cards: storedCards,
-        creditsConsumed: waterfallCreditsConsumed,
-        stats: clampWaterfallStats(waterfallStats, storedCards),
-        stopped: batchStoppedRef.current || isBatchStopped,
-        updatedAt: new Date().toISOString(),
-      };
-      window.localStorage.setItem(WATERFALL_STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      /* ignore local storage quota errors */
-    }
-  }, [
-    batchCards,
-    batchPrompt,
-    isBatchActive,
-    isBatchStopped,
-    batchFallbackSize,
-    waterfallCreditsConsumed,
-    waterfallStats,
-    isZh,
-  ]);
 
-  useEffect(() => {
-    try {
       const conversationRaw = window.localStorage.getItem(
         CHAT_CONVERSATIONS_STORAGE_KEY
       );
@@ -3822,7 +3611,7 @@ export function CreatePageClient({
     } finally {
       didLoadChatRef.current = true;
     }
-  }, [isZh]);
+  }, []);
 
   useEffect(() => {
     if (!didLoadChatRef.current) return;
@@ -4167,269 +3956,6 @@ export function CreatePageClient({
     return variants;
   };
 
-  const updatePendingChatVariant = (
-    target: ChatPendingRestoreTarget,
-    patch: Partial<ChatVariant> & { error?: string; text?: string }
-  ) => {
-    const nextVariantPatch: Partial<ChatVariant> = {
-      generationId: target.generationId,
-      prompt: target.prompt,
-      model: target.model,
-      size: target.size,
-      imageUrl: patch.imageUrl,
-      responseText: patch.responseText,
-      responseThinking: patch.responseThinking,
-      responseAgent: patch.responseAgent,
-      agentEvents: patch.agentEvents,
-      pending: patch.pending,
-    };
-    setChatMessages((prev) =>
-      prev.map((message) => {
-        if (message.id !== target.assistantMessageId) return message;
-        const variants = getChatVariants(message);
-        const currentVariant =
-          variants.find(
-            (variant) => variant.generationId === target.generationId
-          ) || getActiveChatVariant(message);
-        const nextVariant = mergeChatVariant(
-          currentVariant || undefined,
-          nextVariantPatch
-        );
-        return {
-          ...message,
-          error: patch.error,
-          text:
-            patch.text ||
-            patch.responseText ||
-            (patch.imageUrl
-              ? copy("Generating image...", "正在生成图片...")
-              : message.text),
-          variants: replaceChatVariantByGenerationId(
-            variants.length ? variants : [nextVariant],
-            target.generationId,
-            [nextVariant]
-          ),
-        };
-      })
-    );
-  };
-
-  const restorePendingChatGeneration = async (
-    target: ChatPendingRestoreTarget
-  ) => {
-    if (restoringChatGenerationIdsRef.current.has(target.generationId)) return;
-    restoringChatGenerationIdsRef.current.add(target.generationId);
-    setActiveMode(target.mode);
-    setIsChatGenerating(true);
-    setChatStream({
-      messageId: target.assistantMessageId,
-      mode: target.mode,
-      text: target.responseText || "",
-      thinking: target.responseThinking || "",
-      agent: target.responseAgent || "",
-      agentEvents:
-        target.agentEvents ||
-        (target.mode === "agent" ? createOptimisticAgentRoundEvents(1) : []),
-      imageUrl: target.imageUrl,
-      generationId: target.generationId,
-      prompt: target.prompt,
-      model: target.model,
-      size: target.size,
-    });
-
-    const sleep = (ms: number) =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-    const startedAt = Date.now();
-    try {
-      while (Date.now() - startedAt < CHAT_PENDING_TTL_MS) {
-        if (!isCreatePageMountedRef.current) return;
-        const response = await fetch(
-          `/api/images/status/${target.generationId}`,
-          { cache: "no-store" }
-        );
-        if (!response.ok) {
-          throw new Error(`Status API error: ${response.status}`);
-        }
-        const data = (await response.json()) as ImageApiResult;
-        if (!isCreatePageMountedRef.current) return;
-        const nextAgentEvents = data.agentEvents?.length
-          ? data.agentEvents
-          : target.agentEvents;
-        const nextStream: ChatStreamState = {
-          messageId: target.assistantMessageId,
-          mode: target.mode,
-          text: data.responseText || target.responseText || "",
-          thinking: data.responseThinking || target.responseThinking || "",
-          agent: data.responseAgent || target.responseAgent || "",
-          agentEvents:
-            nextAgentEvents ||
-            (target.mode === "agent" ? createOptimisticAgentRoundEvents(1) : []),
-          imageUrl: data.imageUrl || target.imageUrl,
-          generationId: target.generationId,
-          prompt: target.prompt,
-          model: data.model || target.model,
-          size: data.size || target.size,
-        };
-        setChatStream(nextStream);
-        updatePendingChatVariant(target, {
-          imageUrl: nextStream.imageUrl,
-          responseText: nextStream.text || undefined,
-          responseThinking: nextStream.thinking || undefined,
-          responseAgent: nextStream.agent || undefined,
-          agentEvents: nextStream.agentEvents,
-          pending: true,
-        });
-
-        if (data.status === "completed") {
-          const variants = addSuccessfulChatResults(
-            data,
-            data.prompt || target.prompt,
-            data.size || target.size,
-            { syncCredits: false }
-          );
-          if (variants.length === 0) {
-            updatePendingChatVariant(target, {
-              pending: false,
-              error:
-                data.error ||
-                copy(
-                  "Generation completed without output",
-                  "生成已完成但没有返回输出"
-                ),
-              text: copy("Generation failed", "生成失败"),
-            });
-            break;
-          }
-          const finalVariant = variants[variants.length - 1];
-          setChatMessages((prev) =>
-            prev.map((message) => {
-              if (message.id !== target.assistantMessageId) return message;
-              const existingVariants = getChatVariants(message);
-              const replacedIndex = existingVariants.findIndex(
-                (variant) => variant.generationId === target.generationId
-              );
-              const nextVariants = replaceChatVariantByGenerationId(
-                existingVariants,
-                target.generationId,
-                variants.length
-                  ? variants.map((variant) => ({ ...variant, pending: false }))
-                  : [
-                      mergeChatVariant(undefined, {
-                        generationId: target.generationId,
-                        prompt: target.prompt,
-                        model: data.model || target.model,
-                        size: data.size || target.size,
-                        responseText: data.responseText,
-                        responseThinking: data.responseThinking,
-                        responseAgent: data.responseAgent,
-                        agentEvents: data.agentEvents,
-                        imageUrl: data.imageUrl,
-                        pending: false,
-                      }),
-                    ]
-              );
-              return {
-                ...message,
-                error: undefined,
-                text:
-                  finalVariant?.responseText ||
-                  (finalVariant?.imageUrl || data.imageUrl
-                    ? copy("Image generated", "图片已生成")
-                    : copy("Response generated", "回复已生成")),
-                variants: nextVariants,
-                activeVariant:
-                  replacedIndex >= 0
-                    ? replacedIndex + Math.max(variants.length, 1) - 1
-                    : nextVariants.length - 1,
-              };
-            })
-          );
-          break;
-        }
-
-        if (data.status === "failed") {
-          updatePendingChatVariant(target, {
-            pending: false,
-            error: data.error || copy("Generation failed", "生成失败"),
-            text: copy("Generation failed", "生成失败"),
-          });
-          break;
-        }
-
-        await sleep(2500);
-      }
-    } catch {
-      /* Keep the pending variant so a later revisit can poll again. */
-    } finally {
-      restoringChatGenerationIdsRef.current.delete(target.generationId);
-      if (isCreatePageMountedRef.current) {
-        setIsChatGenerating(false);
-        setChatStream((current) =>
-          current?.generationId === target.generationId ? null : current
-        );
-        clearStreamingPreview();
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!didLoadChatRef.current) return;
-    const currentTargets = findPendingChatRestoreTargetsInMessages(
-      chatConversationId,
-      chatMessages
-    );
-    const targetByKey = new Map<string, ChatPendingRestoreTarget>();
-    for (const target of [
-      ...currentTargets,
-      ...findPendingChatRestoreTargets(chatConversations),
-    ]) {
-      const key = `${target.conversationId}:${target.generationId}`;
-      if (!targetByKey.has(key)) targetByKey.set(key, target);
-    }
-    const targets = Array.from(targetByKey.values()).filter((target) => {
-      if (restoringChatGenerationIdsRef.current.has(target.generationId)) {
-        return false;
-      }
-      if (
-        activeChatRequestGenerationIdsRef.current.has(target.generationId) &&
-        chatStream?.generationId === target.generationId
-      ) {
-        return false;
-      }
-      if (target.conversationId === chatConversationId) {
-        return chatMessages.some(
-          (message) => message.id === target.assistantMessageId
-        );
-      }
-      return chatConversations.some(
-        (conversation) =>
-          conversation.id === target.conversationId &&
-          conversation.messages.some(
-            (message) => message.id === target.assistantMessageId
-          )
-      );
-    });
-    const target = targets[0];
-    if (!target) return;
-    if (target.conversationId !== chatConversationId) {
-      const conversation = chatConversations.find(
-        (item) => item.id === target.conversationId
-      );
-      if (conversation) {
-        activateChatConversation(conversation, target.mode);
-        return;
-      }
-    } else {
-      chatMessagesModeRef.current = target.mode;
-    }
-    void restorePendingChatGeneration(target);
-  }, [
-    chatConversationId,
-    chatConversations,
-    chatMessages,
-    chatStream?.generationId,
-  ]);
-
   const addSuccessfulResults = (
     data: ImageApiResult,
     resultPrompt: string,
@@ -4455,102 +3981,6 @@ export function CreatePageClient({
 
     return variants;
   };
-
-  const restoreVisualPendingState = async (
-    pending: VisualPendingGenerationState
-  ) => {
-    const restorePrompt = pending.prompt;
-    setVisualModeLoading(pending.mode, { size: pending.size });
-    setVisualResults((prev) => ({ ...prev, [pending.mode]: null }));
-    if (pending.mode === "text-single") {
-      setPrompt((value) => value || restorePrompt);
-      setTextMode("single");
-      setActiveMode("text");
-      setIsTextSingleGenerating(true);
-    } else if (pending.mode === "text-lines") {
-      setTextMode("lines");
-      setActiveMode("text");
-      setIsTextLinesGenerating(true);
-    } else {
-      setActiveMode("image");
-      setIsEditing(true);
-    }
-
-    const sleep = (ms: number) =>
-      new Promise((resolve) => setTimeout(resolve, ms));
-    const startedAt = Date.now();
-    let done = false;
-    try {
-      while (Date.now() - startedAt < VISUAL_PENDING_TTL_MS) {
-        if (!isCreatePageMountedRef.current) return;
-        const responses = await Promise.allSettled(
-          pending.generationIds.map(async (generationId) => {
-            const response = await fetch(`/api/images/status/${generationId}`, {
-              cache: "no-store",
-            });
-            if (!response.ok) {
-              throw new Error(`Status API error: ${response.status}`);
-            }
-            return (await response.json()) as ImageApiResult;
-          })
-        );
-        const data = responses.flatMap((response) =>
-          response.status === "fulfilled" ? [response.value] : []
-        );
-        if (!isCreatePageMountedRef.current) return;
-        const stillPending =
-          data.length === 0 || data.some((item) => item.status === "pending");
-        const completed = data.filter((item) => item.status === "completed");
-        if (completed.length > 0) {
-          const combined: ImageApiResult =
-            completed.length === 1
-              ? completed[0]!
-              : { results: completed, model: completed[0]?.model };
-          addSuccessfulResults(combined, restorePrompt, pending.size, {
-            previewMode: pending.mode,
-            syncCredits: false,
-          });
-          if (!stillPending) {
-            done = true;
-            break;
-          }
-        }
-        const failed = data.find((item) => item.status === "failed");
-        if (failed && !stillPending) {
-          toast.error(copy("Generation failed", "生成失败"), {
-            description: failed.error || copy("Generation failed", "生成失败"),
-          });
-          done = true;
-          break;
-        }
-        await sleep(2500);
-      }
-    } catch {
-      /* Keep the pending marker so a later revisit can poll again. */
-    } finally {
-      if (done && isCreatePageMountedRef.current) {
-        removeVisualPendingState(pending.mode);
-      }
-      if (!isCreatePageMountedRef.current) return;
-      if (pending.mode === "text-single") {
-        setIsTextSingleGenerating(false);
-      } else if (pending.mode === "text-lines") {
-        setIsTextLinesGenerating(false);
-      } else {
-        setIsEditing(false);
-      }
-      setVisualModeLoading(pending.mode, null);
-      clearVisualStreamingPreview(pending.mode);
-    }
-  };
-
-  useEffect(() => {
-    if (didRestoreVisualPendingRef.current) return;
-    didRestoreVisualPendingRef.current = true;
-    for (const pending of readVisualPendingStates()) {
-      void restoreVisualPendingState(pending);
-    }
-  }, []);
 
   const syncChargedCredits = (creditsConsumed?: number) => {
     if (!creditsConsumed || creditsConsumed <= 0) return;
@@ -4901,39 +4331,39 @@ export function CreatePageClient({
         );
       }
 
+      setChatMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== assistantId) return message;
+          const existingVariants = getChatVariants(message);
+          const replacedIndex = existingVariants.findIndex(
+            (item) => item.generationId === generationId
+          );
+          const variants = replaceChatVariantByGenerationId(
+            existingVariants,
+            generationId,
+            newVariants
+          );
+          const activeVariantIndex =
+            replacedIndex >= 0
+              ? replacedIndex + newVariants.length - 1
+              : variants.length - 1;
+          return {
+            ...message,
+            error: undefined,
+            text:
+              variant.responseText ||
+              (variant.imageUrl
+                ? copy("Image generated", "图片已生成")
+                : copy("Response generated", "回复已生成")),
+            variants: variants.map((item) => ({
+              ...item,
+              pending: false,
+            })),
+            activeVariant: activeVariantIndex,
+          };
+        })
+      );
       if (isCreatePageMountedRef.current) {
-        setChatMessages((prev) =>
-          prev.map((message) => {
-            if (message.id !== assistantId) return message;
-            const existingVariants = getChatVariants(message);
-            const replacedIndex = existingVariants.findIndex(
-              (item) => item.generationId === generationId
-            );
-            const variants = replaceChatVariantByGenerationId(
-              existingVariants,
-              generationId,
-              newVariants
-            );
-            const activeVariantIndex =
-              replacedIndex >= 0
-                ? replacedIndex + newVariants.length - 1
-                : variants.length - 1;
-            return {
-              ...message,
-              error: undefined,
-              text:
-                variant.responseText ||
-                (variant.imageUrl
-                  ? copy("Image generated", "图片已生成")
-                  : copy("Response generated", "回复已生成")),
-              variants: variants.map((item) => ({
-                ...item,
-                pending: false,
-              })),
-              activeVariant: activeVariantIndex,
-            };
-          })
-        );
         toast.success(copy("Variant generated", "新版本已生成"));
       }
     } catch (error) {
@@ -4946,28 +4376,28 @@ export function CreatePageClient({
           ? (error as GenerationRequestError).creditsConsumed
           : undefined;
       syncChargedCredits(creditsConsumed);
+      setChatMessages((prev) =>
+        prev.map((item) =>
+          item.id === assistantId
+            ? {
+                ...item,
+                variants: getChatVariants(item).map((variant) => ({
+                  ...variant,
+                  pending: false,
+                })),
+              }
+            : item
+        )
+      );
       if (isCreatePageMountedRef.current) {
-        setChatMessages((prev) =>
-          prev.map((item) =>
-            item.id === assistantId
-              ? {
-                  ...item,
-                  variants: getChatVariants(item).map((variant) => ({
-                    ...variant,
-                    pending: false,
-                  })),
-                }
-              : item
-          )
-        );
         toast.error(copy("Retry failed", "重试失败"), { description: message });
       }
     } finally {
+      setRetryingChatMessageId(null);
+      setIsChatGenerating(false);
+      setChatStream(null);
+      clearStreamingPreview();
       if (isCreatePageMountedRef.current) {
-        setRetryingChatMessageId(null);
-        setIsChatGenerating(false);
-        setChatStream(null);
-        clearStreamingPreview();
         scrollChatToBottom();
       }
     }
@@ -5846,11 +5276,6 @@ export function CreatePageClient({
     setIsBatchLoadingMore(false);
     setIsBatchStopped(false);
     setIsBatchActive(false);
-    try {
-      window.localStorage.removeItem(WATERFALL_STORAGE_KEY);
-    } catch {
-      /* ignore local storage errors */
-    }
   };
 
   useEffect(() => {
@@ -6053,44 +5478,44 @@ export function CreatePageClient({
           "API returned no image data",
           "接口未返回图片数据"
         );
+        setChatMessages((prev) =>
+          prev.map((item) =>
+            item.id === assistantMessageId
+              ? {
+                  ...item,
+                  text: copy("Generation failed", "生成失败"),
+                  error: message,
+                }
+              : item
+          )
+        );
         if (isCreatePageMountedRef.current) {
           showGenerationError(message);
-          setChatMessages((prev) =>
-            prev.map((item) =>
-              item.id === assistantMessageId
-                ? {
-                    ...item,
-                    text: copy("Generation failed", "生成失败"),
-                    error: message,
-                  }
-                : item
-            )
-          );
         }
         return;
       }
 
+      setChatMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                text:
+                  variant.responseText ||
+                  (variant.imageUrl
+                    ? copy("Image generated", "图片已生成")
+                    : copy("Response generated", "回复已生成")),
+                variants: variants.map((item) => ({
+                  ...item,
+                  pending: false,
+                })),
+                activeVariant: variants.length - 1,
+              }
+            : message
+        )
+      );
+      clearChatAttachments();
       if (isCreatePageMountedRef.current) {
-        setChatMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantMessageId
-              ? {
-                  ...message,
-                  text:
-                    variant.responseText ||
-                    (variant.imageUrl
-                      ? copy("Image generated", "图片已生成")
-                      : copy("Response generated", "回复已生成")),
-                  variants: variants.map((item) => ({
-                    ...item,
-                    pending: false,
-                  })),
-                  activeVariant: variants.length - 1,
-                }
-              : message
-          )
-        );
-        clearChatAttachments();
         toast.success(
           data.imageUrl
             ? copy("Image generated", "图片已生成")
@@ -6107,31 +5532,31 @@ export function CreatePageClient({
         error instanceof Error
           ? error.message
           : copy("An unexpected error occurred.", "发生未知错误。");
+      setChatMessages((prev) =>
+        prev.map((item) =>
+          item.id === assistantMessageId
+            ? {
+                ...item,
+                text: copy("Generation failed", "生成失败"),
+                error: message,
+                variants: getChatVariants(item).map((variant) => ({
+                  ...variant,
+                  pending: false,
+                })),
+              }
+            : item
+        )
+      );
       if (isCreatePageMountedRef.current) {
         toast.error(copy("Generation failed", "生成失败"), {
           description: message,
         });
-        setChatMessages((prev) =>
-          prev.map((item) =>
-            item.id === assistantMessageId
-              ? {
-                  ...item,
-                  text: copy("Generation failed", "生成失败"),
-                  error: message,
-                  variants: getChatVariants(item).map((variant) => ({
-                    ...variant,
-                    pending: false,
-                  })),
-                }
-              : item
-          )
-        );
       }
     } finally {
+      setIsChatGenerating(false);
+      setChatStream(null);
+      clearStreamingPreview();
       if (isCreatePageMountedRef.current) {
-        setIsChatGenerating(false);
-        setChatStream(null);
-        clearStreamingPreview();
         scrollChatToBottom();
       }
     }
@@ -6159,13 +5584,6 @@ export function CreatePageClient({
     const generationIds = Array.from({ length: batchCount }, () =>
       createGenerationId()
     );
-    addVisualPendingState({
-      mode: previewMode,
-      prompt: currentPrompt,
-      size: requestSize,
-      generationIds,
-      createdAt: new Date().toISOString(),
-    });
     setVisualResults((prev) => ({ ...prev, [previewMode]: null }));
     setVisualModeLoading(previewMode, { size: requestSize });
     clearVisualStreamingPreview(previewMode);
@@ -6190,9 +5608,6 @@ export function CreatePageClient({
             )
           : copy("Image generated", "图片已生成")
       );
-      if (isCreatePageMountedRef.current) {
-        removeVisualPendingState(previewMode);
-      }
     } catch (error) {
       const creditsConsumed =
         error instanceof Error
@@ -6291,13 +5706,6 @@ export function CreatePageClient({
     const generationIds = linePromptItems.flatMap(() =>
       Array.from({ length: lineBatchRepeatCount }, () => createGenerationId())
     );
-    addVisualPendingState({
-      mode: previewMode,
-      prompt: linePromptItems.join("\n"),
-      size: requestSize,
-      generationIds,
-      createdAt: new Date().toISOString(),
-    });
     setVisualResults((prev) => ({ ...prev, [previewMode]: null }));
     setVisualModeLoading(previewMode, { size: requestSize });
     clearVisualStreamingPreview(previewMode);
@@ -6334,9 +5742,6 @@ export function CreatePageClient({
             )
           : copy("Image generated", "图片已生成")
       );
-      if (isCreatePageMountedRef.current) {
-        removeVisualPendingState(previewMode);
-      }
     } catch (error) {
       const creditsConsumed =
         error instanceof Error
@@ -6455,13 +5860,6 @@ export function CreatePageClient({
     }
 
     setVisualResults((prev) => ({ ...prev, image: null }));
-    addVisualPendingState({
-      mode: "image",
-      prompt: currentEditPrompt,
-      size: effectiveEditSize,
-      generationIds,
-      createdAt: new Date().toISOString(),
-    });
     setVisualModeLoading("image", { size: effectiveEditSize });
     setIsEditing(true);
     clearVisualStreamingPreview("image");
@@ -6499,9 +5897,6 @@ export function CreatePageClient({
             )
           : copy("Image edited", "图片已编辑")
       );
-      if (isCreatePageMountedRef.current) {
-        removeVisualPendingState("image");
-      }
     } catch (error) {
       toast.error(copy("Generation failed", "生成失败"), {
         description:
