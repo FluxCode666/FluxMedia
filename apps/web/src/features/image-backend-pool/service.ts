@@ -18,6 +18,8 @@ import { logWarn } from "@repo/shared/logger";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
+  clearSystemSettingsCache,
+  getRuntimeSettingJson,
   getRuntimeSettingBoolean,
   getRuntimeSettingNumber,
   getRuntimeSettingSelect,
@@ -31,6 +33,7 @@ import {
   eq,
   inArray,
   isNull,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -170,6 +173,7 @@ const OPENAI_PLATFORM_OAUTH_CLIENT_ID = "app_2SKx67EdpoN0G6j64rFvigXD";
 const OPENAI_MOBILE_RT_CLIENT_ID = "app_LlGpXReQgckcGGUo2JrYvtJK";
 const OPENAI_REFRESH_SCOPES = "openid profile email";
 const AUTO_SUB2API_SYNC_STATE_KEY = "SUB2API_AUTO_SYNC_STATE";
+const AUTO_SUB2API_SYNC_TASKS_KEY = "SUB2API_AUTO_SYNC_TASKS";
 const DEFAULT_BACKEND_COOLDOWN_MINUTES = 15;
 const MAX_PARSED_RESET_COOLDOWN_DAYS = 14;
 const DEFAULT_UNRECOVERABLE_BACKEND_ERROR_KEYWORDS = [
@@ -2398,6 +2402,8 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   contentSafetyEnabled: boolean;
   priority: number;
   concurrency: number;
+  importBatchId?: string | null;
+  startIndex?: number;
 }) {
   const parsedTokens = parseImportTokensText(input.refreshTokensText, {
     plainFallback: "refresh",
@@ -2427,7 +2433,8 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   };
   let refreshTokenRotatedCount = 0;
   const importedIds: string[] = [];
-  const importBatchId = nanoid();
+  const importBatchId = input.importBatchId || nanoid();
+  const startIndex = Math.max(0, Math.trunc(input.startIndex || 0));
 
   if (!refreshTokens.length) {
     return emptyRefreshTokenImportResult(
@@ -2436,6 +2443,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
   }
 
   for (const [index, originalRefreshToken] of refreshTokens.entries()) {
+    const importIndex = startIndex + index + 1;
     let currentRefreshToken = originalRefreshToken;
     const currentTokenImportedIds: string[] = [];
     if (input.useMobileRt) {
@@ -2458,9 +2466,9 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
           const id = await upsertImageBackendAccount({
             groupId:
               mode === "responses" ? input.responsesGroupId : input.webGroupId,
-            name: `${input.namePrefix?.trim() || "Mobile RT 导入"} ${
-              index + 1
-            } / ${mode === "responses" ? "Codex" : "Web"}`,
+            name: `${
+              input.namePrefix?.trim() || "Mobile RT 导入"
+            } ${importIndex} / ${mode === "responses" ? "Codex" : "Web"}`,
             email: null,
             accessToken: refreshed.accessToken,
             refreshToken: currentRefreshToken,
@@ -2474,7 +2482,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
             metadata: {
               source: "manual_refresh_token",
               importBatchId,
-              importIndex: index + 1,
+              importIndex,
               syncedAt: new Date().toISOString(),
               tokenSource: tokenSourceForRefreshClient(
                 OPENAI_MOBILE_RT_CLIENT_ID,
@@ -2502,7 +2510,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
       } catch (error) {
         for (const mode of modes) failedByMode[mode]++;
         logWarn("手工 Mobile RT 导入生图账号失败，已跳过", {
-          index: index + 1,
+          index: importIndex,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -2530,7 +2538,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
         const id = await upsertImageBackendAccount({
           groupId:
             mode === "responses" ? input.responsesGroupId : input.webGroupId,
-          name: `${input.namePrefix?.trim() || "手工导入"} ${index + 1} / ${
+          name: `${input.namePrefix?.trim() || "手工导入"} ${importIndex} / ${
             mode === "responses" ? "Codex" : "Web"
           }`,
           email: null,
@@ -2546,7 +2554,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
           metadata: {
             source: "manual_refresh_token",
             importBatchId,
-            importIndex: index + 1,
+            importIndex,
             syncedAt: new Date().toISOString(),
             tokenSource: tokenSourceForRefreshClient(clientId, mode),
             oauthClientId: clientId,
@@ -2561,7 +2569,7 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
         failedByMode[mode]++;
         logWarn("手工 RT 导入生图账号失败，已跳过", {
           mode,
-          index: index + 1,
+          index: importIndex,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -2638,6 +2646,36 @@ type Sub2ApiTokenAccount = {
 };
 
 type Sub2ApiPlanFilter = "all" | "free" | "plus" | "pro" | "non_free";
+type Sub2ApiAutoSyncTask = {
+  id: string;
+  enabled: boolean;
+  sourceGroupId: string | null;
+  sourceGroupName?: string | null;
+  webGroupId?: string | null;
+  responsesGroupId?: string | null;
+  syncMode: Sub2ApiTokenSyncMode;
+  allowMobileRtImport: boolean;
+  contentSafetyEnabled: boolean;
+  planFilter: Sub2ApiPlanFilter;
+  createdAt?: string;
+  updatedAt?: string;
+  lastRunAt?: string;
+  lastResult?: {
+    sourceCount: number;
+    totalSourceCount: number;
+    syncedCount: number;
+    skipped: { web: number; responses: number };
+    failed: number;
+    failedByMode: { web: number; responses: number };
+    syncedByMode: { web: number; responses: number };
+    deletedCount: number;
+  };
+};
+
+export type Sub2ApiAutoSyncTaskSummary = Sub2ApiAutoSyncTask & {
+  managedAccountCount: number;
+};
+
 type AutoSub2ApiSyncMetadata = {
   lastStartedAt?: string;
   lastFinishedAt?: string;
@@ -2654,6 +2692,17 @@ type AutoSub2ApiSyncMetadata = {
     failed: number;
     failedByMode: { web: number; responses: number };
     syncedByMode: { web: number; responses: number };
+    deletedCount?: number;
+    tasks?: Array<{
+      id: string;
+      sourceGroupId: string | null;
+      sourceGroupName?: string | null;
+      sourceCount: number;
+      totalSourceCount: number;
+      syncedCount: number;
+      failed: number;
+      deletedCount: number;
+    }>;
   };
 };
 
@@ -3147,7 +3196,8 @@ function buildSub2ApiAccountMetadata(
   mode: ImageBackendAccountBackend,
   tokenSource: string | null,
   allowMobileRtImport: boolean | undefined,
-  preserveLocalUnavailable: boolean
+  preserveLocalUnavailable: boolean,
+  syncTaskId?: string | null
 ) {
   return {
     source: "sub2api_postgres",
@@ -3168,6 +3218,7 @@ function buildSub2ApiAccountMetadata(
     sub2apiClientId: account.clientId,
     sub2apiOauthFamily: account.oauthFamily,
     sub2apiOauthType: account.oauthType,
+    sub2apiSyncTaskId: syncTaskId || null,
     mobileRtImport: Boolean(allowMobileRtImport && mode === "web"),
     oauthClientId:
       mode === "web"
@@ -3183,7 +3234,8 @@ async function applySub2ApiHealthToExistingAccount(
   mode: ImageBackendAccountBackend,
   tokenSource: string | null,
   allowMobileRtImport: boolean | undefined,
-  healthUpdate: Awaited<ReturnType<typeof resolveSyncedAccountHealth>>
+  healthUpdate: Awaited<ReturnType<typeof resolveSyncedAccountHealth>>,
+  syncTaskId?: string | null
 ) {
   await db
     .update(imageBackendAccount)
@@ -3198,11 +3250,34 @@ async function applySub2ApiHealthToExistingAccount(
         mode,
         tokenSource,
         allowMobileRtImport,
-        healthUpdate.preserveLocalUnavailable
+        healthUpdate.preserveLocalUnavailable,
+        syncTaskId
       ),
       updatedAt: new Date(),
     })
     .where(eq(imageBackendAccount.id, existingId));
+}
+
+async function deleteSub2ApiAccountsMissingFromTask(input: {
+  syncTaskId: string;
+  modes: readonly ImageBackendAccountBackend[];
+  currentSourceIds: string[];
+}) {
+  const sourceIdExpr = sql<string>`${imageBackendAccount.metadata}->>'sourceAccountId'`;
+  const conditions = [
+    sql`${imageBackendAccount.metadata}->>'source' = 'sub2api_postgres'`,
+    sql`${imageBackendAccount.metadata}->>'sub2apiSyncTaskId' = ${input.syncTaskId}`,
+    inArray(imageBackendAccount.implementationMode, [...input.modes]),
+    input.currentSourceIds.length
+      ? notInArray(sourceIdExpr, input.currentSourceIds)
+      : undefined,
+  ].filter(Boolean);
+
+  const deleted = await db
+    .delete(imageBackendAccount)
+    .where(and(...conditions))
+    .returning({ id: imageBackendAccount.id });
+  return deleted.length;
 }
 
 async function getOptionalSub2ApiPostgresConnectionString() {
@@ -3348,6 +3423,49 @@ async function countSub2ApiCurrentAccessTokens(
   return Number(result.rows[0]?.value || 0);
 }
 
+async function listSub2ApiCurrentAccessTokenSourceIds(
+  pool: Pool,
+  options: { sourceGroupId?: string | null; planFilter?: Sub2ApiPlanFilter }
+) {
+  const sourceGroupId = options.sourceGroupId
+    ? Number(options.sourceGroupId)
+    : null;
+  if (options.sourceGroupId && !Number.isFinite(sourceGroupId)) {
+    throw new Error("Sub2API 来源分组无效");
+  }
+  const planFilter = normalizeSub2ApiPlanFilter(options.planFilter);
+  const result = await pool.query<{ id: number | string }>(
+    `
+      SELECT a.id
+      FROM accounts a
+      WHERE
+        a.deleted_at IS NULL
+        AND LOWER(a.platform) = 'openai'
+        AND LOWER(a.type) = 'oauth'
+        AND (
+          a.credentials ? 'access_token'
+          OR a.credentials ? 'accessToken'
+          OR a.credentials ? 'token'
+          OR a.credentials ? 'refresh_token'
+          OR a.credentials ? 'refreshToken'
+        )
+        AND ($1::bigint IS NULL OR EXISTS (
+          SELECT 1
+          FROM account_groups source_ag
+          WHERE source_ag.account_id = a.id
+            AND source_ag.group_id = $1::bigint
+        ))
+        AND (
+          $2::text = 'all'
+          OR ($2::text = 'non_free' AND LOWER(COALESCE(a.credentials->>'plan_type', a.credentials->>'planType', '')) <> 'free')
+          OR LOWER(COALESCE(a.credentials->>'plan_type', a.credentials->>'planType', '')) = $2::text
+        )
+    `,
+    [sourceGroupId, planFilter]
+  );
+  return result.rows.map((row) => String(row.id));
+}
+
 function normalizeSub2ApiPlanFilter(value?: string | null): Sub2ApiPlanFilter {
   return value === "free" ||
     value === "plus" ||
@@ -3361,6 +3479,208 @@ function asAutoSub2ApiSyncMetadata(
   metadata: Record<string, unknown> | null | undefined
 ): AutoSub2ApiSyncMetadata {
   return (metadata || {}) as AutoSub2ApiSyncMetadata;
+}
+
+function normalizeSub2ApiSyncTask(value: unknown): Sub2ApiAutoSyncTask | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  if (!id) return null;
+  const syncMode =
+    raw.syncMode === "web" || raw.syncMode === "both" ? raw.syncMode : "responses";
+  return {
+    id,
+    enabled: raw.enabled !== false,
+    sourceGroupId:
+      typeof raw.sourceGroupId === "string" && raw.sourceGroupId.trim()
+        ? raw.sourceGroupId.trim()
+        : null,
+    sourceGroupName:
+      typeof raw.sourceGroupName === "string" && raw.sourceGroupName.trim()
+        ? raw.sourceGroupName.trim()
+        : null,
+    webGroupId:
+      typeof raw.webGroupId === "string" && raw.webGroupId.trim()
+        ? raw.webGroupId.trim()
+        : null,
+    responsesGroupId:
+      typeof raw.responsesGroupId === "string" && raw.responsesGroupId.trim()
+        ? raw.responsesGroupId.trim()
+        : null,
+    syncMode,
+    allowMobileRtImport: Boolean(raw.allowMobileRtImport),
+    contentSafetyEnabled: raw.contentSafetyEnabled !== false,
+    planFilter: normalizeSub2ApiPlanFilter(
+      typeof raw.planFilter === "string" ? raw.planFilter : null
+    ),
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : undefined,
+    lastRunAt: typeof raw.lastRunAt === "string" ? raw.lastRunAt : undefined,
+    lastResult:
+      raw.lastResult && typeof raw.lastResult === "object"
+        ? (raw.lastResult as Sub2ApiAutoSyncTask["lastResult"])
+        : undefined,
+  };
+}
+
+async function getSub2ApiAutoSyncTasks() {
+  const value = await getRuntimeSettingJson("SUB2API_AUTO_SYNC_TASKS");
+  const items = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as { tasks?: unknown }).tasks)
+      ? (value as { tasks: unknown[] }).tasks
+      : [];
+  return items
+    .map(normalizeSub2ApiSyncTask)
+    .filter((task): task is Sub2ApiAutoSyncTask => Boolean(task));
+}
+
+async function setSub2ApiAutoSyncTasks(tasks: Sub2ApiAutoSyncTask[]) {
+  const now = new Date();
+  await db
+    .insert(systemSetting)
+    .values({
+      key: AUTO_SUB2API_SYNC_TASKS_KEY,
+      value: tasks,
+      isSecret: false,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: systemSetting.key,
+      set: {
+        value: tasks,
+        isSecret: false,
+        updatedAt: now,
+      },
+    });
+  clearSystemSettingsCache();
+}
+
+function buildSub2ApiAutoSyncTaskId(input: {
+  sourceGroupId?: string | null;
+  syncMode: Sub2ApiTokenSyncMode;
+  allowMobileRtImport?: boolean;
+  planFilter?: Sub2ApiPlanFilter | null;
+}) {
+  const key = [
+    input.sourceGroupId?.trim() || "all",
+    input.allowMobileRtImport ? input.syncMode : "responses",
+    input.allowMobileRtImport ? "mobile-allowed" : "codex-only",
+    normalizeSub2ApiPlanFilter(input.planFilter),
+  ].join("|");
+  return `sub2api-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
+}
+
+async function upsertSub2ApiAutoSyncTask(input: {
+  sourceGroupId?: string | null;
+  sourceGroupName?: string | null;
+  webGroupId?: string | null;
+  responsesGroupId?: string | null;
+  syncMode: Sub2ApiTokenSyncMode;
+  allowMobileRtImport?: boolean;
+  contentSafetyEnabled: boolean;
+  planFilter?: Sub2ApiPlanFilter | null;
+}) {
+  const now = new Date().toISOString();
+  const planFilter = normalizeSub2ApiPlanFilter(input.planFilter);
+  const syncMode = input.allowMobileRtImport ? input.syncMode : "responses";
+  const id = buildSub2ApiAutoSyncTaskId({
+    sourceGroupId: input.sourceGroupId,
+    syncMode,
+    allowMobileRtImport: input.allowMobileRtImport,
+    planFilter,
+  });
+  const tasks = await getSub2ApiAutoSyncTasks();
+  const existing = tasks.find((task) => task.id === id);
+  const nextTask: Sub2ApiAutoSyncTask = {
+    ...(existing || {}),
+    id,
+    enabled: true,
+    sourceGroupId: input.sourceGroupId?.trim() || null,
+    sourceGroupName: input.sourceGroupName?.trim() || null,
+    webGroupId: input.webGroupId?.trim() || null,
+    responsesGroupId: input.responsesGroupId?.trim() || null,
+    syncMode,
+    allowMobileRtImport: Boolean(input.allowMobileRtImport),
+    contentSafetyEnabled: input.contentSafetyEnabled,
+    planFilter,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const nextTasks = existing
+    ? tasks.map((task) => (task.id === id ? nextTask : task))
+    : [...tasks, nextTask];
+  await setSub2ApiAutoSyncTasks(nextTasks);
+  return nextTask;
+}
+
+async function updateSub2ApiAutoSyncTaskResult(
+  taskId: string,
+  result: NonNullable<Sub2ApiAutoSyncTask["lastResult"]>
+) {
+  const tasks = await getSub2ApiAutoSyncTasks();
+  const now = new Date().toISOString();
+  const nextTasks = tasks.map((task) =>
+    task.id === taskId
+      ? { ...task, lastRunAt: now, updatedAt: now, lastResult: result }
+      : task
+  );
+  await setSub2ApiAutoSyncTasks(nextTasks);
+}
+
+async function countAccountsForSub2ApiSyncTask(taskId: string) {
+  const [row] = await db
+    .select({ value: count() })
+    .from(imageBackendAccount)
+    .where(
+      and(
+        sql`${imageBackendAccount.metadata}->>'source' = 'sub2api_postgres'`,
+        sql`${imageBackendAccount.metadata}->>'sub2apiSyncTaskId' = ${taskId}`
+      )
+    );
+  return Number(row?.value || 0);
+}
+
+export async function listSub2ApiAutoSyncTasksForAdmin(): Promise<
+  Sub2ApiAutoSyncTaskSummary[]
+> {
+  const tasks = await getSub2ApiAutoSyncTasks();
+  const counts = await Promise.all(
+    tasks.map((task) => countAccountsForSub2ApiSyncTask(task.id))
+  );
+  return tasks.map((task, index) => ({
+    ...task,
+    managedAccountCount: counts[index] || 0,
+  }));
+}
+
+export async function setSub2ApiAutoSyncTaskEnabled(input: {
+  taskId: string;
+  enabled: boolean;
+}) {
+  const taskId = input.taskId.trim();
+  const tasks = await getSub2ApiAutoSyncTasks();
+  let found = false;
+  const now = new Date().toISOString();
+  const nextTasks = tasks.map((task) => {
+    if (task.id !== taskId) return task;
+    found = true;
+    return { ...task, enabled: input.enabled, updatedAt: now };
+  });
+  if (!found) throw new Error("自动同步任务不存在");
+  await setSub2ApiAutoSyncTasks(nextTasks);
+  return { taskId, enabled: input.enabled };
+}
+
+export async function deleteSub2ApiAutoSyncTask(taskIdInput: string) {
+  const taskId = taskIdInput.trim();
+  const tasks = await getSub2ApiAutoSyncTasks();
+  const nextTasks = tasks.filter((task) => task.id !== taskId);
+  if (nextTasks.length === tasks.length) {
+    throw new Error("自动同步任务不存在");
+  }
+  await setSub2ApiAutoSyncTasks(nextTasks);
+  return { taskId, deleted: true };
 }
 
 async function listSub2ApiSourceGroupsFromPool(pool: Pool) {
@@ -3523,12 +3843,16 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
   webGroupId?: string | null;
   responsesGroupId?: string | null;
   sourceGroupId?: string | null;
+  sourceGroupName?: string | null;
   syncMode: Sub2ApiTokenSyncMode;
   allowMobileRtImport?: boolean;
   contentSafetyEnabled: boolean;
   limit?: number | null;
   offset?: number | null;
   planFilter?: Sub2ApiPlanFilter | null;
+  createSyncTask?: boolean;
+  syncTaskId?: string | null;
+  cleanupManagedAccounts?: boolean;
 }) {
   const configuredLimit = await getRuntimeSettingNumber(
     "SUB2API_POSTGRES_SYNC_LIMIT",
@@ -3548,7 +3872,21 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
     effectiveSyncMode === "both"
       ? (["web", "responses"] as const)
       : ([effectiveSyncMode] as const);
+  const syncTask = input.createSyncTask
+    ? await upsertSub2ApiAutoSyncTask({
+        sourceGroupId: input.sourceGroupId,
+        sourceGroupName: input.sourceGroupName,
+        webGroupId: input.webGroupId,
+        responsesGroupId: input.responsesGroupId,
+        syncMode: effectiveSyncMode,
+        allowMobileRtImport: input.allowMobileRtImport,
+        contentSafetyEnabled: input.contentSafetyEnabled,
+        planFilter,
+      })
+    : null;
+  const syncTaskId = input.syncTaskId || syncTask?.id || null;
   const imported: string[] = [];
+  let deletedCount = 0;
   const syncedByMode = {
     web: 0,
     responses: 0,
@@ -3604,7 +3942,8 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
                 mode,
                 tokenSource,
                 input.allowMobileRtImport,
-                preTokenHealth
+                preTokenHealth,
+                syncTaskId
               );
               imported.push(existing.id);
               syncedByMode[mode]++;
@@ -3642,7 +3981,8 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
               mode,
               tokenSource,
               input.allowMobileRtImport,
-              healthUpdate.preserveLocalUnavailable
+              healthUpdate.preserveLocalUnavailable,
+              syncTaskId
             ),
           });
           imported.push(id);
@@ -3657,6 +3997,24 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
         }
       }
     }
+    if (
+      syncTaskId &&
+      input.cleanupManagedAccounts &&
+      offset + accounts.length >= totalSourceCount
+    ) {
+      const currentSourceIds = await listSub2ApiCurrentAccessTokenSourceIds(
+        pool,
+        {
+          sourceGroupId: input.sourceGroupId,
+          planFilter,
+        }
+      );
+      deletedCount = await deleteSub2ApiAccountsMissingFromTask({
+        syncTaskId,
+        modes,
+        currentSourceIds,
+      });
+    }
 
     return {
       sourceCount: accounts.length,
@@ -3669,6 +4027,8 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       skipped,
       failed: failedByMode.web + failedByMode.responses,
       failedByMode,
+      deletedCount,
+      syncTaskId,
       refreshTokenWriteBackCount: 0,
     };
   } finally {
@@ -3752,6 +4112,73 @@ function shouldRunAutoSub2ApiSync(
   return { run: false, nextRunAt: new Date(nextRunAtMs).toISOString() };
 }
 
+function createSub2ApiSyncAggregate() {
+  return {
+    sourceCount: 0,
+    totalSourceCount: 0,
+    syncedCount: 0,
+    syncedByMode: { web: 0, responses: 0 },
+    skipped: { web: 0, responses: 0 },
+    failed: 0,
+    failedByMode: { web: 0, responses: 0 },
+    deletedCount: 0,
+    refreshTokenWriteBackCount: 0,
+    batches: 0,
+  };
+}
+
+async function runSub2ApiSyncConfig(input: {
+  sourceGroupId?: string | null;
+  sourceGroupName?: string | null;
+  webGroupId?: string | null;
+  responsesGroupId?: string | null;
+  syncMode: Sub2ApiTokenSyncMode;
+  allowMobileRtImport?: boolean;
+  contentSafetyEnabled: boolean;
+  planFilter: Sub2ApiPlanFilter;
+  limit: number;
+  syncTaskId?: string | null;
+  cleanupManagedAccounts?: boolean;
+}) {
+  let offset = 0;
+  let hasMore = true;
+  const aggregate = createSub2ApiSyncAggregate();
+
+  while (hasMore) {
+    const result = await syncImageBackendAccountsFromSub2Api({
+      webGroupId: input.webGroupId,
+      responsesGroupId: input.responsesGroupId,
+      sourceGroupId: input.sourceGroupId,
+      sourceGroupName: input.sourceGroupName,
+      syncMode: input.syncMode,
+      allowMobileRtImport: input.allowMobileRtImport,
+      contentSafetyEnabled: input.contentSafetyEnabled,
+      planFilter: input.planFilter,
+      limit: input.limit,
+      offset,
+      syncTaskId: input.syncTaskId,
+      cleanupManagedAccounts: input.cleanupManagedAccounts,
+    });
+    aggregate.sourceCount += result.sourceCount;
+    aggregate.totalSourceCount = result.totalSourceCount;
+    aggregate.syncedCount += result.syncedCount;
+    aggregate.syncedByMode.web += result.syncedByMode.web;
+    aggregate.syncedByMode.responses += result.syncedByMode.responses;
+    aggregate.skipped.web += result.skipped.web;
+    aggregate.skipped.responses += result.skipped.responses;
+    aggregate.failed += result.failed;
+    aggregate.failedByMode.web += result.failedByMode.web;
+    aggregate.failedByMode.responses += result.failedByMode.responses;
+    aggregate.deletedCount += result.deletedCount;
+    aggregate.refreshTokenWriteBackCount += result.refreshTokenWriteBackCount;
+    aggregate.batches++;
+    hasMore = result.hasMore && result.sourceCount > 0;
+    offset = result.nextOffset;
+  }
+
+  return aggregate;
+}
+
 export async function runAutoSub2ApiAccessTokenSync(options?: {
   force?: boolean;
 }) {
@@ -3827,55 +4254,105 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
   });
 
   try {
-    const [
-      sourceGroupId,
-      syncMode,
-      allowMobileRtImport,
-      planFilter,
-      configuredLimit,
-    ] = await Promise.all([
-      getRuntimeSettingString("SUB2API_AUTO_SYNC_SOURCE_GROUP_ID"),
-      getRuntimeSettingSelect(
-        "SUB2API_AUTO_SYNC_MODE",
-        ["web", "responses", "both"] as const,
-        "responses"
-      ),
-      getRuntimeSettingBoolean("SUB2API_AUTO_SYNC_ALLOW_MOBILE_RT", false),
-      getRuntimeSettingSelect(
-        "SUB2API_AUTO_SYNC_PLAN_FILTER",
-        ["all", "free", "plus", "pro", "non_free"] as const,
-        "non_free"
-      ),
+    const [configuredLimit, configuredTasks] = await Promise.all([
       getRuntimeSettingNumber("SUB2API_POSTGRES_SYNC_LIMIT", 100, {
         positive: true,
       }),
-    ]);
-    const effectiveSyncMode = allowMobileRtImport ? syncMode : "responses";
-    const [webGroupId, responsesGroupId] = await Promise.all([
-      effectiveSyncMode === "web" || effectiveSyncMode === "both"
-        ? getDefaultGroupIdForBackend("web")
-        : Promise.resolve(null),
-      effectiveSyncMode === "responses" || effectiveSyncMode === "both"
-        ? getDefaultGroupIdForBackend("responses")
-        : Promise.resolve(null),
+      getSub2ApiAutoSyncTasks(),
     ]);
     const limit = Math.max(1, Math.min(500, Math.trunc(configuredLimit)));
-    let offset = 0;
-    let hasMore = true;
-    const aggregate = {
-      sourceCount: 0,
-      totalSourceCount: 0,
-      syncedCount: 0,
-      syncedByMode: { web: 0, responses: 0 },
-      skipped: { web: 0, responses: 0 },
-      failed: 0,
-      failedByMode: { web: 0, responses: 0 },
-      refreshTokenWriteBackCount: 0,
-      batches: 0,
-    };
+    const enabledTasks = configuredTasks.filter((task) => task.enabled);
+    const aggregate = createSub2ApiSyncAggregate();
+    const taskResults: NonNullable<
+      NonNullable<AutoSub2ApiSyncMetadata["lastResult"]>["tasks"]
+    > = [];
 
-    while (hasMore) {
-      const result = await syncImageBackendAccountsFromSub2Api({
+    if (enabledTasks.length) {
+      for (const task of enabledTasks) {
+        const effectiveSyncMode = task.allowMobileRtImport
+          ? task.syncMode
+          : "responses";
+        const [webGroupId, responsesGroupId] = await Promise.all([
+          effectiveSyncMode === "web" || effectiveSyncMode === "both"
+            ? task.webGroupId || getDefaultGroupIdForBackend("web")
+            : Promise.resolve(null),
+          effectiveSyncMode === "responses" || effectiveSyncMode === "both"
+            ? task.responsesGroupId || getDefaultGroupIdForBackend("responses")
+            : Promise.resolve(null),
+        ]);
+        const result = await runSub2ApiSyncConfig({
+          webGroupId,
+          responsesGroupId,
+          sourceGroupId: task.sourceGroupId,
+          sourceGroupName: task.sourceGroupName,
+          syncMode: effectiveSyncMode,
+          allowMobileRtImport: task.allowMobileRtImport,
+          contentSafetyEnabled: task.contentSafetyEnabled,
+          planFilter: task.planFilter,
+          limit,
+          syncTaskId: task.id,
+          cleanupManagedAccounts: true,
+        });
+        aggregate.sourceCount += result.sourceCount;
+        aggregate.totalSourceCount += result.totalSourceCount;
+        aggregate.syncedCount += result.syncedCount;
+        aggregate.syncedByMode.web += result.syncedByMode.web;
+        aggregate.syncedByMode.responses += result.syncedByMode.responses;
+        aggregate.skipped.web += result.skipped.web;
+        aggregate.skipped.responses += result.skipped.responses;
+        aggregate.failed += result.failed;
+        aggregate.failedByMode.web += result.failedByMode.web;
+        aggregate.failedByMode.responses += result.failedByMode.responses;
+        aggregate.deletedCount += result.deletedCount;
+        aggregate.refreshTokenWriteBackCount += result.refreshTokenWriteBackCount;
+        aggregate.batches += result.batches;
+        taskResults.push({
+          id: task.id,
+          sourceGroupId: task.sourceGroupId,
+          sourceGroupName: task.sourceGroupName,
+          sourceCount: result.sourceCount,
+          totalSourceCount: result.totalSourceCount,
+          syncedCount: result.syncedCount,
+          failed: result.failed,
+          deletedCount: result.deletedCount,
+        });
+        await updateSub2ApiAutoSyncTaskResult(task.id, {
+          sourceCount: result.sourceCount,
+          totalSourceCount: result.totalSourceCount,
+          syncedCount: result.syncedCount,
+          syncedByMode: result.syncedByMode,
+          skipped: result.skipped,
+          failed: result.failed,
+          failedByMode: result.failedByMode,
+          deletedCount: result.deletedCount,
+        });
+      }
+    } else {
+      const [sourceGroupId, syncMode, allowMobileRtImport, planFilter] =
+        await Promise.all([
+          getRuntimeSettingString("SUB2API_AUTO_SYNC_SOURCE_GROUP_ID"),
+          getRuntimeSettingSelect(
+            "SUB2API_AUTO_SYNC_MODE",
+            ["web", "responses", "both"] as const,
+            "responses"
+          ),
+          getRuntimeSettingBoolean("SUB2API_AUTO_SYNC_ALLOW_MOBILE_RT", false),
+          getRuntimeSettingSelect(
+            "SUB2API_AUTO_SYNC_PLAN_FILTER",
+            ["all", "free", "plus", "pro", "non_free"] as const,
+            "non_free"
+          ),
+        ]);
+      const effectiveSyncMode = allowMobileRtImport ? syncMode : "responses";
+      const [webGroupId, responsesGroupId] = await Promise.all([
+        effectiveSyncMode === "web" || effectiveSyncMode === "both"
+          ? getDefaultGroupIdForBackend("web")
+          : Promise.resolve(null),
+        effectiveSyncMode === "responses" || effectiveSyncMode === "both"
+          ? getDefaultGroupIdForBackend("responses")
+          : Promise.resolve(null),
+      ]);
+      const result = await runSub2ApiSyncConfig({
         webGroupId,
         responsesGroupId,
         sourceGroupId,
@@ -3884,22 +4361,8 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
         contentSafetyEnabled: true,
         planFilter,
         limit,
-        offset,
       });
-      aggregate.sourceCount += result.sourceCount;
-      aggregate.totalSourceCount = result.totalSourceCount;
-      aggregate.syncedCount += result.syncedCount;
-      aggregate.syncedByMode.web += result.syncedByMode.web;
-      aggregate.syncedByMode.responses += result.syncedByMode.responses;
-      aggregate.skipped.web += result.skipped.web;
-      aggregate.skipped.responses += result.skipped.responses;
-      aggregate.failed += result.failed;
-      aggregate.failedByMode.web += result.failedByMode.web;
-      aggregate.failedByMode.responses += result.failedByMode.responses;
-      aggregate.refreshTokenWriteBackCount += result.refreshTokenWriteBackCount;
-      aggregate.batches++;
-      hasMore = result.hasMore && result.sourceCount > 0;
-      offset = result.nextOffset;
+      Object.assign(aggregate, result);
     }
 
     const finishedAt = new Date().toISOString();
@@ -3908,7 +4371,10 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
       lastFinishedAt: finishedAt,
       lastSuccessAt: finishedAt,
       lastStatus: "success",
-      lastResult: aggregate,
+      lastResult: {
+        ...aggregate,
+        tasks: taskResults,
+      },
     };
     await setAutoSub2ApiSyncMetadata(metadata);
 
@@ -3916,13 +4382,9 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
       success: true,
       jobSkipped: false,
       intervalMinutes,
-      sourceGroupId: sourceGroupId || null,
-      syncMode: effectiveSyncMode,
-      allowMobileRtImport,
-      planFilter,
-      webGroupId,
-      responsesGroupId,
+      taskCount: enabledTasks.length,
       ...aggregate,
+      tasks: taskResults,
       timestamp: finishedAt,
     };
   } catch (error) {

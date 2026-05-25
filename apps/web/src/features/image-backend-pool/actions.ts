@@ -12,6 +12,7 @@ import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   deleteImageBackendGroup,
   deleteImageBackendMembers,
+  deleteSub2ApiAutoSyncTask,
   fromSafetyOverride,
   getUserImageBackendPreference,
   bulkUpdateImageBackendAccounts,
@@ -21,9 +22,11 @@ import {
   listAdminImageBackendPool,
   listImageBackendGroupOptions,
   listSelectableImageBackendGroups,
+  listSub2ApiAutoSyncTasksForAdmin,
   listSub2ApiSourceGroups,
   refreshImageBackendAccountInfo,
   refreshImageBackendAccountsInfo,
+  setSub2ApiAutoSyncTaskEnabled,
   setUserImageBackendPreference,
   syncImageBackendAccountsFromSub2Api,
   upsertImageBackendAccount,
@@ -121,6 +124,38 @@ export const getSub2ApiSourceGroupsAction = withImageBackendPoolAdminAction(
   const groups = await listSub2ApiSourceGroups();
   return { groups };
 });
+
+export const getSub2ApiAutoSyncTasksAction = withImageBackendPoolAdminAction(
+  "sub2ApiAutoSyncTasks"
+).action(async () => {
+  const tasks = await listSub2ApiAutoSyncTasksForAdmin();
+  return { tasks };
+});
+
+export const setSub2ApiAutoSyncTaskEnabledAction =
+  withImageBackendPoolAdminAction("setSub2ApiAutoSyncTaskEnabled")
+    .schema(
+      z.object({
+        taskId: z.string().trim().min(1),
+        enabled: z.boolean(),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      await setSub2ApiAutoSyncTaskEnabled(parsedInput);
+      return { success: true };
+    });
+
+export const deleteSub2ApiAutoSyncTaskAction =
+  withImageBackendPoolAdminAction("deleteSub2ApiAutoSyncTask")
+    .schema(
+      z.object({
+        taskId: z.string().trim().min(1),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      await deleteSub2ApiAutoSyncTask(parsedInput.taskId);
+      return { success: true };
+    });
 
 export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
   "saveGroup"
@@ -269,6 +304,8 @@ export const importImageBackendAccountsFromRefreshTokensAction =
         contentSafetyEnabled: z.boolean().default(true),
         priority: z.coerce.number().int().min(0).max(10000).default(50),
         concurrency: z.coerce.number().int().min(1).max(100).default(1),
+        importBatchId: z.string().trim().min(1).max(128).optional(),
+        startIndex: z.coerce.number().int().min(0).max(1_000_000).default(0),
       })
     )
     .action(async ({ parsedInput }) => {
@@ -283,6 +320,8 @@ export const importImageBackendAccountsFromRefreshTokensAction =
         contentSafetyEnabled: parsedInput.contentSafetyEnabled,
         priority: parsedInput.priority,
         concurrency: parsedInput.concurrency,
+        importBatchId: parsedInput.importBatchId,
+        startIndex: parsedInput.startIndex,
       });
       return { success: true, ...result };
     });
@@ -320,12 +359,14 @@ export const syncImageBackendAccountsFromSub2ApiAction =
         webGroupId: nullableGroupIdSchema,
         responsesGroupId: nullableGroupIdSchema,
         sourceGroupId: nullableGroupIdSchema,
+        sourceGroupName: z.string().trim().max(120).optional(),
         syncMode: sub2ApiTokenSyncModeSchema.default("responses"),
         allowMobileRtImport: z.boolean().default(false),
         contentSafetyEnabled: z.boolean().default(true),
         limit: z.coerce.number().int().min(1).max(500).optional(),
         offset: z.coerce.number().int().min(0).optional(),
         planFilter: sub2ApiPlanFilterSchema.default("non_free"),
+        createSyncTask: z.boolean().default(false),
       })
     )
     .action(async ({ parsedInput }) => {
@@ -333,6 +374,7 @@ export const syncImageBackendAccountsFromSub2ApiAction =
         webGroupId: parsedInput.webGroupId,
         responsesGroupId: parsedInput.responsesGroupId,
         sourceGroupId: parsedInput.sourceGroupId,
+        sourceGroupName: parsedInput.sourceGroupName || null,
         syncMode: parsedInput.allowMobileRtImport
           ? parsedInput.syncMode
           : "responses",
@@ -341,6 +383,8 @@ export const syncImageBackendAccountsFromSub2ApiAction =
         limit: parsedInput.limit,
         offset: parsedInput.offset,
         planFilter: parsedInput.planFilter,
+        createSyncTask: parsedInput.createSyncTask,
+        cleanupManagedAccounts: parsedInput.createSyncTask,
       });
       return { success: true, ...result };
     });

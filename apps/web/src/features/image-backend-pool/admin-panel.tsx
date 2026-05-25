@@ -64,7 +64,9 @@ import {
   bulkUpdateImageBackendAccountsAction,
   deleteImageBackendGroupAction,
   deleteImageBackendMemberAction,
+  deleteSub2ApiAutoSyncTaskAction,
   getAdminImageBackendPoolAction,
+  getSub2ApiAutoSyncTasksAction,
   getSub2ApiSourceGroupsAction,
   getSub2ApiSyncStatusAction,
   importImageBackendAccountsFromRefreshTokensAction,
@@ -74,8 +76,10 @@ import {
   saveImageBackendAccountAction,
   saveImageBackendApiAction,
   saveImageBackendGroupAction,
+  setSub2ApiAutoSyncTaskEnabledAction,
   syncImageBackendAccountsFromSub2ApiAction,
 } from "./actions";
+import { parseImportTokensText } from "./import-token-parser";
 import type {
   ImageBackendApiInterfaceMode,
   ImageBackendGroupBackendType,
@@ -167,11 +171,41 @@ type Sub2ApiSourceGroup = {
   accountCount: number;
 };
 
+type Sub2ApiAutoSyncTask = {
+  id: string;
+  enabled: boolean;
+  sourceGroupId: string | null;
+  sourceGroupName?: string | null;
+  webGroupId?: string | null;
+  responsesGroupId?: string | null;
+  syncMode: TokenSyncMode;
+  allowMobileRtImport: boolean;
+  contentSafetyEnabled: boolean;
+  planFilter: Sub2ApiPlanFilter;
+  createdAt?: string;
+  updatedAt?: string;
+  lastRunAt?: string;
+  managedAccountCount: number;
+  lastResult?: {
+    sourceCount: number;
+    totalSourceCount: number;
+    syncedCount: number;
+    skipped: { web: number; responses: number };
+    failed: number;
+    failedByMode: { web: number; responses: number };
+    syncedByMode: { web: number; responses: number };
+    deletedCount: number;
+  };
+};
+
 type SyncProgressState = {
   status: "idle" | "running" | "success" | "error";
   value: number;
   message: string;
 };
+
+const MANUAL_TOKEN_IMPORT_LIMIT = 10_000;
+const MANUAL_RT_IMPORT_BATCH_SIZE = 50;
 
 type BulkAccountForm = {
   selectionGroupId: string;
@@ -532,10 +566,27 @@ function formatModeStats(
   return `${label} 写入 ${stats.synced}，跳过 ${stats.skipped}，失败 ${stats.failed}`;
 }
 
+function tokenSyncModeLabel(value: TokenSyncMode) {
+  if (value === "both") return "Web + Codex";
+  if (value === "web") return "Web";
+  return "Codex/Responses";
+}
+
+function sub2ApiPlanFilterLabel(value: Sub2ApiPlanFilter) {
+  if (value === "non_free") return "排除 free";
+  if (value === "plus") return "plus";
+  if (value === "pro") return "pro";
+  if (value === "free") return "free";
+  return "全部套餐";
+}
+
 export function ImageBackendPoolAdminPanel() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sub2ApiSourceGroups, setSub2ApiSourceGroups] = useState<
     Sub2ApiSourceGroup[]
+  >([]);
+  const [sub2ApiSyncTasks, setSub2ApiSyncTasks] = useState<
+    Sub2ApiAutoSyncTask[]
   >([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [apis, setApis] = useState<Api[]>([]);
@@ -630,6 +681,7 @@ export function ImageBackendPoolAdminPanel() {
     syncMode: "responses" as TokenSyncMode,
     allowMobileRtImport: false,
     planFilter: "non_free" as Sub2ApiPlanFilter,
+    createSyncTask: true,
     contentSafetyEnabled: true,
     limit: 100,
   });
@@ -638,6 +690,14 @@ export function ImageBackendPoolAdminPanel() {
     value: 0,
     message: "等待开始同步",
   });
+  const [manualImportProgress, setManualImportProgress] =
+    useState<SyncProgressState>({
+      status: "idle",
+      value: 0,
+      message: "等待开始导入",
+    });
+  const [isImportingManualRefreshTokens, setIsImportingManualRefreshTokens] =
+    useState(false);
 
   const groupOptions = useMemo(
     () => [
@@ -812,7 +872,7 @@ export function ImageBackendPoolAdminPanel() {
       priority: 50,
     });
 
-  const resetManualImportForm = () =>
+  const resetManualImportForm = () => {
     setManualImportForm({
       refreshTokensText: "",
       webGroupId: "default",
@@ -825,6 +885,12 @@ export function ImageBackendPoolAdminPanel() {
       priority: 50,
       concurrency: 1,
     });
+    setManualImportProgress({
+      status: "idle",
+      value: 0,
+      message: "等待开始导入",
+    });
+  };
 
   const resetWebAtImportForm = () =>
     setWebAtImportForm({
@@ -954,6 +1020,15 @@ export function ImageBackendPoolAdminPanel() {
       },
     });
 
+  const { execute: loadSub2ApiSyncTasks, isPending: isLoadingSyncTasks } =
+    useAction(getSub2ApiAutoSyncTasksAction, {
+      onSuccess: ({ data }) => {
+        setSub2ApiSyncTasks((data?.tasks || []) as Sub2ApiAutoSyncTask[]);
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "加载 Sub2API 自动同步任务失败"),
+    });
+
   const { execute: saveGroup, isPending: isSavingGroup } = useAction(
     saveImageBackendGroupAction,
     {
@@ -1004,26 +1079,9 @@ export function ImageBackendPoolAdminPanel() {
         toast.error(error.serverError || "批量删除账号失败"),
     });
 
-  const {
-    execute: importManualRefreshTokens,
-    isPending: isImportingManualRefreshTokens,
-  } = useAction(importImageBackendAccountsFromRefreshTokensAction, {
-    onSuccess: ({ data }) => {
-      const prefix = data?.message
-        ? `${data.message} `
-        : `导入完成：提取 RT ${data?.sourceCount || 0} 个，`;
-      toast.success(
-        `${prefix}写入 ${
-          data?.syncedCount || 0
-        } 个，失败 ${data?.failed || 0} 个`
-      );
-      setIsManualImportOpen(false);
-      resetManualImportForm();
-      reload();
-    },
-    onError: ({ error }) =>
-      toast.error(error.serverError || "手工 RT 导入失败"),
-  });
+  const { executeAsync: importManualRefreshTokensBatch } = useAction(
+    importImageBackendAccountsFromRefreshTokensAction
+  );
 
   const {
     execute: importWebAccessTokens,
@@ -1063,6 +1121,26 @@ export function ImageBackendPoolAdminPanel() {
     syncImageBackendAccountsFromSub2ApiAction
   );
   const [isSyncingSub2Api, setIsSyncingSub2Api] = useState(false);
+
+  const { execute: setSub2ApiTaskEnabled, isPending: isUpdatingSyncTask } =
+    useAction(setSub2ApiAutoSyncTaskEnabledAction, {
+      onSuccess: () => {
+        toast.success("自动同步任务已更新");
+        loadSub2ApiSyncTasks();
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "更新自动同步任务失败"),
+    });
+
+  const { execute: deleteSub2ApiTask, isPending: isDeletingSyncTask } =
+    useAction(deleteSub2ApiAutoSyncTaskAction, {
+      onSuccess: () => {
+        toast.success("自动同步任务已删除");
+        loadSub2ApiSyncTasks();
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "删除自动同步任务失败"),
+    });
 
   const { execute: deleteGroup, isPending: isDeletingGroup } = useAction(
     deleteImageBackendGroupAction,
@@ -1119,6 +1197,120 @@ export function ImageBackendPoolAdminPanel() {
         toast.error(error.serverError || "批量刷新账号远端信息失败"),
     });
 
+  const runManualRefreshTokenImport = async () => {
+    if (isImportingManualRefreshTokens) return;
+
+    const parsedTokens = parseImportTokensText(
+      manualImportForm.refreshTokensText,
+      { plainFallback: "refresh" }
+    );
+    const parsedCount = parsedTokens.refreshTokens.length;
+    const refreshTokens = parsedTokens.refreshTokens.slice(
+      0,
+      MANUAL_TOKEN_IMPORT_LIMIT
+    );
+
+    if (!refreshTokens.length) {
+      toast.error(
+        "未提取到可导入的 RT。请粘贴 RT 列表，或包含 refresh_token/refreshToken 的 Auth Session。"
+      );
+      return;
+    }
+
+    const importBatchId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `manual-rt-${Date.now()}`;
+    const batchSize = MANUAL_RT_IMPORT_BATCH_SIZE;
+    const totalBatches = Math.ceil(refreshTokens.length / batchSize);
+    let syncedCount = 0;
+    let failedCount = 0;
+    let rotatedCount = 0;
+    const synced = { web: 0, responses: 0 };
+    const skipped = { web: 0, responses: 0 };
+    const failed = { web: 0, responses: 0 };
+
+    setIsImportingManualRefreshTokens(true);
+    setManualImportProgress({
+      status: "running",
+      value: 1,
+      message: `准备导入 ${refreshTokens.length}/${parsedCount} 个 RT`,
+    });
+
+    try {
+      for (let offset = 0; offset < refreshTokens.length; offset += batchSize) {
+        const batchIndex = Math.floor(offset / batchSize) + 1;
+        const batch = refreshTokens.slice(offset, offset + batchSize);
+        setManualImportProgress({
+          status: "running",
+          value: Math.max(1, Math.round((offset / refreshTokens.length) * 100)),
+          message: `正在导入第 ${batchIndex}/${totalBatches} 批，已处理 ${offset}/${refreshTokens.length}`,
+        });
+
+        const result = await importManualRefreshTokensBatch({
+          ...manualImportForm,
+          refreshTokensText: batch.join("\n"),
+          syncMode: effectiveManualImportSyncMode,
+          importBatchId,
+          startIndex: offset,
+        });
+
+        if (result?.serverError) {
+          throw new Error(result.serverError);
+        }
+        if (!result?.data?.success) {
+          throw new Error("手工 RT 导入失败");
+        }
+
+        const data = result.data;
+        syncedCount += data.syncedCount || 0;
+        failedCount += data.failed || 0;
+        rotatedCount += data.refreshTokenRotatedCount || 0;
+        synced.web += data.syncedByMode?.web || 0;
+        synced.responses += data.syncedByMode?.responses || 0;
+        skipped.web += data.skipped?.web || 0;
+        skipped.responses += data.skipped?.responses || 0;
+        failed.web += data.failedByMode?.web || 0;
+        failed.responses += data.failedByMode?.responses || 0;
+
+        const processed = Math.min(offset + batch.length, refreshTokens.length);
+        setManualImportProgress({
+          status: "running",
+          value: Math.min(99, Math.round((processed / refreshTokens.length) * 100)),
+          message: `已处理 ${processed}/${refreshTokens.length}；写入 ${syncedCount}，失败 ${failedCount}`,
+        });
+      }
+
+      const skippedCount = skipped.web + skipped.responses;
+      const truncatedText =
+        parsedCount > refreshTokens.length
+          ? `；超过 ${MANUAL_TOKEN_IMPORT_LIMIT} 的 ${parsedCount - refreshTokens.length} 个已跳过`
+          : "";
+      setManualImportProgress({
+        status: "success",
+        value: 100,
+        message: `完成：写入 ${syncedCount}，跳过 ${skippedCount}，失败 ${failedCount}${truncatedText}`,
+      });
+      toast.success(
+        `RT 导入完成：提取 ${parsedCount} 个，写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个，刷新 RT ${rotatedCount} 个${truncatedText}`
+      );
+      setIsManualImportOpen(false);
+      resetManualImportForm();
+      reload();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "手工 RT 导入失败";
+      setManualImportProgress({
+        status: "error",
+        value: 100,
+        message,
+      });
+      toast.error(message);
+    } finally {
+      setIsImportingManualRefreshTokens(false);
+    }
+  };
+
   const runSub2ApiSync = async () => {
     if (isSyncingSub2Api) return;
     if (sub2ApiConfigured === false) {
@@ -1136,6 +1328,7 @@ export function ImageBackendPoolAdminPanel() {
     let processedCount = 0;
     let syncedCount = 0;
     let failedCount = 0;
+    let deletedCount = 0;
     const synced = { web: 0, responses: 0 };
     const skipped = { web: 0, responses: 0 };
     const failed = { web: 0, responses: 0 };
@@ -1148,13 +1341,19 @@ export function ImageBackendPoolAdminPanel() {
 
     try {
       for (;;) {
+        const sourceGroupName =
+          sub2ApiSourceGroups.find(
+            (group) => group.id === importForm.sourceGroupId
+          )?.name || undefined;
         const result = await syncSub2ApiAccountsBatch({
           sourceGroupId: importForm.sourceGroupId,
+          sourceGroupName,
           webGroupId: importForm.webGroupId,
           responsesGroupId: importForm.responsesGroupId,
           syncMode: effectiveImportSyncMode,
           allowMobileRtImport: importForm.allowMobileRtImport,
           planFilter: importForm.planFilter,
+          createSyncTask: importForm.createSyncTask,
           contentSafetyEnabled: importForm.contentSafetyEnabled,
           limit: batchSize,
           offset,
@@ -1178,6 +1377,7 @@ export function ImageBackendPoolAdminPanel() {
         skipped.responses += data.skipped?.responses || 0;
         failed.web += data.failedByMode?.web || 0;
         failed.responses += data.failedByMode?.responses || 0;
+        deletedCount += data.deletedCount || 0;
 
         const progressBase = totalSourceCount
           ? Math.min(100, Math.round((processedCount / totalSourceCount) * 100))
@@ -1198,7 +1398,9 @@ export function ImageBackendPoolAdminPanel() {
         setSyncProgress({
           status: "running",
           value: data.hasMore ? progressValue : 100,
-          message: `来源账号 ${processedCount}/${totalSourceCount || "?"}；${codexText}；${webText}`,
+          message: `来源账号 ${processedCount}/${totalSourceCount || "?"}；${codexText}；${webText}${
+            deletedCount ? `；删除 ${deletedCount}` : ""
+          }`,
         });
 
         if (!data.hasMore || data.sourceCount === 0) break;
@@ -1220,11 +1422,14 @@ export function ImageBackendPoolAdminPanel() {
           synced: synced.web,
           skipped: skipped.web,
           failed: failed.web,
-        })}`,
+        })}${deletedCount ? `；删除 ${deletedCount}` : ""}`,
       });
       toast.success(
-        `同步完成：写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个`
+        `同步完成：写入 ${syncedCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个${
+          deletedCount ? `，删除 ${deletedCount} 个` : ""
+        }`
       );
+      loadSub2ApiSyncTasks();
       reload();
     } catch (error) {
       const message =
@@ -1318,10 +1523,22 @@ export function ImageBackendPoolAdminPanel() {
     bulkDeleteAccounts({ accountIds: errorAccountIds });
   };
 
+  const runDeleteSub2ApiSyncTask = (task: Sub2ApiAutoSyncTask) => {
+    if (
+      !window.confirm(
+        `确定删除自动同步任务 ${task.sourceGroupName || task.sourceGroupId || "全部 Sub2API OpenAI 账号"}？这只会删除任务配置，不会删除已导入账号。`
+      )
+    ) {
+      return;
+    }
+    deleteSub2ApiTask({ taskId: task.id });
+  };
+
   useEffect(() => {
     loadPool();
     loadSub2ApiSyncStatus();
-  }, [loadPool, loadSub2ApiSyncStatus]);
+    loadSub2ApiSyncTasks();
+  }, [loadPool, loadSub2ApiSyncStatus, loadSub2ApiSyncTasks]);
 
   useEffect(() => {
     if (sub2ApiConfigured) {
@@ -2835,6 +3052,25 @@ export function ImageBackendPoolAdminPanel() {
                   />
                 </div>
               </div>
+              <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+                <div>
+                  <Label>创建自动同步任务</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Cron 会按本次选择的 Sub2API 来源分组、套餐筛选、目标分组和接口类型继续同步；Sub
+                    中新增、状态变化、移出分组或删除的账号都会同步到本站。
+                  </p>
+                </div>
+                <Switch
+                  checked={importForm.createSyncTask}
+                  disabled={isSub2ApiSyncUnavailable}
+                  onCheckedChange={(checked) =>
+                    setImportForm((current) => ({
+                      ...current,
+                      createSyncTask: checked,
+                    }))
+                  }
+                />
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <Select
                   value={importForm.webGroupId}
@@ -2924,6 +3160,118 @@ export function ImageBackendPoolAdminPanel() {
               </div>
             </CardContent>
           </Card>
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between gap-3 text-base">
+                <span className="flex items-center gap-2">
+                  <TimerReset className="h-4 w-4" />
+                  自动同步任务
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadSub2ApiSyncTasks()}
+                  disabled={isLoadingSyncTasks}
+                >
+                  {isLoadingSyncTasks ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                  )}
+                  刷新
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                任务由上方同步时创建。Cron 会按任务保存的来源分组和筛选条件同步新增、状态变化和删除；删除任务只停止后续管理，不会删除已导入账号。
+              </p>
+              {!sub2ApiSyncTasks.length ? (
+                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  暂无自动同步任务。
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sub2ApiSyncTasks.map((task) => {
+                    const sourceLabel =
+                      task.sourceGroupName ||
+                      task.sourceGroupId ||
+                      "全部 Sub2API OpenAI 账号";
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-md border p-3"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="break-all font-medium">
+                                {sourceLabel}
+                              </span>
+                              <Badge
+                                variant={task.enabled ? "default" : "secondary"}
+                              >
+                                {task.enabled ? "启用" : "停用"}
+                              </Badge>
+                              <Badge variant="outline">
+                                {tokenSyncModeLabel(task.syncMode)}
+                              </Badge>
+                              <Badge variant="outline">
+                                {sub2ApiPlanFilterLabel(task.planFilter)}
+                              </Badge>
+                            </div>
+                            <p className="break-all text-xs text-muted-foreground">
+                              任务 {task.id} · 目标 Codex{" "}
+                              {groupName(groups, task.responsesGroupId || null)} ·
+                              目标 Web {groupName(groups, task.webGroupId || null)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              管理账号 {task.managedAccountCount} · Mobile RT{" "}
+                              {task.allowMobileRtImport ? "允许" : "关闭"} · 审核{" "}
+                              {task.contentSafetyEnabled ? "开启" : "关闭"} ·
+                              上次运行 {formatOptionalDate(task.lastRunAt || null)}
+                            </p>
+                            {task.lastResult && (
+                              <p className="text-xs text-muted-foreground">
+                                上次结果：来源 {task.lastResult.sourceCount}/
+                                {task.lastResult.totalSourceCount} · 写入{" "}
+                                {task.lastResult.syncedCount} · 失败{" "}
+                                {task.lastResult.failed} · 删除{" "}
+                                {task.lastResult.deletedCount}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Switch
+                              checked={task.enabled}
+                              disabled={isUpdatingSyncTask}
+                              onCheckedChange={(checked) =>
+                                setSub2ApiTaskEnabled({
+                                  taskId: task.id,
+                                  enabled: checked,
+                                })
+                              }
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isDeletingSyncTask}
+                              onClick={() => runDeleteSub2ApiSyncTask(task)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              删除
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -2939,7 +3287,9 @@ export function ImageBackendPoolAdminPanel() {
               的 Auth Session 不会在这里导入，请使用“导入 Web AT”。默认按 Codex
               CLI RT 导入；勾选 Mobile RT 后由本站使用 mobile client_id 换取
               AT，并保存刷新后的 RT。这里导入的账号可在本站继续更新 RT，不会写入
-              Sub2API。
+              Sub2API。最多处理前 {MANUAL_TOKEN_IMPORT_LIMIT.toLocaleString()} 条，
+              会按 {MANUAL_RT_IMPORT_BATCH_SIZE} 条一批导入，避免大批量 RT 换取 AT
+              时单次请求超时。
             </p>
             <p className="break-words text-sm text-muted-foreground">
               获取 Auth Session 可打开{" "}
@@ -2967,6 +3317,24 @@ export function ImageBackendPoolAdminPanel() {
                 }))
               }
             />
+            {(isImportingManualRefreshTokens ||
+              manualImportProgress.status !== "idle") && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span>{manualImportProgress.message}</span>
+                  <span className="text-muted-foreground">
+                    {isImportingManualRefreshTokens ? "导入中" : "已结束"}
+                  </span>
+                </div>
+                <Progress
+                  value={
+                    isImportingManualRefreshTokens
+                      ? manualImportProgress.value
+                      : 100
+                  }
+                />
+              </div>
+            )}
             <div className="flex items-start justify-between gap-3 rounded-md border p-3">
               <div>
                 <Label>Mobile RT 导入</Label>
@@ -3136,12 +3504,7 @@ export function ImageBackendPoolAdminPanel() {
               </Button>
               <Button
                 type="button"
-                onClick={() =>
-                  importManualRefreshTokens({
-                    ...manualImportForm,
-                    syncMode: effectiveManualImportSyncMode,
-                  })
-                }
+                onClick={runManualRefreshTokenImport}
                 disabled={
                   isImportingManualRefreshTokens ||
                   !manualImportForm.refreshTokensText.trim()

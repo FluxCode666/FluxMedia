@@ -118,6 +118,7 @@ export type SettingKey =
   | "SUB2API_AUTO_SYNC_MODE"
   | "SUB2API_AUTO_SYNC_ALLOW_MOBILE_RT"
   | "SUB2API_AUTO_SYNC_PLAN_FILTER"
+  | "SUB2API_AUTO_SYNC_TASKS"
   | "STORAGE_ACCESS_KEY_ID"
   | "STORAGE_SECRET_ACCESS_KEY"
   | "STORAGE_ENDPOINT"
@@ -1036,6 +1037,28 @@ export const SYSTEM_SETTING_DEFINITIONS = [
       { label: "只同步 pro", value: "pro" },
       { label: "只同步 free", value: "free" },
       { label: "全部套餐", value: "all" },
+    ],
+  },
+  {
+    key: "SUB2API_AUTO_SYNC_TASKS",
+    label: "Sub2API 自动同步任务",
+    description:
+      "从账号池手动同步 Sub2API 时可创建任务。Cron 会按任务保存的来源分组、套餐筛选、目标分组和接口类型继续同步新增、状态变化和删除。",
+    category: "models",
+    valueType: "json",
+    exampleValue: [
+      {
+        id: "sub2api-team-responses-non_free",
+        enabled: true,
+        sourceGroupId: "5",
+        sourceGroupName: "openai-team",
+        syncMode: "responses",
+        allowMobileRtImport: false,
+        planFilter: "non_free",
+        webGroupId: null,
+        responsesGroupId: "default",
+        contentSafetyEnabled: true,
+      },
     ],
   },
   {
