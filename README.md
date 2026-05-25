@@ -119,6 +119,8 @@ pnpm db:studio
 
 调度会跳过已禁用、错误、冷却中、限流中和不匹配请求类型的账号。429、529、usage limit、quota exceeded、insufficient quota、billing hard limit、unsupported model、临时 5xx/timeout 等都有可配置冷却时间；上游返回 `Retry-After`、`resetAt`、`reset_at`、`reset_after`、`restoreAt` 等恢复时间时优先按上游时间恢复。命中不可恢复关键词时账号会标记为错误。
 
+分组可配置计费倍率。直接命中某个分组时只使用该分组倍率；`mixed` 父分组嵌套子分组并实际调度到子分组成员时，父分组倍率和子分组倍率会相乘后用于预扣、成功结算、失败退款和用量记录。例如父分组 `x2`、子分组 `x1.5`，本次请求按 `x3` 结算。
+
 相关后台配置在“系统设置 -> 模型与后端”中：
 
 - `IMAGE_BACKEND_DEFAULT_COOLDOWN_MINUTES`

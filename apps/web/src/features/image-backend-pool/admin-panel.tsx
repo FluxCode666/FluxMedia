@@ -1905,7 +1905,7 @@ export function ImageBackendPoolAdminPanel({
                 />
                 <p className="text-xs text-muted-foreground">
                   该分组被用户选中或设为默认时，本站积分按此倍率结算；mixed
-                  父分组调度到子分组成员时，只使用父分组倍率，子分组倍率不生效。
+                  父分组调度到子分组成员时，父分组倍率和实际命中的子分组倍率会相乘生效。
                 </p>
               </div>
               <div className="space-y-1.5">
