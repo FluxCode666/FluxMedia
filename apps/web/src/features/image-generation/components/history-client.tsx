@@ -1,6 +1,7 @@
 "use client";
 
 import { formatCredits } from "@repo/shared/credits/format";
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -39,6 +40,7 @@ export interface HistoryClientProps {
   totalCount: number;
   page: number;
   pageSize: number;
+  timeZone: string;
 }
 
 function statusClasses(status: HistoryGeneration["status"]): string {
@@ -58,17 +60,21 @@ const STATUS_LABELS_ZH: Record<string, string> = {
   pending: "处理中",
 };
 
-function formatDate(iso: string, locale: string): string {
+function formatDate(iso: string, locale: string, timeZone: string): string {
   try {
-    return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
-      timeZoneName: "short",
-    }).format(new Date(iso));
+    return formatDateInTimeZone(
+      iso,
+      locale,
+      {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      },
+      timeZone
+    );
   } catch {
     return iso;
   }
@@ -79,6 +85,7 @@ export function HistoryClient({
   totalCount,
   page,
   pageSize,
+  timeZone,
 }: HistoryClientProps) {
   const locale = useLocale();
   const isZh = locale === "zh";
@@ -204,7 +211,9 @@ export function HistoryClient({
                 </div>
                 <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
                   <Clock className="h-3 w-3" />
-                  <span className="truncate">{formatDate(item.createdAt, locale)}</span>
+                  <span className="truncate">
+                    {formatDate(item.createdAt, locale, timeZone)}
+                  </span>
                 </div>
               </button>
             </li>
@@ -266,6 +275,7 @@ export function HistoryClient({
           generation={selected as LightboxGeneration}
           imageUrl={selected.imageUrl}
           open={selectedId !== null}
+          timeZone={timeZone}
           onClose={() => setSelectedId(null)}
           onDelete={handleDelete}
         />

@@ -3,6 +3,7 @@ import { CreditUsageSection } from "@repo/shared/credits/components";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
 import { getLocale, getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
 import { BillingSection } from "@/features/settings/components/billing-section";
 
@@ -18,8 +19,11 @@ export default async function BillingPage() {
     redirect(`/${locale}/sign-in`);
   }
 
-  const t = await getTranslations("Settings.billing");
-  const tTabs = await getTranslations("Settings.billing.tabs");
+  const [t, tTabs, timeZone] = await Promise.all([
+    getTranslations("Settings.billing"),
+    getTranslations("Settings.billing.tabs"),
+    getAppTimeZone(),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -40,10 +44,10 @@ export default async function BillingPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="billing" className="mt-0">
-          <BillingSection />
+          <BillingSection timeZone={timeZone} />
         </TabsContent>
         <TabsContent value="usage" className="mt-0">
-          <CreditUsageSection />
+          <CreditUsageSection timeZone={timeZone} />
         </TabsContent>
       </Tabs>
     </div>

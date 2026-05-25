@@ -5,6 +5,7 @@ import { isContentModerationEnabled } from "@repo/shared/moderation";
 import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
@@ -20,12 +21,13 @@ export default async function CreatePage() {
   const locale = await getLocale();
   if (!user) redirect(`/${locale}/sign-in`);
 
-  const [creditsData, recentGenerations, plan, userApiConfig] =
+  const [creditsData, recentGenerations, plan, userApiConfig, timeZone] =
     await Promise.all([
       getCreditsBalance(user.id),
       getUserRecentGenerations(user.id, 6),
       getUserPlan(user.id),
       getUserApiConfig(user.id),
+      getAppTimeZone(),
     ]);
   const [uploadLimits, backendGroups, selectedBackendGroupId, moderationEnabled] =
     await Promise.all([
@@ -70,6 +72,7 @@ export default async function CreatePage() {
       selectedBackendGroupId={selectedBackendGroupId}
       customApiActive={Boolean(userApiConfig)}
       moderationEnabled={moderationEnabled}
+      timeZone={timeZone}
     />
   );
 }

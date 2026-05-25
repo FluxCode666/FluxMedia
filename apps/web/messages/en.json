@@ -681,6 +681,16 @@
       "lastUsed": "Last used",
       "never": "Never",
       "revoke": "Revoke",
+      "quota": {
+        "label": "Credit limit",
+        "description": "Each API key can have its own total credit limit. Leave it empty for unlimited; account credits are still consumed.",
+        "createPlaceholder": "Limit, optional",
+        "placeholder": "Empty = unlimited",
+        "used": "Used",
+        "remaining": "Remaining",
+        "unlimited": "Unlimited",
+        "save": "Save"
+      },
       "moderation": {
         "label": "Moderation level",
         "disabledByPlan": "Moderation blocking is not enabled for your current plan, so API key moderation levels have no effect.",
@@ -698,13 +708,16 @@
         "created": "API key created",
         "copied": "API key copied",
         "revoked": "API key revoked",
-        "updated": "Moderation level updated"
+        "updated": "Settings updated",
+        "quotaUpdated": "API key quota updated"
       },
       "errors": {
         "load": "Failed to load API keys",
         "create": "Failed to create API key",
         "revoke": "Failed to revoke API key",
-        "update": "Failed to update moderation level"
+        "update": "Failed to update settings",
+        "quota": "Failed to update API key quota",
+        "quotaInvalid": "Enter a credit limit greater than or equal to 0, or leave it empty for unlimited"
       }
     },
     "apiConfig": {

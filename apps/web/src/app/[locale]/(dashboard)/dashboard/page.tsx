@@ -2,6 +2,7 @@ import { db } from "@repo/database";
 import { creditsBalance, generation } from "@repo/database/schema";
 import { auth } from "@repo/shared/auth";
 import { formatCredits } from "@repo/shared/credits/format";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { Button } from "@repo/ui/components/button";
 import {
   Card,
@@ -29,7 +30,7 @@ export default async function DashboardPage() {
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
 
-  const [balanceData, recentGenerations, totalGenerationsResult] =
+  const [balanceData, recentGenerations, totalGenerationsResult, timeZone] =
     await Promise.all([
       db.query.creditsBalance.findFirst({
         where: eq(creditsBalance.userId, userId),
@@ -46,6 +47,7 @@ export default async function DashboardPage() {
         .select({ count: count() })
         .from(generation)
         .where(eq(generation.userId, userId)),
+      getAppTimeZone(),
     ]);
 
   const balance = formatCredits(balanceData?.balance ?? 0);
@@ -143,7 +145,10 @@ export default async function DashboardPage() {
                 </Link>
               </Button>
             </div>
-            <RecentCreationsClient initialGenerations={generationsWithUrls} />
+            <RecentCreationsClient
+              initialGenerations={generationsWithUrls}
+              timeZone={timeZone}
+            />
           </div>
         )}
       </div>

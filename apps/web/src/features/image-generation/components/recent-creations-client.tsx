@@ -23,8 +23,10 @@ export interface RecentCreation {
 
 export function RecentCreationsClient({
   initialGenerations,
+  timeZone,
 }: {
   initialGenerations: RecentCreation[];
+  timeZone: string;
 }) {
   const [items, setItems] = useState<RecentCreation[]>(initialGenerations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export function RecentCreationsClient({
             creditsConsumed={item.creditsConsumed}
             createdAt={item.createdAt}
             status={item.status}
+            timeZone={timeZone}
             onClick={() => setSelectedId(item.id)}
           />
         ))}
@@ -58,6 +61,7 @@ export function RecentCreationsClient({
           generation={selected as LightboxGeneration}
           imageUrl={selected.imageUrl}
           open={selectedId !== null}
+          timeZone={timeZone}
           onClose={() => setSelectedId(null)}
           onDelete={handleDelete}
         />

@@ -18,6 +18,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect } from "react";
 
+import { formatDateInTimeZone } from "../../time-zone";
 import { Button } from "@repo/ui/components/button";
 import { Separator } from "@repo/ui/components/separator";
 import {
@@ -31,21 +32,23 @@ import { TransactionHistory } from "./transaction-history";
 /**
  * 格式化日期
  */
-function formatDate(date: Date | string | null, locale: string): string {
+function formatDate(
+  date: Date | string | null,
+  locale: string,
+  timeZone: string
+): string {
   if (!date) return "Never";
-  const d = new Date(date);
-  return d.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", {
+  return formatDateInTimeZone(date, locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    timeZone: "UTC",
-  });
+  }, timeZone);
 }
 
 /**
  * 积分使用情况组件
  */
-export function CreditUsageSection() {
+export function CreditUsageSection({ timeZone }: { timeZone: string }) {
   const t = useTranslations("Settings.usage");
   const locale = useLocale();
 
@@ -188,7 +191,7 @@ export function CreditUsageSection() {
                 <p className="text-sm text-amber-700 dark:text-amber-400">
                   {t("expiringSoon.message", {
                     count: formatCredits(expiringBatch.remaining),
-                    date: formatDate(expiringBatch.expiresAt, locale),
+                    date: formatDate(expiringBatch.expiresAt, locale, timeZone),
                   })}
                 </p>
               </div>
@@ -200,7 +203,7 @@ export function CreditUsageSection() {
       <Separator />
 
       {/* 交易历史 */}
-      <TransactionHistory />
+      <TransactionHistory timeZone={timeZone} />
     </div>
   );
 }

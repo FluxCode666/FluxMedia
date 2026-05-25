@@ -44,6 +44,8 @@ export async function authenticateExternalApiRequest(request: Request) {
       userId: externalApiKey.userId,
       keyHash: externalApiKey.keyHash,
       moderationBlockRiskLevel: externalApiKey.moderationBlockRiskLevel,
+      creditLimit: externalApiKey.creditLimit,
+      creditsUsed: externalApiKey.creditsUsed,
       userBanned: user.banned,
     })
     .from(externalApiKey)
@@ -74,5 +76,7 @@ export async function authenticateExternalApiRequest(request: Request) {
         ? apiKey.moderationBlockRiskLevel
         : "low"
     ) satisfies ModerationBlockRiskLevel,
+    creditLimit: apiKey.creditLimit ?? null,
+    creditsUsed: Number(apiKey.creditsUsed || 0),
   };
 }

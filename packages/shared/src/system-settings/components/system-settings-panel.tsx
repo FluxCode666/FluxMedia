@@ -25,6 +25,7 @@ import {
 import { Switch } from "@repo/ui/components/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
 import { Textarea } from "@repo/ui/components/textarea";
+import { formatDateInTimeZone } from "../../time-zone";
 
 import {
   getSystemSettingsAction,
@@ -169,11 +170,6 @@ const FEATURE_ROWS = [
     key: "moderation.blocking",
     label: "审核拦截",
     description: "本站内容审核是否对该套餐生效",
-  },
-  {
-    key: "moderation.riskLevelControl",
-    label: "审核强度控制",
-    description: "允许用户调整拦截等级",
   },
   {
     key: "moderation.onlyFailureSettlement",
@@ -1077,7 +1073,7 @@ function PlanCapabilityMatrixInput({
         <div>
           <h4 className="text-sm font-semibold">审核策略</h4>
           <p className="text-xs text-muted-foreground">
-            配置各套餐默认审核拦截等级和允许选择的最高等级。
+            配置各套餐默认审核拦截等级和用户/API Key 可选择的最高等级。
           </p>
         </div>
         <div className="overflow-x-auto rounded-md border">
@@ -1579,6 +1575,8 @@ export function SystemSettingsPanel() {
     }
     return map;
   }, [settings]);
+  const configuredTimeZone =
+    settings.find((setting) => setting.key === "APP_TIME_ZONE")?.value || "UTC";
 
   const handleSave = () => {
     const payload: SettingUpdate[] = [];
@@ -1790,7 +1788,18 @@ export function SystemSettingsPanel() {
                       {setting.updatedAt && (
                         <p className="text-xs text-muted-foreground">
                           最近更新:{" "}
-                          {new Date(setting.updatedAt).toLocaleString("zh-CN")}
+                          {formatDateInTimeZone(
+                            setting.updatedAt,
+                            "zh",
+                            {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                            configuredTimeZone
+                          )}
                         </p>
                       )}
                     </CardContent>

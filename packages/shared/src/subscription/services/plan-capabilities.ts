@@ -54,7 +54,6 @@ export const PLAN_CAPABILITY_KEYS = [
   "externalApi.responses",
   "externalApi.streaming",
   "moderation.blocking",
-  "moderation.riskLevelControl",
   "moderation.onlyFailureSettlement",
 ] as const;
 
@@ -124,7 +123,6 @@ export const DEFAULT_PLAN_CAPABILITY_MATRIX: PlanCapabilityMatrix = {
     "externalApi.responses": "pro",
     "externalApi.streaming": "starter",
     "moderation.blocking": "free",
-    "moderation.riskLevelControl": "ultra",
     "moderation.onlyFailureSettlement": "ultra",
   },
   limits: {

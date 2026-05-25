@@ -36,6 +36,7 @@ export interface GalleryClientProps {
   draftCount: number;
   activeTab: "final" | "agent-drafts";
   page: number;
+  timeZone: string;
 }
 
 export function GalleryClient({
@@ -45,6 +46,7 @@ export function GalleryClient({
   draftCount,
   activeTab,
   page,
+  timeZone,
 }: GalleryClientProps) {
   const locale = useLocale();
   const isZh = locale === "zh";
@@ -140,6 +142,7 @@ export function GalleryClient({
               creditsConsumed={item.creditsConsumed}
               createdAt={item.createdAt}
               status={item.status}
+              timeZone={timeZone}
               onClick={() => setSelectedId(item.id)}
               badge={
                 item.outputRole === "agent_draft"
@@ -166,6 +169,7 @@ export function GalleryClient({
           generation={selected as LightboxGeneration}
           imageUrl={selected.imageUrl}
           open={selectedId !== null}
+          timeZone={timeZone}
           onClose={() => setSelectedId(null)}
           onDelete={
             selected.outputRole === "agent_draft" ? undefined : handleDelete

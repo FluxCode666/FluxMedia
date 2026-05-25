@@ -147,6 +147,12 @@ const sections = {
           "-",
           "只返回当前套餐/API Key 可见模型，不触发后端池调度。",
         ],
+        [
+          "GPT2IMAGE credits",
+          "/v1/credits",
+          "-",
+          "返回当前 API Key 的限额、已用、剩余以及所属账户余额，不触发后端池调度。",
+        ],
       ],
     },
     relationship: {
@@ -191,6 +197,7 @@ const sections = {
         "response_format 控制返回 URL 或 base64；output_format 才控制图片文件格式，二者不是同一个字段。",
         "错误响应采用 OpenAI 风格 error 对象；本站可能额外返回 generation_id、generationId、credits_consumed 方便排查和对账。",
         "外接 API Key 绑定的后端分组优先；未绑定时使用用户默认分组，再回退默认启用分组。",
+        "外接 API Key 可设置独立积分限额；GET /v1/credits 可查询 Key 限额、已用额度和账户余额。",
         "用户已启用“接入其他站 API”时仍优先使用用户自接 API；image 接口的 force_web / forceWeb 不会覆盖用户自接 API。",
       ],
       officialRefsTitle: "官方参考",
@@ -260,6 +267,57 @@ const sections = {
           notes: [
             "本站当前只实现模型列表，不实现 /v1/models/{model} 详情。",
             "返回模型会按套餐过滤；Ultra 用户可见更多 Responses 模型。",
+          ],
+        },
+        {
+          title: "Get credits",
+          method: "GET",
+          path: "/v1/credits",
+          contentType: "无请求体",
+          description:
+            "查询当前 Bearer API Key 的限额、已用额度、剩余额度，以及所属账户当前积分余额。",
+          example: `curl https://gpt2image.superapi.buzz/v1/credits \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
+          responseExample: `{
+  "object": "credit_balance",
+  "account": {
+    "balance": 15702.45,
+    "total_earned": 20000,
+    "total_spent": 4297.55,
+    "status": "active"
+  },
+  "api_key": {
+    "credit_limit": 1000,
+    "credits_used": 12.7,
+    "credits_remaining": 987.3,
+    "unlimited": false
+  }
+}`,
+          fields: [
+            {
+              name: "Authorization",
+              requirement: "必填 header",
+              description: "Bearer <本站 API Key>。",
+            },
+          ],
+          responses: [
+            {
+              name: "account.balance",
+              description: "所属用户账户当前可用积分余额。",
+            },
+            {
+              name: "api_key.credit_limit",
+              description: "当前 API Key 总限额；null 表示不限额。",
+            },
+            {
+              name: "api_key.credits_used / credits_remaining",
+              description:
+                "当前 API Key 已用和剩余额度；不限额时 credits_remaining 为 null。",
+            },
+          ],
+          notes: [
+            "API Key 限额只限制该 Key 自身；实际调用仍必须有足够账户积分。",
+            "生成失败退款、审核拦截结算和实际尺寸后修正会同步修正 Key 已用额度。",
           ],
         },
         {
@@ -1137,6 +1195,12 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "-",
           "Only lists models visible to the current plan/API key and does not trigger backend pool routing.",
         ],
+        [
+          "GPT2IMAGE credits",
+          "/v1/credits",
+          "-",
+          "Returns the current API key quota, usage, remaining quota, and the owning account credit balance without backend routing.",
+        ],
       ],
     },
     relationship: {
@@ -1181,6 +1245,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "response_format controls URL vs base64; output_format controls the image file format. They are different fields.",
         "Error responses use an OpenAI-style error object. GPT2IMAGE may also return generation_id, generationId, and credits_consumed for debugging and reconciliation.",
         "A backend group bound to the external API key wins first. Otherwise the user's default group is used, then the enabled platform default group.",
+        "External API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
         "If the user has enabled a custom upstream API, GPT2IMAGE still uses that custom API first; image endpoint force_web / forceWeb does not override it.",
       ],
       officialRefsTitle: "Official References",
@@ -1250,6 +1315,57 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           notes: [
             "Only model listing is implemented; /v1/models/{model} is not implemented.",
             "Returned models are filtered by plan. Ultra users can see additional Responses models.",
+          ],
+        },
+        {
+          title: "Get credits",
+          method: "GET",
+          path: "/v1/credits",
+          contentType: "No request body",
+          description:
+            "Returns the current Bearer API key's credit limit, used credits, remaining credits, and owning account balance.",
+          example: `curl https://gpt2image.superapi.buzz/v1/credits \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
+          responseExample: `{
+  "object": "credit_balance",
+  "account": {
+    "balance": 15702.45,
+    "total_earned": 20000,
+    "total_spent": 4297.55,
+    "status": "active"
+  },
+  "api_key": {
+    "credit_limit": 1000,
+    "credits_used": 12.7,
+    "credits_remaining": 987.3,
+    "unlimited": false
+  }
+}`,
+          fields: [
+            {
+              name: "Authorization",
+              requirement: "Required header",
+              description: "Bearer <GPT2IMAGE API key>.",
+            },
+          ],
+          responses: [
+            {
+              name: "account.balance",
+              description: "Current available credits on the owning account.",
+            },
+            {
+              name: "api_key.credit_limit",
+              description: "Total limit for this API key; null means unlimited.",
+            },
+            {
+              name: "api_key.credits_used / credits_remaining",
+              description:
+                "Used and remaining quota for this key. credits_remaining is null when unlimited.",
+            },
+          ],
+          notes: [
+            "The API key quota only limits this key. Calls still require enough account credits.",
+            "Failed-generation refunds, moderation settlement, and actual-size corrections also update key usage.",
           ],
         },
         {

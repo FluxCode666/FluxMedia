@@ -7,6 +7,9 @@ import { z } from "zod";
 
 import { db } from "@repo/database";
 import { externalApiKey } from "@repo/database/schema";
+import {
+  normalizeExternalApiKeyCreditLimit,
+} from "@/features/external-api/quota";
 import { listImageBackendGroupOptions } from "@/features/image-backend-pool/service";
 import { protectedAction } from "@repo/shared/safe-action";
 import {
@@ -65,6 +68,8 @@ export const getExternalApiKeys = withExternalApiKeyAction("list").action(
         lastFour: externalApiKey.lastFour,
         moderationBlockRiskLevel: externalApiKey.moderationBlockRiskLevel,
         generationGroupId: externalApiKey.generationGroupId,
+        creditLimit: externalApiKey.creditLimit,
+        creditsUsed: externalApiKey.creditsUsed,
         lastUsedAt: externalApiKey.lastUsedAt,
         isActive: externalApiKey.isActive,
         createdAt: externalApiKey.createdAt,
@@ -87,6 +92,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
       name: z.string().trim().min(1).max(80).optional(),
       moderationBlockRiskLevel: z.enum(["low", "medium", "high"]).optional(),
       generationGroupId: z.string().trim().optional().nullable(),
+      creditLimit: z.number().min(0).nullable().optional(),
     })
   )
   .action(async ({ parsedInput, ctx }) => {
@@ -111,6 +117,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
         parsedInput.moderationBlockRiskLevel
       ),
       generationGroupId,
+      creditLimit: normalizeExternalApiKeyCreditLimit(parsedInput.creditLimit),
     });
 
     return { apiKey };
@@ -210,4 +217,33 @@ export const updateExternalApiKeyGroup = withExternalApiKeyAction("updateGroup")
       );
 
     return { success: true };
+  });
+
+export const updateExternalApiKeyQuota = withExternalApiKeyAction("updateQuota")
+  .schema(
+    z.object({
+      id: z.string().min(1),
+      creditLimit: z.number().min(0).nullable(),
+    })
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureExternalApiAllowed(ctx.userId);
+    const creditLimit = normalizeExternalApiKeyCreditLimit(
+      parsedInput.creditLimit
+    );
+
+    await db
+      .update(externalApiKey)
+      .set({
+        creditLimit,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(externalApiKey.id, parsedInput.id),
+          eq(externalApiKey.userId, ctx.userId)
+        )
+      );
+
+    return { success: true, creditLimit };
   });

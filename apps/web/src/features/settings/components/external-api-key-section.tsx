@@ -6,8 +6,10 @@ import {
   type ModerationBlockRiskLevel,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import { formatCredits } from "@repo/shared/credits/format";
 import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Label } from "@repo/ui/components/label";
@@ -38,6 +40,7 @@ import {
   revokeExternalApiKey,
   updateExternalApiKeyGroup,
   updateExternalApiKeyModeration,
+  updateExternalApiKeyQuota,
 } from "../actions";
 import type { ImageBackendGroupBackendType } from "@/features/image-backend-pool/types";
 
@@ -60,17 +63,24 @@ type ExternalApiKeySummary = {
   lastFour: string;
   moderationBlockRiskLevel: ModerationBlockRiskLevel;
   generationGroupId: string | null;
+  creditLimit: number | null;
+  creditsUsed: number;
   lastUsedAt: Date | string | null;
   isActive: boolean;
   createdAt: Date | string;
 };
 
-function formatDate(value: Date | string | null, emptyLabel: string) {
+function formatDate(
+  value: Date | string | null,
+  emptyLabel: string,
+  locale: string,
+  timeZone?: string
+) {
   if (!value) return emptyLabel;
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDateInTimeZone(value, locale, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  }, timeZone);
 }
 
 function groupOptionLabel(group: ImageBackendGroupOption) {
@@ -93,7 +103,7 @@ function groupOptionLabel(group: ImageBackendGroupOption) {
   return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backend} · ${safety}${billing}`;
 }
 
-export function ExternalApiKeySection() {
+export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   const locale = useLocale();
   const t = useTranslations("Settings.externalApi");
   const baseUrl =
@@ -106,6 +116,8 @@ export function ExternalApiKeySection() {
   const [newKeyModerationLevel, setNewKeyModerationLevel] =
     useState<ModerationBlockRiskLevel>("low");
   const [newKeyGroupId, setNewKeyGroupId] = useState("default");
+  const [newKeyCreditLimit, setNewKeyCreditLimit] = useState("");
+  const [quotaDrafts, setQuotaDrafts] = useState<Record<string, string>>({});
   const [groups, setGroups] = useState<ImageBackendGroupOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [externalApiAllowed, setExternalApiAllowed] = useState(false);
@@ -118,20 +130,32 @@ export function ExternalApiKeySection() {
   const moderationOptionSet = new Set(moderationOptions);
   const moderationBlockingEnabled =
     capabilities?.features["moderation.blocking"] ?? true;
+  const moderationControlAllowed =
+    moderationBlockingEnabled && moderationOptions.length > 1;
 
   const { execute: loadKeys, isPending: isRefreshing } = useAction(
     getExternalApiKeys,
     {
       onSuccess: ({ data }) => {
-        setKeys(
-          (data?.keys || []).map((key) => ({
+        const nextKeys = (data?.keys || []).map((key) => ({
             ...key,
+            creditLimit:
+              typeof key.creditLimit === "number" ? key.creditLimit : null,
+            creditsUsed: Number(key.creditsUsed || 0),
             moderationBlockRiskLevel:
               key.moderationBlockRiskLevel === "medium" ||
               key.moderationBlockRiskLevel === "high"
                 ? key.moderationBlockRiskLevel
-                : "low",
-          }))
+                : ("low" as ModerationBlockRiskLevel),
+          }));
+        setKeys(nextKeys);
+        setQuotaDrafts(
+          Object.fromEntries(
+            nextKeys.map((key) => [
+              key.id,
+              key.creditLimit === null ? "" : String(key.creditLimit),
+            ])
+          )
         );
         setGroups((data?.groups || []) as ImageBackendGroupOption[]);
         setLoading(false);
@@ -149,6 +173,7 @@ export function ExternalApiKeySection() {
       onSuccess: ({ data }) => {
         if (data?.apiKey) {
           setNewKey(data.apiKey);
+          setNewKeyCreditLimit("");
           toast.success(t("success.created"));
           loadKeys();
         }
@@ -198,6 +223,19 @@ export function ExternalApiKeySection() {
     }
   );
 
+  const { execute: updateKeyQuota, isPending: isUpdatingQuota } = useAction(
+    updateExternalApiKeyQuota,
+    {
+      onSuccess: () => {
+        toast.success(t("success.quotaUpdated"));
+        loadKeys();
+      },
+      onError: ({ error }) => {
+        toast.error(error.serverError || t("errors.quota"));
+      },
+    }
+  );
+
   useEffect(() => {
     if (didLoadRef.current) return;
     didLoadRef.current = true;
@@ -223,6 +261,23 @@ export function ExternalApiKeySection() {
     toast.success(t("success.copied"));
   };
 
+  const parseQuotaLimit = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      toast.error(t("errors.quotaInvalid"));
+      return undefined;
+    }
+    return numeric;
+  };
+
+  const saveKeyQuota = (keyId: string) => {
+    const creditLimit = parseQuotaLimit(quotaDrafts[keyId] || "");
+    if (creditLimit === undefined) return;
+    updateKeyQuota({ id: keyId, creditLimit });
+  };
+
   return (
     <div className="space-y-4 rounded-lg border border-border p-4">
       <div className="flex items-start justify-between gap-4">
@@ -240,6 +295,9 @@ export function ExternalApiKeySection() {
           <p className="text-xs text-muted-foreground">
             {t("responsesRequiresPro")}
           </p>
+          <p className="text-xs text-muted-foreground">
+            {t("quota.description")}
+          </p>
           {!moderationBlockingEnabled && (
             <p className="text-xs text-muted-foreground">
               {t("moderation.disabledByPlan")}
@@ -255,6 +313,7 @@ export function ExternalApiKeySection() {
             <p>POST /v1/responses</p>
             <p>POST /v1/images/generations</p>
             <p>POST /v1/images/edits</p>
+            <p>GET /v1/credits</p>
           </div>
           <Link
             href={`/${locale}/dashboard/backend-help`}
@@ -312,7 +371,7 @@ export function ExternalApiKeySection() {
           onValueChange={(value) =>
             setNewKeyModerationLevel(value as ModerationBlockRiskLevel)
           }
-          disabled={!externalApiAllowed || !moderationBlockingEnabled}
+          disabled={!externalApiAllowed || !moderationControlAllowed}
         >
           <SelectTrigger className="sm:w-48">
             <SelectValue placeholder={t("moderation.label")} />
@@ -342,15 +401,28 @@ export function ExternalApiKeySection() {
             ))}
           </SelectContent>
         </Select>
+        <Input
+          type="number"
+          min={0}
+          step="0.01"
+          value={newKeyCreditLimit}
+          onChange={(event) => setNewKeyCreditLimit(event.target.value)}
+          placeholder={t("quota.createPlaceholder")}
+          className="sm:max-w-40"
+          disabled={!externalApiAllowed}
+        />
         <Button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            const creditLimit = parseQuotaLimit(newKeyCreditLimit);
+            if (creditLimit === undefined) return;
             createKey({
               name: keyName || undefined,
               moderationBlockRiskLevel: newKeyModerationLevel,
               generationGroupId: newKeyGroupId,
-            })
-          }
+              creditLimit,
+            });
+          }}
           disabled={isCreating || !externalApiAllowed}
         >
           {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -385,7 +457,15 @@ export function ExternalApiKeySection() {
                 </div>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">
                   {key.keyPrefix}...{key.lastFour} · {t("lastUsed")}{" "}
-                  {formatDate(key.lastUsedAt, t("never"))}
+                  {formatDate(key.lastUsedAt, t("never"), locale, timeZone)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("quota.used")}: {formatCredits(key.creditsUsed)} ·{" "}
+                  {key.creditLimit === null
+                    ? t("quota.unlimited")
+                    : `${t("quota.remaining")}: ${formatCredits(
+                        Math.max(0, key.creditLimit - key.creditsUsed)
+                      )} / ${formatCredits(key.creditLimit)}`}
                 </p>
                 <div className="mt-3 max-w-xs">
                   <Label htmlFor={`external-key-moderation-${key.id}`}>
@@ -406,7 +486,7 @@ export function ExternalApiKeySection() {
                     }
                     disabled={
                       !externalApiAllowed ||
-                      !moderationBlockingEnabled ||
+                      !moderationControlAllowed ||
                       isUpdatingModeration
                     }
                   >
@@ -456,6 +536,38 @@ export function ExternalApiKeySection() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="mt-3 flex max-w-xs items-end gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor={`external-key-quota-${key.id}`}>
+                      {t("quota.label")}
+                    </Label>
+                    <Input
+                      id={`external-key-quota-${key.id}`}
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={quotaDrafts[key.id] ?? ""}
+                      onChange={(event) =>
+                        setQuotaDrafts((current) => ({
+                          ...current,
+                          [key.id]: event.target.value,
+                        }))
+                      }
+                      placeholder={t("quota.placeholder")}
+                      className="mt-1"
+                      disabled={!externalApiAllowed || isUpdatingQuota}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => saveKeyQuota(key.id)}
+                    disabled={!externalApiAllowed || isUpdatingQuota}
+                  >
+                    {t("quota.save")}
+                  </Button>
                 </div>
               </div>
               {key.isActive && (

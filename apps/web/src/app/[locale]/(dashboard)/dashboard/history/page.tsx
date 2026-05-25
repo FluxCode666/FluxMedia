@@ -5,6 +5,7 @@ import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { HistoryClient } from "@/features/image-generation/components/history-client";
 import { getCurrentUser } from "@repo/shared/auth/server";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
 interface HistoryPageProps {
   searchParams: Promise<{ page?: string }>;
@@ -23,7 +24,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
   const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const offset = (page - 1) * PAGE_SIZE;
 
-  const [generations, totalResult] = await Promise.all([
+  const [generations, totalResult, timeZone] = await Promise.all([
     db
       .select()
       .from(generation)
@@ -35,6 +36,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
       .select({ count: count() })
       .from(generation)
       .where(eq(generation.userId, user.id)),
+    getAppTimeZone(),
   ]);
 
   const withUrls = generations.map((g) => ({
@@ -73,6 +75,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         totalCount={totalResult[0]?.count ?? 0}
         page={page}
         pageSize={PAGE_SIZE}
+        timeZone={timeZone}
       />
     </div>
   );

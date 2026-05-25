@@ -5,6 +5,7 @@ import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { GalleryClient } from "@/features/image-generation/components/gallery-client";
 import { getCurrentUser } from "@repo/shared/auth/server";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
 interface GalleryPageProps {
   searchParams: Promise<{ page?: string; tab?: string }>;
@@ -105,7 +106,13 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
     )`
   );
 
-  const [generations, totalResult, finalCountResult, draftParentRows] =
+  const [
+    generations,
+    totalResult,
+    finalCountResult,
+    draftParentRows,
+    timeZone,
+  ] =
     await Promise.all([
       db
         .select()
@@ -126,6 +133,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
         .from(generation)
         .where(draftCondition)
         .orderBy(desc(generation.createdAt)),
+      getAppTimeZone(),
     ]);
 
   const allDraftItems = extractAgentDraftGenerations(draftParentRows);
@@ -173,6 +181,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
         draftCount={draftCount}
         activeTab={activeTab}
         page={page}
+        timeZone={timeZone}
       />
     </div>
   );

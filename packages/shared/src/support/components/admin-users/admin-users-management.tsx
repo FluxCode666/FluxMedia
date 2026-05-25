@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { formatCredits } from "../../../credits/format";
+import { formatDateInTimeZone } from "../../../time-zone";
 import {
   adminAdjustCreditsAction,
   adminGrantCreditsAction,
@@ -178,6 +179,8 @@ type UserDetail = {
     name: string;
     keyPrefix: string;
     lastFour: string;
+    creditLimit: number | null;
+    creditsUsed: number;
     lastUsedAt: Date | null;
     isActive: boolean;
     createdAt: Date;
@@ -215,7 +218,7 @@ const EDITABLE_PLAN_OPTIONS = PLAN_OPTIONS.filter(
     item.value !== "all"
 );
 
-function formatDateTime(value?: Date | string | null) {
+function formatDateTime(value?: Date | string | null, timeZone?: string) {
   if (!value) {
     return "-";
   }
@@ -223,13 +226,13 @@ function formatDateTime(value?: Date | string | null) {
   if (Number.isNaN(date.getTime())) {
     return "-";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  return formatDateInTimeZone(date, "zh", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date);
+  }, timeZone);
 }
 
 function getInitials(name: string) {
@@ -310,8 +313,10 @@ function userRoleBadge(role: AppUserRole) {
 
 export function AdminUsersManagement({
   canManageRoles = false,
+  timeZone,
 }: {
   canManageRoles?: boolean;
+  timeZone?: string;
 }) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [stats, setStats] = useState({
@@ -1051,7 +1056,7 @@ export function AdminUsersManagement({
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          {formatDateTime(item.createdAt)}
+                          {formatDateTime(item.createdAt, timeZone)}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
@@ -1296,8 +1301,14 @@ export function AdminUsersManagement({
                           ["邮箱", detail.user.email],
                           ["邮箱验证", detail.user.emailVerified ? "已验证" : "未验证"],
                           ["角色", getUserRoleLabel(detail.user.role)],
-                          ["注册时间", formatDateTime(detail.user.createdAt)],
-                          ["更新时间", formatDateTime(detail.user.updatedAt)],
+                          [
+                            "注册时间",
+                            formatDateTime(detail.user.createdAt, timeZone),
+                          ],
+                          [
+                            "更新时间",
+                            formatDateTime(detail.user.updatedAt, timeZone),
+                          ],
                         ]}
                       />
                       <InfoBlock
@@ -1307,11 +1318,17 @@ export function AdminUsersManagement({
                           ["Price ID", detail.subscription?.priceId ?? "-"],
                           [
                             "周期开始",
-                            formatDateTime(detail.subscription?.currentPeriodStart),
+                            formatDateTime(
+                              detail.subscription?.currentPeriodStart,
+                              timeZone
+                            ),
                           ],
                           [
                             "周期结束",
-                            formatDateTime(detail.subscription?.currentPeriodEnd),
+                            formatDateTime(
+                              detail.subscription?.currentPeriodEnd,
+                              timeZone
+                            ),
                           ],
                           [
                             "到期取消",
@@ -1350,8 +1367,8 @@ export function AdminUsersManagement({
                               <Badge variant="secondary">{batch.sourceType}</Badge>
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              发放 {formatDateTime(batch.issuedAt)} · 过期{" "}
-                              {formatDateTime(batch.expiresAt)}
+                              发放 {formatDateTime(batch.issuedAt, timeZone)} · 过期{" "}
+                              {formatDateTime(batch.expiresAt, timeZone)}
                             </div>
                           </div>
                         ))}
@@ -1372,7 +1389,7 @@ export function AdminUsersManagement({
                               <div className="font-medium">{tx.type}</div>
                               <div className="text-xs text-muted-foreground">
                                 {tx.description || "-"} ·{" "}
-                                {formatDateTime(tx.createdAt)}
+                                {formatDateTime(tx.createdAt, timeZone)}
                               </div>
                             </div>
                             <span className="font-medium">
@@ -1459,7 +1476,7 @@ export function AdminUsersManagement({
                                 </p>
                               ) : null}
                               <p className="text-xs text-muted-foreground">
-                                {formatDateTime(item.createdAt)}
+                                {formatDateTime(item.createdAt, timeZone)}
                               </p>
                             </div>
                           </div>
@@ -1497,8 +1514,19 @@ export function AdminUsersManagement({
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {key.keyPrefix}...{key.lastFour} · 最近使用{" "}
-                                {formatDateTime(key.lastUsedAt)} · 创建{" "}
-                                {formatDateTime(key.createdAt)}
+                                {formatDateTime(key.lastUsedAt, timeZone)} · 创建{" "}
+                                {formatDateTime(key.createdAt, timeZone)}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                已用 {formatCredits(key.creditsUsed)} ·{" "}
+                                {key.creditLimit === null
+                                  ? "不限额"
+                                  : `剩余 ${formatCredits(
+                                      Math.max(
+                                        0,
+                                        key.creditLimit - key.creditsUsed
+                                      )
+                                    )} / ${formatCredits(key.creditLimit)}`}
                               </div>
                             </div>
                             <Button
@@ -1526,7 +1554,7 @@ export function AdminUsersManagement({
                             <div className="flex items-center justify-between gap-3">
                               <span className="font-medium">{log.action}</span>
                               <span className="text-xs text-muted-foreground">
-                                {formatDateTime(log.createdAt)}
+                                {formatDateTime(log.createdAt, timeZone)}
                               </span>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">

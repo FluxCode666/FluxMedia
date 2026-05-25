@@ -25,6 +25,10 @@ import { nanoid } from "nanoid";
 import { ImageBackendPoolUnavailableError } from "@/features/image-backend-pool/service";
 import type { ImageBackendRequestKind } from "@/features/image-backend-pool/types";
 import {
+  reserveExternalApiKeyCredits,
+  refundExternalApiKeyCredits,
+} from "@/features/external-api/quota";
+import {
   detectImageOutputFormatFromBuffer,
   getOutputFormatContentType,
   getOutputFormatExtension,
@@ -1254,14 +1258,20 @@ async function runQueuedImageGenerationForUser({
     description: string
   ) => {
     if (!useCredits || amount <= 0) return;
+    const roundedAmount = roundCreditAmount(amount);
     await refundGenerationCredits({
       generationId,
       userId: input.userId,
-      amount: roundCreditAmount(amount),
+      amount: roundedAmount,
       sourceRef,
       description,
     });
-    chargedCredits = roundCreditAmount(Math.max(0, chargedCredits - amount));
+    await refundExternalApiKeyCredits({
+      apiKeyId: input.apiKeyId,
+      userId: input.userId,
+      amount: roundedAmount,
+    });
+    chargedCredits = roundCreditAmount(Math.max(0, chargedCredits - roundedAmount));
   };
   const chargeAdditionalCredits = async (
     amount: number,
@@ -1270,14 +1280,35 @@ async function runQueuedImageGenerationForUser({
     metadata?: Record<string, unknown>
   ) => {
     if (!useCredits || amount <= 0) return;
-    await consumeCredits({
+    const roundedAmount = roundCreditAmount(amount);
+    await reserveExternalApiKeyCredits({
+      apiKeyId: input.apiKeyId,
       userId: input.userId,
-      amount: roundCreditAmount(amount),
-      serviceName,
-      description,
-      metadata,
+      amount: roundedAmount,
     });
-    chargedCredits = roundCreditAmount(chargedCredits + amount);
+    let userCreditsConsumed = false;
+    try {
+      await consumeCredits({
+        userId: input.userId,
+        amount: roundedAmount,
+        serviceName,
+        description,
+        metadata: {
+          ...metadata,
+          externalApiKeyId: input.apiKeyId,
+        },
+      });
+      userCreditsConsumed = true;
+    } finally {
+      if (!userCreditsConsumed) {
+        await refundExternalApiKeyCredits({
+          apiKeyId: input.apiKeyId,
+          userId: input.userId,
+          amount: roundedAmount,
+        });
+      }
+    }
+    chargedCredits = roundCreditAmount(chargedCredits + roundedAmount);
   };
   const settleChargedCredits = async (
     targetCredits: number,
@@ -1306,14 +1337,13 @@ async function runQueuedImageGenerationForUser({
 
   if (useCredits) {
     try {
-      await consumeCredits({
-        userId: input.userId,
-        amount: initialCreditCharge,
-        serviceName: isChatInput ? "chat-input" : "image-generation",
-        description: isChatInput
+      await chargeAdditionalCredits(
+        initialCreditCharge,
+        isChatInput ? "chat-input" : "image-generation",
+        isChatInput
           ? `Chat input: ${input.prompt.substring(0, 50)}`
           : `Image generation: ${input.prompt.substring(0, 50)}`,
-        metadata: {
+        {
           generationId,
           mode: input.mode,
           size,
@@ -1322,17 +1352,16 @@ async function runQueuedImageGenerationForUser({
           billingGroupId: config.backend?.billingGroupId ?? null,
           initialCredits: initialCreditCharge,
           targetImageCredits: creditsPerImage,
-        },
-      });
-      chargedCredits = initialCreditCharge;
+        }
+      );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Insufficient credits";
       await db
         .update(generation)
-        .set({ status: "failed", error: message })
+        .set({ status: "failed", error: message, creditsConsumed: chargedCredits })
         .where(isPendingGeneration(generationId));
-      return { error: "Insufficient credits", generationId };
+      return { error: message, generationId };
     }
   }
 

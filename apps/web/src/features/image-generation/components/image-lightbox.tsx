@@ -1,6 +1,7 @@
 "use client";
 
 import { formatCredits } from "@repo/shared/credits/format";
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Dialog, DialogContent, DialogTitle } from "@repo/ui/components/dialog";
@@ -38,6 +39,7 @@ export interface ImageLightboxProps {
   generation: LightboxGeneration;
   imageUrl: string | null;
   open: boolean;
+  timeZone?: string;
   onClose: () => void;
   onDelete?: (id: string) => void;
 }
@@ -48,17 +50,21 @@ const STATUS_LABELS_ZH: Record<string, string> = {
   pending: "处理中",
 };
 
-function formatDate(iso: string, locale: string): string {
+function formatDate(iso: string, locale: string, timeZone?: string): string {
   try {
-    return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
-      timeZoneName: "short",
-    }).format(new Date(iso));
+    return formatDateInTimeZone(
+      iso,
+      locale,
+      {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      },
+      timeZone
+    );
   } catch {
     return iso;
   }
@@ -68,6 +74,7 @@ export function ImageLightbox({
   generation,
   imageUrl,
   open,
+  timeZone,
   onClose,
   onDelete,
 }: ImageLightboxProps) {
@@ -294,7 +301,7 @@ export function ImageLightbox({
                       {copy("Created", "创建时间")}
                     </dt>
                     <dd className="mt-0.5 text-xs text-foreground">
-                      {formatDate(generation.createdAt, locale)}
+                      {formatDate(generation.createdAt, locale, timeZone)}
                     </dd>
                   </div>
                 </dl>

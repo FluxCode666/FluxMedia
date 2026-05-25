@@ -545,6 +545,8 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
           name: externalApiKey.name,
           keyPrefix: externalApiKey.keyPrefix,
           lastFour: externalApiKey.lastFour,
+          creditLimit: externalApiKey.creditLimit,
+          creditsUsed: externalApiKey.creditsUsed,
           lastUsedAt: externalApiKey.lastUsedAt,
           isActive: externalApiKey.isActive,
           createdAt: externalApiKey.createdAt,

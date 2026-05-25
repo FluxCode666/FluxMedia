@@ -25,6 +25,7 @@ import {
   PlanBadge,
   type PlanType,
 } from "@repo/shared/subscription/components/plan-badge";
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,16 +67,12 @@ function formatCurrency(amount: number | string | undefined) {
   }).format(numericAmount);
 }
 
-function formatDate(date: Date | string, locale: string) {
-  return new Date(date).toLocaleDateString(
-    locale === "zh" ? "zh-CN" : "en-US",
-    {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    }
-  );
+function formatDate(date: Date | string, locale: string, timeZone: string) {
+  return formatDateInTimeZone(date, locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }, timeZone);
 }
 
 function getBillingAmount(tx: BillingTransaction) {
@@ -153,7 +150,7 @@ function getReceiptReference(tx: BillingTransaction) {
 /**
  * 账单设置组件
  */
-export function BillingSection() {
+export function BillingSection({ timeZone }: { timeZone: string }) {
   const t = useTranslations("Settings.billing");
   const locale = useLocale();
 
@@ -183,12 +180,11 @@ export function BillingSection() {
   }, [planResult.data?.currentPeriodEnd]);
 
   const formattedRenewalDate = renewalDate
-    ? renewalDate.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", {
+    ? formatDateInTimeZone(renewalDate, locale, {
         year: "numeric",
         month: "short",
         day: "numeric",
-        timeZone: "UTC",
-      })
+      }, timeZone)
     : null;
 
   const [priceDisplay, setPriceDisplay] = useState("-");
@@ -433,7 +429,7 @@ export function BillingSection() {
                   className="grid grid-cols-12 gap-4 px-4 py-3 text-sm transition-colors hover:bg-muted/30"
                 >
                   <div className="col-span-3 text-muted-foreground">
-                    {formatDate(tx.createdAt, locale)}
+                    {formatDate(tx.createdAt, locale, timeZone)}
                   </div>
                   <div
                     className="col-span-4 truncate"

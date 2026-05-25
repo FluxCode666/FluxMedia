@@ -58,6 +58,7 @@ import { useAction } from "next-safe-action/hooks";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 
 import {
   bulkDeleteImageBackendAccountsAction,
@@ -381,30 +382,30 @@ function childGroupNames(groups: Group[], childGroupIds: string[]) {
     .join("、");
 }
 
-function formatDate(value: Date | string | null) {
+function formatDate(value: Date | string | null, timeZone?: string) {
   if (!value) return "从未使用";
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDateInTimeZone(value, "zh", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  }, timeZone);
 }
 
-function formatOptionalDate(value: Date | string | null) {
+function formatOptionalDate(value: Date | string | null, timeZone?: string) {
   if (!value) return "无";
-  return formatDate(value);
+  return formatDate(value, timeZone);
 }
 
 function isCoolingDown(value: Date | string | null) {
   return value ? new Date(value).getTime() > Date.now() : false;
 }
 
-function formatCooldown(value: Date | string | null) {
+function formatCooldown(value: Date | string | null, timeZone?: string) {
   if (!value) return "无";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "无";
 
   const remainingMs = date.getTime() - Date.now();
-  if (remainingMs <= 0) return `${formatDate(value)} · 已到期`;
+  if (remainingMs <= 0) return `${formatDate(value, timeZone)} · 已到期`;
 
   const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
   const days = Math.floor(totalMinutes / (24 * 60));
@@ -415,7 +416,7 @@ function formatCooldown(value: Date | string | null) {
   if (hours) parts.push(`${hours}小时`);
   if (minutes || !parts.length) parts.push(`${minutes}分钟`);
 
-  return `${formatDate(value)} · 剩余 ${parts.slice(0, 2).join("")}`;
+  return `${formatDate(value, timeZone)} · 剩余 ${parts.slice(0, 2).join("")}`;
 }
 
 function formatCompactNumber(value: number) {
@@ -590,8 +591,10 @@ function sub2ApiPlanFilterLabel(value: Sub2ApiPlanFilter) {
 
 export function ImageBackendPoolAdminPanel({
   readOnly = false,
+  timeZone,
 }: {
   readOnly?: boolean;
+  timeZone?: string;
 }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [sub2ApiSourceGroups, setSub2ApiSourceGroups] = useState<
@@ -2813,7 +2816,7 @@ export function ImageBackendPoolAdminPanel({
                         "无邮箱"}{" "}
                       · {groupName(groups, account.groupId)} · 优先级{" "}
                       {account.priority} · 并发权重 {account.concurrency} ·{" "}
-                      {formatDate(account.lastUsedAt)}
+                      {formatDate(account.lastUsedAt, timeZone)}
                     </p>
                     {account.metadata?.sourceAccountId && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -2823,24 +2826,26 @@ export function ImageBackendPoolAdminPanel({
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       成功 {account.successCount} · 失败 {account.failCount} ·
-                      冷却至 {formatCooldown(account.cooldownUntil)}
+                      冷却至 {formatCooldown(account.cooldownUntil, timeZone)}
                     </p>
                     {account.implementationMode === "web" && (
                       <p className="mt-1 text-xs text-muted-foreground">
                         Web 套餐 {getWebAccountInfo(account)?.type || "未刷新"}{" "}
                         · 图片额度 {formatWebQuota(account)} · 恢复{" "}
                         {formatOptionalDate(
-                          getWebAccountInfo(account)?.restoreAt || null
+                          getWebAccountInfo(account)?.restoreAt || null,
+                          timeZone
                         )}{" "}
                         · 刷新{" "}
                         {formatOptionalDate(
-                          getWebAccountInfo(account)?.refreshedAt || null
+                          getWebAccountInfo(account)?.refreshedAt || null,
+                          timeZone
                         )}
                       </p>
                     )}
                     {account.lastError && (
                       <p className="mt-1 line-clamp-2 text-xs text-destructive">
-                        {formatOptionalDate(account.lastErrorAt)} ·{" "}
+                        {formatOptionalDate(account.lastErrorAt, timeZone)} ·{" "}
                         {account.lastError}
                       </p>
                     )}
@@ -3072,7 +3077,8 @@ export function ImageBackendPoolAdminPanel({
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {api.baseUrl} · {groupName(groups, api.groupId)} · 优先级{" "}
-                      {api.priority} · 并发权重 1 · {formatDate(api.lastUsedAt)}
+                      {api.priority} · 并发权重 1 ·{" "}
+                      {formatDate(api.lastUsedAt, timeZone)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {api.interfaceMode === "mixed"
@@ -3083,11 +3089,12 @@ export function ImageBackendPoolAdminPanel({
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       成功 {api.successCount} · 失败 {api.failCount} · 冷却至{" "}
-                      {formatCooldown(api.cooldownUntil)}
+                      {formatCooldown(api.cooldownUntil, timeZone)}
                     </p>
                     {api.lastError && (
                       <p className="mt-1 line-clamp-2 text-xs text-destructive">
-                        {formatOptionalDate(api.lastErrorAt)} · {api.lastError}
+                        {formatOptionalDate(api.lastErrorAt, timeZone)} ·{" "}
+                        {api.lastError}
                       </p>
                     )}
                   </div>
@@ -3472,7 +3479,8 @@ export function ImageBackendPoolAdminPanel({
                               {task.overwriteLocalUnavailableState
                                 ? "开启"
                                 : "关闭"} ·
-                              上次运行 {formatOptionalDate(task.lastRunAt || null)}
+                              上次运行{" "}
+                              {formatOptionalDate(task.lastRunAt || null, timeZone)}
                             </p>
                             {task.lastResult && (
                               <p className="text-xs text-muted-foreground">

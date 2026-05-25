@@ -1036,6 +1036,7 @@ interface CreatePageClientProps {
   selectedBackendGroupId: string | null;
   customApiActive: boolean;
   moderationEnabled: boolean;
+  timeZone: string;
 }
 
 function isImageFile(file: File) {
@@ -1673,6 +1674,7 @@ export function CreatePageClient({
   selectedBackendGroupId,
   customApiActive,
   moderationEnabled,
+  timeZone,
 }: CreatePageClientProps) {
   const locale = useLocale();
   const searchParams = useSearchParams();
@@ -8650,6 +8652,7 @@ export function CreatePageClient({
           generation={selectedRecent as LightboxGeneration}
           imageUrl={selectedRecent.imageUrl}
           open={selectedRecentId !== null}
+          timeZone={timeZone}
           onClose={() => setSelectedRecentId(null)}
           onDelete={
             selectedRecent.canDelete === false

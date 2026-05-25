@@ -245,6 +245,17 @@ function classifyExternalApiError(message: string) {
     };
   }
 
+  if (
+    normalized.includes("api key quota exceeded") ||
+    normalized.includes("api key credit limit")
+  ) {
+    return {
+      type: "insufficient_quota",
+      code: "api_key_quota_exceeded",
+      status: 402,
+    };
+  }
+
   if (normalized.includes("unsupported model")) {
     return {
       type: "invalid_request_error",

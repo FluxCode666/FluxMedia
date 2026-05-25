@@ -333,15 +333,6 @@ export function canUseModerationOnlyFailureSettlement(
 }
 
 /**
- * 是否允许用户/API Key 调整审核拦截级别。
- */
-export function canUseModerationRiskLevelControl(
-  plan: SubscriptionPlan
-): boolean {
-  return isPlanAtLeast(plan, "ultra");
-}
-
-/**
  * 套餐默认审核拦截级别。
  *
  * low = low/medium/high 均拦截

@@ -22,6 +22,7 @@ export type SettingKey =
   | "NEXT_PUBLIC_ADMIN_URL"
   | "NEXT_PUBLIC_APP_NAME"
   | "NEXT_PUBLIC_ASSET_PREFIX"
+  | "APP_TIME_ZONE"
   | "BETTER_AUTH_SECRET"
   | "BETTER_AUTH_URL"
   | "GOOGLE_CLIENT_ID"
@@ -187,7 +188,6 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "externalApi.responses": "pro",
     "externalApi.streaming": "starter",
     "moderation.blocking": "free",
-    "moderation.riskLevelControl": "ultra",
     "moderation.onlyFailureSettlement": "ultra",
   },
   limits: {
@@ -364,6 +364,25 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "string",
     requiresRebuild: true,
+  },
+  {
+    key: "APP_TIME_ZONE",
+    label: "显示时区",
+    description:
+      "后台和用户界面的时间展示、运营状态页日期筛选使用的 IANA 时区。数据库仍按 UTC 存储。",
+    category: "general",
+    valueType: "select",
+    options: [
+      { label: "UTC", value: "UTC" },
+      { label: "中国标准时间 (Asia/Shanghai)", value: "Asia/Shanghai" },
+      { label: "香港时间 (Asia/Hong_Kong)", value: "Asia/Hong_Kong" },
+      { label: "新加坡时间 (Asia/Singapore)", value: "Asia/Singapore" },
+      { label: "日本时间 (Asia/Tokyo)", value: "Asia/Tokyo" },
+      { label: "太平洋时间 (America/Los_Angeles)", value: "America/Los_Angeles" },
+      { label: "东部时间 (America/New_York)", value: "America/New_York" },
+      { label: "伦敦时间 (Europe/London)", value: "Europe/London" },
+    ],
+    defaultValue: "UTC",
   },
   {
     key: "BETTER_AUTH_SECRET",

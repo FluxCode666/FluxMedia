@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Card } from "@repo/ui/components/card";
 import { Clock, ImageIcon } from "lucide-react";
@@ -16,17 +17,26 @@ export interface ImageCardProps {
   createdAt: string;
   status: "pending" | "completed" | "failed";
   badge?: string;
+  timeZone?: string;
   onClick?: () => void;
 }
 
-function formatCreatedDate(iso: string, locale: string): string {
+function formatCreatedDate(
+  iso: string,
+  locale: string,
+  timeZone?: string
+): string {
   try {
-    return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(new Date(iso));
+    return formatDateInTimeZone(
+      iso,
+      locale,
+      {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      },
+      timeZone
+    );
   } catch {
     return iso;
   }
@@ -39,6 +49,7 @@ export function ImageCard({
   status,
   createdAt,
   badge,
+  timeZone,
   onClick,
 }: ImageCardProps) {
   const locale = useLocale();
@@ -87,7 +98,7 @@ export function ImageCard({
           </Badge>
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Clock className="h-3 w-3" />
-            {formatCreatedDate(createdAt, locale)}
+            {formatCreatedDate(createdAt, locale, timeZone)}
           </span>
         </div>
       </div>

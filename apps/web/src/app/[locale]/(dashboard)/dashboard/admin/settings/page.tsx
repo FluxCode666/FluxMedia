@@ -8,6 +8,7 @@ import {
 } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
 import { SystemSettingsPanel } from "@repo/shared/system-settings/components";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
 import { ImageBackendPoolAdminPanel } from "@/features/image-backend-pool";
 
@@ -24,8 +25,10 @@ export default async function DashboardAdminSettingsPage() {
   }
 
   if (!canAccessAdminArea(role)) {
-    return <ImageBackendPoolAdminPanel readOnly />;
+    const timeZone = await getAppTimeZone();
+    return <ImageBackendPoolAdminPanel readOnly timeZone={timeZone} />;
   }
+  const timeZone = await getAppTimeZone();
 
   return (
     <Tabs defaultValue="system" className="w-full">
@@ -47,7 +50,7 @@ export default async function DashboardAdminSettingsPage() {
         <SystemSettingsPanel />
       </TabsContent>
       <TabsContent value="image-backends" className="mt-6">
-        <ImageBackendPoolAdminPanel />
+        <ImageBackendPoolAdminPanel timeZone={timeZone} />
       </TabsContent>
     </Tabs>
   );

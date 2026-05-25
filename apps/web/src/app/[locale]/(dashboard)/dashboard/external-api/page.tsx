@@ -1,6 +1,7 @@
 import { getServerSession } from "@repo/shared/auth/server";
 import { getLocale, getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
 import { ExternalApiKeySection } from "@/features/settings/components";
 
@@ -16,7 +17,10 @@ export default async function ExternalApiPage() {
     redirect(`/${locale}/sign-in`);
   }
 
-  const t = await getTranslations("Settings.externalApi");
+  const [t, timeZone] = await Promise.all([
+    getTranslations("Settings.externalApi"),
+    getAppTimeZone(),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -24,7 +28,7 @@ export default async function ExternalApiPage() {
         <h1 className="font-serif text-2xl font-medium">{t("title")}</h1>
         <p className="text-sm text-muted-foreground">{t("description")}</p>
       </div>
-      <ExternalApiKeySection />
+      <ExternalApiKeySection timeZone={timeZone} />
     </div>
   );
 }

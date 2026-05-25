@@ -43,7 +43,6 @@ import {
 import { Separator } from "@repo/ui/components/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
 import {
-  canUseModerationRiskLevelControl,
   getAllowedModerationBlockRiskLevels,
   type ModerationBlockRiskLevel,
   type SubscriptionPlan,
@@ -106,9 +105,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const moderationBlockingEnabled =
     capabilities?.features["moderation.blocking"] ?? true;
   const moderationControlAllowed =
-    moderationBlockingEnabled &&
-    (capabilities?.features["moderation.riskLevelControl"] ??
-      canUseModerationRiskLevelControl(userPlan));
+    moderationBlockingEnabled && moderationOptions.length > 1;
   const avatarMaxFileSizeBytes =
     capabilities?.limits.maxFileSizeBytes ?? MAX_FILE_SIZE;
   const normalizeTab = useCallback((value: string | null) => {

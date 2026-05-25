@@ -28,6 +28,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
+import { formatDateInTimeZone } from "../../time-zone";
 import { getMyTransactions } from "../actions";
 import { formatCredits } from "../format";
 
@@ -62,16 +63,18 @@ const TRANSACTION_TYPE_VARIANTS: Record<
 /**
  * 格式化日期时间
  */
-function formatDateTime(date: Date | string, locale: string): string {
-  const d = new Date(date);
-  return d.toLocaleString(locale === "zh" ? "zh-CN" : "en-US", {
+function formatDateTime(
+  date: Date | string,
+  locale: string,
+  timeZone: string
+): string {
+  return formatDateInTimeZone(date, locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "UTC",
-  });
+  }, timeZone);
 }
 
 /**
@@ -105,7 +108,7 @@ function getMonthlyCreditsFromMetadata(
 /**
  * 交易历史组件
  */
-export function TransactionHistory() {
+export function TransactionHistory({ timeZone }: { timeZone: string }) {
   const t = useTranslations("Settings.usage.transactions");
   const locale = useLocale();
   const [page, setPage] = useState(1);
@@ -258,7 +261,7 @@ export function TransactionHistory() {
                 >
                   {/* 日期 */}
                   <div className="col-span-3 text-muted-foreground">
-                    {formatDateTime(tx.createdAt, locale)}
+                    {formatDateTime(tx.createdAt, locale, timeZone)}
                   </div>
 
                   {/* 类型 */}

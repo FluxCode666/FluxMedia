@@ -82,6 +82,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("PLAN_CAPABILITY_MATRIX");
     expect(initializedKeys).toContain(CREDIT_PACKAGE_MATRIX_SETTING_KEY);
     expect(initializedKeys).toContain("BILLING_YEARLY_ENABLED");
+    expect(initializedKeys).toContain("APP_TIME_ZONE");
     expect(initializedKeys).not.toContain("BETTER_AUTH_SECRET");
     expect(initializedKeys).not.toContain("CREEM_API_KEY");
 
@@ -89,6 +90,7 @@ describe("system setting default initialization", () => {
       DEFAULT_PLAN_CAPABILITY_MATRIX
     );
     expect(store.get("BILLING_YEARLY_ENABLED")?.value).toBe(true);
+    expect(store.get("APP_TIME_ZONE")?.value).toBe("UTC");
     expect(store.get("PLAN_STARTER_MONTHLY_AMOUNT")?.value).toBe(20);
     expect(store.get("BETTER_AUTH_SECRET")).toBeUndefined();
     expect(store.get("CREEM_API_KEY")).toBeUndefined();
