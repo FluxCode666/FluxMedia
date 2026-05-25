@@ -22,6 +22,7 @@ import { useAction } from "next-safe-action/hooks";
 import { type PointerEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { deleteGenerationAction } from "@/features/image-generation/actions";
+import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 
 export interface LightboxGeneration {
   id: string;
@@ -30,6 +31,7 @@ export interface LightboxGeneration {
   model: string;
   size: string;
   creditsConsumed: number;
+  creditDetails?: GenerationCreditDetails | null;
   status: "pending" | "completed" | "failed";
   error?: string | null;
   createdAt: string;
@@ -70,6 +72,10 @@ function formatDate(iso: string, locale: string, timeZone?: string): string {
   }
 }
 
+function formatMultiplier(value: number) {
+  return Number(value.toFixed(4)).toString();
+}
+
 export function ImageLightbox({
   generation,
   imageUrl,
@@ -83,6 +89,96 @@ export function ImageLightbox({
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const statusLabel = (status: string) =>
     isZh ? STATUS_LABELS_ZH[status] || status : status;
+  const creditDetails = generation.creditDetails ?? null;
+  const creditRows = creditDetails
+    ? [
+        {
+          label: copy("Total charged", "实际扣费"),
+          value: `${formatCredits(creditDetails.totalCredits)} ${copy(
+            "credits",
+            "积分"
+          )}`,
+        },
+        creditDetails.actualImageCredits !== null
+          ? {
+              label: copy("Image subtotal", "图片小计"),
+              value: `${formatCredits(creditDetails.actualImageCredits)} ${copy(
+                "credits",
+                "积分"
+              )}`,
+            }
+          : null,
+        creditDetails.requestedTotalCredits !== null &&
+        creditDetails.requestedTotalCredits !== creditDetails.actualImageCredits
+          ? {
+              label: copy("Requested estimate", "请求预估"),
+              value: `${formatCredits(
+                creditDetails.requestedTotalCredits
+              )} ${copy("credits", "积分")}`,
+            }
+          : null,
+        creditDetails.baseCredits !== null
+          ? {
+              label: copy("Base image", "基础生图"),
+              value: `${formatCredits(creditDetails.baseCredits)} ${copy(
+                "credits",
+                "积分"
+              )}`,
+            }
+          : null,
+        creditDetails.moderationCredits !== null
+          ? {
+              label: copy("Review add-on", "审核附加"),
+              value: `${formatCredits(creditDetails.moderationCredits)} ${copy(
+                "credits",
+                "积分"
+              )}`,
+            }
+          : null,
+        creditDetails.chatCredits !== null && creditDetails.chatCredits > 0
+          ? {
+              label: copy("Chat/Agent rounds", "Chat/Agent 轮次"),
+              value: `${formatCredits(creditDetails.chatCredits)} ${copy(
+                "credits",
+                "积分"
+              )}${
+                creditDetails.chatRoundCount !== null &&
+                creditDetails.chatRoundCredits !== null
+                  ? ` · ${creditDetails.chatRoundCount} x ${formatCredits(
+                      creditDetails.chatRoundCredits
+                    )}`
+                  : ""
+              }`,
+            }
+          : null,
+        {
+          label: copy("Group multiplier", "分组倍率"),
+          value: `x${formatMultiplier(creditDetails.billingMultiplier)}`,
+        },
+        creditDetails.billableImageOutputCount !== null
+          ? {
+              label: copy("Billable images", "计费图片"),
+              value:
+                creditDetails.upstreamImageOutputCount !== null
+                  ? `${creditDetails.billableImageOutputCount} / ${creditDetails.upstreamImageOutputCount}`
+                  : String(creditDetails.billableImageOutputCount),
+            }
+          : null,
+        creditDetails.requestedSize || creditDetails.actualSize
+          ? {
+              label: copy("Size settlement", "尺寸结算"),
+              value:
+                creditDetails.requestedSize &&
+                creditDetails.actualSize &&
+                creditDetails.requestedSize !== creditDetails.actualSize
+                  ? `${creditDetails.requestedSize} -> ${creditDetails.actualSize}`
+                  : creditDetails.actualSize || creditDetails.requestedSize || "-",
+            }
+          : null,
+      ].filter(
+        (row): row is { label: string; value: string } => row !== null
+      )
+    : [];
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [detailsWidth, setDetailsWidth] = useState(44);
   const dragState = useRef<{
@@ -305,6 +401,32 @@ export function ImageLightbox({
                     </dd>
                   </div>
                 </dl>
+
+                {creditRows.length > 0 && (
+                  <div className="rounded-md border border-border bg-muted/30 p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                      {copy("Credit Calculation", "积分计算详情")}
+                    </p>
+                    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                      {creditRows.map((row) => (
+                        <div key={row.label}>
+                          <dt className="text-muted-foreground">
+                            {row.label}
+                          </dt>
+                          <dd className="mt-0.5 font-medium text-foreground">
+                            {row.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+                      {copy(
+                        "Displayed credit components already include the backend group multiplier when applicable.",
+                        "上方明细已包含命中后端分组倍率；最终以实际扣费为准。"
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

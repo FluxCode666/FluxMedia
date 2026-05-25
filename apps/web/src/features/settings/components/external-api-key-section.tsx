@@ -83,6 +83,12 @@ function formatDate(
   }, timeZone);
 }
 
+function formatBillingMultiplier(value: number | null | undefined) {
+  const multiplier = Number(value ?? 1);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return "1";
+  return Number(multiplier.toFixed(4)).toString();
+}
+
 function groupOptionLabel(group: ImageBackendGroupOption) {
   const backend =
     group.backendType === "web"
@@ -96,11 +102,9 @@ function groupOptionLabel(group: ImageBackendGroupOption) {
       : group.contentSafetyEnabled === false
         ? "内容审核关闭"
         : "内容审核按成员配置";
-  const billing =
-    group.billingMultiplier && group.billingMultiplier !== 1
-      ? ` · 计费 x${group.billingMultiplier}`
-      : "";
-  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backend} · ${safety}${billing}`;
+  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backend} · ${safety} · 计费 x${formatBillingMultiplier(
+    group.billingMultiplier
+  )}`;
 }
 
 export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
@@ -132,6 +136,15 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
     capabilities?.features["moderation.blocking"] ?? true;
   const moderationControlAllowed =
     moderationBlockingEnabled && moderationOptions.length > 1;
+  const defaultGroup = groups.find((group) => group.isDefault) ?? null;
+  const newKeyGroup =
+    newKeyGroupId === "default"
+      ? defaultGroup
+      : groups.find((group) => group.id === newKeyGroupId) ?? null;
+  const resolveKeyGroup = (groupId: string | null) =>
+    groupId
+      ? groups.find((group) => group.id === groupId) ?? null
+      : defaultGroup;
 
   const { execute: loadKeys, isPending: isRefreshing } = useAction(
     getExternalApiKeys,
@@ -393,7 +406,13 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
             <SelectValue placeholder={t("backendGroup.label")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="default">{t("backendGroup.default")}</SelectItem>
+            <SelectItem value="default">
+              {defaultGroup
+                ? `${t("backendGroup.default")} · ${groupOptionLabel(
+                    defaultGroup
+                  )}`
+                : t("backendGroup.default")}
+            </SelectItem>
             {groups.map((group) => (
               <SelectItem key={group.id} value={group.id}>
                 {groupOptionLabel(group)}
@@ -429,6 +448,11 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
           {t("create")}
         </Button>
       </div>
+      {newKeyGroup && (
+        <p className="text-xs text-muted-foreground">
+          {t("backendGroup.label")}: {groupOptionLabel(newKeyGroup)}
+        </p>
+      )}
 
       <div className="space-y-2">
         {loading ? (
@@ -441,11 +465,13 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
             {t("empty")}
           </p>
         ) : (
-          keys.map((key) => (
-            <div
-              key={key.id}
-              className="flex flex-col gap-3 rounded-md border border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
+          keys.map((key) => {
+            const selectedKeyGroup = resolveKeyGroup(key.generationGroupId);
+            return (
+              <div
+                key={key.id}
+                className="flex flex-col gap-3 rounded-md border border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">
@@ -467,6 +493,12 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                         Math.max(0, key.creditLimit - key.creditsUsed)
                       )} / ${formatCredits(key.creditLimit)}`}
                 </p>
+                {selectedKeyGroup && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("backendGroup.label")}:{" "}
+                    {groupOptionLabel(selectedKeyGroup)}
+                  </p>
+                )}
                 <div className="mt-3 max-w-xs">
                   <Label htmlFor={`external-key-moderation-${key.id}`}>
                     {t("moderation.label")}
@@ -527,7 +559,11 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="default">
-                        {t("backendGroup.default")}
+                        {defaultGroup
+                          ? `${t("backendGroup.default")} · ${groupOptionLabel(
+                              defaultGroup
+                            )}`
+                          : t("backendGroup.default")}
                       </SelectItem>
                       {groups.map((group) => (
                         <SelectItem key={group.id} value={group.id}>
@@ -583,8 +619,9 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                   {t("revoke")}
                 </Button>
               )}
-            </div>
-          ))
+              </div>
+            );
+          })
         )}
       </div>
     </div>

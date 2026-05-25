@@ -19,6 +19,7 @@ import {
   ImageLightbox,
   type LightboxGeneration,
 } from "@/features/image-generation/components/image-lightbox";
+import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 
 export interface HistoryGeneration {
   id: string;
@@ -27,6 +28,7 @@ export interface HistoryGeneration {
   model: string;
   size: string;
   creditsConsumed: number;
+  creditDetails: GenerationCreditDetails | null;
   status: "pending" | "completed" | "failed";
   error: string | null;
   createdAt: string;
@@ -80,6 +82,33 @@ function formatDate(iso: string, locale: string, timeZone: string): string {
   }
 }
 
+function creditSummary(
+  item: HistoryGeneration,
+  copy: (en: string, zh: string) => string
+) {
+  const details = item.creditDetails;
+  if (!details) return null;
+  const parts = [];
+  if (details.actualImageCredits !== null) {
+    parts.push(
+      `${copy("image", "图片")} ${formatCredits(details.actualImageCredits)}`
+    );
+  }
+  if (details.chatCredits !== null && details.chatCredits > 0) {
+    parts.push(
+      `${copy("conversation", "对话")} ${formatCredits(details.chatCredits)}`
+    );
+  }
+  if (details.billingMultiplier !== 1) {
+    parts.push(
+      `${copy("multiplier", "倍率")} x${Number(
+        details.billingMultiplier.toFixed(4)
+      )}`
+    );
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export function HistoryClient({
   initialGenerations,
   totalCount,
@@ -131,7 +160,7 @@ export function HistoryClient({
   return (
     <>
       <div className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="hidden grid-cols-[64px_minmax(0,1fr)_150px_90px_74px_92px_128px] items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[64px_minmax(0,1fr)_150px_90px_118px_92px_128px] items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
           <div>{copy("Image", "图片")}</div>
           <div>{copy("Prompt", "提示词")}</div>
           <div>{copy("Model", "模型")}</div>
@@ -142,13 +171,15 @@ export function HistoryClient({
         </div>
 
         <ul className="divide-y divide-border">
-          {items.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => setSelectedId(item.id)}
-                className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[64px_minmax(0,1fr)_150px_90px_74px_92px_128px] md:items-center md:gap-3"
-              >
+          {items.map((item) => {
+            const summary = creditSummary(item, copy);
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                  className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[64px_minmax(0,1fr)_150px_90px_118px_92px_128px] md:items-center md:gap-3"
+                >
                 <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded border border-border bg-muted md:h-14 md:w-14">
                   {item.imageUrl && item.status === "completed" ? (
                     <Image
@@ -187,6 +218,11 @@ export function HistoryClient({
                       {statusLabel(item.status)}
                     </Badge>
                   </div>
+                  {summary && (
+                    <p className="mt-1 text-[11px] leading-tight text-muted-foreground md:hidden">
+                      {summary}
+                    </p>
+                  )}
                 </div>
 
                 <div
@@ -200,6 +236,11 @@ export function HistoryClient({
                 </div>
                 <div className="hidden text-xs text-foreground md:block">
                   {formatCredits(item.creditsConsumed)}
+                  {summary && (
+                    <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+                      {summary}
+                    </span>
+                  )}
                 </div>
                 <div className="hidden md:block">
                   <Badge
@@ -215,9 +256,10 @@ export function HistoryClient({
                     {formatDate(item.createdAt, locale, timeZone)}
                   </span>
                 </div>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </div>
 

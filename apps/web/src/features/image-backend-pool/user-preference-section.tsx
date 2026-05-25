@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Label } from "@repo/ui/components/label";
 import {
@@ -27,6 +28,7 @@ type GroupOption = {
   isDefault: boolean;
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
+  billingMultiplier: number;
 };
 
 function safetyLabel(value: boolean | null) {
@@ -41,9 +43,28 @@ function backendTypeLabel(value: ImageBackendGroupBackendType) {
   return "混合";
 }
 
+function formatBillingMultiplier(value: number | null | undefined) {
+  const multiplier = Number(value ?? 1);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return "1";
+  return Number(multiplier.toFixed(4)).toString();
+}
+
+function groupOptionLabel(group: GroupOption) {
+  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backendTypeLabel(
+    group.backendType
+  )} · ${safetyLabel(group.contentSafetyEnabled)} · 计费 x${formatBillingMultiplier(
+    group.billingMultiplier
+  )}`;
+}
+
 export function ImageBackendPreferenceSection() {
   const [groups, setGroups] = useState<GroupOption[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState("default");
+  const defaultGroup = groups.find((group) => group.isDefault) ?? null;
+  const selectedGroup =
+    selectedGroupId === "default"
+      ? defaultGroup
+      : groups.find((group) => group.id === selectedGroupId) ?? null;
 
   const { execute: loadGroups, isPending: isLoading } = useAction(
     getSelectableImageBackendGroupsAction,
@@ -101,19 +122,26 @@ export function ImageBackendPreferenceSection() {
               <SelectValue placeholder="默认分组" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">默认分组</SelectItem>
+              <SelectItem value="default">
+                {defaultGroup
+                  ? `默认分组 · ${groupOptionLabel(defaultGroup)}`
+                  : "默认分组"}
+              </SelectItem>
               {groups.map((group) => (
                 <SelectItem key={group.id} value={group.id}>
-                  {group.name}
-	                  {group.isDefault ? "（默认）" : ""}
-	                  {" · "}
-	                  {backendTypeLabel(group.backendType)}
-	                  {" · "}
-	                  {safetyLabel(group.contentSafetyEnabled)}
+                  {groupOptionLabel(group)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {selectedGroup && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{groupOptionLabel(selectedGroup)}</span>
+              <Badge variant="outline" className="rounded-full">
+                计费 x{formatBillingMultiplier(selectedGroup.billingMultiplier)}
+              </Badge>
+            </div>
+          )}
         </div>
         <Button
           type="button"

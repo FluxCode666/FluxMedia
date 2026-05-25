@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { HistoryClient } from "@/features/image-generation/components/history-client";
+import { extractGenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
@@ -47,6 +48,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
     size: g.size,
     status: g.status,
     creditsConsumed: g.creditsConsumed,
+    creditDetails: extractGenerationCreditDetails(g.metadata, g.creditsConsumed),
     error: g.error,
     storageKey: g.storageKey,
     storageBucket: g.storageBucket,
