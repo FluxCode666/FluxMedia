@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { extractResponsesTokenUsage } from "./responses-usage";
 import {
   buildResponsesImageEditRequest,
   buildResponsesImageGenerationRequest,
@@ -26,6 +27,18 @@ import type {
   ImageInputFile,
   StickyBackendMemberState,
 } from "./types";
+
+vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingBoolean: vi.fn(async (key: string, fallback = false) =>
+    key === "IMAGE_RESPONSES_PREVIOUS_RESPONSE_ENABLED" ? true : fallback
+  ),
+  getRuntimeSettingNumber: vi.fn(async (_key: string, fallback: number) => fallback),
+  getRuntimeSettingString: vi.fn(async () => ""),
+}));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const accountA: StickyBackendMemberState = {
   type: "account",
@@ -166,6 +179,103 @@ describe("Responses native state request planning", () => {
     expect(request.previous_response_id).toBeUndefined();
     expect(request.input).toBe(fallbackInput);
     expect(request.store).toBe(true);
+  });
+});
+
+describe("Responses native state cache observation", () => {
+  it("extracts OAI cached input tokens as the native-state cache-read signal", () => {
+    const usage = extractResponsesTokenUsage({
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 80,
+        total_tokens: 1280,
+        input_tokens_details: {
+          cached_tokens: 896,
+        },
+      },
+    });
+
+    expect(usage).toEqual({
+      inputTokens: 1200,
+      outputTokens: 80,
+      totalTokens: 1280,
+      cachedInputTokens: 896,
+    });
+  });
+
+  it("observes cached token reads after previous_response_id is reused", async () => {
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
+    const { generateChatImage } = await import("./service");
+    const bodies: Array<Record<string, unknown>> = [];
+    const imageBase64 = Buffer.from("native-state-image").toString("base64");
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || "{}")) as Record<
+        string,
+        unknown
+      >;
+      bodies.push(body);
+      const isContinuation = body.previous_response_id === "resp_first";
+      return new Response(
+        JSON.stringify({
+          id: isContinuation ? "resp_second" : "resp_first",
+          output: [
+            {
+              type: "image_generation_call",
+              status: "completed",
+              result: imageBase64,
+            },
+          ],
+          usage: {
+            input_tokens: isContinuation ? 900 : 1100,
+            output_tokens: 40,
+            total_tokens: isContinuation ? 940 : 1140,
+            input_tokens_details: {
+              cached_tokens: isContinuation ? 640 : 0,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = responsesConfig();
+    const first = await generateChatImage(config, {
+      prompt: "生成一张蓝色海报",
+      model: "gpt-5.4",
+      history: [],
+    });
+    expect(first.responsesPreviousResponse?.responseId).toBe("resp_first");
+    expect(first.responsesUsage?.cachedInputTokens).toBe(0);
+
+    const second = await generateChatImage(config, {
+      prompt: "沿用上一轮风格，改成红色",
+      model: "gpt-5.4",
+      history: [
+        {
+          role: "assistant",
+          variants: [
+            {
+              text: "first image",
+              responsesPreviousResponse: first.responsesPreviousResponse,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(second.responsesPreviousResponse?.responseId).toBe("resp_second");
+    expect(second.responsesUsage?.cachedInputTokens).toBeGreaterThan(0);
+    expect(bodies[0]?.store).toBe(true);
+    expect(bodies[0]).not.toHaveProperty("previous_response_id");
+    expect(bodies[1]).toMatchObject({
+      store: true,
+      previous_response_id: "resp_first",
+    });
   });
 });
 

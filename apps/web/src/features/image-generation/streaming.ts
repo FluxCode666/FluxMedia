@@ -56,6 +56,12 @@ export type ImageStreamEvent =
         groupId?: string | null;
         accountBackend?: "web" | "responses";
       };
+      responsesUsage?: {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        cachedInputTokens?: number;
+      };
       responsesPreviousResponse?: {
         responseId: string;
         backendMember: {

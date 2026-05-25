@@ -35,10 +35,18 @@ export interface GenerateImageResult {
   webConversation?: ChatGptWebConversationState;
   backendMember?: StickyBackendMemberState;
   responsesPreviousResponse?: ResponsesPreviousResponseState;
+  responsesUsage?: ResponsesTokenUsage;
   partialAgentError?: string;
   error?: string;
   upstreamResetAt?: string;
   retryAfterSeconds?: number;
+}
+
+export interface ResponsesTokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
 }
 
 export interface GeneratedImageOutput {

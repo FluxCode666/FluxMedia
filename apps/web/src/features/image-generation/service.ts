@@ -95,6 +95,7 @@ import type {
   PartialImageResult,
   ThinkingLevel,
 } from "./types";
+import { extractResponsesTokenUsage } from "./responses-usage";
 
 const VALID_QUALITIES = new Set<ImageQuality>([
   "auto",
@@ -166,6 +167,7 @@ type ResponsesPayload = {
   output?: ResponsesOutputItem[];
   error?: { message?: string } | string;
   message?: string;
+  usage?: unknown;
 };
 
 type ResponsesResultWithOutput = GenerateImageResult & {
@@ -2467,6 +2469,7 @@ async function processResponsesEventPayload(
         ...result,
         responseId: completedPayload.id,
         outputItems: completedPayload.output,
+        responsesUsage: extractResponsesTokenUsage(completedPayload),
         imageOutputs: result.imageOutputs || state.fallbackResult?.imageOutputs,
         imageOutputCount: Math.max(
           result.imageOutputCount || 0,
@@ -2627,7 +2630,12 @@ async function parseResponsesResponse(
 
   return withRetryMetadata(
     result
-      ? { ...result, responseId: data.id, outputItems: data.output }
+      ? {
+          ...result,
+          responseId: data.id,
+          outputItems: data.output,
+          responsesUsage: extractResponsesTokenUsage(data),
+        }
       : { error: getPayloadError(data) || "API returned no image data" },
     { ...responseRetryMetadata, ...extractPayloadRetryMetadata(data) }
   );
