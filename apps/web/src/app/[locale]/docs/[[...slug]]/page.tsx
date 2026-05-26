@@ -67,10 +67,16 @@ export default async function Page({
 
   if (isSystemDocsSlug(slug)) {
     return (
-      <DocsPage toc={[]}>
-        <DocsBody>
+      <DocsPage
+        breadcrumb={{ enabled: false }}
+        className="max-w-[1600px] xl:max-w-[1600px]"
+        footer={{ enabled: false }}
+        full
+        toc={[]}
+      >
+        <DocsBody className="max-w-none">
           <SystemDocsContent
-            className="space-y-6 py-6"
+            className="mx-auto w-full max-w-[1500px] space-y-6 px-4 py-6 lg:px-8"
             locale={locale}
           />
         </DocsBody>

@@ -17,6 +17,7 @@ import {
   getImageBase64,
   getPublicImageUrl,
   openAIImageError,
+  toExternalGenerationUsage,
   toOpenAIImageData,
   toOpenAIErrorPayload,
   wantsImageStreamResponse,
@@ -794,6 +795,7 @@ export const postExternalImageEdits = withApiLogging(
           return {
             created,
             data,
+            ...toExternalGenerationUsage(results),
             usage: null,
           };
         } finally {

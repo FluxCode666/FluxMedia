@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createExternalImageStreamResponse } from "./images";
+import {
+  createExternalImageStreamResponse,
+  toExternalGenerationUsage,
+} from "./images";
 
 async function readFirstChunk(response: Response) {
   const reader = response.body?.getReader();
@@ -31,5 +34,32 @@ describe("external image stream response", () => {
 
     expect(firstChunk).toContain(": open");
     expect(firstChunk.length).toBeGreaterThan(1024);
+  });
+});
+
+describe("external generation usage payload", () => {
+  it("returns top-level credits and generation id for a single result", () => {
+    expect(
+      toExternalGenerationUsage([
+        { generationId: "gen_1", creditsConsumed: 1.276 },
+      ])
+    ).toEqual({
+      generation_id: "gen_1",
+      generationId: "gen_1",
+      credits_consumed: 1.28,
+    });
+  });
+
+  it("returns total credits and all generation ids for batch results", () => {
+    expect(
+      toExternalGenerationUsage([
+        { generationId: "gen_1", creditsConsumed: 1.27 },
+        { generationId: "gen_2", creditsConsumed: 2.01 },
+      ])
+    ).toEqual({
+      generation_ids: ["gen_1", "gen_2"],
+      generationIds: ["gen_1", "gen_2"],
+      credits_consumed: 3.28,
+    });
   });
 });

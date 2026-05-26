@@ -6,6 +6,11 @@ type OpenAIImageData = {
   revised_prompt?: string;
 };
 
+type GenerationBillingResult = Pick<
+  ImageGenerationOperationResult,
+  "creditsConsumed" | "generationId"
+>;
+
 export type ExternalImageStreamEvent = {
   event?: string;
   data: unknown;
@@ -82,6 +87,35 @@ export async function toOpenAIImageData(
   }
 
   return data;
+}
+
+export function toExternalGenerationUsage(
+  results: readonly GenerationBillingResult[]
+) {
+  const generationIds = results
+    .map((result) => result.generationId)
+    .filter((id): id is string => Boolean(id));
+  const creditsConsumed = Math.round(
+    results.reduce(
+      (total, result) => total + Math.max(0, result.creditsConsumed || 0),
+      0
+    ) * 100
+  ) / 100;
+
+  return {
+    ...(generationIds.length === 1
+      ? {
+          generation_id: generationIds[0],
+          generationId: generationIds[0],
+        }
+      : generationIds.length > 1
+        ? {
+            generation_ids: generationIds,
+            generationIds,
+          }
+        : {}),
+    credits_consumed: creditsConsumed,
+  };
 }
 
 export function openAIImageError(message: string, status = 400, code?: string) {

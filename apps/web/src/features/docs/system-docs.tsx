@@ -43,6 +43,11 @@ const sections = {
           kind: "chat",
         },
         {
+          label: "页面 Agent 生图",
+          path: "POST /api/images/chat",
+          kind: "agent",
+        },
+        {
           label: "外部文生图 API",
           path: "POST /v1/images/generations",
           kind: "image_generation",
@@ -118,6 +123,12 @@ const sections = {
           "chat",
           "按 chat 类型选择后端；可命中 Web 账号、Codex/Responses 账号或支持 /responses 的外接 API 后端。",
         ],
+        [
+          "创作页 Agent 生图",
+          "/api/images/chat",
+          "agent",
+          "同一站内接口，但强制走 Codex/Responses 能力；默认提供 image_generation、web_search、continue_generation 等工具，并展示工具任务卡。",
+        ],
       ],
       apiRows: [
         [
@@ -161,6 +172,11 @@ const sections = {
           "浏览器登录态入口，只负责页面表单、参考图和站内流式事件适配。",
         ],
         [
+          "Agent 模式",
+          "/api/images/chat + agentMode=true",
+          "不是外接 API；它在页面 Chat 接口内开启 Codex 风格工具循环和自动迭代。",
+        ],
+        [
           "外接三接口",
           "/v1/images/generations、/v1/images/edits、/v1/responses",
           "/api/v1/* 是同一 handler 的别名；只负责 API Key、OpenAI 兼容请求和响应格式适配。",
@@ -177,6 +193,24 @@ const sections = {
         ],
       ],
       note: "所以关系不是“外接 API 调页面 API”，而是“六个入口共享同一个 service 层”。",
+    },
+    agent: {
+      title: "页面 Agent 模式",
+      description:
+        "Agent 是创作页内的 Codex 风格自动执行模式，不是外接 API。它复用 /api/images/chat，但会启用工具循环、任务卡和多轮图片迭代。",
+      valid: [
+        "仅在 Codex/Responses 能力可用时启用；Web 分支不会开启 Agent 工具循环。",
+        "默认工具包含 image_generation、web_search 和 continue_generation；后端不会强制 tool_choice，避免阻断联网和生图等多工具组合。",
+        "每轮会展示 Agent 任务卡：联网、工具兼容性调整、生图、流式预览、继续/停止决策等事件。",
+        "支持上传文本/代码类附件作为上下文读取；不会读取用户在提示词中写入的服务器本地路径。",
+        "可配置最大轮数；开启强制轮数时会跑满用户选择的轮数，否则模型可通过 continue_generation 决定是否继续。",
+        "多轮生成的草稿图会作为迭代版本保存，最后一张作为默认最终图。",
+        "计费分为 Agent 每轮基础积分和图片实际输出积分；默认 Agent 每轮 3 积分，最终以套餐能力矩阵配置为准。",
+      ],
+      invalid: [
+        "外部 /v1/responses 不等于页面 Agent；外接接口只做 OpenAI 兼容协议适配，不展示页面任务卡。",
+        "当前没有接入 generate_image_batch 并发批量工具，避免破坏 Responses 粘性会话和线性迭代状态。",
+      ],
     },
     externalDocs: {
       title: "外接 API 详细文档",
@@ -403,6 +437,9 @@ curl -N https://gpt2image.superapi.buzz/v1/images/generations \\
       "revised_prompt": "..."
     }
   ],
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "credits_consumed": 1.31,
   "usage": null
 }
 
@@ -512,6 +549,12 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
               description: "上游返回的改写提示词，若有则返回。",
             },
             {
+              name: "generation_id / generationId / credits_consumed",
+              description:
+                "本站扩展字段。非流式成功响应会在顶层返回本次生成记录 ID 和实际扣费；批量请求会返回 generation_ids / generationIds 以及合计 credits_consumed。",
+              custom: true,
+            },
+            {
               name: "SSE image_generation.partial_image",
               description:
                 "仅 stream=true 或 Accept: text/event-stream 时返回；表示一张局部图片。",
@@ -527,7 +570,7 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
             "如果命中 Responses 账号池，内部会把图片请求转换成 Responses image_generation tool 请求。",
             "Web 后端无法严格控制输出尺寸和输出格式；本站保存时会按实际图片头识别扩展名和 MIME。",
             "如果实际生成尺寸与请求尺寸不一致，本站会按检测到的实际尺寸修正记录和计费。",
-            "官方 Images API 可能返回 usage；本站当前非流式 JSON 响应通常返回 usage: null，流式完成和错误事件会带 credits_consumed。",
+            "官方 Images API 可能返回 usage；本站当前 usage 通常为 null，但会通过顶层 credits_consumed、错误对象或流式完成事件返回实际积分。",
           ],
         },
         {
@@ -624,6 +667,9 @@ curl -N https://gpt2image.superapi.buzz/v1/images/edits \\
       "revised_prompt": "..."
     }
   ],
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "credits_consumed": 1.31,
   "usage": null
 }
 
@@ -748,6 +794,12 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "created / data[]",
               description: "与 /v1/images/generations 相同。",
+            },
+            {
+              name: "generation_id / generationId / credits_consumed",
+              description:
+                "本站扩展字段。非流式成功响应会在顶层返回本次生成记录 ID 和实际扣费；批量请求会返回 generation_ids / generationIds 以及合计 credits_consumed。",
+              custom: true,
             },
             {
               name: "SSE image_edit.partial_image",
@@ -1082,6 +1134,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           kind: "chat",
         },
         {
+          label: "Page Agent image run",
+          path: "POST /api/images/chat",
+          kind: "agent",
+        },
+        {
           label: "External image API",
           path: "POST /v1/images/generations",
           kind: "image_generation",
@@ -1167,6 +1224,12 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "chat",
           "Uses chat routing; can select Web accounts, Codex/Responses accounts, or external API backends that support /responses.",
         ],
+        [
+          "Create page Agent run",
+          "/api/images/chat",
+          "agent",
+          "Same internal endpoint, but uses Codex/Responses capability; it provides image_generation, web_search, continue_generation, and visible task cards.",
+        ],
       ],
       apiRows: [
         [
@@ -1210,6 +1273,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Browser-session entrypoints that adapt page forms, reference images, and internal stream events.",
         ],
         [
+          "Agent mode",
+          "/api/images/chat + agentMode=true",
+          "Not an external API. It enables a Codex-style tool loop and automatic image iteration inside the page Chat endpoint.",
+        ],
+        [
           "Three external endpoints",
           "/v1/images/generations, /v1/images/edits, /v1/responses",
           "/api/v1/* is an alias to the same handlers; these adapt API keys and OpenAI-compatible request/response formats.",
@@ -1226,6 +1294,24 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         ],
       ],
       note: "The relationship is not external API -> page API. It is six adapters -> one shared service layer.",
+    },
+    agent: {
+      title: "Page Agent Mode",
+      description:
+        "Agent is a Codex-style automatic run mode inside the create page, not an external API. It reuses /api/images/chat while enabling a tool loop, task cards, and multi-round image iteration.",
+      valid: [
+        "Enabled only when Codex/Responses capability is available; the Web branch does not run Agent tools.",
+        "Default tools include image_generation, web_search, and continue_generation. The backend does not force tool_choice so the model can combine search, image generation, and continuation.",
+        "Each round shows Agent task cards such as web search, tool compatibility adjustment, image generation, streaming preview, and continue/stop decisions.",
+        "Uploaded text/code files can be read as request context; prompted server filesystem paths are not read.",
+        "Max rounds are configurable. With force rounds enabled, Agent runs the selected number of rounds; otherwise the model decides whether to continue through continue_generation.",
+        "Draft images from multiple rounds are stored as iteration variants, with the last image selected as the default final output.",
+        "Billing has a base Agent round charge plus actual image output credits. The default is 3 credits per Agent round, controlled by the Plan Capability Matrix.",
+      ],
+      invalid: [
+        "External /v1/responses is not Page Agent. External endpoints only adapt OpenAI-compatible protocols and do not show page task cards.",
+        "generate_image_batch-style concurrent batch tooling is not wired in yet to avoid breaking Responses native state and linear iteration.",
+      ],
     },
     externalDocs: {
       title: "External API Reference",
@@ -1452,6 +1538,9 @@ curl -N https://gpt2image.superapi.buzz/v1/images/generations \\
       "revised_prompt": "..."
     }
   ],
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "credits_consumed": 1.31,
   "usage": null
 }
 
@@ -1562,6 +1651,12 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
                 "Returned when the upstream provides a revised prompt.",
             },
             {
+              name: "generation_id / generationId / credits_consumed",
+              description:
+                "GPT2IMAGE extension. Non-stream success responses return the generation record ID and actual charged credits at the top level; batch requests return generation_ids / generationIds and total credits_consumed.",
+              custom: true,
+            },
+            {
               name: "SSE image_generation.partial_image",
               description:
                 "Only returned with stream=true or Accept: text/event-stream. Represents one partial image.",
@@ -1577,7 +1672,7 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
             "When routed to a Responses account, the image request is converted into a Responses image_generation tool request.",
             "Web backends cannot strictly control output dimensions or output format. GPT2IMAGE labels stored files by the detected image header and MIME.",
             "If the actual generated dimensions differ from the requested size, GPT2IMAGE records and bills using the detected actual size.",
-            "The official Images API may return usage. GPT2IMAGE usually returns usage: null in non-stream JSON responses; streaming completion and error events include credits_consumed.",
+            "The official Images API may return usage. GPT2IMAGE usually returns usage: null, but actual credits are returned through top-level credits_consumed, error payloads, or streaming completion events.",
           ],
         },
         {
@@ -1674,6 +1769,9 @@ curl -N https://gpt2image.superapi.buzz/v1/images/edits \\
       "revised_prompt": "..."
     }
   ],
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "credits_consumed": 1.31,
   "usage": null
 }
 
@@ -1800,6 +1898,12 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "created / data[]",
               description: "Same as /v1/images/generations.",
+            },
+            {
+              name: "generation_id / generationId / credits_consumed",
+              description:
+                "GPT2IMAGE extension. Non-stream success responses return the generation record ID and actual charged credits at the top level; batch requests return generation_ids / generationIds and total credits_consumed.",
+              custom: true,
             },
             {
               name: "SSE image_edit.partial_image",
@@ -2379,6 +2483,31 @@ function RelationshipTable({
   );
 }
 
+function AgentDocs({
+  agent,
+}: {
+  agent: typeof sections.zh.agent | typeof sections.en.agent;
+}) {
+  return (
+    <Card className="rounded-lg">
+      <CardHeader>
+        <CardTitle className="text-base">{agent.title}</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {agent.description}
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-md border bg-muted/20 p-4">
+          <ListBlock items={agent.valid} type="valid" />
+        </div>
+        <div className="rounded-md border bg-muted/20 p-4">
+          <ListBlock items={agent.invalid} type="invalid" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ExternalApiDocs({
   docs,
 }: {
@@ -2653,7 +2782,7 @@ export function getSystemDocsMetadata(locale = "en") {
 
 export function SystemDocsContent({
   locale = "en",
-  className = "container mx-auto max-w-5xl space-y-6 px-4 py-6 md:px-6",
+  className = "container mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-6",
 }: {
   locale?: string;
   className?: string;
@@ -2677,6 +2806,8 @@ export function SystemDocsContent({
       <RouteDiagram flow={content.flow} />
 
       <RelationshipTable relationship={content.relationship} />
+
+      <AgentDocs agent={content.agent} />
 
       <ExternalApiDocs docs={content.externalDocs} />
 
