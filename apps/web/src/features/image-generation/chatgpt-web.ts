@@ -82,7 +82,7 @@ type WebImageParams = (GenerateImageParams | EditImageParams) & {
 
 function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) {
-    throw new Error("Image generation timed out after 10 minutes");
+    throw new Error("Image generation timed out after 20 minutes");
   }
 }
 
@@ -1790,7 +1790,7 @@ async function runWebImage(
   images: ImageInputFile[]
 ): Promise<GenerateImageResult> {
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 10 * 60 * 1000);
+  const timeout = setTimeout(() => abortController.abort(), 20 * 60 * 1000);
   try {
     const configWithSignal = { ...config, signal: abortController.signal };
     const requestMessageId = randomUUID();

@@ -445,6 +445,7 @@ function isRecoverableBackendError(error?: string | null) {
   const normalized = (error || "").toLowerCase();
   return (
     isUnsupportedModelBackendError(error) ||
+    isTransientNetworkBackendError(error) ||
     normalized.includes("429") ||
     normalized.includes("529") ||
     normalized.includes("rate limit") ||
@@ -499,6 +500,24 @@ function isRecoverableBackendError(error?: string | null) {
     normalized.includes("temporarily unavailable") ||
     normalized.includes("temporary unavailable") ||
     normalized.includes("service unavailable")
+  );
+}
+
+function isTransientNetworkBackendError(error?: string | null) {
+  const normalized = (error || "").toLowerCase();
+  return (
+    normalized === "terminated" ||
+    normalized.includes("typeerror: terminated") ||
+    normalized.includes("request aborted") ||
+    normalized.includes("operation was aborted") ||
+    normalized.includes("socket closed") ||
+    normalized.includes("socket hang up") ||
+    normalized.includes("other side closed") ||
+    normalized.includes("connection closed") ||
+    normalized.includes("connection terminated") ||
+    normalized.includes("connection reset") ||
+    normalized.includes("econnreset") ||
+    (normalized.includes("undici") && normalized.includes("terminated"))
   );
 }
 

@@ -6,9 +6,9 @@ import { grantCredits } from "./credits/core";
 import { getFailedGenerationTargetCreditsFromMetadata } from "./generation-settlement";
 import { logError } from "./logger";
 
-export const IMAGE_GENERATION_PENDING_TIMEOUT_MS = 10 * 60 * 1000;
+export const IMAGE_GENERATION_PENDING_TIMEOUT_MS = 20 * 60 * 1000;
 export const IMAGE_GENERATION_TIMEOUT_ERROR =
-  "Image generation timed out after 10 minutes. Generation credits were refunded.";
+  "Image generation timed out after 20 minutes. Generation credits were refunded.";
 
 type ExpireStalePendingGenerationsOptions = {
   userId?: string;

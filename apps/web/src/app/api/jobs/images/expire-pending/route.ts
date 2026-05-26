@@ -59,7 +59,7 @@ export const GET = withApiLogging(async () => {
     status: "ok",
     endpoint: "/api/jobs/images/expire-pending",
     method: "POST",
-    description: "Expire pending image generations older than 10 minutes",
+    description: "Expire pending image generations older than 20 minutes",
     authentication: "Bearer token required (CRON_SECRET)",
   });
 });
