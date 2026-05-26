@@ -1970,12 +1970,9 @@ export function CreatePageClient({
   }, [maxBatchCount]);
 
   useEffect(() => {
-    if (didApplyReferenceParamRef.current) return;
-
     const referenceUrl = searchParams.get("ref");
     if (!referenceUrl) return;
 
-    didApplyReferenceParamRef.current = true;
     const modeParam = searchParams.get("mode");
     const requestedMode: ActiveMode =
       modeParam === "agent" || modeParam === "waterfall" || modeParam === "chat"
@@ -1983,6 +1980,12 @@ export function CreatePageClient({
         : "image";
     const sourceId = searchParams.get("sourceId") || referenceUrl;
     const sourceName = searchParams.get("sourceName") || "reference";
+    const intentId = searchParams.get("intent") || "";
+    const referenceKey = [requestedMode, sourceId, referenceUrl, intentId].join(
+      "|"
+    );
+    if (appliedReferenceParamKeyRef.current === referenceKey) return;
+    appliedReferenceParamKeyRef.current = referenceKey;
     let cancelled = false;
 
     const attachReference = async () => {
@@ -2071,6 +2074,9 @@ export function CreatePageClient({
                 : copy("Could not load image.", "无法加载图片。"),
           }
         );
+        if (appliedReferenceParamKeyRef.current === referenceKey) {
+          appliedReferenceParamKeyRef.current = null;
+        }
       }
     };
 
@@ -2190,7 +2196,7 @@ export function CreatePageClient({
     null
   );
   const isCreatePageMountedRef = useRef(false);
-  const didApplyReferenceParamRef = useRef(false);
+  const appliedReferenceParamKeyRef = useRef<string | null>(null);
   const activeChatRequestGenerationIdsRef = useCreateRuntimeRef<Set<string>>(
     "activeChatRequestGenerationIdsRef",
     () => new Set()

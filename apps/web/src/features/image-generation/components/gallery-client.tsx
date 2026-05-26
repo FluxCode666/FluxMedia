@@ -60,6 +60,13 @@ export function GalleryClient({
   const galleryHref = (tab: GalleryClientProps["activeTab"], nextPage = 1) =>
     `/${locale}/dashboard/gallery?tab=${tab}&page=${nextPage}`;
   const nextPageHref = galleryHref(activeTab, page + 1);
+  const countBadgeClass = (active: boolean) =>
+    [
+      "ml-2 rounded-full px-1.5 py-0 text-[10px] font-normal",
+      active
+        ? "border-transparent bg-primary-foreground text-primary"
+        : "border-border text-foreground",
+    ].join(" ");
 
   const handleDelete = (id: string) => {
     setItems((prev) => prev.filter((x) => x.id !== id));
@@ -73,7 +80,7 @@ export function GalleryClient({
             {copy("Final images", "成品")}
             <Badge
               variant="outline"
-              className="ml-2 rounded-full border-border px-1.5 py-0 text-[10px] font-normal"
+              className={countBadgeClass(activeTab === "final")}
             >
               {finalCount}
             </Badge>
@@ -84,7 +91,7 @@ export function GalleryClient({
             {copy("Agent drafts", "Agent 中间图")}
             <Badge
               variant="outline"
-              className="ml-2 rounded-full border-border px-1.5 py-0 text-[10px] font-normal"
+              className={countBadgeClass(activeTab === "agent-drafts")}
             >
               {draftCount}
             </Badge>
