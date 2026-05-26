@@ -11,11 +11,28 @@ type AdminSettingsTabsProps = {
   timeZone: string;
 };
 
+type AdminSettingsTab = "system" | "image-backends";
+
 export function AdminSettingsTabs({ timeZone }: AdminSettingsTabsProps) {
-  const [activeTab, setActiveTab] = useState("system");
+  const [activeTab, setActiveTab] = useState<AdminSettingsTab>("system");
+  const [mountedTabs, setMountedTabs] = useState<Set<AdminSettingsTab>>(
+    () => new Set(["system"])
+  );
+
+  const handleTabChange = (value: string) => {
+    const nextTab: AdminSettingsTab =
+      value === "image-backends" ? "image-backends" : "system";
+    setActiveTab(nextTab);
+    setMountedTabs((current) => {
+      if (current.has(nextTab)) return current;
+      const next = new Set(current);
+      next.add(nextTab);
+      return next;
+    });
+  };
 
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
       <TabsList className="h-auto flex-wrap justify-start bg-transparent p-0">
         <TabsTrigger
           value="system"
@@ -31,10 +48,10 @@ export function AdminSettingsTabs({ timeZone }: AdminSettingsTabsProps) {
         </TabsTrigger>
       </TabsList>
       <TabsContent value="system" className="mt-6">
-        {activeTab === "system" ? <SystemSettingsPanel /> : null}
+        {mountedTabs.has("system") ? <SystemSettingsPanel /> : null}
       </TabsContent>
       <TabsContent value="image-backends" className="mt-6">
-        {activeTab === "image-backends" ? (
+        {mountedTabs.has("image-backends") ? (
           <ImageBackendPoolAdminPanel timeZone={timeZone} />
         ) : null}
       </TabsContent>

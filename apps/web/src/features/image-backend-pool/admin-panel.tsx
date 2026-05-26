@@ -204,6 +204,8 @@ type Sub2ApiAutoSyncTask = {
   };
 };
 
+type BackendPoolTab = "groups" | "accounts" | "apis" | "import";
+
 type SyncProgressState = {
   status: "idle" | "running" | "success" | "error";
   value: number;
@@ -615,6 +617,9 @@ export function ImageBackendPoolAdminPanel({
   readOnly?: boolean;
   timeZone?: string;
 }) {
+  const [activeTab, setActiveTab] = useState<BackendPoolTab>(
+    readOnly ? "accounts" : "groups"
+  );
   const [groups, setGroups] = useState<Group[]>([]);
   const [sub2ApiSourceGroups, setSub2ApiSourceGroups] = useState<
     Sub2ApiSourceGroup[]
@@ -1702,7 +1707,23 @@ export function ImageBackendPoolAdminPanel({
         </Button>
       </div>
 
-      <Tabs defaultValue={readOnly ? "accounts" : "groups"} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          const nextTab =
+            value === "accounts" ||
+            value === "apis" ||
+            value === "import" ||
+            value === "groups"
+              ? value
+              : readOnly
+                ? "accounts"
+                : "groups";
+          if (readOnly && nextTab === "import") return;
+          setActiveTab(nextTab);
+        }}
+        className="w-full"
+      >
         <TabsList className="h-auto flex-wrap justify-start bg-transparent p-0">
           <TabsTrigger value="groups">分组</TabsTrigger>
           <TabsTrigger value="accounts">账号池</TabsTrigger>

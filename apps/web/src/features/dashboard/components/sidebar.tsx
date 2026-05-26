@@ -43,7 +43,10 @@ import {
 } from "@repo/shared/subscription/components/plan-badge";
 import { signOut } from "@repo/shared/auth/client";
 import { cn } from "@repo/ui/utils";
-import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
+import {
+  useCurrentSession,
+  type CurrentSession,
+} from "@/features/auth/hooks/use-current-session";
 
 /**
  * Dashboard 侧边栏组件
@@ -56,7 +59,11 @@ import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
  * - 登出功能
  * - 支持折叠/展开
  */
-export function DashboardSidebar() {
+type DashboardSidebarProps = {
+  initialSession?: CurrentSession;
+};
+
+export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const locale = useLocale();
@@ -65,7 +72,7 @@ export function DashboardSidebar() {
   const t = useTranslations("Dashboard");
 
   // 获取当前用户会话
-  const { data: session } = useCurrentSession();
+  const { data: session } = useCurrentSession(initialSession);
   const user = session?.user;
   const isAdmin = isAdminRole(user?.role);
   const isObserverAdmin = isObserverAdminRole(user?.role);

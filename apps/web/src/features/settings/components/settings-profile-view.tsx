@@ -122,6 +122,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const [activeTab, setActiveTab] = useState(() =>
     normalizeTab(searchParams.get("tab"))
   );
+  const lastAppliedTabParamRef = useRef(searchParams.get("tab"));
 
   const handleLanguageChange = (newLocale: string) => {
     startLocaleTransition(() => {
@@ -179,6 +180,9 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       router.replace(`/${locale}/dashboard/external-api`);
       return;
     }
+    if (requestedTab === lastAppliedTabParamRef.current) return;
+    lastAppliedTabParamRef.current = requestedTab;
+    if (!requestedTab) return;
     setActiveTab(normalizeTab(requestedTab));
   }, [searchParams, normalizeTab, router, locale]);
 
@@ -328,7 +332,11 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
 
   return (
     <div className="max-w-4xl space-y-8">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(normalizeTab(value))}
+        className="w-full"
+      >
         <div className="border-b border-border pb-2">
           <TabsList className="h-auto gap-1 bg-transparent p-0">
             <TabsTrigger

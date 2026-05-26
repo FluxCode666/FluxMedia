@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { AppUserRole } from "@repo/shared/auth/roles";
 
-type CurrentSession = {
+export type CurrentSession = {
   user?: {
     id: string;
     name: string;
@@ -15,10 +15,10 @@ type CurrentSession = {
   };
 } | null;
 
-export function useCurrentSession() {
+export function useCurrentSession(initialData?: CurrentSession) {
   const pathname = usePathname();
-  const [data, setData] = useState<CurrentSession>(null);
-  const [isPending, setIsPending] = useState(true);
+  const [data, setData] = useState<CurrentSession>(initialData ?? null);
+  const [isPending, setIsPending] = useState(!initialData);
   const [reloadToken, setReloadToken] = useState(0);
 
   const reload = useCallback(() => {
@@ -30,7 +30,6 @@ export function useCurrentSession() {
 
     async function loadSession() {
       setIsPending(true);
-      setData(null);
 
       try {
         const requestTag = `${Date.now().toString(36)}-${reloadToken}-${encodeURIComponent(pathname)}`;
@@ -55,7 +54,7 @@ export function useCurrentSession() {
         setData((await response.json()) as CurrentSession);
       } catch {
         if (!controller.signal.aborted) {
-          setData(null);
+          setData((current) => current ?? null);
         }
       } finally {
         if (!controller.signal.aborted) {
