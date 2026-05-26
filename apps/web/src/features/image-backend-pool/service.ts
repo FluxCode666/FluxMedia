@@ -1427,171 +1427,29 @@ async function selectPoolMember(
       metadata: row.metadata,
     }));
 
-  const candidates = [...apiMembers, ...accountMembers]
-    .filter((member) => !excluded?.has(backendKey(member)))
-    .sort((left, right) => {
-      const preferredDiff =
-        (right.id === preferredMemberId ? 1 : 0) -
-        (left.id === preferredMemberId ? 1 : 0);
-      if (preferredDiff !== 0) return preferredDiff;
-      const priorityDiff = left.priority - right.priority;
-      if (priorityDiff !== 0) return priorityDiff;
-      const loadDiff = backendLoadRate(left) - backendLoadRate(right);
-      if (loadDiff !== 0) return loadDiff;
-      const inflightDiff =
-        backendInflightCount(left) - backendInflightCount(right);
-      if (inflightDiff !== 0) return inflightDiff;
-      const lastUsedDiff =
-        memberTimestamp(left.lastUsedAt) - memberTimestamp(right.lastUsedAt);
-      if (lastUsedDiff !== 0) return lastUsedDiff;
-      return memberTimestamp(left.createdAt) - memberTimestamp(right.createdAt);
-    });
-
-  for (const member of candidates) {
-    if (await ensurePoolMemberSourceHealth(member)) return member;
-    excluded?.add(backendKey(member));
-  }
-
-  return null;
-}
-
-async function markSub2ApiSourceMissing(
-  member: PoolMember,
-  sourceAccountId: string
-) {
-  if (member.type !== "account") return;
-  const now = new Date();
-  const message = `Sub2API 来源账号 ${sourceAccountId} 不存在或已被删除`;
-  await db
-    .update(imageBackendAccount)
-    .set({
-      isEnabled: false,
-      status: "error",
-      cooldownUntil: null,
-      failCount: sql`${imageBackendAccount.failCount} + 1`,
-      lastError: message,
-      lastErrorAt: now,
-      updatedAt: now,
-    })
-    .where(eq(imageBackendAccount.id, member.id));
-  logWarn("选中的 Sub2API 来源账号不存在，已禁用本地后端账号", {
-    memberId: member.id,
-    sourceAccountId,
-  });
-}
-
-async function getSub2ApiCurrentAccountBySourceId(sourceAccountId: string) {
-  if (!/^\d+$/.test(sourceAccountId)) return null;
-  const connectionString = await getOptionalSub2ApiPostgresConnectionString();
-  if (!connectionString) return null;
-  const pool = createSub2ApiPool(connectionString);
-  try {
-    const result = await pool.query<Sub2ApiAccountRow>(
-      `
-        SELECT
-          a.id,
-          a.name,
-          a.platform,
-          a.type,
-          a.status,
-          a.schedulable,
-          a.error_message,
-          a.rate_limit_reset_at,
-          a.overload_until,
-          a.temp_unschedulable_until,
-          a.temp_unschedulable_reason,
-          a.session_window_status,
-          a.session_window_end,
-          a.credentials,
-          a.priority,
-          a.concurrency,
-          to_jsonb(a) - 'credentials' AS row_data,
-          COALESCE(
-            ARRAY_AGG(g.name ORDER BY ag.priority, g.name)
-              FILTER (WHERE g.name IS NOT NULL),
-            ARRAY[]::text[]
-          ) AS group_names
-        FROM accounts a
-        LEFT JOIN account_groups ag ON ag.account_id = a.id
-        LEFT JOIN groups g ON g.id = ag.group_id AND g.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL AND a.id = $1::bigint
-        GROUP BY a.id
-        LIMIT 1
-      `,
-      [sourceAccountId]
-    );
-    return result.rows
-      .map(mapSub2ApiAccountRow)
-      .find((account): account is Sub2ApiTokenAccount => Boolean(account)) ??
-      null;
-  } finally {
-    await pool.end().catch(() => undefined);
-  }
-}
-
-async function ensurePoolMemberSourceHealth(member: PoolMember) {
-  if (member.type !== "account") return true;
-  if (!isSub2ApiBackedMetadata(member.metadata)) return true;
-
-  const metadata = asBackendMetadata(member.metadata);
-  const sourceAccountId = metadataString(metadata, "sourceAccountId");
-  if (!sourceAccountId) return true;
-
-  let sourceAccount: Sub2ApiTokenAccount | null = null;
-  try {
-    sourceAccount = await getSub2ApiCurrentAccountBySourceId(sourceAccountId);
-  } catch (error) {
-    logWarn("Sub2API 来源账号实时状态检查失败，继续使用本地快照", {
-      memberId: member.id,
-      sourceAccountId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return true;
-  }
-
-  if (!sourceAccount) {
-    await markSub2ApiSourceMissing(member, sourceAccountId);
-    return false;
-  }
-
-  const mode = normalizeAccountBackend(member.implementationMode);
-  const existing = await getExistingSub2ApiSyncedAccountState(
-    sourceAccount.sourceId,
-    mode
+  return (
+    [...apiMembers, ...accountMembers]
+      .filter((member) => !excluded?.has(backendKey(member)))
+      .sort((left, right) => {
+        const preferredDiff =
+          (right.id === preferredMemberId ? 1 : 0) -
+          (left.id === preferredMemberId ? 1 : 0);
+        if (preferredDiff !== 0) return preferredDiff;
+        const priorityDiff = left.priority - right.priority;
+        if (priorityDiff !== 0) return priorityDiff;
+        const loadDiff = backendLoadRate(left) - backendLoadRate(right);
+        if (loadDiff !== 0) return loadDiff;
+        const inflightDiff =
+          backendInflightCount(left) - backendInflightCount(right);
+        if (inflightDiff !== 0) return inflightDiff;
+        const lastUsedDiff =
+          memberTimestamp(left.lastUsedAt) - memberTimestamp(right.lastUsedAt);
+        if (lastUsedDiff !== 0) return lastUsedDiff;
+        return (
+          memberTimestamp(left.createdAt) - memberTimestamp(right.createdAt)
+        );
+      })[0] ?? null
   );
-  const healthUpdate = await resolveSyncedAccountHealth(
-    sourceAccount,
-    existing,
-    { overwriteLocalUnavailableState: true }
-  );
-  const hasFutureCooldown =
-    healthUpdate.cooldownUntil &&
-    healthUpdate.cooldownUntil.getTime() > Date.now();
-  const sourceUnavailable =
-    healthUpdate.isEnabled === false ||
-    healthUpdate.status !== "active" ||
-    Boolean(hasFutureCooldown) ||
-    Boolean(healthUpdate.lastError);
-
-  if (!sourceUnavailable) return true;
-
-  await applySub2ApiHealthToExistingAccount(
-    member.id,
-    sourceAccount,
-    mode,
-    metadataString(metadata, "tokenSource") || null,
-    Boolean(metadata.mobileRtImport),
-    healthUpdate,
-    metadataString(metadata, "sub2apiSyncTaskId") || null
-  );
-  logWarn("选中的 Sub2API 来源账号已不可用，已同步本地状态并跳过调度", {
-    memberId: member.id,
-    sourceAccountId,
-    status: healthUpdate.status,
-    cooldownUntil: healthUpdate.cooldownUntil?.toISOString() || null,
-    error: healthUpdate.lastError,
-  });
-  return false;
 }
 
 async function touchSelectedMember(member: PoolMember) {
