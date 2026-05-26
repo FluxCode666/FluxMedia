@@ -162,6 +162,11 @@ const FEATURE_ROWS = [
     description: "允许 /v1/responses，通常要求 Pro+",
   },
   {
+    key: "externalApi.agent",
+    label: "外接 Agent 生图",
+    description: "允许 /v1/agents/images，默认要求 Ultra+",
+  },
+  {
     key: "externalApi.streaming",
     label: "外接流式",
     description: "允许 stream=true",

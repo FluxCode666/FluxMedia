@@ -7,7 +7,7 @@ GPT2Image-Pro 是一个面向生图业务的 SaaS 平台。当前版本采用 pn
 ## 主要功能
 
 - 文生图、图生图/编辑、对话生图、批量生成、历史瀑布流和 Codex 式 Agent 自动迭代生图。
-- OpenAI 风格外接 API：`/v1/images/generations`、`/v1/images/edits`、`/v1/responses`、`/v1/chat/completions`、`/v1/models`，同时提供 `/api/v1/*` 镜像路径。
+- OpenAI 风格外接 API：`/v1/images/generations`、`/v1/images/edits`、`/v1/responses`、`/v1/agents/images`、`/v1/chat/completions`、`/v1/models`，同时提供 `/api/v1/*` 镜像路径。
 - 生图后端池：支持 Web 账号、Codex/Responses 账号和外接 OpenAI 兼容 API；支持分组、分组类型、默认分组、优先级、权重、并发、冷却、错误标记和额度显示。
 - Sub2API 同步：从 Sub2API PostgreSQL 同步 OpenAI OAuth 账号，支持按来源分组、套餐过滤、排除 free、排除错误账号、去重导入和定时同步。
 - RT/AT 导入：支持直接导入 RT、从 Auth Session 整段文本解析 RT、Web AT 导入；Mobile RT 需要显式勾选后才走 mobile client 路线。
@@ -191,6 +191,8 @@ curl https://your-domain.com/v1/images/generations \
 
 `force_web`/`forceWeb` 是本站扩展字段，仅对 `/v1/images/generations` 和 `/v1/images/edits` 生效。用户已启用“接入其他站 API”时仍优先使用用户自接 API，并忽略该字段；进入平台账号池后，只有命中的后端分组为 `mixed` 时才会强制本次 image 请求只调度 Web 账号。非 mixed 分组也会忽略该字段并按原分组规则调度。Web 后端仍不能严格保证输出分辨率或 4K。
 
+`n`/`count` 批量张数是一次 HTTP 发送，但当前后端按单张任务串行执行：一次生成 10 张会创建 10 条 generation 记录、按 10 张结算，但同一批内同一时间只占 1 个用户生图并发槽，不会一次吃掉 10 个并发。
+
 流式文生图示例：
 
 ```bash
@@ -238,7 +240,28 @@ curl https://your-domain.com/v1/responses \
   }'
 ```
 
-外接 API 权限由能力矩阵控制。默认 Responses 接口要求 Pro+，普通 image/chat/model 接口默认 Starter+，流式默认 Starter+。可在后台“系统设置 -> 套餐 -> 套餐能力矩阵”调整。
+Agent 生图外接接口是本站扩展接口，不是 OpenAI 官方接口。它把页面 Agent 的 Codex/Responses 工具循环开放给 API 用户，支持联网、附件上下文、自动迭代和流式任务事件；默认要求 Ultra/旗舰版，可在能力矩阵的 `externalApi.agent` 调整。
+
+```bash
+curl -N https://your-domain.com/v1/agents/images \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \
+  -d '{
+    "model": "gpt-5.4",
+    "image_model": "gpt-image-2",
+    "prompt": "先联网查询资料，再迭代生成一张企业宣传海报",
+    "size": "1536x1024",
+    "stream": true,
+    "agent_max_rounds": 2,
+    "agent_force_max_rounds": true,
+    "response_format": "url"
+  }'
+```
+
+`/v1/agents/images` 一次只运行一个 Agent 任务，`n`/`count` 传入时必须为 `1`。JSON 可传 `images`/`image_url`/`image_urls` 公网参考图；multipart 可传 `image[]` 参考图和 `file`/`attachment` 文本、代码或 PDF 附件。流式事件包括 `agent.event`、`agent.partial_image`、`agent.text_delta`、`agent.thinking_delta` 和 `agent.completed`。
+
+外接 API 权限由能力矩阵控制。默认 Responses 接口要求 Pro+，Agent 生图要求 Ultra+，普通 image/chat/model 接口默认 Starter+，流式默认 Starter+。可在后台“系统设置 -> 套餐 -> 套餐能力矩阵”调整。
 
 ## 套餐能力矩阵
 
@@ -246,7 +269,7 @@ curl https://your-domain.com/v1/responses \
 
 矩阵可配置：
 
-- 功能门槛：文生图、图生图、对话生图、批量生成、提示词优化开关、GPT-5.5、选择后端分组、外接 API Key、外接 Chat/Images/Responses/Models/Streaming、审核能力。
+- 功能门槛：文生图、图生图、对话生图、Agent、生图批量、提示词优化开关、GPT-5.5、选择后端分组、外接 API Key、外接 Chat/Images/Responses/Agent/Models/Streaming、审核能力。
 - 套餐限制：月积分配额、单用户生图并发、单文件大小、单次上传总量、批量张数、编辑参考图数量、对话参考图数量、对话上下文字符、队列优先级。
 - 审核策略：默认拦截等级、最高可选等级、审核失败只扣审核积分。
 
@@ -260,7 +283,7 @@ pnpm --filter @repo/shared test:matrix
 
 页面 Chat 是普通多模态对话/生图：一次请求保留上下文，先扣 1 积分；如果本轮产出图片，再按实际输出尺寸和数量追加计费。
 
-页面 Agent 面向 Codex 式任务执行：后端默认提供 `image_generation`、`web_search` 和线性续跑工具 `continue_generation`，不强制 `tool_choice`。一次用户请求内会自动执行多轮，每轮把上一轮文字、工具结果和生成草图作为下一轮上下文，模型可自行决定继续搜索、读上传的文本/代码附件、生成草图或改版。每个自动轮次扣 1 积分，图片输出另按实际尺寸和数量计费。
+页面 Agent 面向 Codex 式任务执行：后端默认提供 `image_generation`、`web_search` 和线性续跑工具 `continue_generation`，不强制 `tool_choice`。一次用户请求内会自动执行多轮，每轮把上一轮文字、工具结果和生成草图作为下一轮上下文，模型可自行决定继续搜索、读上传的文本/代码附件、生成草图或改版。每个自动轮次的基础积分由套餐能力矩阵 `agentRoundCredits` 配置，默认 3 积分/轮；图片输出另按实际尺寸和数量计费。
 
 Agent 最大自动轮数由系统设置 `IMAGE_AGENT_MAX_ROUNDS` 控制，默认 `3`，后台“系统设置 -> 模型与后端”可改。上传的文本/代码类文件会作为上下文读取；不会开放服务器本地路径读取。
 

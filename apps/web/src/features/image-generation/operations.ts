@@ -846,12 +846,16 @@ export async function runImageGenerationForUser(
   }
   if (input.mode === "chat" && input.backendRequestKind !== "responses") {
     const chatCapability = input.agentMode
-      ? "imageGeneration.agent"
+      ? input.apiKeyId
+        ? "externalApi.agent"
+        : "imageGeneration.agent"
       : input.waterfallMode
         ? "imageGeneration.waterfall"
         : "imageGeneration.chat";
     const chatLabel = input.agentMode
-      ? "Agent mode"
+      ? input.apiKeyId
+        ? "External Agent API"
+        : "Agent mode"
       : input.waterfallMode
         ? "Waterfall mode"
         : "Chat mode";

@@ -461,6 +461,7 @@ export function PricingSection({
         canUseCapability(planId, "externalApi.images.edit")) &&
         "Images",
       canUseCapability(planId, "externalApi.responses") && "Responses",
+      canUseCapability(planId, "externalApi.agent") && "Agent",
       canUseCapability(planId, "externalApi.streaming") &&
         copy("streaming", "流式"),
     ].filter(Boolean);

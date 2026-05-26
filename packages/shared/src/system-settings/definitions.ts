@@ -188,6 +188,7 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "externalApi.images.generate": "starter",
     "externalApi.images.edit": "starter",
     "externalApi.responses": "pro",
+    "externalApi.agent": "ultra",
     "externalApi.streaming": "starter",
     "moderation.blocking": "free",
     "moderation.onlyFailureSettlement": "ultra",

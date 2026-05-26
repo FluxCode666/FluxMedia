@@ -44,6 +44,7 @@ describe("plan capability matrix defaults", () => {
     );
     expect(matrix.features["externalApi.streaming"]).toBe("starter");
     expect(matrix.features["externalApi.responses"]).toBe("pro");
+    expect(matrix.features["externalApi.agent"]).toBe("ultra");
     expect(matrix.features["imageGeneration.chat"]).toBe("pro");
     expect(matrix.features["imageGeneration.agent"]).toBe("pro");
     expect(matrix.features["imageGeneration.waterfall"]).toBe("pro");
@@ -78,6 +79,7 @@ describe("plan capability matrix defaults", () => {
     const matrix = normalizePlanCapabilityMatrix({
       features: {
         "externalApi.streaming": "ultra",
+        "externalApi.agent": "enterprise",
         "promptOptimization.control": "free",
         "imageGeneration.chat": "starter",
         "imageGeneration.agent": "ultra",
@@ -88,6 +90,7 @@ describe("plan capability matrix defaults", () => {
     });
 
     expect(matrix.features["externalApi.streaming"]).toBe("ultra");
+    expect(matrix.features["externalApi.agent"]).toBe("enterprise");
     expect(matrix.features["promptOptimization.control"]).toBe("free");
     expect(matrix.features["imageGeneration.chat"]).toBe("starter");
     expect(matrix.features["imageGeneration.agent"]).toBe("ultra");
@@ -289,6 +292,7 @@ describe("plan capability matrix runtime accessors", () => {
     runtimeSettingsMock.getRuntimeSettingJson.mockResolvedValue({
       features: {
         "externalApi.streaming": "ultra",
+        "externalApi.agent": "ultra",
       },
       limits: {
         free: {
@@ -301,6 +305,7 @@ describe("plan capability matrix runtime accessors", () => {
     const matrix = await getPlanCapabilityMatrix();
 
     expect(matrix.features["externalApi.streaming"]).toBe("ultra");
+    expect(matrix.features["externalApi.agent"]).toBe("ultra");
     expect(matrix.limits.free.maxUploadMb).toBe(11);
     expect(runtimeSettingsMock.getRuntimeSettingNumber).not.toHaveBeenCalled();
   });
@@ -329,6 +334,7 @@ describe("plan capability matrix runtime accessors", () => {
     runtimeSettingsMock.getRuntimeSettingJson.mockResolvedValue({
       features: {
         "externalApi.streaming": "ultra",
+        "externalApi.agent": "ultra",
         "imageGeneration.chat": "starter",
         "imageGeneration.agent": "ultra",
         "imageGeneration.waterfall": "pro",
@@ -365,6 +371,12 @@ describe("plan capability matrix runtime accessors", () => {
     ).resolves.toBe(false);
     await expect(
       canUsePlanCapability("ultra", "externalApi.streaming")
+    ).resolves.toBe(true);
+    await expect(canUsePlanCapability("pro", "externalApi.agent")).resolves.toBe(
+      false
+    );
+    await expect(
+      canUsePlanCapability("ultra", "externalApi.agent")
     ).resolves.toBe(true);
     await expect(canUsePlanCapability("starter", "imageGeneration.chat")).resolves.toBe(
       true
@@ -403,6 +415,7 @@ describe("plan capability matrix runtime accessors", () => {
 
     const snapshot = await getPlanCapabilitySnapshot("ultra");
     expect(snapshot.features["externalApi.streaming"]).toBe(true);
+    expect(snapshot.features["externalApi.agent"]).toBe(true);
     expect(snapshot.features["models.gpt55"]).toBe(true);
     expect(snapshot.limits.maxFileSizeBytes).toBe(megabytesToBytes(150));
     expect(snapshot.limits.maxUploadBytes).toBe(megabytesToBytes(180));

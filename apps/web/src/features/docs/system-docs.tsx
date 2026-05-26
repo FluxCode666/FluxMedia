@@ -18,7 +18,7 @@ const sections = {
   zh: {
     title: "系统文档",
     subtitle:
-      "这里按当前代码真实链路说明：六个入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。",
+      "这里按当前代码真实链路说明：页面入口和外接入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。",
     flow: {
       title: "请求路由图",
       note: "用户自接 API 目前仍保留最高优先级；没有可用的用户自接 API 时，才进入平台后端池。外接接口不会反向请求站内 /api/images/*。",
@@ -61,6 +61,11 @@ const sections = {
           label: "外部 Responses API",
           path: "POST /v1/responses",
           kind: "responses",
+        },
+        {
+          label: "外部 Agent 生图 API",
+          path: "POST /v1/agents/images",
+          kind: "agent",
         },
       ],
       resolver: [
@@ -150,6 +155,12 @@ const sections = {
           "无 tools 时平台补 image_generation；显式传 tools 时必须包含 image_generation。按 responses 类型只调度 Codex/Responses 分组或外接 /responses API。",
         ],
         [
+          "GPT2IMAGE Agent image run",
+          "/v1/agents/images",
+          "agent",
+          "本站扩展接口。验证 externalApi.agent 能力后走 Codex/Responses 调度，不会选择 Web 后端；可流式返回 Agent 任务事件和多轮成图。",
+        ],
+        [
           "OpenAI models",
           "/v1/models",
           "-",
@@ -174,11 +185,11 @@ const sections = {
         [
           "Agent 模式",
           "/api/images/chat + agentMode=true",
-          "不是外接 API；它在页面 Chat 接口内开启 Codex 风格工具循环和自动迭代。",
+          "页面 Chat 接口内开启 Codex 风格工具循环和自动迭代。",
         ],
         [
-          "外接三接口",
-          "/v1/images/generations、/v1/images/edits、/v1/responses",
+          "外接四类生图接口",
+          "/v1/images/generations、/v1/images/edits、/v1/responses、/v1/agents/images",
           "/api/v1/* 是同一 handler 的别名；只负责 API Key、OpenAI 兼容请求和响应格式适配。",
         ],
         [
@@ -192,12 +203,12 @@ const sections = {
           "按命中的成员转换成 ChatGPT Web、Codex/Responses 或外接 API 请求。",
         ],
       ],
-      note: "所以关系不是“外接 API 调页面 API”，而是“六个入口共享同一个 service 层”。",
+      note: "所以关系不是“外接 API 调页面 API”，而是“各入口共享同一个 service 层”。",
     },
     agent: {
       title: "页面 Agent 模式",
       description:
-        "Agent 是创作页内的 Codex 风格自动执行模式，不是外接 API。它复用 /api/images/chat，但会启用工具循环、任务卡和多轮图片迭代。",
+        "Agent 是 Codex 风格自动执行模式。页面端复用 /api/images/chat 并展示任务卡；外接版使用 /v1/agents/images，以 SSE/JSON 形式返回任务事件和图片结果。",
       valid: [
         "仅在 Codex/Responses 能力可用时启用；Web 分支不会开启 Agent 工具循环。",
         "默认工具包含 image_generation、web_search 和 continue_generation；后端不会强制 tool_choice，避免阻断联网和生图等多工具组合。",
@@ -208,7 +219,7 @@ const sections = {
         "计费分为 Agent 每轮基础积分和图片实际输出积分；默认 Agent 每轮 3 积分，最终以套餐能力矩阵配置为准。",
       ],
       invalid: [
-        "外部 /v1/responses 不等于页面 Agent；外接接口只做 OpenAI 兼容协议适配，不展示页面任务卡。",
+        "外部 /v1/responses 不等于 Agent；它只做 OpenAI Responses 兼容协议适配，不会自动开启 Agent 工具循环。",
         "当前没有接入 generate_image_batch 并发批量工具，避免破坏 Responses 粘性会话和线性迭代状态。",
       ],
     },
@@ -223,7 +234,7 @@ const sections = {
       responseExampleTitle: "响应示例",
       common: [
         "所有外接接口都需要 Authorization: Bearer <本站 API Key>。",
-        "图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上。",
+        "图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上；Agent 生图接口默认需要旗舰版及以上，可在套餐能力矩阵中调整 externalApi.agent。",
         "/api/v1/* 与 /v1/* 使用同一套 handler，只是路径别名。",
         "response_format 控制返回 URL 或 base64；output_format 才控制图片文件格式，二者不是同一个字段。",
         "错误响应采用 OpenAI 风格 error 对象；本站可能额外返回 generation_id、generationId、credits_consumed 方便排查和对账。",
@@ -568,6 +579,7 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
           notes: [
             "该接口不会调用页面 /api/images/generate，而是直接进入共享 service 层。",
             "如果命中 Responses 账号池，内部会把图片请求转换成 Responses image_generation tool 请求。",
+            "n/count 批量张数属于一次 HTTP 请求，但当前按单张任务串行执行；一次 10 张会创建 10 条生成记录并按 10 张计费，同一批内同一时间只占 1 个用户生图并发槽。",
             "Web 后端无法严格控制输出尺寸和输出格式；本站保存时会按实际图片头识别扩展名和 MIME。",
             "如果实际生成尺寸与请求尺寸不一致，本站会按检测到的实际尺寸修正记录和计费。",
             "官方 Images API 可能返回 usage；本站当前 usage 通常为 null，但会通过顶层 credits_consumed、错误对象或流式完成事件返回实际积分。",
@@ -816,6 +828,223 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             "URL 图片会先由本站服务端下载并校验公网可访问性、类型和大小。",
             "不支持私网、localhost、metadata/internal 域名或带用户名密码的 URL。",
             "官方 JSON file_id 图片引用当前未实现，请使用公网 image_url 或 multipart 上传。",
+          ],
+        },
+        {
+          title: "Create Agent image run",
+          method: "POST",
+          path: "/v1/agents/images",
+          contentType: "application/json 或 multipart/form-data",
+          description:
+            "本站扩展接口：把页面 Agent 模式开放给外接 API。它固定按 Codex/Responses 能力调度，支持联网、工具循环、自动迭代、附件上下文和流式 Agent 事件。",
+          example: `# 1. JSON Agent 生图；默认返回 URL。默认需要 Ultra，可在能力矩阵 externalApi.agent 调整。
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4",
+    "image_model": "gpt-image-2",
+    "prompt": "联网查询浙江双元科技公开资料，迭代生成一张企业宣传海报",
+    "size": "1536x1024",
+    "quality": "high",
+    "thinking": "medium",
+    "agent_max_rounds": 3,
+    "agent_force_max_rounds": false,
+    "response_format": "url"
+  }'
+
+# 2. 带参考图 URL。images / image_url / image_urls 会合并去重。
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4-mini",
+    "image_model": "gpt-image-2",
+    "prompt": "参考这张产品图，先分析卖点，再生成一张电商海报",
+    "images": ["https://example.com/product.png"],
+    "size": "1024x1024",
+    "agent_max_rounds": 2
+  }'
+
+# 3. multipart 上传参考图和 PDF/文本附件。
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -F model="gpt-5.4" \\
+  -F image_model="gpt-image-2" \\
+  -F prompt="阅读附件资料并生成一张展会宣传海报" \\
+  -F size="1536x1024" \\
+  -F response_format="url" \\
+  -F agent_max_rounds="3" \\
+  -F 'image[]=@/path/to/reference.png' \\
+  -F 'file=@/path/to/company-profile.pdf'
+
+# 4. 流式 Agent。会持续返回 agent.event / agent.partial_image / agent.completed。
+curl -N https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Accept: text/event-stream" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4",
+    "image_model": "gpt-image-2",
+    "prompt": "先搜索资料，再迭代生成一张科技蓝企业海报",
+    "size": "1536x1024",
+    "stream": true,
+    "agent_max_rounds": 2,
+    "agent_force_max_rounds": true
+  }'`,
+          responseExample: `{
+  "object": "agent.image_run",
+  "created": 1713833628,
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "model": "gpt-5.4",
+  "size": "1536x1024",
+  "response_text": "已完成资料检索并生成海报。",
+  "agent_round_count": 2,
+  "credits_consumed": 8.42,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "...",
+      "output_role": "agent_draft"
+    },
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "...",
+      "output_role": "final"
+    }
+  ],
+  "agent_events": [],
+  "usage": null
+}
+
+# stream=true 时的 SSE 片段
+event: agent.event
+data: {"type":"agent.event","event":{"kind":"web_search","status":"completed","title":"联网搜索完成","detail":"浙江双元科技 官网"}}
+
+event: agent.partial_image
+data: {"type":"agent.partial_image","partial_image_index":0,"url":"https://gpt2image.superapi.buzz/api/storage/generations/..."}
+
+event: agent.completed
+data: {"type":"agent.completed","generation_id":"...","generationId":"...","agent_round_count":2,"credits_consumed":8.42,"data":[{"url":"https://gpt2image.superapi.buzz/api/storage/generations/...","output_role":"final"}]}
+`,
+          fields: [
+            {
+              name: "prompt",
+              requirement: "必填",
+              description: "Agent 当前任务，最多 4000 字符。",
+            },
+            {
+              name: "model / gptModel / gpt_model",
+              requirement: "可选",
+              description:
+                "Agent 顶层 GPT/Responses 模型。若 model 是 gpt-image-*，本站会把它当作 image_model 兼容处理。",
+            },
+            {
+              name: "image_model / imageModel",
+              requirement: "可选",
+              description:
+                "image_generation 工具使用的图片模型，通常为 gpt-image-*。",
+            },
+            {
+              name: "images / image_url / image_urls",
+              requirement: "JSON 可选",
+              description:
+                "公网参考图 URL；也支持 data URL。本站会服务端下载并校验公网可达、类型和大小。",
+            },
+            {
+              name: "image / image[] / image_*",
+              requirement: "multipart 可选",
+              description: "参考图文件，和附件总数受套餐 maxChatImages 限制。",
+            },
+            {
+              name: "file / file[] / attachment",
+              requirement: "multipart 可选",
+              description:
+                "文本、代码、CSV、JSON、Markdown、XML、YAML、日志或 PDF 附件。文本类会转成上下文，PDF 会作为 Responses 文件输入。",
+            },
+            {
+              name: "history",
+              requirement: "可选",
+              description:
+                "前序对话数组，形如 [{ role, text, imageUrls, variants }]；用于继续外接 Agent 会话。",
+            },
+            {
+              name: "agent_max_rounds",
+              requirement: "可选",
+              description: "1 到 8。限制本次 Agent 自动迭代轮数。",
+              custom: true,
+            },
+            {
+              name: "agent_force_max_rounds",
+              requirement: "可选",
+              description:
+                "true 时强制跑满 agent_max_rounds；false 时模型可通过 continue_generation 自行停止。",
+              custom: true,
+            },
+            {
+              name: "n / count",
+              requirement: "可选",
+              description:
+                "Agent 接口一次只跑一个任务；传入时必须为 1。需要多任务请并发调用接口。",
+            },
+            {
+              name: "size / quality / moderation / output_format / output_compression",
+              requirement: "可选",
+              description: "同 image 接口，作为 Agent 内 image_generation 工具运行参数。",
+            },
+            {
+              name: "thinking",
+              requirement: "可选",
+              custom: true,
+              description: "minimal、none、low、medium、high、xhigh。",
+            },
+            {
+              name: "response_format",
+              requirement: "可选",
+              description:
+                "url 或 b64_json。Agent 接口默认 url，避免多轮结果响应过大。",
+            },
+            {
+              name: "stream",
+              requirement: "可选",
+              description:
+                "true 或 Accept: text/event-stream 返回 SSE；同时要求 externalApi.streaming 能力。",
+            },
+          ],
+          responses: [
+            {
+              name: "object / generation_id / model / size",
+              description: "Agent 运行对象、生成记录和模型尺寸信息。",
+            },
+            {
+              name: "data[]",
+              description:
+                "本次 Agent 产生的图片。output_role 可为 agent_draft 或 final；最后的 final 是默认成品。",
+            },
+            {
+              name: "agent_events[]",
+              description:
+                "任务事件数组，包含联网、生图、继续/停止决策等结构化事件。",
+            },
+            {
+              name: "credits_consumed / agent_round_count",
+              description:
+                "实际扣费和 Agent 轮数。计费 = Agent 每轮基础积分 + 最终图片输出积分 + 审核积分，并叠加分组倍率。",
+              custom: true,
+            },
+            {
+              name: "SSE agent.event / agent.partial_image / agent.completed",
+              description:
+                "流式 Agent 任务事件、流式预览图和最终完成事件。",
+            },
+          ],
+          notes: [
+            "该接口是本站扩展，不是 OpenAI 官方接口；/api/v1/agents/images 是同一 handler 的别名。",
+            "默认要求 Ultra 套餐；管理员可在套餐能力矩阵中调整 externalApi.agent。",
+            "该接口强制 requiresResponsesBackend，不会命中 Web 账号；支持 Codex/Responses 账号或支持 /responses 的外接 API 后端。",
+            "不会调用页面 /api/images/chat；它和页面 Agent 共享 runImageGenerationForUser service 层。",
+            "generate_image_batch 并发工具暂未开放，避免破坏线性迭代和 Responses 粘性会话。",
           ],
         },
         {
@@ -1109,7 +1338,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
   en: {
     title: "System Docs",
     subtitle:
-      "The six endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path.",
+      "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path.",
     flow: {
       title: "Request Routing Diagram",
       note: "User custom API keeps the highest priority for now; when unavailable, the request enters the platform backend pool. External endpoints do not call internal /api/images/* routes.",
@@ -1152,6 +1381,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           label: "External Responses API",
           path: "POST /v1/responses",
           kind: "responses",
+        },
+        {
+          label: "External Agent image API",
+          path: "POST /v1/agents/images",
+          kind: "agent",
         },
       ],
       resolver: [
@@ -1251,6 +1485,12 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Adds the image_generation tool when tools are omitted; explicit tools must include image_generation. Responses routing selects Codex/Responses groups or external /responses API backends.",
         ],
         [
+          "GPT2IMAGE Agent image run",
+          "/v1/agents/images",
+          "agent",
+          "GPT2IMAGE extension. Requires externalApi.agent, routes to Codex/Responses only, and can stream Agent task events plus multi-round image outputs.",
+        ],
+        [
           "OpenAI models",
           "/v1/models",
           "-",
@@ -1275,11 +1515,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         [
           "Agent mode",
           "/api/images/chat + agentMode=true",
-          "Not an external API. It enables a Codex-style tool loop and automatic image iteration inside the page Chat endpoint.",
+          "Enables a Codex-style tool loop and automatic image iteration inside the page Chat endpoint.",
         ],
         [
-          "Three external endpoints",
-          "/v1/images/generations, /v1/images/edits, /v1/responses",
+          "Four external image endpoints",
+          "/v1/images/generations, /v1/images/edits, /v1/responses, /v1/agents/images",
           "/api/v1/* is an alias to the same handlers; these adapt API keys and OpenAI-compatible request/response formats.",
         ],
         [
@@ -1293,12 +1533,12 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "The selected member is converted to a ChatGPT Web, Codex/Responses, or external API request.",
         ],
       ],
-      note: "The relationship is not external API -> page API. It is six adapters -> one shared service layer.",
+      note: "The relationship is not external API -> page API. It is multiple adapters -> one shared service layer.",
     },
     agent: {
       title: "Page Agent Mode",
       description:
-        "Agent is a Codex-style automatic run mode inside the create page, not an external API. It reuses /api/images/chat while enabling a tool loop, task cards, and multi-round image iteration.",
+        "Agent is a Codex-style automatic run mode. The page version reuses /api/images/chat and shows task cards; /v1/agents/images exposes the same run style as JSON/SSE for external clients.",
       valid: [
         "Enabled only when Codex/Responses capability is available; the Web branch does not run Agent tools.",
         "Default tools include image_generation, web_search, and continue_generation. The backend does not force tool_choice so the model can combine search, image generation, and continuation.",
@@ -1309,7 +1549,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "Billing has a base Agent round charge plus actual image output credits. The default is 3 credits per Agent round, controlled by the Plan Capability Matrix.",
       ],
       invalid: [
-        "External /v1/responses is not Page Agent. External endpoints only adapt OpenAI-compatible protocols and do not show page task cards.",
+        "External /v1/responses is not Agent. It adapts the OpenAI Responses protocol and does not automatically enable the Agent tool loop.",
         "generate_image_batch-style concurrent batch tooling is not wired in yet to avoid breaking Responses native state and linear iteration.",
       ],
     },
@@ -1324,7 +1564,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       responseExampleTitle: "Response Example",
       common: [
         "All external endpoints require Authorization: Bearer <GPT2IMAGE API key>.",
-        "Image generation and image edits require Starter or higher; Responses requires Pro or higher.",
+        "Image generation and image edits require Starter or higher; Responses requires Pro or higher; Agent image runs require Ultra by default and can be changed with externalApi.agent in the Plan Capability Matrix.",
         "/api/v1/* and /v1/* use the same handlers; they are path aliases.",
         "response_format controls URL vs base64; output_format controls the image file format. They are different fields.",
         "Error responses use an OpenAI-style error object. GPT2IMAGE may also return generation_id, generationId, and credits_consumed for debugging and reconciliation.",
@@ -1670,6 +1910,7 @@ data: {"type":"image_generation.completed","index":0,"generation_id":"...","gene
           notes: [
             "This endpoint does not call page /api/images/generate; it directly enters the shared service layer.",
             "When routed to a Responses account, the image request is converted into a Responses image_generation tool request.",
+            "n/count is one HTTP request, but GPT2IMAGE currently runs each image sequentially. A 10-image request creates 10 generation records and bills 10 outputs, while using only one user generation concurrency slot at a time inside that batch.",
             "Web backends cannot strictly control output dimensions or output format. GPT2IMAGE labels stored files by the detected image header and MIME.",
             "If the actual generated dimensions differ from the requested size, GPT2IMAGE records and bills using the detected actual size.",
             "The official Images API may return usage. GPT2IMAGE usually returns usage: null, but actual credits are returned through top-level credits_consumed, error payloads, or streaming completion events.",
@@ -1920,6 +2161,225 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             "URL images are downloaded server-side and checked for public reachability, type, and size.",
             "Private networks, localhost, metadata/internal hosts, and URLs with credentials are rejected.",
             "Official JSON file_id image references are not implemented. Use public image_url or multipart uploads.",
+          ],
+        },
+        {
+          title: "Create Agent image run",
+          method: "POST",
+          path: "/v1/agents/images",
+          contentType: "application/json or multipart/form-data",
+          description:
+            "GPT2IMAGE extension that exposes the page Agent run style to external API clients. It uses Codex/Responses scheduling, web search, tool loop continuation, attachment context, and multi-round image iteration.",
+          example: `# 1. JSON Agent image run. Ultra is required by default; admins can change externalApi.agent.
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4",
+    "image_model": "gpt-image-2",
+    "prompt": "Search public information about Zhejiang Shuangyuan Technology and iterate an enterprise poster",
+    "size": "1536x1024",
+    "quality": "high",
+    "thinking": "medium",
+    "agent_max_rounds": 3,
+    "agent_force_max_rounds": false,
+    "response_format": "url"
+  }'
+
+# 2. With reference image URLs. images / image_url / image_urls are merged and deduplicated.
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4-mini",
+    "image_model": "gpt-image-2",
+    "prompt": "Analyze this product photo and create an ecommerce poster",
+    "images": ["https://example.com/product.png"],
+    "size": "1024x1024",
+    "agent_max_rounds": 2
+  }'
+
+# 3. multipart reference image plus PDF/text attachments.
+curl https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -F model="gpt-5.4" \\
+  -F image_model="gpt-image-2" \\
+  -F prompt="Read the attachment and create a trade-show poster" \\
+  -F size="1536x1024" \\
+  -F response_format="url" \\
+  -F agent_max_rounds="3" \\
+  -F 'image[]=@/path/to/reference.png' \\
+  -F 'file=@/path/to/company-profile.pdf'
+
+# 4. Streaming Agent events.
+curl -N https://gpt2image.superapi.buzz/v1/agents/images \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Accept: text/event-stream" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-5.4",
+    "image_model": "gpt-image-2",
+    "prompt": "Search first, then iterate a technology-blue enterprise poster",
+    "size": "1536x1024",
+    "stream": true,
+    "agent_max_rounds": 2,
+    "agent_force_max_rounds": true
+  }'`,
+          responseExample: `{
+  "object": "agent.image_run",
+  "created": 1713833628,
+  "generation_id": "gen_...",
+  "generationId": "gen_...",
+  "model": "gpt-5.4",
+  "size": "1536x1024",
+  "response_text": "Research and poster generation completed.",
+  "agent_round_count": 2,
+  "credits_consumed": 8.42,
+  "data": [
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "...",
+      "output_role": "agent_draft"
+    },
+    {
+      "url": "https://gpt2image.superapi.buzz/api/storage/generations/...",
+      "revised_prompt": "...",
+      "output_role": "final"
+    }
+  ],
+  "agent_events": [],
+  "usage": null
+}
+
+# SSE when stream=true
+event: agent.event
+data: {"type":"agent.event","event":{"kind":"web_search","status":"completed","title":"Web search completed","detail":"Zhejiang Shuangyuan Technology official site"}}
+
+event: agent.partial_image
+data: {"type":"agent.partial_image","partial_image_index":0,"url":"https://gpt2image.superapi.buzz/api/storage/generations/..."}
+
+event: agent.completed
+data: {"type":"agent.completed","generation_id":"...","generationId":"...","agent_round_count":2,"credits_consumed":8.42,"data":[{"url":"https://gpt2image.superapi.buzz/api/storage/generations/...","output_role":"final"}]}
+`,
+          fields: [
+            {
+              name: "prompt",
+              requirement: "Required",
+              description: "Current Agent task, up to 4000 characters.",
+            },
+            {
+              name: "model / gptModel / gpt_model",
+              requirement: "Optional",
+              description:
+                "Top-level GPT/Responses model. If model is gpt-image-*, GPT2IMAGE treats it as image_model for compatibility.",
+            },
+            {
+              name: "image_model / imageModel",
+              requirement: "Optional",
+              description:
+                "Image model used by the image_generation tool, usually gpt-image-*.",
+            },
+            {
+              name: "images / image_url / image_urls",
+              requirement: "Optional for JSON",
+              description:
+                "Public reference image URLs. The server downloads and validates public reachability, type, and size.",
+            },
+            {
+              name: "image / image[] / image_*",
+              requirement: "Optional for multipart",
+              description:
+                "Reference image files. Images plus attachments are limited by maxChatImages.",
+            },
+            {
+              name: "file / file[] / attachment",
+              requirement: "Optional for multipart",
+              description:
+                "Text, code, CSV, JSON, Markdown, XML, YAML, log, or PDF attachments. Text files become context; PDFs become Responses file inputs.",
+            },
+            {
+              name: "history",
+              requirement: "Optional",
+              description:
+                "Previous conversation array such as [{ role, text, imageUrls, variants }] for continuing an external Agent conversation.",
+            },
+            {
+              name: "agent_max_rounds",
+              requirement: "Optional",
+              custom: true,
+              description: "1 to 8. Caps automatic Agent iteration rounds.",
+            },
+            {
+              name: "agent_force_max_rounds",
+              requirement: "Optional",
+              custom: true,
+              description:
+                "When true, runs exactly agent_max_rounds. When false, the model may stop through continue_generation.",
+            },
+            {
+              name: "n / count",
+              requirement: "Optional",
+              description:
+                "The Agent API runs one task at a time; when supplied this must be 1. Use concurrent requests for multiple tasks.",
+            },
+            {
+              name: "size / quality / moderation / output_format / output_compression",
+              requirement: "Optional",
+              description:
+                "Same as image endpoints; used as runtime image_generation parameters inside Agent.",
+            },
+            {
+              name: "thinking",
+              requirement: "Optional",
+              custom: true,
+              description: "minimal, none, low, medium, high, or xhigh.",
+            },
+            {
+              name: "response_format",
+              requirement: "Optional",
+              description:
+                "url or b64_json. Agent defaults to url to avoid oversized multi-round responses.",
+            },
+            {
+              name: "stream",
+              requirement: "Optional",
+              description:
+                "true or Accept: text/event-stream returns SSE and also requires externalApi.streaming.",
+            },
+          ],
+          responses: [
+            {
+              name: "object / generation_id / model / size",
+              description: "Agent run object, generation record, model, and size.",
+            },
+            {
+              name: "data[]",
+              description:
+                "Images produced by this Agent run. output_role may be agent_draft or final; the final item is the default deliverable.",
+            },
+            {
+              name: "agent_events[]",
+              description:
+                "Structured task events such as web search, image generation, and continue/stop decisions.",
+            },
+            {
+              name: "credits_consumed / agent_round_count",
+              custom: true,
+              description:
+                "Actual charge and Agent rounds. Billing = Agent base round credits + final image output credits + moderation credits, with backend group multipliers applied.",
+            },
+            {
+              name: "SSE agent.event / agent.partial_image / agent.completed",
+              description:
+                "Streaming task events, streaming previews, and final completion.",
+            },
+          ],
+          notes: [
+            "This endpoint is a GPT2IMAGE extension, not an official OpenAI endpoint. /api/v1/agents/images is an alias.",
+            "Ultra is required by default; admins can change externalApi.agent in the Plan Capability Matrix.",
+            "It forces requiresResponsesBackend and never schedules Web accounts; it can use Codex/Responses accounts or external API backends that support /responses.",
+            "It does not call page /api/images/chat; it shares the runImageGenerationForUser service layer with page Agent.",
+            "generate_image_batch concurrent tooling is intentionally not exposed yet to preserve linear iteration and Responses native state.",
           ],
         },
         {
