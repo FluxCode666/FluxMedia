@@ -42,6 +42,9 @@ function extractAgentDraftGenerations(
       const storageKey =
         typeof output.storageKey === "string" ? output.storageKey : null;
       const storedImageUrl = toStoredImageUrl(g.storageBucket, storageKey);
+      const fallbackImageUrl =
+        typeof output.imageUrl === "string" ? output.imageUrl : null;
+      if (!storedImageUrl && !fallbackImageUrl) return [];
       const generationId =
         typeof output.generationId === "string"
           ? output.generationId
@@ -61,9 +64,7 @@ function extractAgentDraftGenerations(
           creditsConsumed: 0,
           storageKey,
           storageBucket: g.storageBucket,
-          imageUrl:
-            storedImageUrl ||
-            (typeof output.imageUrl === "string" ? output.imageUrl : null),
+          imageUrl: storedImageUrl || fallbackImageUrl,
           createdAt: g.createdAt.toISOString(),
           outputRole: "agent_draft" as GalleryOutputRole,
         },
@@ -89,6 +90,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const finalCondition = and(
     eq(generation.userId, user.id),
     eq(generation.status, "completed"),
+    isNotNull(generation.storageKey),
     sql`NOT EXISTS (
       SELECT 1
       FROM jsonb_array_elements(COALESCE(${generation.metadata}::jsonb->'outputImage'->'imageOutputs', '[]'::jsonb)) AS output
@@ -98,6 +100,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const draftCondition = and(
     eq(generation.userId, user.id),
     eq(generation.status, "completed"),
+    isNotNull(generation.storageKey),
     isNotNull(generation.metadata),
     sql`EXISTS (
       SELECT 1
@@ -112,29 +115,25 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
     finalCountResult,
     draftParentRows,
     timeZone,
-  ] =
-    await Promise.all([
-      db
-        .select()
-        .from(generation)
-        .where(activeTab === "agent-drafts" ? draftCondition : finalCondition)
-        .orderBy(desc(generation.createdAt))
-        .limit(limit),
-      db
-        .select({ count: count() })
-        .from(generation)
-        .where(activeTab === "agent-drafts" ? draftCondition : finalCondition),
-      db
-        .select({ count: count() })
-        .from(generation)
-        .where(finalCondition),
-      db
-        .select()
-        .from(generation)
-        .where(draftCondition)
-        .orderBy(desc(generation.createdAt)),
-      getAppTimeZone(),
-    ]);
+  ] = await Promise.all([
+    db
+      .select()
+      .from(generation)
+      .where(activeTab === "agent-drafts" ? draftCondition : finalCondition)
+      .orderBy(desc(generation.createdAt))
+      .limit(limit),
+    db
+      .select({ count: count() })
+      .from(generation)
+      .where(activeTab === "agent-drafts" ? draftCondition : finalCondition),
+    db.select({ count: count() }).from(generation).where(finalCondition),
+    db
+      .select()
+      .from(generation)
+      .where(draftCondition)
+      .orderBy(desc(generation.createdAt)),
+    getAppTimeZone(),
+  ]);
 
   const allDraftItems = extractAgentDraftGenerations(draftParentRows);
   const displayedItems =
@@ -159,7 +158,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const totalCount =
     activeTab === "agent-drafts"
       ? allDraftItems.length
-      : totalResult[0]?.count ?? 0;
+      : (totalResult[0]?.count ?? 0);
   const finalCount = finalCountResult[0]?.count ?? 0;
   const draftCount = allDraftItems.length;
 

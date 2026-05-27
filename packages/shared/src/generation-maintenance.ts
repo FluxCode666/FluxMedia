@@ -1,14 +1,18 @@
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
 
 import { db } from "@repo/database";
 import { creditsBatch, generation } from "@repo/database/schema";
 import { grantCredits } from "./credits/core";
 import { getFailedGenerationTargetCreditsFromMetadata } from "./generation-settlement";
 import { logError } from "./logger";
+import { getStorageProvider } from "./storage/providers";
+import { getRuntimeSettingNumber } from "./system-settings";
 
 export const IMAGE_GENERATION_PENDING_TIMEOUT_MS = 20 * 60 * 1000;
 export const IMAGE_GENERATION_TIMEOUT_ERROR =
   "Image generation timed out after 20 minutes. Generation credits were refunded.";
+export const GENERATION_IMAGE_RETENTION_HOURS_SETTING_KEY =
+  "GENERATION_IMAGE_RETENTION_HOURS";
 
 type ExpireStalePendingGenerationsOptions = {
   userId?: string;
@@ -16,6 +20,109 @@ type ExpireStalePendingGenerationsOptions = {
   limit?: number;
   timeoutMs?: number;
 };
+
+type DestroyExpiredGenerationPhotosOptions = {
+  now?: Date;
+  limit?: number;
+  retentionHours?: number;
+};
+
+type GenerationImageStorageReference = {
+  bucket: string;
+  key: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getGenerationBucket(bucket?: string | null) {
+  return (
+    bucket || process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations"
+  );
+}
+
+export function collectGenerationImageStorageReferences(params: {
+  storageKey?: string | null;
+  storageBucket?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): GenerationImageStorageReference[] {
+  const bucket = getGenerationBucket(params.storageBucket);
+  const refs = new Map<string, GenerationImageStorageReference>();
+  const addReference = (key: unknown) => {
+    const storageKey = stringValue(key);
+    if (!storageKey) return;
+    refs.set(`${bucket}:${storageKey}`, { bucket, key: storageKey });
+  };
+
+  addReference(params.storageKey);
+
+  const outputImage = isRecord(params.metadata?.outputImage)
+    ? params.metadata.outputImage
+    : null;
+  const outputs = Array.isArray(outputImage?.imageOutputs)
+    ? outputImage.imageOutputs
+    : [];
+  for (const output of outputs) {
+    if (!isRecord(output)) continue;
+    addReference(output.storageKey);
+  }
+
+  return Array.from(refs.values());
+}
+
+export function stripDestroyedGenerationImageReferences(
+  metadata: Record<string, unknown> | null | undefined,
+  params: {
+    destroyedAt: string;
+    retentionHours: number;
+    storageObjectsDeleted: number;
+  }
+) {
+  const nextMetadata = isRecord(metadata) ? { ...metadata } : {};
+  const outputImage = isRecord(nextMetadata.outputImage)
+    ? { ...nextMetadata.outputImage }
+    : {};
+
+  if (Array.isArray(outputImage.imageOutputs)) {
+    outputImage.imageOutputs = outputImage.imageOutputs.map((output) => {
+      if (!isRecord(output)) return output;
+      const nextOutput = { ...output };
+      delete nextOutput.storageKey;
+      delete nextOutput.imageUrl;
+      delete nextOutput.imageFileId;
+      delete nextOutput.webImageMessageId;
+      delete nextOutput.webImageGroupId;
+      return nextOutput;
+    });
+  }
+
+  outputImage.photoRetention = {
+    destroyedAt: params.destroyedAt,
+    retentionHours: params.retentionHours,
+    storageObjectsDeleted: params.storageObjectsDeleted,
+  };
+  nextMetadata.outputImage = outputImage;
+
+  const responseOutput = isRecord(nextMetadata.responseOutput)
+    ? { ...nextMetadata.responseOutput }
+    : null;
+  if (responseOutput && Array.isArray(responseOutput.agentEvents)) {
+    responseOutput.agentEvents = responseOutput.agentEvents.map((event) => {
+      if (!isRecord(event)) return event;
+      const nextEvent = { ...event };
+      delete nextEvent.imageUrl;
+      return nextEvent;
+    });
+    nextMetadata.responseOutput = responseOutput;
+  }
+
+  return nextMetadata;
+}
 
 async function refundAlreadyGranted(userId: string, sourceRef: string) {
   const [existing] = await db
@@ -132,7 +239,10 @@ export async function expireStalePendingGenerations(
         )}::jsonb`,
       })
       .where(
-        and(eq(generation.id, row.id), eq(generation.status, "pending" as const))
+        and(
+          eq(generation.id, row.id),
+          eq(generation.status, "pending" as const)
+        )
       )
       .returning({ id: generation.id });
 
@@ -194,4 +304,123 @@ export async function expireStalePendingGenerations(
   }
 
   return results;
+}
+
+export async function destroyExpiredGenerationPhotos(
+  options: DestroyExpiredGenerationPhotosOptions = {}
+) {
+  const now = options.now ?? new Date();
+  const retentionHours =
+    options.retentionHours ??
+    (await getRuntimeSettingNumber(
+      GENERATION_IMAGE_RETENTION_HOURS_SETTING_KEY,
+      0,
+      { nonNegative: true }
+    ));
+
+  if (retentionHours <= 0) {
+    return {
+      enabled: false,
+      retentionHours,
+      cutoff: null,
+      destroyed: 0,
+      failed: 0,
+      storageObjectsDeleted: 0,
+      details: [] as Array<{
+        generationId: string;
+        userId: string;
+        storageObjectsDeleted: number;
+      }>,
+    };
+  }
+
+  const cutoff = new Date(now.getTime() - retentionHours * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      id: generation.id,
+      userId: generation.userId,
+      storageKey: generation.storageKey,
+      storageBucket: generation.storageBucket,
+      metadata: generation.metadata,
+      completedAt: generation.completedAt,
+      createdAt: generation.createdAt,
+    })
+    .from(generation)
+    .where(
+      and(
+        eq(generation.status, "completed" as const),
+        isNotNull(generation.storageKey),
+        sql`COALESCE(${generation.completedAt}, ${generation.createdAt}) < ${cutoff}`
+      )
+    )
+    .orderBy(desc(generation.completedAt))
+    .limit(options.limit ?? 500);
+
+  const details: Array<{
+    generationId: string;
+    userId: string;
+    storageObjectsDeleted: number;
+  }> = [];
+  let failed = 0;
+  let storageObjectsDeleted = 0;
+  const storage = rows.length > 0 ? await getStorageProvider() : null;
+
+  for (const row of rows) {
+    const refs = collectGenerationImageStorageReferences(row);
+    if (refs.length === 0) continue;
+
+    try {
+      for (const ref of refs) {
+        await storage?.deleteObject(ref.key, ref.bucket);
+      }
+
+      const destroyedAt = now.toISOString();
+      const [updated] = await db
+        .update(generation)
+        .set({
+          storageKey: null,
+          fileSize: null,
+          metadata: stripDestroyedGenerationImageReferences(row.metadata, {
+            destroyedAt,
+            retentionHours,
+            storageObjectsDeleted: refs.length,
+          }),
+        })
+        .where(
+          and(
+            eq(generation.id, row.id),
+            eq(generation.status, "completed" as const),
+            isNotNull(generation.storageKey)
+          )
+        )
+        .returning({ id: generation.id });
+
+      if (!updated) continue;
+
+      storageObjectsDeleted += refs.length;
+      details.push({
+        generationId: row.id,
+        userId: row.userId,
+        storageObjectsDeleted: refs.length,
+      });
+    } catch (error) {
+      failed += 1;
+      logError(error, {
+        source: "generation-photo-retention",
+        generationId: row.id,
+        userId: row.userId,
+        retentionHours,
+      });
+    }
+  }
+
+  return {
+    enabled: true,
+    retentionHours,
+    cutoff: cutoff.toISOString(),
+    destroyed: details.length,
+    failed,
+    storageObjectsDeleted,
+    details,
+  };
 }

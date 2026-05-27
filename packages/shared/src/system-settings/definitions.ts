@@ -132,6 +132,7 @@ export type SettingKey =
   | "STORAGE_BUCKET_NAME"
   | "NEXT_PUBLIC_AVATARS_BUCKET_NAME"
   | "NEXT_PUBLIC_GENERATIONS_BUCKET_NAME"
+  | "GENERATION_IMAGE_RETENTION_HOURS"
   | "LOCAL_STORAGE_PATH"
   | "EMAIL_PROVIDER"
   | "EMAIL_FROM"
@@ -386,7 +387,10 @@ export const SYSTEM_SETTING_DEFINITIONS = [
       { label: "香港时间 (Asia/Hong_Kong)", value: "Asia/Hong_Kong" },
       { label: "新加坡时间 (Asia/Singapore)", value: "Asia/Singapore" },
       { label: "日本时间 (Asia/Tokyo)", value: "Asia/Tokyo" },
-      { label: "太平洋时间 (America/Los_Angeles)", value: "America/Los_Angeles" },
+      {
+        label: "太平洋时间 (America/Los_Angeles)",
+        value: "America/Los_Angeles",
+      },
       { label: "东部时间 (America/New_York)", value: "America/New_York" },
       { label: "伦敦时间 (Europe/London)", value: "Europe/London" },
     ],
@@ -1077,7 +1081,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "SUB2API_AUTO_SYNC_ENABLED",
     label: "Sub2API 自动同步",
-    description: "启用后，Cron 任务会按配置间隔自动同步 Sub2API 当前 AT 到生图账号池。",
+    description:
+      "启用后，Cron 任务会按配置间隔自动同步 Sub2API 当前 AT 到生图账号池。",
     category: "models",
     valueType: "boolean",
     defaultValue: true,
@@ -1085,7 +1090,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "SUB2API_AUTO_SYNC_INTERVAL_MINUTES",
     label: "Sub2API 自动同步间隔（分钟）",
-    description: "两次自动同步之间至少间隔多少分钟。默认 720 分钟，即半天一次。",
+    description:
+      "两次自动同步之间至少间隔多少分钟。默认 720 分钟，即半天一次。",
     category: "models",
     valueType: "number",
     defaultValue: 720,
@@ -1093,14 +1099,16 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "SUB2API_AUTO_SYNC_SOURCE_GROUP_ID",
     label: "Sub2API 自动同步来源分组 ID",
-    description: "留空同步全部 Sub2API OpenAI OAuth 账号；填写后只同步该 Sub2API 分组 ID。",
+    description:
+      "留空同步全部 Sub2API OpenAI OAuth 账号；填写后只同步该 Sub2API 分组 ID。",
     category: "models",
     valueType: "string",
   },
   {
     key: "SUB2API_AUTO_SYNC_MODE",
     label: "Sub2API 自动同步接口",
-    description: "自动同步到哪类生图后端账号。未启用 Mobile RT 时会强制只同步 Codex/Responses。",
+    description:
+      "自动同步到哪类生图后端账号。未启用 Mobile RT 时会强制只同步 Codex/Responses。",
     category: "models",
     valueType: "select",
     defaultValue: "responses",
@@ -1113,7 +1121,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "SUB2API_AUTO_SYNC_ALLOW_MOBILE_RT",
     label: "Sub2API 自动同步 Mobile RT",
-    description: "启用后才允许自动同步 Sub2API 中 mobile client 路线账号到 Web 后端。",
+    description:
+      "启用后才允许自动同步 Sub2API 中 mobile client 路线账号到 Web 后端。",
     category: "models",
     valueType: "boolean",
     defaultValue: false,
@@ -1121,7 +1130,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "SUB2API_AUTO_SYNC_PLAN_FILTER",
     label: "Sub2API 自动同步套餐筛选",
-    description: "自动同步时按 Sub2API credentials.plan_type 过滤账号，默认排除 free。",
+    description:
+      "自动同步时按 Sub2API credentials.plan_type 过滤账号，默认排除 free。",
     category: "models",
     valueType: "select",
     defaultValue: "non_free",
@@ -1207,6 +1217,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "storage",
     valueType: "string",
     requiresRebuild: true,
+  },
+  {
+    key: "GENERATION_IMAGE_RETENTION_HOURS",
+    label: "照片销毁时间（小时）",
+    description:
+      "生成图片文件的保留时长；填 0 表示永久保存。过期后只删除图片文件和图库展示，生成记录与计费流水仍保留。",
+    category: "storage",
+    valueType: "number",
+    defaultValue: 0,
   },
   {
     key: "LOCAL_STORAGE_PATH",

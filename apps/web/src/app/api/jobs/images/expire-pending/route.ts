@@ -3,7 +3,10 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { withApiLogging } from "@repo/shared/api-logger";
-import { expireStalePendingGenerations } from "@repo/shared/generation-maintenance";
+import {
+  destroyExpiredGenerationPhotos,
+  expireStalePendingGenerations,
+} from "@repo/shared/generation-maintenance";
 
 function validateCronSecret(authHeader: string | null): boolean {
   if (!authHeader) return false;
@@ -40,16 +43,20 @@ export const POST = withApiLogging(async () => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results = await expireStalePendingGenerations({ limit: 500 });
+  const [pendingResults, photoRetention] = await Promise.all([
+    expireStalePendingGenerations({ limit: 500 }),
+    destroyExpiredGenerationPhotos({ limit: 500 }),
+  ]);
 
   return NextResponse.json({
     success: true,
-    expired: results.length,
-    creditsRefunded: results.reduce(
+    expired: pendingResults.length,
+    creditsRefunded: pendingResults.reduce(
       (total, item) => total + item.creditsRefunded,
       0
     ),
-    details: results,
+    details: pendingResults,
+    photoRetention,
     timestamp: new Date().toISOString(),
   });
 });
@@ -59,7 +66,8 @@ export const GET = withApiLogging(async () => {
     status: "ok",
     endpoint: "/api/jobs/images/expire-pending",
     method: "POST",
-    description: "Expire pending image generations older than 20 minutes",
+    description:
+      "Expire pending image generations older than 20 minutes and destroy completed image files when configured",
     authentication: "Bearer token required (CRON_SECRET)",
   });
 });

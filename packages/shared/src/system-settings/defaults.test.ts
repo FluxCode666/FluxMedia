@@ -86,6 +86,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("APP_TIME_ZONE");
     expect(initializedKeys).toContain("MARKETING_SLA_STATUS_ENABLED");
     expect(initializedKeys).toContain("SELF_USE_MODE_ENABLED");
+    expect(initializedKeys).toContain("GENERATION_IMAGE_RETENTION_HOURS");
     expect(initializedKeys).toContain("IMAGE_GENERATION_GLOBAL_CONCURRENCY");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1024");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_4K");
@@ -99,6 +100,7 @@ describe("system setting default initialization", () => {
     expect(store.get("APP_TIME_ZONE")?.value).toBe("UTC");
     expect(store.get("MARKETING_SLA_STATUS_ENABLED")?.value).toBe(true);
     expect(store.get("SELF_USE_MODE_ENABLED")?.value).toBe(true);
+    expect(store.get("GENERATION_IMAGE_RETENTION_HOURS")?.value).toBe(0);
     expect(store.get("CREDITS_EXPIRY_DAYS")?.value).toBe(0);
     expect(store.get("IMAGE_GENERATION_GLOBAL_CONCURRENCY")?.value).toBe(500);
     expect(store.get("IMAGE_BASE_CREDITS_1024")?.value).toBe(1.27);
@@ -134,7 +136,8 @@ describe("system setting default initialization", () => {
     expect(store.get("PLAN_STARTER_MONTHLY_AMOUNT")?.value).toBe(99);
     expect(
       (
-        store.get("PLAN_CAPABILITY_MATRIX")?.value as typeof DEFAULT_PLAN_CAPABILITY_MATRIX
+        store.get("PLAN_CAPABILITY_MATRIX")
+          ?.value as typeof DEFAULT_PLAN_CAPABILITY_MATRIX
       ).features["imageGeneration.chat"]
     ).toBe("starter");
   });

@@ -95,13 +95,15 @@ CHATGPT_WEB_PROXY_SECRET=<proxy-secret>
 
 ### 3. Crontab
 
-crontab 必须带 `Authorization: Bearer $CRON_SECRET`。推荐最小任务：
+crontab 模块安装并配置好即可，不需要手工逐条敲命令；确保它会携带 `Authorization: Bearer $CRON_SECRET` 调用下列任务。推荐最小任务：
 
 ```cron
 */5 * * * * curl -fsS -X POST -H "Authorization: Bearer <cron-secret>" https://your-domain.example/api/jobs/images/expire-pending >/dev/null
 0 0 * * * curl -fsS -X POST -H "Authorization: Bearer <cron-secret>" https://your-domain.example/api/jobs/credits/expire >/dev/null
 */10 * * * * curl -fsS -X POST -H "Authorization: Bearer <cron-secret>" https://your-domain.example/api/jobs/image-backend/web-accounts/refresh >/dev/null
 ```
+
+其中 `/api/jobs/images/expire-pending` 同时负责 pending 超时退款和“照片销毁”清理。后台「系统设置 > 存储 > 照片销毁时间（小时）」默认为 `0`，表示生成图永久保存；填入小时数后，超过保留时长的图片文件会被清理，生成记录和计费流水仍保留。
 
 如果启用 Sub2API 自动同步，再增加：
 
