@@ -13,6 +13,24 @@ import {
   recordRegistrationIdentity,
 } from "./registration-identity";
 import { verifyRegistrationCode } from "./registration-verification";
+import { isSelfUseModeEnabled } from "./self-use-mode";
+
+function isPublicRegistrationPath(path?: string) {
+  return (
+    path === "/sign-up/email" ||
+    path === "/sign-in/social" ||
+    Boolean(path?.startsWith("/callback/"))
+  );
+}
+
+async function assertRegistrationOpen() {
+  if (await isSelfUseModeEnabled()) {
+    throw new APIError("FORBIDDEN", {
+      message: "Registration is disabled in self-use mode",
+      code: "REGISTRATION_DISABLED",
+    });
+  }
+}
 
 function assertAllowedRegistrationEmail(email: string) {
   if (!isAllowedRegistrationEmail(email)) {
@@ -60,6 +78,8 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
       {
         matcher: (context) => context.path === "/sign-up/email",
         handler: createAuthMiddleware(async (ctx) => {
+          await assertRegistrationOpen();
+
           const email =
             typeof ctx.body.email === "string" ? ctx.body.email : "";
           const verificationCode =
@@ -103,6 +123,10 @@ export const registrationVerificationPlugin = (): BetterAuthPlugin => ({
         user: {
           create: {
             before: async (user, context) => {
+              if (isPublicRegistrationPath(context?.path)) {
+                await assertRegistrationOpen();
+              }
+
               const normalizedEmail = normalizeEmail(user.email);
 
               assertAllowedRegistrationEmail(normalizedEmail);

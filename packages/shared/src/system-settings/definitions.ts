@@ -23,6 +23,7 @@ export type SettingKey =
   | "NEXT_PUBLIC_APP_NAME"
   | "NEXT_PUBLIC_ASSET_PREFIX"
   | "APP_TIME_ZONE"
+  | "SELF_USE_MODE_ENABLED"
   | "BETTER_AUTH_SECRET"
   | "BETTER_AUTH_URL"
   | "GOOGLE_CLIENT_ID"
@@ -389,6 +390,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
       { label: "伦敦时间 (Europe/London)", value: "Europe/London" },
     ],
     defaultValue: "UTC",
+  },
+  {
+    key: "SELF_USE_MODE_ENABLED",
+    label: "自用模式",
+    description:
+      "默认开启。开启后禁止公开注册；启动时没有超管会创建本地随机密码超管；超管按 Enterprise 套餐获得全部套餐能力。",
+    category: "auth",
+    valueType: "boolean",
+    defaultValue: true,
   },
   {
     key: "BETTER_AUTH_SECRET",

@@ -2,8 +2,7 @@ import { db, user } from "@repo/database";
 import { eq } from "drizzle-orm";
 
 import { normalizeUserRole, type AppUserRole } from "./roles";
-
-const LOCAL_SUPER_ADMIN_EMAIL = "admin@gpt2image.local";
+import { LOCAL_SUPER_ADMIN_EMAIL } from "./self-use-mode";
 
 export async function getUserRoleById(userId: string): Promise<AppUserRole> {
   const [record] = await db

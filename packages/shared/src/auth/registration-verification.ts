@@ -9,6 +9,7 @@ import {
 import { isRegistrationEmailTaken } from "./registration-identity";
 import { RegistrationVerificationCodeEmail } from "../mail/templates/primary-action-email";
 import { sendEmail } from "../mail/utils";
+import { isSelfUseModeEnabled } from "./self-use-mode";
 
 const PURPOSE = "registration-email-code";
 const CODE_LENGTH = 6;
@@ -23,6 +24,10 @@ function generateCode() {
 }
 
 export async function sendRegistrationVerificationCode(email: string) {
+  if (await isSelfUseModeEnabled()) {
+    throw new Error("Registration is disabled in self-use mode");
+  }
+
   const normalizedEmail = normalizeEmail(email);
 
   if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {

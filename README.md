@@ -93,6 +93,8 @@ pnpm db:studio
 
 首次启动会写入缺失的非密钥默认配置，例如套餐能力矩阵、套餐价格、按量积分包、审核和后端冷却默认值；已有数据库配置不会被覆盖。
 
+默认启用自用模式：公开注册关闭，首次启动如果没有超管，会创建 `admin@gpt2image.local` 并随机生成密码。初始密码会写入服务启动日志和 `.gpt2image/super-admin-credentials.txt`（可用 `GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH` 覆盖路径）。超管在自用模式下按 Enterprise 套餐获得全部套餐能力。
+
 ## 页面入口
 
 用户侧：

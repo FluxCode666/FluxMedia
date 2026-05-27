@@ -12,7 +12,8 @@ import {
   type SubscriptionPlan,
 } from "../../config/subscription-plan";
 import { db } from "@repo/database";
-import { subscription } from "@repo/database/schema";
+import { subscription, user } from "@repo/database/schema";
+import { isSelfUseModeEnabled } from "../../auth/self-use-mode";
 import { getPlanUploadLimits } from "./upload-limits";
 
 // ============================================
@@ -65,6 +66,10 @@ export interface PrivilegeCheckResult {
  * @returns 用户计划信息
  */
 export async function getUserPlan(userId: string): Promise<UserPlanInfo> {
+  if (await isSelfUseSuperAdmin(userId)) {
+    return getSelfUseSuperAdminPlan();
+  }
+
   // 查询用户的活跃订阅
   const [userSubscription] = await db
     .select({
@@ -124,6 +129,31 @@ export async function getUserPlan(userId: string): Promise<UserPlanInfo> {
     currentPeriodEnd: userSubscription.currentPeriodEnd,
     priceId: userSubscription.priceId,
     cancelAtPeriodEnd: effectiveCancelAtPeriodEnd,
+  };
+}
+
+async function isSelfUseSuperAdmin(userId: string) {
+  if (!(await isSelfUseModeEnabled())) return false;
+
+  const [record] = await db
+    .select({ role: user.role })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+
+  return record?.role === "super_admin";
+}
+
+function getSelfUseSuperAdminPlan(): UserPlanInfo {
+  const privileges = getPlanPrivileges("enterprise");
+  return {
+    plan: "enterprise",
+    planName: privileges.name,
+    hasActiveSubscription: true,
+    subscriptionStatus: "self_use",
+    currentPeriodEnd: null,
+    priceId: null,
+    cancelAtPeriodEnd: false,
   };
 }
 

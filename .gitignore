@@ -41,6 +41,8 @@ MEMORY.md
 **/MEMORY.md
 *.har
 rollout-*.jsonl
+.gpt2image/
+**/.gpt2image/
 
 # env files (can opt-in for committing if needed)
 .env*

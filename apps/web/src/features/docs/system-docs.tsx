@@ -18,7 +18,7 @@ const sections = {
   zh: {
     title: "系统文档",
     subtitle:
-      "这里按当前代码真实链路说明：页面入口和外接入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。",
+      "这里按当前代码真实链路说明：页面入口和外接入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。默认部署启用自用模式：关闭公开注册，首次启动补本地随机密码超管。",
     flow: {
       title: "请求路由图",
       note: "用户自接 API 目前仍保留最高优先级；没有可用的用户自接 API 时，才进入平台后端池。外接接口不会反向请求站内 /api/images/*。",
@@ -1350,7 +1350,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
   en: {
     title: "System Docs",
     subtitle:
-      "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path.",
+      "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path. Default deployments enable self-use mode: public registration is closed and the first startup creates a local super admin with a random password.",
     flow: {
       title: "Request Routing Diagram",
       note: "User custom API keeps the highest priority for now; when unavailable, the request enters the platform backend pool. External endpoints do not call internal /api/images/* routes.",
