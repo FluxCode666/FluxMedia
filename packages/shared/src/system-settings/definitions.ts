@@ -160,11 +160,7 @@ export type SettingKey =
   | "INTERNAL_JOB_WEB_ACCOUNTS_REFRESH_INTERVAL_MINUTES"
   | "INTERNAL_JOB_SUB2API_SYNC_INTERVAL_MINUTES"
   | "UPSTASH_REDIS_REST_URL"
-  | "UPSTASH_REDIS_REST_TOKEN"
-  | "INNGEST_EVENT_KEY"
-  | "INNGEST_SIGNING_KEY"
-  | "INNGEST_DEV"
-  | "INNGEST_BASE_URL";
+  | "UPSTASH_REDIS_REST_TOKEN";
 
 export interface SettingDefinition {
   key: SettingKey;
@@ -1470,37 +1466,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "string",
     secret: true,
-  },
-  {
-    key: "INNGEST_EVENT_KEY",
-    label: "Inngest Event Key",
-    description: "Inngest 事件密钥。",
-    category: "general",
-    valueType: "string",
-    secret: true,
-  },
-  {
-    key: "INNGEST_SIGNING_KEY",
-    label: "Inngest Signing Key",
-    description: "Inngest Webhook 签名密钥。",
-    category: "general",
-    valueType: "string",
-    secret: true,
-  },
-  {
-    key: "INNGEST_DEV",
-    label: "Inngest 开发模式",
-    description: "本地开发模式开关，生产通常关闭。",
-    category: "general",
-    valueType: "boolean",
-    defaultValue: false,
-  },
-  {
-    key: "INNGEST_BASE_URL",
-    label: "Inngest Dev Server",
-    description: "本地 Inngest Dev Server 地址。",
-    category: "general",
-    valueType: "string",
   },
 ] as const satisfies readonly SettingDefinition[];
 

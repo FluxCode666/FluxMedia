@@ -79,8 +79,7 @@ docker compose logs -f web    # 查看日志
 - `storage/[bucket]/[...key]/` — 图片代理
 - `upload/presigned/` — 预签名上传
 - `search/` — 搜索 API
-- `jobs/credits/expire/` — 积分过期 cron
-- `inngest/` — 异步任务
+- `jobs/` — 内置定时任务的兼容 HTTP 入口
 
 **Feature Modules** (`apps/web/src/features/`):
 - `image-generation/` — 图片生成核心
