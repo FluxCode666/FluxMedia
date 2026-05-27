@@ -1407,8 +1407,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "CRON_SECRET",
-    label: "Cron 密钥",
-    description: "外部定时任务调用 HTTP Job 接口时使用的鉴权密钥。",
+    label: "HTTP Job 兼容密钥",
+    description:
+      "仅用于手动调用旧 HTTP Job 接口的兼容鉴权；内置定时任务不需要配置。",
     category: "general",
     valueType: "string",
     secret: true,
@@ -1515,7 +1516,7 @@ export const SETTING_CATEGORIES: Array<{
   {
     id: "general",
     label: "基础",
-    description: "站点地址、任务密钥和限流等全局配置。",
+    description: "站点地址、内置任务和限流等全局配置。",
   },
   {
     id: "auth",
