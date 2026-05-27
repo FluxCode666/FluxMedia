@@ -113,7 +113,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   const t = useTranslations("Settings.externalApi");
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    "https://gpt2image.superapi.buzz";
+    "https://your-domain.example";
   const didLoadRef = useRef(false);
   const [keys, setKeys] = useState<ExternalApiKeySummary[]>([]);
   const [newKey, setNewKey] = useState("");

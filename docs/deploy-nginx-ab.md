@@ -1,15 +1,15 @@
-# Superapi 生图站部署 Runbook
+# Nginx AB 部署 Runbook
 
-本文档记录 `https://gpt2image.superapi.buzz` 当前线上部署方式，只适用于本站这套 Nginx 静态 alias、systemd release 和 AB 切换环境。普通部署不需要照这个 runbook 手动处理静态资源；按 README 的生产部署即可。
+本文档记录 `https://your-domain.example` 当前线上部署方式，只适用于本站这套 Nginx 静态 alias、systemd release 和 AB 切换环境。普通部署不需要照这个 runbook 手动处理静态资源；按 README 的生产部署即可。
 
 ## 当前拓扑
 
-- 公网域名：`https://gpt2image.superapi.buzz`
+- 公网域名：`https://your-domain.example`
 - Nginx upstream：`gpt2image_pool`
 - 当前公网主 upstream：`127.0.0.1:3308`
 - 备用 upstream：`127.0.0.1:3307`
 - 主服务旁路验证端口：`3303`
-- Next 静态 alias：`/var/www/gpt2image.superapi.buzz/_next/static/`
+- Next 静态 alias：`/var/www/your-domain.example/_next/static/`
 - release 根目录：`/home/user1/gpt2image-releases/`
 - Node：`/home/user1/.nvm/versions/node/v24.15.0/bin`
 
@@ -21,7 +21,7 @@
 - `NEXT_PUBLIC_ASSET_PREFIX` 必须写在 `apps/web/.env.local`，这是 Next 构建实际读取的文件。
 - release 不能复制 `storage`，否则会把用户生成图复制进 release，目录可能膨胀到几十 GB。
 - release 不能排除 `apps/web/.next/standalone/node_modules`，否则 standalone 启动会报 `Cannot find module 'next'`。
-- Nginx 静态 alias 不会读 release 目录，必须单独同步 `apps/web/.next/static` 到 `/var/www/gpt2image.superapi.buzz/_next/static/`。
+- Nginx 静态 alias 不会读 release 目录，必须单独同步 `apps/web/.next/static` 到 `/var/www/your-domain.example/_next/static/`。
 - systemd 有 drop-in 覆盖路径，必须改 drop-in，不要只看主 unit。
 
 ## 标准部署流程
@@ -115,7 +115,7 @@ rg -n '"assetPrefix"|gpt2-assets' "$release/apps/web/.next/standalone/apps/web/.
 ```bash
 rsync -a --delete \
   "$release/apps/web/.next/static/" \
-  /var/www/gpt2image.superapi.buzz/_next/static/
+  /var/www/your-domain.example/_next/static/
 ```
 
 注意：先同步静态资源，再切服务。否则 Cloudflare 可能缓存新版 chunk 的 404。
@@ -195,7 +195,7 @@ curl -s http://127.0.0.1:3308/zh \
 确认公网返回新前缀：
 
 ```bash
-curl -k -s https://gpt2image.superapi.buzz/zh \
+curl -k -s https://your-domain.example/zh \
   | rg -o '/gpt2-assets-[^"<> ]+' \
   | head
 ```
@@ -203,8 +203,8 @@ curl -k -s https://gpt2image.superapi.buzz/zh \
 抽查公网静态资源：
 
 ```bash
-curl -k -I https://gpt2image.superapi.buzz/<asset-prefix>/_next/static/chunks/<chunk>.js
-curl -k -I https://gpt2image.superapi.buzz/<asset-prefix>/_next/static/chunks/<chunk>.css
+curl -k -I https://your-domain.example/<asset-prefix>/_next/static/chunks/<chunk>.js
+curl -k -I https://your-domain.example/<asset-prefix>/_next/static/chunks/<chunk>.css
 ```
 
 看服务日志：
@@ -221,7 +221,7 @@ journalctl -u gpt2image-web.service --since "5 minutes ago" --no-pager
 - `/etc/systemd/system/gpt2image-3308-nopending.service.d/20-agenttools.conf`
 - `/etc/systemd/system/gpt2image-web.service.d/10-release-15bc77b.conf`
 
-如果新静态前缀已经被页面引用，回滚后页面会重新引用旧前缀。旧静态资源目录如果仍在 `/var/www/gpt2image.superapi.buzz/_next/static/` 就无需额外操作。
+如果新静态前缀已经被页面引用，回滚后页面会重新引用旧前缀。旧静态资源目录如果仍在 `/var/www/your-domain.example/_next/static/` 就无需额外操作。
 
 ## 常见故障
 
@@ -250,8 +250,8 @@ sudo systemctl restart gpt2image-3308-nopending.service
 确认 Nginx 静态目录已同步，并抽查资源：
 
 ```bash
-rsync -a --delete "$release/apps/web/.next/static/" /var/www/gpt2image.superapi.buzz/_next/static/
-curl -k -I https://gpt2image.superapi.buzz/<asset-prefix>/_next/static/chunks/<chunk>.js
+rsync -a --delete "$release/apps/web/.next/static/" /var/www/your-domain.example/_next/static/
+curl -k -I https://your-domain.example/<asset-prefix>/_next/static/chunks/<chunk>.js
 ```
 
 ### release 目录异常巨大
