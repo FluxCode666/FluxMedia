@@ -5,7 +5,11 @@ import type { ImageInputFile } from "./types";
 
 export const DEFAULT_MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 export const TEMP_IMAGE_UPLOAD_URL_EXPIRES = 15 * 60;
-export const VALID_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const VALID_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
 
 export type TemporaryUploadedImage = {
   bucket: string;
@@ -26,7 +30,8 @@ export function validateImageFile(
     invalidTypeMessage?: string;
   }
 ) {
-  const label = options?.label || file.name || (options?.mask ? "Mask" : "Image");
+  const label =
+    options?.label || file.name || (options?.mask ? "Mask" : "Image");
   if (file.size <= 0) {
     throw new Error(`${label} is empty.`);
   }
@@ -61,13 +66,15 @@ export function getTotalUploadSize(files: File[], maskFile?: File) {
 
 export async function toImageInput(
   file: File,
-  options?: { publicUrl?: string }
+  options?: { publicUrl?: string; storageBucket?: string; storageKey?: string }
 ): Promise<ImageInputFile> {
   return {
     data: Buffer.from(await file.arrayBuffer()),
     name: file.name || "image.png",
     type: file.type || "image/png",
     url: options?.publicUrl,
+    storageBucket: options?.storageBucket,
+    storageKey: options?.storageKey,
   };
 }
 
@@ -84,7 +91,10 @@ export async function uploadTemporaryImageUrls(
       (await getRuntimeSettingString("CONTENT_MODERATION_PUBLIC_BASE_URL")) ||
       (await getRuntimeSettingString("NEXT_PUBLIC_APP_URL")) ||
       (await getRuntimeSettingString("BETTER_AUTH_URL"));
-    if (!(await getRuntimeSettingString("STORAGE_ENDPOINT")) && !publicBaseUrl) {
+    if (
+      !(await getRuntimeSettingString("STORAGE_ENDPOINT")) &&
+      !publicBaseUrl
+    ) {
       return undefined;
     }
 
@@ -154,7 +164,11 @@ export async function filesToImageInputs(
 ) {
   return await Promise.all(
     files.map((file, index) =>
-      toImageInput(file, { publicUrl: uploadedImages?.[index]?.url })
+      toImageInput(file, {
+        publicUrl: uploadedImages?.[index]?.url,
+        storageBucket: uploadedImages?.[index]?.bucket,
+        storageKey: uploadedImages?.[index]?.key,
+      })
     )
   );
 }

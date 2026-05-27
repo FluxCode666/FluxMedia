@@ -10,6 +10,7 @@ import { useState } from "react";
 import { ImageCard } from "@/features/image-generation/components/image-card";
 import {
   ImageLightbox,
+  type LightboxReferenceImage,
   type LightboxGeneration,
 } from "@/features/image-generation/components/image-lightbox";
 
@@ -26,7 +27,8 @@ export interface GenerationWithUrl {
   storageKey: string | null;
   storageBucket: string | null;
   imageUrl: string | null;
-  outputRole?: "final" | "agent_draft";
+  outputRole?: "final" | "agent_draft" | "upload";
+  referenceImages?: LightboxReferenceImage[];
 }
 
 export interface GalleryClientProps {
@@ -34,7 +36,8 @@ export interface GalleryClientProps {
   totalCount: number;
   finalCount: number;
   draftCount: number;
-  activeTab: "final" | "agent-drafts";
+  uploadCount: number;
+  activeTab: "final" | "agent-drafts" | "uploads";
   page: number;
   timeZone: string;
 }
@@ -44,6 +47,7 @@ export function GalleryClient({
   totalCount,
   finalCount,
   draftCount,
+  uploadCount,
   activeTab,
   page,
   timeZone,
@@ -97,6 +101,17 @@ export function GalleryClient({
             </Badge>
           </Link>
         </TabsTrigger>
+        <TabsTrigger value="uploads" asChild>
+          <Link href={galleryHref("uploads")} scroll={false}>
+            {copy("User uploads", "用户上传图")}
+            <Badge
+              variant="outline"
+              className={countBadgeClass(activeTab === "uploads")}
+            >
+              {uploadCount}
+            </Badge>
+          </Link>
+        </TabsTrigger>
       </TabsList>
     </Tabs>
   );
@@ -113,7 +128,9 @@ export function GalleryClient({
           <h3 className="mt-4 font-serif text-lg font-medium text-foreground">
             {activeTab === "agent-drafts"
               ? copy("No Agent drafts yet", "还没有 Agent 中间图")
-              : copy("No images yet", "还没有图片")}
+              : activeTab === "uploads"
+                ? copy("No user uploads yet", "还没有用户上传图")
+                : copy("No images yet", "还没有图片")}
           </h3>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
             {activeTab === "agent-drafts"
@@ -121,10 +138,15 @@ export function GalleryClient({
                   "Intermediate images from Agent iterations will appear here.",
                   "Agent 自动迭代产生的中间图会显示在这里。"
                 )
-              : copy(
-                  "Your generated images will appear here. Start by creating your first one.",
-                  "你生成的图片会显示在这里。先创建第一张图片吧。"
-                )}
+              : activeTab === "uploads"
+                ? copy(
+                    "Reference images uploaded for image edits and chats will appear here.",
+                    "图生图和 Chat 上传的参考图会显示在这里。"
+                  )
+                : copy(
+                    "Your generated images will appear here. Start by creating your first one.",
+                    "你生成的图片会显示在这里。先创建第一张图片吧。"
+                  )}
           </p>
           <Button asChild variant="outline" className="mt-6">
             <Link href={createHref}>{copy("Create an image", "创建图片")}</Link>
@@ -154,7 +176,9 @@ export function GalleryClient({
               badge={
                 item.outputRole === "agent_draft"
                   ? copy("Draft", "中间图")
-                  : undefined
+                  : item.outputRole === "upload"
+                    ? copy("Upload", "上传")
+                    : undefined
               }
             />
           </div>
@@ -179,7 +203,10 @@ export function GalleryClient({
           timeZone={timeZone}
           onClose={() => setSelectedId(null)}
           onDelete={
-            selected.outputRole === "agent_draft" ? undefined : handleDelete
+            selected.outputRole === "agent_draft" ||
+            selected.outputRole === "upload"
+              ? undefined
+              : handleDelete
           }
         />
       )}

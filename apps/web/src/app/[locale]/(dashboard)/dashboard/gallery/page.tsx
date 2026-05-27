@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { GalleryClient } from "@/features/image-generation/components/gallery-client";
+import {
+  extractGenerationReferenceImages,
+  toStoredImageUrl,
+} from "@/features/image-generation/generation-metadata";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
@@ -11,18 +15,14 @@ interface GalleryPageProps {
   searchParams: Promise<{ page?: string; tab?: string }>;
 }
 
-type GalleryOutputRole = "final" | "agent_draft";
-
-function toStoredImageUrl(bucket: string | null, storageKey: string | null) {
-  return storageKey
-    ? `/api/storage/${bucket || "generations"}/${storageKey}`
-    : null;
-}
+type GalleryOutputRole = "final" | "agent_draft" | "upload";
+type GalleryTab = "final" | "agent-drafts" | "uploads";
 
 function extractAgentDraftGenerations(
   rows: Array<typeof generation.$inferSelect>
 ) {
   return rows.flatMap((g) => {
+    const referenceImages = extractGenerationReferenceImages(g.metadata);
     const outputImage =
       g.metadata &&
       typeof g.metadata === "object" &&
@@ -67,9 +67,46 @@ function extractAgentDraftGenerations(
           imageUrl: storedImageUrl || fallbackImageUrl,
           createdAt: g.createdAt.toISOString(),
           outputRole: "agent_draft" as GalleryOutputRole,
+          referenceImages,
         },
       ];
     });
+  });
+}
+
+function formatUploadedImageSize(
+  image: ReturnType<typeof extractGenerationReferenceImages>[number],
+  copy: (en: string, zh: string) => string
+) {
+  if (image.sizeBytes && image.sizeBytes > 0) {
+    const megabytes = image.sizeBytes / 1024 / 1024;
+    return `${megabytes >= 0.1 ? megabytes.toFixed(1) : "<0.1"} MB`;
+  }
+  return copy("Uploaded", "上传图");
+}
+
+function extractUploadedImageGenerations(
+  rows: Array<typeof generation.$inferSelect>,
+  copy: (en: string, zh: string) => string
+) {
+  return rows.flatMap((g) => {
+    const referenceImages = extractGenerationReferenceImages(g.metadata);
+    return referenceImages.map((image, index) => ({
+      id: `${g.id}-upload-${image.id || index + 1}`,
+      parentId: g.id,
+      prompt: g.prompt,
+      revisedPrompt: g.revisedPrompt,
+      model: image.type || copy("User upload", "用户上传"),
+      size: formatUploadedImageSize(image, copy),
+      status: "completed" as const,
+      creditsConsumed: 0,
+      storageKey: image.storageKey,
+      storageBucket: image.storageBucket,
+      imageUrl: image.imageUrl,
+      createdAt: g.createdAt.toISOString(),
+      outputRole: "upload" as GalleryOutputRole,
+      referenceImages,
+    }));
   });
 }
 
@@ -82,8 +119,12 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
 
   const params = await searchParams;
   const PAGE_SIZE = 20;
-  const activeTab =
-    params.tab === "agent-drafts" ? "agent-drafts" : ("final" as const);
+  const activeTab: GalleryTab =
+    params.tab === "agent-drafts"
+      ? "agent-drafts"
+      : params.tab === "uploads"
+        ? "uploads"
+        : "final";
   const pageParam = Number(params.page);
   const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const limit = page * PAGE_SIZE;
@@ -108,59 +149,83 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
       WHERE output->>'role' = 'agent_draft' OR output->>'primary' = 'false'
     )`
   );
+  const uploadCondition = and(
+    eq(generation.userId, user.id),
+    isNotNull(generation.metadata),
+    sql`jsonb_array_length(COALESCE(${generation.metadata}::jsonb->'inputImages'->'images', '[]'::jsonb)) > 0`
+  );
+  const activeCondition =
+    activeTab === "agent-drafts"
+      ? draftCondition
+      : activeTab === "uploads"
+        ? uploadCondition
+        : finalCondition;
 
   const [
     generations,
     totalResult,
     finalCountResult,
     draftParentRows,
+    uploadParentRows,
     timeZone,
   ] = await Promise.all([
     db
       .select()
       .from(generation)
-      .where(activeTab === "agent-drafts" ? draftCondition : finalCondition)
+      .where(activeCondition)
       .orderBy(desc(generation.createdAt))
       .limit(limit),
-    db
-      .select({ count: count() })
-      .from(generation)
-      .where(activeTab === "agent-drafts" ? draftCondition : finalCondition),
+    db.select({ count: count() }).from(generation).where(activeCondition),
     db.select({ count: count() }).from(generation).where(finalCondition),
     db
       .select()
       .from(generation)
       .where(draftCondition)
       .orderBy(desc(generation.createdAt)),
+    db
+      .select()
+      .from(generation)
+      .where(uploadCondition)
+      .orderBy(desc(generation.createdAt)),
     getAppTimeZone(),
   ]);
 
   const allDraftItems = extractAgentDraftGenerations(draftParentRows);
+  const allUploadItems = extractUploadedImageGenerations(
+    uploadParentRows,
+    copy
+  );
   const displayedItems =
     activeTab === "agent-drafts"
       ? allDraftItems.slice(0, limit)
-      : generations.map((g) => ({
-          id: g.id,
-          parentId: g.id,
-          prompt: g.prompt,
-          revisedPrompt: g.revisedPrompt,
-          model: g.model,
-          size: g.size,
-          status: g.status,
-          creditsConsumed: g.creditsConsumed,
-          storageKey: g.storageKey,
-          storageBucket: g.storageBucket,
-          imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
-          createdAt: g.createdAt.toISOString(),
-          outputRole: "final" as GalleryOutputRole,
-        }));
+      : activeTab === "uploads"
+        ? allUploadItems.slice(0, limit)
+        : generations.map((g) => ({
+            id: g.id,
+            parentId: g.id,
+            prompt: g.prompt,
+            revisedPrompt: g.revisedPrompt,
+            model: g.model,
+            size: g.size,
+            status: g.status,
+            creditsConsumed: g.creditsConsumed,
+            storageKey: g.storageKey,
+            storageBucket: g.storageBucket,
+            imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
+            createdAt: g.createdAt.toISOString(),
+            outputRole: "final" as GalleryOutputRole,
+            referenceImages: extractGenerationReferenceImages(g.metadata),
+          }));
 
   const totalCount =
     activeTab === "agent-drafts"
       ? allDraftItems.length
-      : (totalResult[0]?.count ?? 0);
+      : activeTab === "uploads"
+        ? allUploadItems.length
+        : (totalResult[0]?.count ?? 0);
   const finalCount = finalCountResult[0]?.count ?? 0;
   const draftCount = allDraftItems.length;
+  const uploadCount = allUploadItems.length;
 
   return (
     <div className="container mx-auto space-y-8 px-4 py-6 md:px-6">
@@ -178,6 +243,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
         totalCount={totalCount}
         finalCount={finalCount}
         draftCount={draftCount}
+        uploadCount={uploadCount}
         activeTab={activeTab}
         page={page}
         timeZone={timeZone}

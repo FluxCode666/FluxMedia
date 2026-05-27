@@ -118,6 +118,8 @@ export interface ImageInputFile {
   name: string;
   type: string;
   url?: string;
+  storageBucket?: string;
+  storageKey?: string;
   imageFileId?: string;
 }
 

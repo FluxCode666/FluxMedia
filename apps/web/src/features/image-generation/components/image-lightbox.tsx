@@ -19,11 +19,24 @@ import Image from "next/image";
 import { useLocale } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
-import { type PointerEvent, useRef, useState } from "react";
+import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { deleteGenerationAction } from "@/features/image-generation/actions";
 import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 import { writePendingReferenceHandoff } from "@/features/image-generation/reference-handoff";
+
+export interface LightboxReferenceImage {
+  id: string;
+  imageUrl: string;
+  storageBucket?: string | null;
+  storageKey?: string | null;
+  name?: string | null;
+  type?: string | null;
+  sizeBytes?: number | null;
+  source?: string | null;
+  role?: string | null;
+  index?: number;
+}
 
 export interface LightboxGeneration {
   id: string;
@@ -36,6 +49,8 @@ export interface LightboxGeneration {
   status: "pending" | "completed" | "failed";
   error?: string | null;
   createdAt: string;
+  outputRole?: "final" | "agent_draft" | "upload";
+  referenceImages?: LightboxReferenceImage[];
 }
 
 export interface ImageLightboxProps {
@@ -52,6 +67,7 @@ const STATUS_LABELS_ZH: Record<string, string> = {
   failed: "失败",
   pending: "处理中",
 };
+const EMPTY_REFERENCE_IMAGES: LightboxReferenceImage[] = [];
 
 function formatDate(iso: string, locale: string, timeZone?: string): string {
   try {
@@ -182,6 +198,27 @@ export function ImageLightbox({
       ].filter((row): row is { label: string; value: string } => row !== null)
     : [];
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const referenceImages = generation.referenceImages ?? EMPTY_REFERENCE_IMAGES;
+  const visibleReferenceImages = referenceImages.filter(
+    (item) => !imageUrl || item.imageUrl !== imageUrl
+  );
+  const firstReferenceId = visibleReferenceImages[0]?.id;
+  const [activePreviewId, setActivePreviewId] = useState<string>("output");
+  const activeReference =
+    activePreviewId === "output"
+      ? null
+      : visibleReferenceImages.find((item) => item.id === activePreviewId) ||
+        null;
+  const previewImageUrl = activeReference?.imageUrl || imageUrl;
+  const previewLabel =
+    activeReference?.name ||
+    (activeReference ? copy("Reference image", "参考图") : generation.prompt);
+  const currentImageLabel =
+    generation.outputRole === "upload"
+      ? copy("Upload", "上传")
+      : generation.outputRole === "agent_draft"
+        ? copy("Draft", "中间图")
+        : copy("Output", "成品");
   const [detailsWidth, setDetailsWidth] = useState(44);
   const dragState = useRef<{
     startX: number;
@@ -189,13 +226,17 @@ export function ImageLightbox({
     containerWidth: number;
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setActivePreviewId(imageUrl ? "output" : firstReferenceId || "output");
+    setConfirmDelete(false);
+  }, [imageUrl, firstReferenceId]);
   const createReferenceHref = (mode: "image" | "chat", intent: string) => {
-    if (!imageUrl) return `/${locale}/dashboard/create`;
+    if (!previewImageUrl) return `/${locale}/dashboard/create`;
     const params = new URLSearchParams({
       mode,
-      ref: imageUrl,
+      ref: previewImageUrl,
       sourceId: generation.id,
-      sourceName: `gpt2image-${generation.id}`,
+      sourceName: activeReference?.name || `gpt2image-${generation.id}`,
       intent,
       sendRef: intent,
     });
@@ -210,14 +251,14 @@ export function ImageLightbox({
   };
 
   const handleSendReference = (mode: "image" | "chat") => {
-    if (!imageUrl) return;
+    if (!previewImageUrl) return;
     const intent = createReferenceIntent();
     writePendingReferenceHandoff({
       id: intent,
       mode,
-      imageUrl,
+      imageUrl: previewImageUrl,
       sourceId: generation.id,
-      sourceName: `gpt2image-${generation.id}`,
+      sourceName: activeReference?.name || `gpt2image-${generation.id}`,
     });
     router.push(createReferenceHref(mode, intent));
     onClose();
@@ -311,14 +352,14 @@ export function ImageLightbox({
               flexBasis: `calc(${100 - detailsWidth}% - 6px)`,
             }}
           >
-            {imageUrl && generation.status === "completed" ? (
+            {previewImageUrl ? (
               <Image
-                src={imageUrl}
-                alt={generation.prompt}
+                src={previewImageUrl}
+                alt={previewLabel}
                 fill
                 sizes="(max-width: 768px) 100vw, 60vw"
                 className="object-contain"
-                unoptimized={!imageUrl.startsWith("/api/storage/")}
+                unoptimized={!previewImageUrl.startsWith("/api/storage/")}
               />
             ) : (
               <div className="flex h-full min-h-[320px] w-full items-center justify-center text-muted-foreground">
@@ -377,6 +418,79 @@ export function ImageLightbox({
                     <p className="mt-1 text-sm text-destructive">
                       {generation.error}
                     </p>
+                  </div>
+                )}
+
+                {(imageUrl || visibleReferenceImages.length > 0) && (
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                      {copy("Images", "图片")}
+                    </p>
+                    <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-4">
+                      {imageUrl && generation.status === "completed" && (
+                        <button
+                          type="button"
+                          onClick={() => setActivePreviewId("output")}
+                          className={[
+                            "group overflow-hidden rounded-md border bg-muted text-left transition-colors",
+                            activePreviewId === "output"
+                              ? "border-primary ring-1 ring-primary"
+                              : "border-border hover:border-foreground/40",
+                          ].join(" ")}
+                          title={currentImageLabel}
+                        >
+                          <span className="relative block aspect-square">
+                            <Image
+                              src={imageUrl}
+                              alt={currentImageLabel}
+                              fill
+                              sizes="96px"
+                              className="object-cover"
+                              unoptimized={
+                                !imageUrl.startsWith("/api/storage/")
+                              }
+                            />
+                          </span>
+                          <span className="block truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                            {currentImageLabel}
+                          </span>
+                        </button>
+                      )}
+                      {visibleReferenceImages.map((item, index) => (
+                        <button
+                          key={`${item.id}-${index}`}
+                          type="button"
+                          onClick={() => setActivePreviewId(item.id)}
+                          className={[
+                            "group overflow-hidden rounded-md border bg-muted text-left transition-colors",
+                            activePreviewId === item.id
+                              ? "border-primary ring-1 ring-primary"
+                              : "border-border hover:border-foreground/40",
+                          ].join(" ")}
+                          title={item.name || copy("Reference image", "参考图")}
+                        >
+                          <span className="relative block aspect-square">
+                            <Image
+                              src={item.imageUrl}
+                              alt={
+                                item.name ||
+                                `${copy("Reference", "参考图")} ${index + 1}`
+                              }
+                              fill
+                              sizes="96px"
+                              className="object-cover"
+                              unoptimized={
+                                !item.imageUrl.startsWith("/api/storage/")
+                              }
+                            />
+                          </span>
+                          <span className="block truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                            {item.name ||
+                              `${copy("Reference", "参考图")} ${index + 1}`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -457,7 +571,7 @@ export function ImageLightbox({
             </div>
 
             <div className="flex flex-col gap-2 border-t border-border bg-background p-6">
-              {imageUrl && generation.status === "completed" && (
+              {previewImageUrl && (
                 <>
                   <Button
                     type="button"
@@ -482,7 +596,7 @@ export function ImageLightbox({
                     className="w-full justify-center"
                   >
                     <a
-                      href={imageUrl}
+                      href={previewImageUrl}
                       download={`gpt2image-${generation.id}.png`}
                       target="_blank"
                       rel="noopener noreferrer"

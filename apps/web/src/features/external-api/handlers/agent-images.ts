@@ -32,7 +32,6 @@ import {
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import {
-  deleteTemporaryImages,
   filesToImageInputs,
   formatMegabytes,
   getTotalUploadSize,
@@ -449,7 +448,10 @@ async function assertPublicImageUrl(url: URL) {
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new AgentReferenceError("Image URL must be publicly reachable.");
   }
-  if (hostname === "metadata.google.internal" || hostname.endsWith(".internal")) {
+  if (
+    hostname === "metadata.google.internal" ||
+    hostname.endsWith(".internal")
+  ) {
     throw new AgentReferenceError("Image URL must be publicly reachable.");
   }
 
@@ -496,9 +498,13 @@ function parseDataImageReference(
       413
     );
   }
-  return new File([buffer], `agent-input-image-${index + 1}.${getImageExtension(type)}`, {
-    type,
-  });
+  return new File(
+    [buffer],
+    `agent-input-image-${index + 1}.${getImageExtension(type)}`,
+    {
+      type,
+    }
+  );
 }
 
 async function fetchImageReference(
@@ -554,9 +560,13 @@ async function fetchImageReference(
     );
   }
 
-  return new File([buffer], `agent-input-image-${index + 1}.${getImageExtension(type)}`, {
-    type,
-  });
+  return new File(
+    [buffer],
+    `agent-input-image-${index + 1}.${getImageExtension(type)}`,
+    {
+      type,
+    }
+  );
 }
 
 async function resolveImageReferences(
@@ -961,9 +971,7 @@ export const postExternalAgentImages = withApiLogging(
         getText(formData, "outputCompression")
     );
     const responseFormat =
-      getText(formData, "response_format") === "b64_json"
-        ? "b64_json"
-        : "url";
+      getText(formData, "response_format") === "b64_json" ? "b64_json" : "url";
     const useStreamResponse = wantsImageStreamResponse(
       request,
       getOptionalBoolean(formData, "stream")
@@ -1004,7 +1012,10 @@ export const postExternalAgentImages = withApiLogging(
     const preferredBackendMemberId = getPreferredBackendMemberId(history);
 
     const attachmentFiles = getAttachmentFiles(formData);
-    if (imageReferences.length + attachmentFiles.length > planLimits.maxChatImages) {
+    if (
+      imageReferences.length + attachmentFiles.length >
+      planLimits.maxChatImages
+    ) {
       return openAIImageError(
         `No more than ${planLimits.maxChatImages} attachments are allowed.`
       );
@@ -1038,7 +1049,10 @@ export const postExternalAgentImages = withApiLogging(
           );
         }
       }
-      if (getTotalUploadSize([...sourceFiles, ...attachmentFiles]) > maxRequestBytes) {
+      if (
+        getTotalUploadSize([...sourceFiles, ...attachmentFiles]) >
+        maxRequestBytes
+      ) {
         return openAIImageError(
           `Total upload size must be no more than ${formatMegabytes(maxRequestBytes)}.`,
           413
@@ -1122,138 +1136,132 @@ export const postExternalAgentImages = withApiLogging(
 
       if (useStreamResponse) {
         return createExternalImageStreamResponse(async (emit) => {
-          try {
-            const result = await runAgent({
-              onPartialImage: async (image) => {
-                await emit({
-                  event: "agent.partial_image",
-                  data: {
-                    type: "agent.partial_image",
-                    partial_image_index: image.partialImageIndex,
-                    b64_json: image.imageBase64,
-                    url: image.imageUrl,
-                    final: image.final,
-                  },
-                });
-              },
-              onTextDelta: async (delta) => {
-                await emit({
-                  event: "agent.text_delta",
-                  data: { type: "agent.text_delta", delta },
-                });
-              },
-              onThinkingDelta: async (delta) => {
-                await emit({
-                  event: "agent.thinking_delta",
-                  data: { type: "agent.thinking_delta", delta },
-                });
-              },
-              onAgentDelta: async (delta) => {
-                await emit({
-                  event: "agent.delta",
-                  data: { type: "agent.delta", delta },
-                });
-              },
-              onAgentEvent: async (event) => {
-                await emit({
-                  event: "agent.event",
-                  data: toAgentEventPayload(event),
-                });
-              },
-            });
-
-            if (result.error) {
-              const payload = toOpenAIErrorPayload(result.error, {
-                generationId: result.generationId,
-                creditsConsumed: result.creditsConsumed,
-              });
+          const result = await runAgent({
+            onPartialImage: async (image) => {
               await emit({
-                event: "agent.failed",
+                event: "agent.partial_image",
                 data: {
-                  type: "agent.failed",
-                  error: payload.error,
-                  generation_id: result.generationId,
-                  generationId: result.generationId,
-                  credits_consumed: result.creditsConsumed,
+                  type: "agent.partial_image",
+                  partial_image_index: image.partialImageIndex,
+                  b64_json: image.imageBase64,
+                  url: image.imageUrl,
+                  final: image.final,
                 },
               });
-              return;
-            }
+            },
+            onTextDelta: async (delta) => {
+              await emit({
+                event: "agent.text_delta",
+                data: { type: "agent.text_delta", delta },
+              });
+            },
+            onThinkingDelta: async (delta) => {
+              await emit({
+                event: "agent.thinking_delta",
+                data: { type: "agent.thinking_delta", delta },
+              });
+            },
+            onAgentDelta: async (delta) => {
+              await emit({
+                event: "agent.delta",
+                data: { type: "agent.delta", delta },
+              });
+            },
+            onAgentEvent: async (event) => {
+              await emit({
+                event: "agent.event",
+                data: toAgentEventPayload(event),
+              });
+            },
+          });
 
-            const data = await imageResponseData(request, result, responseFormat);
+          if (result.error) {
+            const payload = toOpenAIErrorPayload(result.error, {
+              generationId: result.generationId,
+              creditsConsumed: result.creditsConsumed,
+            });
             await emit({
-              event: "agent.completed",
+              event: "agent.failed",
               data: {
-                type: "agent.completed",
+                type: "agent.failed",
+                error: payload.error,
                 generation_id: result.generationId,
                 generationId: result.generationId,
-                model: result.model,
-                size: result.size,
-                response_text: result.responseText,
-                responseText: result.responseText,
-                response_agent: result.responseAgent,
-                responseAgent: result.responseAgent,
-                agent_round_count: result.agentRoundCount,
-                agentRoundCount: result.agentRoundCount,
                 credits_consumed: result.creditsConsumed,
-                data,
-                agent_events: result.agentEvents || [],
-                agentEvents: result.agentEvents || [],
-                backend_member: result.backendMember,
-                backendMember: result.backendMember,
-                responses_previous_response: result.responsesPreviousResponse,
-                responsesPreviousResponse: result.responsesPreviousResponse,
               },
             });
-          } finally {
-            await deleteTemporaryImages(sourceImageUrls);
+            return;
           }
+
+          const data = await imageResponseData(request, result, responseFormat);
+          await emit({
+            event: "agent.completed",
+            data: {
+              type: "agent.completed",
+              generation_id: result.generationId,
+              generationId: result.generationId,
+              model: result.model,
+              size: result.size,
+              response_text: result.responseText,
+              responseText: result.responseText,
+              response_agent: result.responseAgent,
+              responseAgent: result.responseAgent,
+              agent_round_count: result.agentRoundCount,
+              agentRoundCount: result.agentRoundCount,
+              credits_consumed: result.creditsConsumed,
+              data,
+              agent_events: result.agentEvents || [],
+              agentEvents: result.agentEvents || [],
+              backend_member: result.backendMember,
+              backendMember: result.backendMember,
+              responses_previous_response: result.responsesPreviousResponse,
+              responsesPreviousResponse: result.responsesPreviousResponse,
+            },
+          });
         });
       }
 
       return createJsonKeepAliveResponse(async () => {
-        try {
-          const result = await runAgent();
-          if (result.error) {
-            return toOpenAIErrorPayload(result.error, {
-              generationId: result.generationId,
-              creditsConsumed: result.creditsConsumed,
-            });
-          }
-          const data = await imageResponseData(request, result, responseFormat);
-          return {
-            object: "agent.image_run",
-            created: Math.floor(Date.now() / 1000),
-            generation_id: result.generationId,
+        const result = await runAgent();
+        if (result.error) {
+          return toOpenAIErrorPayload(result.error, {
             generationId: result.generationId,
-            model: result.model,
-            size: result.size,
-            response_text: result.responseText,
-            responseText: result.responseText,
-            response_agent: result.responseAgent,
-            responseAgent: result.responseAgent,
-            agent_round_count: result.agentRoundCount,
-            agentRoundCount: result.agentRoundCount,
-            credits_consumed: result.creditsConsumed,
-            data,
-            agent_events: result.agentEvents || [],
-            agentEvents: result.agentEvents || [],
-            backend_member: result.backendMember,
-            backendMember: result.backendMember,
-            responses_previous_response: result.responsesPreviousResponse,
-            responsesPreviousResponse: result.responsesPreviousResponse,
-            usage: null,
-          };
-        } finally {
-          await deleteTemporaryImages(sourceImageUrls);
+            creditsConsumed: result.creditsConsumed,
+          });
         }
+        const data = await imageResponseData(request, result, responseFormat);
+        return {
+          object: "agent.image_run",
+          created: Math.floor(Date.now() / 1000),
+          generation_id: result.generationId,
+          generationId: result.generationId,
+          model: result.model,
+          size: result.size,
+          response_text: result.responseText,
+          responseText: result.responseText,
+          response_agent: result.responseAgent,
+          responseAgent: result.responseAgent,
+          agent_round_count: result.agentRoundCount,
+          agentRoundCount: result.agentRoundCount,
+          credits_consumed: result.creditsConsumed,
+          data,
+          agent_events: result.agentEvents || [],
+          agentEvents: result.agentEvents || [],
+          backend_member: result.backendMember,
+          backendMember: result.backendMember,
+          responses_previous_response: result.responsesPreviousResponse,
+          responsesPreviousResponse: result.responsesPreviousResponse,
+          usage: null,
+        };
       });
     } catch (error) {
       if (error instanceof AgentReferenceError) {
         return openAIImageError(error.message, error.status);
       }
       return openAIImageError(
-        error instanceof Error ? error.message : "Failed to run Agent image API."
+        error instanceof Error
+          ? error.message
+          : "Failed to run Agent image API."
       );
     }
   }

@@ -27,7 +27,7 @@ type DestroyExpiredGenerationPhotosOptions = {
   retentionHours?: number;
 };
 
-type GenerationImageStorageReference = {
+export type GenerationImageStorageReference = {
   bucket: string;
   key: string;
 };
@@ -51,11 +51,12 @@ export function collectGenerationImageStorageReferences(params: {
   storageBucket?: string | null;
   metadata?: Record<string, unknown> | null;
 }): GenerationImageStorageReference[] {
-  const bucket = getGenerationBucket(params.storageBucket);
+  const defaultBucket = getGenerationBucket(params.storageBucket);
   const refs = new Map<string, GenerationImageStorageReference>();
-  const addReference = (key: unknown) => {
+  const addReference = (key: unknown, bucketValue?: unknown) => {
     const storageKey = stringValue(key);
     if (!storageKey) return;
+    const bucket = stringValue(bucketValue) || defaultBucket;
     refs.set(`${bucket}:${storageKey}`, { bucket, key: storageKey });
   };
 
@@ -69,7 +70,16 @@ export function collectGenerationImageStorageReferences(params: {
     : [];
   for (const output of outputs) {
     if (!isRecord(output)) continue;
-    addReference(output.storageKey);
+    addReference(output.storageKey, output.storageBucket);
+  }
+
+  const inputImages = isRecord(params.metadata?.inputImages)
+    ? params.metadata.inputImages
+    : null;
+  const images = Array.isArray(inputImages?.images) ? inputImages.images : [];
+  for (const image of images) {
+    if (!isRecord(image)) continue;
+    addReference(image.storageKey, image.storageBucket);
   }
 
   return Array.from(refs.values());
@@ -107,6 +117,28 @@ export function stripDestroyedGenerationImageReferences(
     storageObjectsDeleted: params.storageObjectsDeleted,
   };
   nextMetadata.outputImage = outputImage;
+
+  const inputImages = isRecord(nextMetadata.inputImages)
+    ? { ...nextMetadata.inputImages }
+    : null;
+  if (inputImages) {
+    if (Array.isArray(inputImages.images)) {
+      inputImages.images = inputImages.images.map((image) => {
+        if (!isRecord(image)) return image;
+        const nextImage = { ...image };
+        delete nextImage.storageKey;
+        delete nextImage.storageBucket;
+        delete nextImage.imageUrl;
+        return nextImage;
+      });
+    }
+    inputImages.photoRetention = {
+      destroyedAt: params.destroyedAt,
+      retentionHours: params.retentionHours,
+      storageObjectsDeleted: params.storageObjectsDeleted,
+    };
+    nextMetadata.inputImages = inputImages;
+  }
 
   const responseOutput = isRecord(nextMetadata.responseOutput)
     ? { ...nextMetadata.responseOutput }

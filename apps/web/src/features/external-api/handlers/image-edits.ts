@@ -35,7 +35,6 @@ import {
 } from "@/features/image-generation/resolution";
 import {
   DEFAULT_MAX_IMAGE_BYTES,
-  deleteModerationImages,
   filesToImageInputs,
   formatMegabytes,
   getTotalUploadSize,
@@ -133,7 +132,10 @@ async function assertPublicImageUrl(url: URL) {
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new ImageReferenceError("Image URL must be publicly reachable.");
   }
-  if (hostname === "metadata.google.internal" || hostname.endsWith(".internal")) {
+  if (
+    hostname === "metadata.google.internal" ||
+    hostname.endsWith(".internal")
+  ) {
     throw new ImageReferenceError("Image URL must be publicly reachable.");
   }
 
@@ -637,7 +639,10 @@ export const postExternalImageEdits = withApiLogging(
       );
     }
     if (
-      wantsImageStreamResponse(request, getOptionalBoolean(formData, "stream")) &&
+      wantsImageStreamResponse(
+        request,
+        getOptionalBoolean(formData, "stream")
+      ) &&
       !(await canUsePlanCapability(plan.plan, "externalApi.streaming"))
     ) {
       return openAIImageError(
@@ -718,101 +723,92 @@ export const postExternalImageEdits = withApiLogging(
 
       if (useStreamResponse) {
         return createExternalImageStreamResponse(async (emit) => {
-          try {
-            await runBatchImageGeneration({
-              count,
-              concurrency: planLimits.imageGenerationConcurrency,
-              run: runEdit,
-              callbacks: (index) => ({
-                onPartialImage: async (image) => {
-                  await emit({
-                    event: "image_edit.partial_image",
-                    data: toPartialPayload(image, index),
-                  });
-                },
-              }),
-              onResult: async (result, index) => {
-                if (result.error) {
-                  await emit({
-                    event: "error",
-                    data: {
-                      type: "upstream_error",
-                      message: result.error,
-                      error: toOpenAIErrorPayload(result.error, {
-                        generationId: result.generationId,
-                        creditsConsumed: result.creditsConsumed,
-                      }).error,
-                      generation_id: result.generationId,
-                      generationId: result.generationId,
-                      credits_consumed: result.creditsConsumed,
-                    },
-                  });
-                  return;
-                }
-
+          await runBatchImageGeneration({
+            count,
+            concurrency: planLimits.imageGenerationConcurrency,
+            run: runEdit,
+            callbacks: (index) => ({
+              onPartialImage: async (image) => {
                 await emit({
-                  event: "image_edit.completed",
-                  data: await toStreamCompletedPayload(
-                    request,
-                    result,
-                    responseFormat,
-                    index
-                  ),
+                  event: "image_edit.partial_image",
+                  data: toPartialPayload(image, index),
                 });
               },
-            });
-          } finally {
-            await deleteModerationImages(moderationImages);
-          }
+            }),
+            onResult: async (result, index) => {
+              if (result.error) {
+                await emit({
+                  event: "error",
+                  data: {
+                    type: "upstream_error",
+                    message: result.error,
+                    error: toOpenAIErrorPayload(result.error, {
+                      generationId: result.generationId,
+                      creditsConsumed: result.creditsConsumed,
+                    }).error,
+                    generation_id: result.generationId,
+                    generationId: result.generationId,
+                    credits_consumed: result.creditsConsumed,
+                  },
+                });
+                return;
+              }
+
+              await emit({
+                event: "image_edit.completed",
+                data: await toStreamCompletedPayload(
+                  request,
+                  result,
+                  responseFormat,
+                  index
+                ),
+              });
+            },
+          });
         });
       }
 
       return createJsonKeepAliveResponse(async () => {
-        try {
-          const data = [];
-          const created = Math.floor(Date.now() / 1000);
+        const data = [];
+        const created = Math.floor(Date.now() / 1000);
 
-          const results = await runBatchImageGeneration({
-            count,
-            concurrency: planLimits.imageGenerationConcurrency,
-            run: runEdit,
-          });
-          for (const result of results) {
-            if (result.error) {
-              return toOpenAIErrorPayload(result.error, {
-                generationId: result.generationId,
-                creditsConsumed: result.creditsConsumed,
-              });
-            }
-            if (result.imageOutputs?.length) {
-              for (const output of result.imageOutputs) {
-                data.push(
-                  await toOpenAIImageData(
-                    request,
-                    {
-                      ...result,
-                      imageUrl: output.imageUrl,
-                      revisedPrompt:
-                        output.revisedPrompt || result.revisedPrompt,
-                    },
-                    responseFormat
-                  )
-                );
-              }
-            } else {
-              data.push(await toOpenAIImageData(request, result, responseFormat));
-            }
+        const results = await runBatchImageGeneration({
+          count,
+          concurrency: planLimits.imageGenerationConcurrency,
+          run: runEdit,
+        });
+        for (const result of results) {
+          if (result.error) {
+            return toOpenAIErrorPayload(result.error, {
+              generationId: result.generationId,
+              creditsConsumed: result.creditsConsumed,
+            });
           }
-
-          return {
-            created,
-            data,
-            ...toExternalGenerationUsage(results),
-            usage: null,
-          };
-        } finally {
-          await deleteModerationImages(moderationImages);
+          if (result.imageOutputs?.length) {
+            for (const output of result.imageOutputs) {
+              data.push(
+                await toOpenAIImageData(
+                  request,
+                  {
+                    ...result,
+                    imageUrl: output.imageUrl,
+                    revisedPrompt: output.revisedPrompt || result.revisedPrompt,
+                  },
+                  responseFormat
+                )
+              );
+            }
+          } else {
+            data.push(await toOpenAIImageData(request, result, responseFormat));
+          }
         }
+
+        return {
+          created,
+          data,
+          ...toExternalGenerationUsage(results),
+          usage: null,
+        };
       });
     } catch (error) {
       if (error instanceof ImageReferenceError) {

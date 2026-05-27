@@ -7,7 +7,7 @@ async function loadHelpers() {
 }
 
 describe("generation photo retention helpers", () => {
-  it("collects primary and additional output storage keys without duplicates", async () => {
+  it("collects primary, additional output, and uploaded input storage keys without duplicates", async () => {
     const { collectGenerationImageStorageReferences } = await loadHelpers();
 
     expect(
@@ -15,6 +15,15 @@ describe("generation photo retention helpers", () => {
         storageBucket: "generations",
         storageKey: "user/final.png",
         metadata: {
+          inputImages: {
+            images: [
+              {
+                storageKey: "user/reference.png",
+                storageBucket: "generations",
+              },
+              { storageKey: "user/final.png" },
+            ],
+          },
           outputImage: {
             imageOutputs: [
               { storageKey: "user/draft.png" },
@@ -27,6 +36,7 @@ describe("generation photo retention helpers", () => {
     ).toEqual([
       { bucket: "generations", key: "user/final.png" },
       { bucket: "generations", key: "user/draft.png" },
+      { bucket: "generations", key: "user/reference.png" },
     ]);
   });
 
@@ -35,6 +45,17 @@ describe("generation photo retention helpers", () => {
 
     const metadata = stripDestroyedGenerationImageReferences(
       {
+        inputImages: {
+          images: [
+            {
+              id: "input-1",
+              storageBucket: "generations",
+              storageKey: "user/reference.png",
+              imageUrl: "/api/storage/generations/user/reference.png",
+              name: "reference.png",
+            },
+          ],
+        },
         outputImage: {
           actualSize: "1024x1024",
           billableImageOutputCount: 1,
@@ -96,6 +117,16 @@ describe("generation photo retention helpers", () => {
     ).toEqual({
       type: "image_generation_call",
       status: "completed",
+    });
+    expect(
+      (
+        metadata.inputImages as {
+          images: Array<Record<string, unknown>>;
+        }
+      ).images[0]
+    ).toEqual({
+      id: "input-1",
+      name: "reference.png",
     });
   });
 });

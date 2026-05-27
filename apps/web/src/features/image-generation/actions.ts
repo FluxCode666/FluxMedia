@@ -2,14 +2,15 @@
 
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
+import {
+  collectGenerationImageStorageReferences,
+  type GenerationImageStorageReference,
+} from "@repo/shared/generation-maintenance";
 import { protectedAction } from "@repo/shared/safe-action";
 import { getStorageProvider } from "@repo/shared/storage/providers";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
-import {
-  DEFAULT_IMAGE_SIZE,
-  validateImageSize,
-} from "./resolution";
+import { DEFAULT_IMAGE_SIZE, validateImageSize } from "./resolution";
 import { runImageGenerationForUser } from "./operations";
 
 const generateImageSchema = z.object({
@@ -23,28 +24,8 @@ const generateImageSchema = z.object({
   model: z.string().optional(),
 });
 
-function getAdditionalOutputStorageKeys(
-  metadata: Record<string, unknown> | null | undefined
-) {
-  const outputImage =
-    metadata &&
-    typeof metadata === "object" &&
-    !Array.isArray(metadata) &&
-    metadata.outputImage &&
-    typeof metadata.outputImage === "object" &&
-    !Array.isArray(metadata.outputImage)
-      ? (metadata.outputImage as Record<string, unknown>)
-      : null;
-  const outputs = Array.isArray(outputImage?.imageOutputs)
-    ? outputImage.imageOutputs
-    : [];
-
-  return outputs
-    .filter((item): item is Record<string, unknown> =>
-      Boolean(item && typeof item === "object" && !Array.isArray(item))
-    )
-    .map((item) => item.storageKey)
-    .filter((key): key is string => typeof key === "string" && key.length > 0);
+function referenceKey(ref: GenerationImageStorageReference) {
+  return `${ref.bucket}:${ref.key}`;
 }
 
 export const generateImageAction = protectedAction
@@ -74,17 +55,40 @@ export const deleteGenerationAction = protectedAction
       return { error: "Not found" };
     }
 
-    const storageKeys = new Set<string>();
-    if (gen[0].storageKey) storageKeys.add(gen[0].storageKey);
-    for (const key of getAdditionalOutputStorageKeys(gen[0].metadata)) {
-      storageKeys.add(key);
+    const storageReferences = collectGenerationImageStorageReferences({
+      storageKey: gen[0].storageKey,
+      storageBucket: gen[0].storageBucket,
+      metadata: gen[0].metadata,
+    });
+    const storageReferenceKeys = new Set(storageReferences.map(referenceKey));
+
+    if (storageReferenceKeys.size > 0) {
+      const otherGenerations = await db
+        .select({
+          storageKey: generation.storageKey,
+          storageBucket: generation.storageBucket,
+          metadata: generation.metadata,
+        })
+        .from(generation)
+        .where(
+          and(
+            eq(generation.userId, ctx.userId),
+            ne(generation.id, parsedInput.generationId)
+          )
+        );
+      for (const other of otherGenerations) {
+        for (const ref of collectGenerationImageStorageReferences(other)) {
+          storageReferenceKeys.delete(referenceKey(ref));
+        }
+      }
     }
 
-    if (storageKeys.size > 0 && gen[0].storageBucket) {
+    if (storageReferenceKeys.size > 0) {
       try {
         const storage = await getStorageProvider();
-        for (const storageKey of storageKeys) {
-          await storage.deleteObject(storageKey, gen[0].storageBucket);
+        for (const ref of storageReferences) {
+          if (!storageReferenceKeys.has(referenceKey(ref))) continue;
+          await storage.deleteObject(ref.key, ref.bucket);
         }
       } catch {
         /* best effort */

@@ -17,6 +17,7 @@ import { useLocale } from "next-intl";
 import { useState } from "react";
 import {
   ImageLightbox,
+  type LightboxReferenceImage,
   type LightboxGeneration,
 } from "@/features/image-generation/components/image-lightbox";
 import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
@@ -35,6 +36,7 @@ export interface HistoryGeneration {
   storageKey: string | null;
   storageBucket: string | null;
   imageUrl: string | null;
+  referenceImages?: LightboxReferenceImage[];
 }
 
 export interface HistoryClientProps {
@@ -180,82 +182,82 @@ export function HistoryClient({
                   onClick={() => setSelectedId(item.id)}
                   className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[64px_minmax(0,1fr)_150px_90px_118px_92px_128px] md:items-center md:gap-3"
                 >
-                <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded border border-border bg-muted md:h-14 md:w-14">
-                  {item.imageUrl && item.status === "completed" ? (
-                    <Image
-                      src={item.imageUrl}
-                      alt={item.prompt}
-                      fill
-                      sizes="64px"
-                      className="object-contain"
-                      unoptimized={!item.imageUrl.startsWith("/api/storage/")}
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                      <ImageIcon className="h-5 w-5" strokeWidth={1.2} />
-                    </div>
-                  )}
-                </div>
+                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded border border-border bg-muted md:h-14 md:w-14">
+                    {item.imageUrl && item.status === "completed" ? (
+                      <Image
+                        src={item.imageUrl}
+                        alt={item.prompt}
+                        fill
+                        sizes="64px"
+                        className="object-contain"
+                        unoptimized={!item.imageUrl.startsWith("/api/storage/")}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                        <ImageIcon className="h-5 w-5" strokeWidth={1.2} />
+                      </div>
+                    )}
+                  </div>
 
-                <div className="min-w-0">
-                  <p className="line-clamp-2 break-words text-sm leading-snug text-foreground">
-                    {item.prompt}
-                  </p>
-                  {item.error ? (
-                    <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-destructive">
-                      {item.error}
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 break-words text-sm leading-snug text-foreground">
+                      {item.prompt}
                     </p>
-                  ) : null}
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
-                    <span className="font-mono">{item.model}</span>
-                    <span>·</span>
-                    <span>{item.size}</span>
-                    <span>·</span>
+                    {item.error ? (
+                      <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-destructive">
+                        {item.error}
+                      </p>
+                    ) : null}
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
+                      <span className="font-mono">{item.model}</span>
+                      <span>·</span>
+                      <span>{item.size}</span>
+                      <span>·</span>
+                      <Badge
+                        variant="outline"
+                        className={`rounded-full border-transparent px-2 py-0 font-normal text-[10px] uppercase ${statusClasses(item.status)}`}
+                      >
+                        {statusLabel(item.status)}
+                      </Badge>
+                    </div>
+                    {summary && (
+                      <p className="mt-1 text-[11px] leading-tight text-muted-foreground md:hidden">
+                        {summary}
+                      </p>
+                    )}
+                  </div>
+
+                  <div
+                    className="hidden min-w-0 truncate font-mono text-xs text-foreground md:block"
+                    title={item.model}
+                  >
+                    {item.model}
+                  </div>
+                  <div className="hidden font-mono text-xs text-foreground md:block">
+                    {item.size}
+                  </div>
+                  <div className="hidden text-xs text-foreground md:block">
+                    {formatCredits(item.creditsConsumed)}
+                    {summary && (
+                      <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+                        {summary}
+                      </span>
+                    )}
+                  </div>
+                  <div className="hidden md:block">
                     <Badge
                       variant="outline"
-                      className={`rounded-full border-transparent px-2 py-0 font-normal text-[10px] uppercase ${statusClasses(item.status)}`}
+                      className={`rounded-full border-transparent font-normal text-[10px] uppercase tracking-wide ${statusClasses(item.status)}`}
                     >
                       {statusLabel(item.status)}
                     </Badge>
                   </div>
-                  {summary && (
-                    <p className="mt-1 text-[11px] leading-tight text-muted-foreground md:hidden">
-                      {summary}
-                    </p>
-                  )}
-                </div>
-
-                <div
-                  className="hidden min-w-0 truncate font-mono text-xs text-foreground md:block"
-                  title={item.model}
-                >
-                  {item.model}
-                </div>
-                <div className="hidden font-mono text-xs text-foreground md:block">
-                  {item.size}
-                </div>
-                <div className="hidden text-xs text-foreground md:block">
-                  {formatCredits(item.creditsConsumed)}
-                  {summary && (
-                    <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
-                      {summary}
+                  <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
+                    <Clock className="h-3 w-3" />
+                    <span className="truncate">
+                      {formatDate(item.createdAt, locale, timeZone)}
                     </span>
-                  )}
-                </div>
-                <div className="hidden md:block">
-                  <Badge
-                    variant="outline"
-                    className={`rounded-full border-transparent font-normal text-[10px] uppercase tracking-wide ${statusClasses(item.status)}`}
-                  >
-                    {statusLabel(item.status)}
-                  </Badge>
-                </div>
-                <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
-                  <Clock className="h-3 w-3" />
-                  <span className="truncate">
-                    {formatDate(item.createdAt, locale, timeZone)}
-                  </span>
-                </div>
+                  </div>
                 </button>
               </li>
             );

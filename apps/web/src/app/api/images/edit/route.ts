@@ -258,7 +258,9 @@ export const POST = withApiLogging(async (request: NextRequest) => {
 
   const model = getText(formData, "model") || undefined;
   const gptModel =
-    getText(formData, "gptModel") || getText(formData, "gpt_model") || undefined;
+    getText(formData, "gptModel") ||
+    getText(formData, "gpt_model") ||
+    undefined;
   const thinkingValue = getText(formData, "thinking") || undefined;
   if (thinkingValue && !VALID_THINKING.has(thinkingValue as ThinkingLevel)) {
     return errorResponse("Invalid thinking level.");
@@ -311,9 +313,14 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     );
     const maskImageUrls =
       maskFile instanceof File
-        ? await uploadTemporaryImageUrls(session.user.id, `${batchId}-mask`, [maskFile], {
-            scope: "requests",
-          })
+        ? await uploadTemporaryImageUrls(
+            session.user.id,
+            `${batchId}-mask`,
+            [maskFile],
+            {
+              scope: "requests",
+            }
+          )
         : undefined;
     const useStreamResponse = wantsStreamResponse(request, formData);
 
@@ -391,10 +398,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
 
             return null;
           } finally {
-            await Promise.allSettled([
-              deleteTemporaryImages(sourceImageUrls),
-              deleteTemporaryImages(maskImageUrls),
-            ]);
+            await deleteTemporaryImages(maskImageUrls);
           }
         });
       }
@@ -421,10 +425,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       });
     } finally {
       if (!useStreamResponse) {
-        await Promise.allSettled([
-          deleteTemporaryImages(sourceImageUrls),
-          deleteTemporaryImages(maskImageUrls),
-        ]);
+        await deleteTemporaryImages(maskImageUrls);
       }
     }
   } catch (error) {

@@ -37,6 +37,7 @@ import {
   getOutputFormatExtension,
   normalizeOutputFormat,
 } from "./output-format";
+import { buildInputImagesMetadata } from "./generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "./pricing-settings";
 import { withImageGenerationQueue } from "./queue";
 import {
@@ -142,9 +143,8 @@ async function shouldForceWebBackend(
   return isImageSizeWithinPixelRange(size, minPixels, maxPixels);
 }
 
-const TEXT_MODERATION_ONLY_CREDITS = getImageCreditCostBreakdown(
-  DEFAULT_IMAGE_SIZE
-).moderationOnlyCredits;
+const TEXT_MODERATION_ONLY_CREDITS =
+  getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
 
 type ImageCreditCostBreakdown = ReturnType<typeof getImageCreditCostBreakdown>;
 
@@ -1037,9 +1037,7 @@ export async function runImageGenerationForUser(
         billingMultiplier
       )
     : 0;
-  const initialCreditCharge = isChatInput
-    ? chatRoundCredits
-    : creditsPerImage;
+  const initialCreditCharge = isChatInput ? chatRoundCredits : creditsPerImage;
   const moderationFailureCredits = moderationEnabled
     ? planCapabilities.features["moderation.onlyFailureSettlement"]
       ? isChatInput
@@ -1227,6 +1225,7 @@ async function runQueuedImageGenerationForUser({
     gptModel,
     recordModel,
   });
+  const inputImagesMetadata = buildInputImagesMetadata(inputImages);
   const mixWebFirst = Boolean(
     input.mixWebFirst && isOneKImageSize(size) && !forceWebBackend
   );
@@ -1248,6 +1247,7 @@ async function runQueuedImageGenerationForUser({
             ...backendMetadata,
             ...modelMetadata,
             ...promptOptimizationMetadata,
+            ...inputImagesMetadata,
             imageCount: input.images.length,
             hasMask: Boolean(input.mask),
             quality: input.quality || "auto",
@@ -1272,6 +1272,7 @@ async function runQueuedImageGenerationForUser({
               ...backendMetadata,
               ...modelMetadata,
               ...promptOptimizationMetadata,
+              ...inputImagesMetadata,
               imageCount: input.images?.length || 0,
               fileContextChars: input.fileContext?.length || 0,
               quality: input.quality || "auto",
@@ -1323,7 +1324,9 @@ async function runQueuedImageGenerationForUser({
       userId: input.userId,
       amount: roundedAmount,
     });
-    chargedCredits = roundCreditAmount(Math.max(0, chargedCredits - roundedAmount));
+    chargedCredits = roundCreditAmount(
+      Math.max(0, chargedCredits - roundedAmount)
+    );
   };
   const chargeAdditionalCredits = async (
     amount: number,
@@ -1411,7 +1414,11 @@ async function runQueuedImageGenerationForUser({
         error instanceof Error ? error.message : "Insufficient credits";
       await db
         .update(generation)
-        .set({ status: "failed", error: message, creditsConsumed: chargedCredits })
+        .set({
+          status: "failed",
+          error: message,
+          creditsConsumed: chargedCredits,
+        })
         .where(isPendingGeneration(generationId));
       return { error: message, generationId };
     }
@@ -1840,8 +1847,7 @@ async function runQueuedImageGenerationForUser({
       if (isAgentChatInput) {
         await emitAgentOperationEvent(callbacks, {
           kind: "tool",
-          status:
-            index === imageOutputs.length - 1 ? "completed" : "running",
+          status: index === imageOutputs.length - 1 ? "completed" : "running",
           title:
             index === imageOutputs.length - 1 ? "图片保存完成" : "保存生成图片",
           detail: `已保存 ${index + 1}/${imageOutputs.length} 张图片`,

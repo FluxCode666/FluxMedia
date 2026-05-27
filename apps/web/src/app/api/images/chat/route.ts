@@ -19,7 +19,6 @@ import {
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import {
-  deleteTemporaryImages,
   filesToImageInputs,
   formatMegabytes,
   getTotalUploadSize,
@@ -912,88 +911,78 @@ export const POST = withApiLogging(async (request: NextRequest) => {
         onPartialImage
       );
 
-    try {
-      if (useStreamResponse) {
-        return createImageStreamResponse(async (emit) => {
-          try {
-            await runBatchImageGeneration({
-              count,
-              concurrency: planLimits.imageGenerationConcurrency,
-              generationIds:
-                count === 1 && requestedGenerationId
-                  ? [requestedGenerationId]
-                  : undefined,
-              run: runChat,
-              callbacks: (index) => ({
-                onPartialImage: async (image) => {
-                  await emit({
-                    type: "partial_image",
-                    index,
-                    partial_image_index: image.partialImageIndex,
-                    b64_json: image.imageBase64,
-                    url: image.imageUrl,
-                    final: image.final,
-                  });
-                },
-                onTextDelta: async (delta) => {
-                  await emit({ type: "text_delta", index, delta });
-                },
-                onThinkingDelta: async (delta) => {
-                  await emit({ type: "thinking_delta", index, delta });
-                },
-                onAgentDelta: async (delta) => {
-                  await emit({ type: "agent_delta", index, delta });
-                },
-                onAgentEvent: async (event) => {
-                  await emit({ type: "agent_event", index, event });
-                },
-              }),
-              onResult: async (result) => {
-                if (result.error) {
-                  await emit({
-                    type: "error",
-                    error: result.error,
-                    generationId: result.generationId,
-                    creditsConsumed: result.creditsConsumed,
-                  });
-                  return;
-                }
+    if (useStreamResponse) {
+      return createImageStreamResponse(async (emit) => {
+        await runBatchImageGeneration({
+          count,
+          concurrency: planLimits.imageGenerationConcurrency,
+          generationIds:
+            count === 1 && requestedGenerationId
+              ? [requestedGenerationId]
+              : undefined,
+          run: runChat,
+          callbacks: (index) => ({
+            onPartialImage: async (image) => {
+              await emit({
+                type: "partial_image",
+                index,
+                partial_image_index: image.partialImageIndex,
+                b64_json: image.imageBase64,
+                url: image.imageUrl,
+                final: image.final,
+              });
+            },
+            onTextDelta: async (delta) => {
+              await emit({ type: "text_delta", index, delta });
+            },
+            onThinkingDelta: async (delta) => {
+              await emit({ type: "thinking_delta", index, delta });
+            },
+            onAgentDelta: async (delta) => {
+              await emit({ type: "agent_delta", index, delta });
+            },
+            onAgentEvent: async (event) => {
+              await emit({ type: "agent_event", index, event });
+            },
+          }),
+          onResult: async (result) => {
+            if (result.error) {
+              await emit({
+                type: "error",
+                error: result.error,
+                generationId: result.generationId,
+                creditsConsumed: result.creditsConsumed,
+              });
+              return;
+            }
 
-                await emit({ type: "completed", ...result });
-              },
-            });
-
-            return null;
-          } finally {
-            await deleteTemporaryImages(sourceImageUrls);
-          }
+            await emit({ type: "completed", ...result });
+          },
         });
-      }
 
-      if (count === 1) {
-        const result = await runChat(requestedGenerationId || randomUUID());
-        return NextResponse.json(result);
-      }
-
-      const results = await runBatchImageGeneration({
-        count,
-        concurrency: planLimits.imageGenerationConcurrency,
-        generationIds:
-          count === 1 && requestedGenerationId
-            ? [requestedGenerationId]
-            : undefined,
-        run: runChat,
+        return null;
       });
-
-      return NextResponse.json({
-        results,
-        error: firstBatchError(results)?.error,
-      });
-    } finally {
-      if (!useStreamResponse) {
-        await deleteTemporaryImages(sourceImageUrls);
-      }
     }
+
+    if (count === 1) {
+      const result = await runChat(requestedGenerationId || randomUUID());
+      return NextResponse.json(result);
+    }
+
+    const results = await runBatchImageGeneration({
+      count,
+      concurrency: planLimits.imageGenerationConcurrency,
+      generationIds:
+        count === 1 && requestedGenerationId
+          ? [requestedGenerationId]
+          : undefined,
+      run: runChat,
+    });
+
+    return NextResponse.json({
+      results,
+      error: firstBatchError(results)?.error,
+    });
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Failed to generate image."
