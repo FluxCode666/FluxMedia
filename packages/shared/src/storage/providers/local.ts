@@ -2,7 +2,14 @@ import type { StorageProvider } from "../types";
 import { getRuntimeSettingString } from "../../system-settings";
 
 async function getBaseDir() {
-  return (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
+  const configured =
+    (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
+  if (configured === "~" || configured.startsWith("~/")) {
+    const os = await import("node:os");
+    const path = await getPath();
+    return path.join(os.homedir(), configured.slice(2));
+  }
+  return configured;
 }
 
 async function getFs() {
