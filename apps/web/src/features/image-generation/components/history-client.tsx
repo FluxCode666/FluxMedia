@@ -190,7 +190,7 @@ export function HistoryClient({
                         fill
                         sizes="64px"
                         className="object-contain"
-                        unoptimized={!item.imageUrl.startsWith("/api/storage/")}
+                        unoptimized
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground">

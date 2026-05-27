@@ -70,7 +70,7 @@ export function ImageCard({
             fill
             sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="object-contain transition-transform duration-300 group-hover:scale-[1.02]"
-            unoptimized={!imageUrl.startsWith("/api/storage/")}
+            unoptimized
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">

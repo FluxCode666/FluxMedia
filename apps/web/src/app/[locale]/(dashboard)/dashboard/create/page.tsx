@@ -9,6 +9,7 @@ import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
+import { toStoredImageUrl } from "@/features/image-generation/generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
 import { getUserRecentGenerations } from "@/features/image-generation/queries";
 import { getUserApiConfig } from "@/features/image-generation/service";
@@ -30,13 +31,17 @@ export default async function CreatePage() {
       getUserApiConfig(user.id),
       getAppTimeZone(),
     ]);
-  const [uploadLimits, backendGroups, selectedBackendGroupId, moderationEnabled] =
-    await Promise.all([
-      getPlanUploadLimits(plan.plan),
-      listSelectableImageBackendGroups(plan.plan),
-      getUserImageBackendPreference(user.id),
-      isContentModerationEnabled(),
-    ]);
+  const [
+    uploadLimits,
+    backendGroups,
+    selectedBackendGroupId,
+    moderationEnabled,
+  ] = await Promise.all([
+    getPlanUploadLimits(plan.plan),
+    listSelectableImageBackendGroups(plan.plan),
+    getUserImageBackendPreference(user.id),
+    isContentModerationEnabled(),
+  ]);
   const [capabilities, imageBasePricing] = await Promise.all([
     getPlanCapabilitySnapshot(plan.plan),
     getRuntimeImageBaseCreditPricing(),
@@ -52,9 +57,7 @@ export default async function CreatePage() {
     size: g.size,
     creditsConsumed: g.creditsConsumed,
     status: g.status,
-    imageUrl: g.storageKey
-      ? `/api/storage/${g.storageBucket}/${g.storageKey}`
-      : null,
+    imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
     createdAt: g.createdAt.toISOString(),
   }));
 

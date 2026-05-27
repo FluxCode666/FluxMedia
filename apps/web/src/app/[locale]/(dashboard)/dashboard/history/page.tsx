@@ -5,7 +5,10 @@ import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { HistoryClient } from "@/features/image-generation/components/history-client";
 import { extractGenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
-import { extractGenerationReferenceImages } from "@/features/image-generation/generation-metadata";
+import {
+  extractGenerationReferenceImages,
+  toStoredImageUrl,
+} from "@/features/image-generation/generation-metadata";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
 
@@ -56,9 +59,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
     error: g.error,
     storageKey: g.storageKey,
     storageBucket: g.storageBucket,
-    imageUrl: g.storageKey
-      ? `/api/storage/${g.storageBucket}/${g.storageKey}`
-      : null,
+    imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
     referenceImages: extractGenerationReferenceImages(g.metadata),
     createdAt: g.createdAt.toISOString(),
   }));

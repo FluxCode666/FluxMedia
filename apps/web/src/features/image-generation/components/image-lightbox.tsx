@@ -359,7 +359,7 @@ export function ImageLightbox({
                 fill
                 sizes="(max-width: 768px) 100vw, 60vw"
                 className="object-contain"
-                unoptimized={!previewImageUrl.startsWith("/api/storage/")}
+                unoptimized
               />
             ) : (
               <div className="flex h-full min-h-[320px] w-full items-center justify-center text-muted-foreground">
@@ -446,9 +446,7 @@ export function ImageLightbox({
                               fill
                               sizes="96px"
                               className="object-cover"
-                              unoptimized={
-                                !imageUrl.startsWith("/api/storage/")
-                              }
+                              unoptimized
                             />
                           </span>
                           <span className="block truncate px-1.5 py-1 text-[10px] text-muted-foreground">
@@ -479,9 +477,7 @@ export function ImageLightbox({
                               fill
                               sizes="96px"
                               className="object-cover"
-                              unoptimized={
-                                !item.imageUrl.startsWith("/api/storage/")
-                              }
+                              unoptimized
                             />
                           </span>
                           <span className="block truncate px-1.5 py-1 text-[10px] text-muted-foreground">

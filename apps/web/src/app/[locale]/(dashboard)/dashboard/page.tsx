@@ -21,6 +21,7 @@ import {
   listImageBackendGroupOptions,
 } from "@/features/image-backend-pool/service";
 import { RecentCreationsClient } from "@/features/image-generation/components/recent-creations-client";
+import { toStoredImageUrl } from "@/features/image-generation/generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
 import { getImageBaseCreditPricing } from "@/features/image-generation/resolution";
 import { Link } from "@/i18n/routing";
@@ -47,29 +48,30 @@ export default async function DashboardPage() {
     imageBasePricing,
     userPlanInfo,
   ] = await Promise.all([
-      db.query.creditsBalance.findFirst({
-        where: eq(creditsBalance.userId, userId),
-      }),
-      db
-        .select()
-        .from(generation)
-        .where(
-          and(eq(generation.userId, userId), eq(generation.status, "completed"))
-        )
-        .orderBy(desc(generation.createdAt))
-        .limit(4),
-      db
-        .select({ count: count() })
-        .from(generation)
-        .where(eq(generation.userId, userId)),
-      getAppTimeZone(),
-      getRuntimeImageBaseCreditPricing(),
-      getUserPlan(userId),
-    ]);
+    db.query.creditsBalance.findFirst({
+      where: eq(creditsBalance.userId, userId),
+    }),
+    db
+      .select()
+      .from(generation)
+      .where(
+        and(eq(generation.userId, userId), eq(generation.status, "completed"))
+      )
+      .orderBy(desc(generation.createdAt))
+      .limit(4),
+    db
+      .select({ count: count() })
+      .from(generation)
+      .where(eq(generation.userId, userId)),
+    getAppTimeZone(),
+    getRuntimeImageBaseCreditPricing(),
+    getUserPlan(userId),
+  ]);
 
   const balance = formatCredits(balanceData?.balance ?? 0);
   const totalGenerations = totalGenerationsResult[0]?.count ?? 0;
-  const normalizedImageBasePricing = getImageBaseCreditPricing(imageBasePricing);
+  const normalizedImageBasePricing =
+    getImageBaseCreditPricing(imageBasePricing);
   const [capabilities, backendGroups, selectedBackendGroupId] =
     await Promise.all([
       getPlanCapabilitySnapshot(userPlanInfo.plan),
@@ -92,9 +94,7 @@ export default async function DashboardPage() {
     creditsConsumed: gen.creditsConsumed,
     storageKey: gen.storageKey,
     storageBucket: gen.storageBucket,
-    imageUrl: gen.storageKey
-      ? `/api/storage/${gen.storageBucket}/${gen.storageKey}`
-      : null,
+    imageUrl: toStoredImageUrl(gen.storageBucket, gen.storageKey),
     createdAt: gen.createdAt.toISOString(),
   }));
 
