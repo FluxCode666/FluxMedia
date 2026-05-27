@@ -1,9 +1,11 @@
 # Dependencies
 node_modules
+**/node_modules
 .pnpm-store
 
 # Build output
 .next
+**/.next
 out
 
 # Version control
@@ -18,8 +20,11 @@ docker-compose.yml
 # Environment & secrets
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
-!.env.local
+!.env.docker.example
+!.env.production.example
 
 # Storage (mounted at runtime)
 storage/
@@ -60,5 +65,6 @@ src/
 
 # Misc
 .turbo
+**/.turbo
 .vercel
 .sentry

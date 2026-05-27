@@ -1,23 +1,72 @@
-services:
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-      secrets:
-        - env_local
-    container_name: gpt2image-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./storage:/app/storage
-    env_file:
-      - .env.local
-    environment:
-      - NODE_ENV=production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+name: gpt2image-pro
 
-secrets:
-  env_local:
-    file: .env.local
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gpt2image}
+      POSTGRES_USER: ${POSTGRES_USER:-gpt2image}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-gpt2image} -d ${POSTGRES_DB:-gpt2image}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: ${GPT2IMAGE_MIGRATE_IMAGE:-ghcr.io/meowfree/gpt2image-pro-migrate:latest}
+    env_file:
+      - ${GPT2IMAGE_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gpt2image}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gpt2image}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    image: ${GPT2IMAGE_WEB_IMAGE:-ghcr.io/meowfree/gpt2image-pro-web:latest}
+    restart: unless-stopped
+    env_file:
+      - ${GPT2IMAGE_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gpt2image}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gpt2image}
+      LOCAL_STORAGE_PATH: /app/storage
+      CHATGPT_WEB_PROXY_URL: http://chatgpt-web-proxy:3021
+      CHATGPT_WEB_PROXY_SECRET: ${CHATGPT_WEB_PROXY_SECRET:-}
+      GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH: /app/.gpt2image/super-admin-credentials.txt
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - app-storage:/app/storage
+      - app-bootstrap:/app/.gpt2image
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      chatgpt-web-proxy:
+        condition: service_started
+
+  chatgpt-web-proxy:
+    image: ${GPT2IMAGE_PROXY_IMAGE:-ghcr.io/meowfree/gpt2image-pro-chatgpt-web-proxy:latest}
+    restart: unless-stopped
+    environment:
+      CHATGPT_WEB_PROXY_BIND: :3021
+      CHATGPT_WEB_PROXY_SECRET: ${CHATGPT_WEB_PROXY_SECRET:-}
+      CHATGPT_WEB_PROXY_PROFILE: ${CHATGPT_WEB_PROXY_PROFILE:-chrome_146}
+      CHATGPT_WEB_PROXY_TIMEOUT_SECONDS: ${CHATGPT_WEB_PROXY_TIMEOUT_SECONDS:-300}
+      CHATGPT_WEB_PROXY_MAX_BODY_MB: ${CHATGPT_WEB_PROXY_MAX_BODY_MB:-64}
+      CHATGPT_WEB_UPSTREAM_PROXY_URL: ${CHATGPT_WEB_UPSTREAM_PROXY_URL:-}
+
+volumes:
+  postgres-data:
+  app-storage:
+  app-bootstrap:

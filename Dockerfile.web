@@ -17,6 +17,14 @@ WORKDIR /app
 COPY --from=pruner /app/out/json/ .
 RUN pnpm install --frozen-lockfile
 
+# --- Database migrator ---
+FROM deps AS migrator
+WORKDIR /app
+COPY --from=pruner /app/out/full/ .
+COPY tsconfig.base.json ./tsconfig.base.json
+ENV NODE_ENV=production
+CMD ["pnpm", "--dir", "packages/database", "db:migrate"]
+
 # --- Build ---
 FROM base AS builder
 WORKDIR /app
@@ -25,14 +33,32 @@ COPY --from=pruner /app/out/full/ .
 COPY tsconfig.base.json ./tsconfig.base.json
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN --mount=type=secret,id=env_local,target=/app/apps/web/.env.local \
-    pnpm turbo build --filter=@repo/web
+ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+ARG NEXT_PUBLIC_APP_NAME=GPT2IMAGE
+ARG NEXT_PUBLIC_PAYMENT_PROVIDER=none
+ARG NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=generations
+ARG NEXT_PUBLIC_AVATARS_BUCKET_NAME=avatars
+ARG NEXT_PUBLIC_ASSET_PREFIX=
+ARG NEXT_PUBLIC_GA_ID=
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME
+ENV NEXT_PUBLIC_PAYMENT_PROVIDER=$NEXT_PUBLIC_PAYMENT_PROVIDER
+ENV NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=$NEXT_PUBLIC_GENERATIONS_BUCKET_NAME
+ENV NEXT_PUBLIC_AVATARS_BUCKET_NAME=$NEXT_PUBLIC_AVATARS_BUCKET_NAME
+ENV NEXT_PUBLIC_ASSET_PREFIX=$NEXT_PUBLIC_ASSET_PREFIX
+ENV NEXT_PUBLIC_GA_ID=$NEXT_PUBLIC_GA_ID
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+RUN pnpm turbo build --filter=@repo/web
 
 # --- Runner ---
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV LOCAL_STORAGE_PATH=/app/storage
+ENV NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=generations
+ENV NEXT_PUBLIC_AVATARS_BUCKET_NAME=avatars
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
@@ -41,11 +67,13 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
-RUN mkdir -p /app/storage && chown -R nextjs:nodejs /app/storage
+RUN mkdir -p /app/storage /app/.gpt2image && \
+    chown -R nextjs:nodejs /app/storage /app/.gpt2image
 
 USER nextjs
 EXPOSE 3000
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
+ENV GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH=/app/.gpt2image/super-admin-credentials.txt
 
 CMD ["node", "apps/web/server.js"]
