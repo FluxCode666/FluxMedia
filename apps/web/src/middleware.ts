@@ -33,6 +33,21 @@ const API_RATE_LIMITS: Array<{ pattern: RegExp; type: RateLimitType }> = [
   { pattern: /^\/api\/auth\/reset-password/, type: "auth" },
   // 上传相关
   { pattern: /^\/api\/upload/, type: "upload" },
+  // 页面生图相关
+  { pattern: /^\/api\/images\/generate/, type: "ai" },
+  { pattern: /^\/api\/images\/edit/, type: "ai" },
+  { pattern: /^\/api\/images\/chat(?:\/|$)/, type: "ai" },
+  // OpenAI 兼容外接 API
+  { pattern: /^\/api\/v1\/images\/generations/, type: "ai" },
+  { pattern: /^\/api\/v1\/images\/edits/, type: "ai" },
+  { pattern: /^\/api\/v1\/responses/, type: "ai" },
+  { pattern: /^\/api\/v1\/agents\/images/, type: "ai" },
+  { pattern: /^\/api\/v1\/chat\/completions/, type: "ai" },
+  { pattern: /^\/v1\/images\/generations/, type: "ai" },
+  { pattern: /^\/v1\/images\/edits/, type: "ai" },
+  { pattern: /^\/v1\/responses/, type: "ai" },
+  { pattern: /^\/v1\/agents\/images/, type: "ai" },
+  { pattern: /^\/v1\/chat\/completions/, type: "ai" },
 ];
 
 /**
@@ -122,11 +137,28 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith("/v1/")) {
+  if (pathname === "/moderate") {
     return NextResponse.next();
   }
 
-  if (pathname === "/moderate") {
+  if (pathname.startsWith("/v1/")) {
+    const rateLimitType = getApiRateLimitType(pathname);
+    if (rateLimitType) {
+      const ip = getClientIp(request);
+      const result = await checkRateLimit(ip, rateLimitType);
+
+      if (!result.success) {
+        return createRateLimitResponse(result);
+      }
+
+      const response = NextResponse.next();
+      const headers = getRateLimitHeaders(result);
+      for (const [key, value] of Object.entries(headers)) {
+        response.headers.set(key, value);
+      }
+      return response;
+    }
+
     return NextResponse.next();
   }
 
