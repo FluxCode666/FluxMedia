@@ -21,9 +21,7 @@ import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   clearSystemSettingsCache,
   getRuntimeSettingJson,
-  getRuntimeSettingBoolean,
   getRuntimeSettingNumber,
-  getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
 import {
@@ -2893,6 +2891,7 @@ type Sub2ApiAutoSyncTask = {
   contentSafetyEnabled: boolean;
   overwriteLocalUnavailableState: boolean;
   planFilter: Sub2ApiPlanFilter;
+  intervalMinutes: number;
   createdAt?: string;
   updatedAt?: string;
   lastRunAt?: string;
@@ -3873,12 +3872,13 @@ async function listSub2ApiCurrentAccessTokenSourceIds(
 }
 
 function normalizeSub2ApiPlanFilter(value?: string | null): Sub2ApiPlanFilter {
-  return value === "free" ||
+  return value === "all" ||
+    value === "free" ||
     value === "plus" ||
     value === "pro" ||
     value === "non_free"
     ? value
-    : "all";
+    : "non_free";
 }
 
 function asAutoSub2ApiSyncMetadata(
@@ -3918,6 +3918,7 @@ function normalizeSub2ApiSyncTask(value: unknown): Sub2ApiAutoSyncTask | null {
     contentSafetyEnabled: raw.contentSafetyEnabled !== false,
     overwriteLocalUnavailableState:
       raw.overwriteLocalUnavailableState !== false,
+    intervalMinutes: normalizeSub2ApiSyncIntervalMinutes(raw.intervalMinutes),
     planFilter: normalizeSub2ApiPlanFilter(
       typeof raw.planFilter === "string" ? raw.planFilter : null
     ),
@@ -3991,6 +3992,7 @@ async function upsertSub2ApiAutoSyncTask(input: {
   contentSafetyEnabled: boolean;
   overwriteLocalUnavailableState?: boolean;
   planFilter?: Sub2ApiPlanFilter | null;
+  intervalMinutes?: number | null;
 }) {
   const now = new Date().toISOString();
   const planFilter = normalizeSub2ApiPlanFilter(input.planFilter);
@@ -4024,6 +4026,9 @@ async function upsertSub2ApiAutoSyncTask(input: {
     overwriteLocalUnavailableState:
       input.overwriteLocalUnavailableState !== false,
     planFilter,
+    intervalMinutes: normalizeSub2ApiSyncIntervalMinutes(
+      input.intervalMinutes
+    ),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
@@ -4127,6 +4132,7 @@ export async function updateSub2ApiAutoSyncTaskOptions(input: {
   contentSafetyEnabled: boolean;
   overwriteLocalUnavailableState: boolean;
   planFilter?: Sub2ApiPlanFilter | null;
+  intervalMinutes?: number | null;
 }) {
   const taskId = input.taskId.trim();
   const tasks = await getSub2ApiAutoSyncTasks();
@@ -4149,6 +4155,9 @@ export async function updateSub2ApiAutoSyncTaskOptions(input: {
       contentSafetyEnabled: input.contentSafetyEnabled,
       overwriteLocalUnavailableState: input.overwriteLocalUnavailableState,
       planFilter: normalizeSub2ApiPlanFilter(input.planFilter),
+      intervalMinutes: normalizeSub2ApiSyncIntervalMinutes(
+        input.intervalMinutes
+      ),
       updatedAt: now,
     };
   });
@@ -4606,19 +4615,22 @@ async function setAutoSub2ApiSyncMetadata(metadata: AutoSub2ApiSyncMetadata) {
     });
 }
 
-function shouldRunAutoSub2ApiSync(
-  metadata: AutoSub2ApiSyncMetadata,
-  intervalMinutes: number,
-  force: boolean
-) {
+function normalizeSub2ApiSyncIntervalMinutes(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.max(1, Math.trunc(parsed))
+    : 720;
+}
+
+function shouldRunSub2ApiTask(task: Sub2ApiAutoSyncTask, force: boolean) {
   if (force) return { run: true, nextRunAt: null as string | null };
-  const lastSuccessAt = metadata.lastSuccessAt
-    ? Date.parse(metadata.lastSuccessAt)
-    : Number.NaN;
-  if (!Number.isFinite(lastSuccessAt)) {
+  const lastRunAt = task.lastRunAt ? Date.parse(task.lastRunAt) : Number.NaN;
+  if (!Number.isFinite(lastRunAt)) {
     return { run: true, nextRunAt: null as string | null };
   }
-  const nextRunAtMs = lastSuccessAt + intervalMinutes * 60_000;
+  const nextRunAtMs =
+    lastRunAt +
+    normalizeSub2ApiSyncIntervalMinutes(task.intervalMinutes) * 60_000;
   if (Date.now() >= nextRunAtMs) {
     return { run: true, nextRunAt: new Date(nextRunAtMs).toISOString() };
   }
@@ -4787,6 +4799,7 @@ export async function runSub2ApiManualSync(input: {
   limit?: number | null;
   createSyncTask?: boolean;
   overwriteLocalUnavailableState?: boolean;
+  intervalMinutes?: number | null;
 }) {
   if (!(await getOptionalSub2ApiPostgresConnectionString())) {
     throw new Error("请先配置 SUB2API_POSTGRES_URL");
@@ -4812,6 +4825,7 @@ export async function runSub2ApiManualSync(input: {
       allowMobileRtImport: input.allowMobileRtImport,
       contentSafetyEnabled: input.contentSafetyEnabled,
       overwriteLocalUnavailableState: input.overwriteLocalUnavailableState,
+      intervalMinutes: input.intervalMinutes,
       planFilter,
     });
     const result = await runSub2ApiAutoSyncTaskConfig(task, limit);
@@ -4850,20 +4864,6 @@ export async function runSub2ApiManualSync(input: {
 export async function runAutoSub2ApiAccessTokenSync(options?: {
   force?: boolean;
 }) {
-  const enabled = await getRuntimeSettingBoolean(
-    "SUB2API_AUTO_SYNC_ENABLED",
-    true
-  );
-  if (!enabled && !options?.force) {
-    return {
-      success: true,
-      jobSkipped: true,
-      reason: "disabled",
-      intervalMinutes: 0,
-      timestamp: new Date().toISOString(),
-    };
-  }
-
   if (!(await getOptionalSub2ApiPostgresConnectionString())) {
     const skippedAt = new Date().toISOString();
     const previousMetadata = await getAutoSub2ApiSyncMetadata();
@@ -4883,38 +4883,7 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
     };
   }
 
-  const intervalMinutes = Math.max(
-    1,
-    Math.trunc(
-      await getRuntimeSettingNumber("SUB2API_AUTO_SYNC_INTERVAL_MINUTES", 720, {
-        positive: true,
-      })
-    )
-  );
   const previousMetadata = await getAutoSub2ApiSyncMetadata();
-  const schedule = shouldRunAutoSub2ApiSync(
-    previousMetadata,
-    intervalMinutes,
-    Boolean(options?.force)
-  );
-  if (!schedule.run) {
-    const metadata = {
-      ...previousMetadata,
-      lastSkippedAt: new Date().toISOString(),
-      lastStatus: "skipped" as const,
-    };
-    await setAutoSub2ApiSyncMetadata(metadata);
-    return {
-      success: true,
-      jobSkipped: true,
-      reason: "interval_not_reached",
-      intervalMinutes,
-      lastSuccessAt: previousMetadata.lastSuccessAt ?? null,
-      nextRunAt: schedule.nextRunAt,
-      timestamp: metadata.lastSkippedAt,
-    };
-  }
-
   const startedAt = new Date().toISOString();
   await setAutoSub2ApiSyncMetadata({
     ...previousMetadata,
@@ -4927,13 +4896,16 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
       getSub2ApiAutoSyncTasks(),
     ]);
     const enabledTasks = configuredTasks.filter((task) => task.enabled);
+    const runnableTasks = enabledTasks.filter(
+      (task) => shouldRunSub2ApiTask(task, Boolean(options?.force)).run
+    );
     const aggregate = createSub2ApiSyncAggregate();
     const taskResults: NonNullable<
       NonNullable<AutoSub2ApiSyncMetadata["lastResult"]>["tasks"]
     > = [];
 
-    if (enabledTasks.length) {
-      for (const task of enabledTasks) {
+    if (runnableTasks.length) {
+      for (const task of runnableTasks) {
         const result = await runSub2ApiAutoSyncTaskConfig(task, limit);
         aggregate.sourceCount += result.sourceCount;
         aggregate.totalSourceCount += result.totalSourceCount;
@@ -4965,41 +4937,29 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
         );
       }
     } else {
-      const [sourceGroupId, syncMode, allowMobileRtImport, planFilter] =
-        await Promise.all([
-          getRuntimeSettingString("SUB2API_AUTO_SYNC_SOURCE_GROUP_ID"),
-          getRuntimeSettingSelect(
-            "SUB2API_AUTO_SYNC_MODE",
-            ["web", "responses", "both"] as const,
-            "responses"
-          ),
-          getRuntimeSettingBoolean("SUB2API_AUTO_SYNC_ALLOW_MOBILE_RT", false),
-          getRuntimeSettingSelect(
-            "SUB2API_AUTO_SYNC_PLAN_FILTER",
-            ["all", "free", "plus", "pro", "non_free"] as const,
-            "non_free"
-          ),
-        ]);
-      const effectiveSyncMode = allowMobileRtImport ? syncMode : "responses";
-      const [webGroupId, responsesGroupId] = await Promise.all([
-        effectiveSyncMode === "web" || effectiveSyncMode === "both"
-          ? getDefaultGroupIdForBackend("web")
-          : Promise.resolve(null),
-        effectiveSyncMode === "responses" || effectiveSyncMode === "both"
-          ? getDefaultGroupIdForBackend("responses")
-          : Promise.resolve(null),
-      ]);
-      const result = await runSub2ApiSyncConfig({
-        webGroupId,
-        responsesGroupId,
-        sourceGroupId,
-        syncMode: effectiveSyncMode,
-        allowMobileRtImport,
-        contentSafetyEnabled: true,
-        planFilter,
-        limit,
-      });
-      Object.assign(aggregate, result);
+      const finishedAt = new Date().toISOString();
+      const metadata: AutoSub2ApiSyncMetadata = {
+        ...previousMetadata,
+        lastStartedAt: startedAt,
+        lastFinishedAt: finishedAt,
+        lastSkippedAt: finishedAt,
+        lastStatus: "skipped",
+      };
+      await setAutoSub2ApiSyncMetadata(metadata);
+      return {
+        success: true,
+        jobSkipped: true,
+        reason: enabledTasks.length
+          ? "task_interval_not_reached"
+          : "no_enabled_tasks",
+        taskCount: enabledTasks.length,
+        nextRunAt:
+          enabledTasks
+            .map((task) => shouldRunSub2ApiTask(task, false).nextRunAt)
+            .filter((value): value is string => Boolean(value))
+            .sort()[0] ?? null,
+        timestamp: finishedAt,
+      };
     }
 
     const finishedAt = new Date().toISOString();
@@ -5018,8 +4978,8 @@ export async function runAutoSub2ApiAccessTokenSync(options?: {
     return {
       success: true,
       jobSkipped: false,
-      intervalMinutes,
       taskCount: enabledTasks.length,
+      ranTaskCount: runnableTasks.length,
       ...aggregate,
       tasks: taskResults,
       timestamp: finishedAt,

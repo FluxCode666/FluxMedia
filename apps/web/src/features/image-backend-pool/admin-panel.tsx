@@ -189,6 +189,7 @@ type Sub2ApiAutoSyncTask = {
   contentSafetyEnabled: boolean;
   overwriteLocalUnavailableState: boolean;
   planFilter: Sub2ApiPlanFilter;
+  intervalMinutes: number;
   createdAt?: string;
   updatedAt?: string;
   lastRunAt?: string;
@@ -730,6 +731,7 @@ export function ImageBackendPoolAdminPanel({
     createSyncTask: true,
     contentSafetyEnabled: true,
     overwriteLocalUnavailableState: true,
+    intervalMinutes: 720,
     limit: 100,
   });
   const [editingSyncTask, setEditingSyncTask] =
@@ -744,6 +746,7 @@ export function ImageBackendPoolAdminPanel({
     planFilter: "non_free" as Sub2ApiPlanFilter,
     contentSafetyEnabled: true,
     overwriteLocalUnavailableState: true,
+    intervalMinutes: 720,
   });
   const [runningSub2ApiSyncTaskId, setRunningSub2ApiSyncTaskId] = useState<
     string | null
@@ -984,6 +987,7 @@ export function ImageBackendPoolAdminPanel({
       planFilter: task.planFilter,
       contentSafetyEnabled: task.contentSafetyEnabled,
       overwriteLocalUnavailableState: task.overwriteLocalUnavailableState,
+      intervalMinutes: task.intervalMinutes || 720,
     });
   };
 
@@ -1488,6 +1492,7 @@ export function ImageBackendPoolAdminPanel({
         contentSafetyEnabled: importForm.contentSafetyEnabled,
         overwriteLocalUnavailableState:
           importForm.overwriteLocalUnavailableState,
+        intervalMinutes: importForm.intervalMinutes,
         limit: importForm.limit,
       });
 
@@ -3434,24 +3439,46 @@ export function ImageBackendPoolAdminPanel({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label>每批扫描数量</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={importForm.limit}
-                  disabled={isSub2ApiSyncUnavailable}
-                  onChange={(event) =>
-                    setImportForm((current) => ({
-                      ...current,
-                      limit: Number(event.target.value),
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  这是服务端分页扫描批大小，不是同步总数上限；手动同步和定时任务都会扫描完整来源范围。
-                </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>每批扫描数量</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={importForm.limit}
+                    disabled={isSub2ApiSyncUnavailable}
+                    onChange={(event) =>
+                      setImportForm((current) => ({
+                        ...current,
+                        limit: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    服务端分页批大小，不是同步总数上限。
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label>自动同步间隔（分钟）</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={importForm.intervalMinutes}
+                    disabled={
+                      isSub2ApiSyncUnavailable || !importForm.createSyncTask
+                    }
+                    onChange={(event) =>
+                      setImportForm((current) => ({
+                        ...current,
+                        intervalMinutes: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    仅创建任务时保存；内置调度器到点后按任务间隔判断是否运行。
+                  </p>
+                </div>
               </div>
               <div className="space-y-3">
                 <Button
@@ -3555,8 +3582,8 @@ export function ImageBackendPoolAdminPanel({
                               覆盖异常{" "}
                               {task.overwriteLocalUnavailableState
                                 ? "开启"
-                                : "关闭"} ·
-                              上次运行{" "}
+                                : "关闭"} · 间隔{" "}
+                              {task.intervalMinutes || 720} 分钟 · 上次运行{" "}
                               {formatOptionalDate(task.lastRunAt || null, timeZone)}
                             </p>
                             {task.lastResult && (
@@ -4136,6 +4163,23 @@ export function ImageBackendPoolAdminPanel({
                     </SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>自动同步间隔（分钟）</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={syncTaskForm.intervalMinutes}
+                  onChange={(event) =>
+                    setSyncTaskForm((current) => ({
+                      ...current,
+                      intervalMinutes: Number(event.target.value),
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  内置调度器会定期检查任务；每个任务只在距离上次运行达到该间隔后执行。
+                </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <Select

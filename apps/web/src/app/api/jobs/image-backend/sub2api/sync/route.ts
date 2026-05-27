@@ -48,7 +48,7 @@ export const GET = withApiLogging(async () =>
     method: "POST",
     description: "Sync Sub2API current access tokens into the image backend pool",
     schedule:
-      "Call from crontab regularly; actual interval is controlled by SUB2API_AUTO_SYNC_INTERVAL_MINUTES.",
+      "Call periodically; configured Sub2API auto-sync tasks decide their own run intervals.",
     authentication: "Bearer token required (process env CRON_SECRET)",
   })
 );

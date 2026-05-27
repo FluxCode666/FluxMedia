@@ -195,6 +195,7 @@ export const updateSub2ApiAutoSyncTaskOptionsAction =
         contentSafetyEnabled: z.boolean().default(true),
         overwriteLocalUnavailableState: z.boolean().default(true),
         planFilter: sub2ApiPlanFilterSchema.default("non_free"),
+        intervalMinutes: z.coerce.number().int().min(1).default(720),
       })
     )
     .action(async ({ parsedInput }) => {
@@ -476,6 +477,7 @@ export const runSub2ApiManualSyncAction =
         planFilter: sub2ApiPlanFilterSchema.default("non_free"),
         createSyncTask: z.boolean().default(true),
         overwriteLocalUnavailableState: z.boolean().default(true),
+        intervalMinutes: z.coerce.number().int().min(1).default(720),
       })
     )
     .action(async ({ parsedInput }) => {
@@ -494,6 +496,7 @@ export const runSub2ApiManualSyncAction =
         createSyncTask: parsedInput.createSyncTask,
         overwriteLocalUnavailableState:
           parsedInput.overwriteLocalUnavailableState,
+        intervalMinutes: parsedInput.intervalMinutes,
       });
       return result;
     });
