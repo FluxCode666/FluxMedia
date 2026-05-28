@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@repo/database";
@@ -52,6 +52,12 @@ const announcementOrder = [
   desc(announcement.publishedAt),
   desc(announcement.createdAt),
 ];
+
+const unreadAnnouncementFilter = () =>
+  or(
+    isNull(announcementRead.id),
+    lt(announcementRead.readAt, announcement.updatedAt)
+  );
 
 function parseOptionalDate(value: string | null | undefined) {
   if (!value) {
@@ -120,6 +126,7 @@ export async function listActiveAnnouncementsForUser(userId: string) {
       publishedAt: announcement.publishedAt,
       expiresAt: announcement.expiresAt,
       createdAt: announcement.createdAt,
+      updatedAt: announcement.updatedAt,
       readAt: announcementRead.readAt,
     })
     .from(announcement)
@@ -145,7 +152,7 @@ export async function countUnreadAnnouncementsForUser(userId: string) {
         eq(announcementRead.userId, userId)
       )
     )
-    .where(and(activeAnnouncementFilter(), isNull(announcementRead.id)));
+    .where(and(activeAnnouncementFilter(), unreadAnnouncementFilter()));
 
   return row?.count ?? 0;
 }
@@ -168,7 +175,10 @@ export async function markAnnouncementIdsReadForUser(
         userId,
       }))
     )
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: [announcementRead.userId, announcementRead.announcementId],
+      set: { readAt: new Date() },
+    });
 
   return uniqueIds.length;
 }
@@ -193,7 +203,7 @@ export const markAllAnnouncementsReadAction = withAnnouncementAction(
         eq(announcementRead.userId, ctx.userId)
       )
     )
-    .where(and(activeAnnouncementFilter(), isNull(announcementRead.id)));
+    .where(and(activeAnnouncementFilter(), unreadAnnouncementFilter()));
 
   await markAnnouncementIdsReadForUser(
     ctx.userId,
@@ -217,14 +227,7 @@ export const markAnnouncementReadAction = withAnnouncementAction("markRead")
       throw new Error("公告不存在或已过期");
     }
 
-    await db
-      .insert(announcementRead)
-      .values({
-        id: crypto.randomUUID(),
-        announcementId: target.id,
-        userId: ctx.userId,
-      })
-      .onConflictDoNothing();
+    await markAnnouncementIdsReadForUser(ctx.userId, [target.id]);
 
     revalidatePath("/dashboard/announcements");
     return { message: "已标记为已读" };

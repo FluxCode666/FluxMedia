@@ -84,7 +84,7 @@ export default async function DashboardAnnouncementsPage() {
 
   const announcements = await listActiveAnnouncementsForUser(session.user.id);
   const unreadIds = announcements
-    .filter((item) => !item.readAt)
+    .filter((item) => !item.readAt || item.readAt < item.updatedAt)
     .map((item) => item.id);
 
   if (unreadIds.length > 0) {
