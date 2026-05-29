@@ -1080,6 +1080,7 @@ async function resolveRequestedGroup(
       .where(eq(externalApiKey.id, options.apiKeyId))
       .limit(1);
     if (key?.groupId) return { groupId: key.groupId, explicit: true };
+    return { groupId: await getDefaultGroupId(), explicit: false };
   }
 
   const [preference] = await db
