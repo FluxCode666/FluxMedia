@@ -46,6 +46,7 @@ export async function authenticateExternalApiRequest(request: Request) {
       moderationBlockRiskLevel: externalApiKey.moderationBlockRiskLevel,
       creditLimit: externalApiKey.creditLimit,
       creditsUsed: externalApiKey.creditsUsed,
+      relayOnly: externalApiKey.relayOnly,
       userBanned: user.banned,
     })
     .from(externalApiKey)
@@ -78,5 +79,6 @@ export async function authenticateExternalApiRequest(request: Request) {
     ) satisfies ModerationBlockRiskLevel,
     creditLimit: apiKey.creditLimit ?? null,
     creditsUsed: Number(apiKey.creditsUsed || 0),
+    relayOnly: apiKey.relayOnly === true,
   };
 }

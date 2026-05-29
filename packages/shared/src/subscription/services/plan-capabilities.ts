@@ -54,6 +54,7 @@ export const PLAN_CAPABILITY_KEYS = [
   "externalApi.responses",
   "externalApi.agent",
   "externalApi.streaming",
+  "externalApi.relay",
   "moderation.blocking",
   "moderation.onlyFailureSettlement",
 ] as const;
@@ -124,6 +125,7 @@ export const DEFAULT_PLAN_CAPABILITY_MATRIX: PlanCapabilityMatrix = {
     "externalApi.responses": "pro",
     "externalApi.agent": "ultra",
     "externalApi.streaming": "starter",
+    "externalApi.relay": "pro",
     "moderation.blocking": "free",
     "moderation.onlyFailureSettlement": "ultra",
   },

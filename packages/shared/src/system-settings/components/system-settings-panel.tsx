@@ -172,6 +172,11 @@ const FEATURE_ROWS = [
     description: "允许 stream=true",
   },
   {
+    key: "externalApi.relay",
+    label: "纯中转 Key",
+    description: "允许将 API Key 设为纯中转（不记录/不存储），默认要求 Pro+",
+  },
+  {
     key: "moderation.blocking",
     label: "审核拦截",
     description: "本站内容审核是否对该套餐生效",

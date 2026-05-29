@@ -57,6 +57,17 @@ async function normalizeSelectableGenerationGroupId(
   return groupId;
 }
 
+async function normalizeRelayOnly(
+  relayOnly: boolean | undefined,
+  plan: Awaited<ReturnType<typeof getUserPlan>>["plan"]
+) {
+  if (!relayOnly) return false;
+  if (!(await canUsePlanCapability(plan, "externalApi.relay"))) {
+    throw new Error("纯中转模式需要 Pro 及以上套餐");
+  }
+  return true;
+}
+
 export const getExternalApiKeys = withExternalApiKeyAction("list").action(
   async ({ ctx }) => {
     const plan = await getUserPlan(ctx.userId);
@@ -70,6 +81,7 @@ export const getExternalApiKeys = withExternalApiKeyAction("list").action(
         generationGroupId: externalApiKey.generationGroupId,
         creditLimit: externalApiKey.creditLimit,
         creditsUsed: externalApiKey.creditsUsed,
+        relayOnly: externalApiKey.relayOnly,
         lastUsedAt: externalApiKey.lastUsedAt,
         isActive: externalApiKey.isActive,
         createdAt: externalApiKey.createdAt,
@@ -82,7 +94,11 @@ export const getExternalApiKeys = withExternalApiKeyAction("list").action(
       userSelectableOnly: true,
       plan: plan.plan,
     });
-    return { keys, groups };
+    const canUseRelay = await canUsePlanCapability(
+      plan.plan,
+      "externalApi.relay"
+    );
+    return { keys, groups, canUseRelay };
   }
 );
 
@@ -93,6 +109,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
       moderationBlockRiskLevel: z.enum(["low", "medium", "high"]).optional(),
       generationGroupId: z.string().trim().optional().nullable(),
       creditLimit: z.number().min(0).nullable().optional(),
+      relayOnly: z.boolean().optional(),
     })
   )
   .action(async ({ parsedInput, ctx }) => {
@@ -104,6 +121,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
       parsedInput.generationGroupId,
       plan
     );
+    const relayOnly = await normalizeRelayOnly(parsedInput.relayOnly, plan);
 
     await db.insert(externalApiKey).values({
       id: nanoid(),
@@ -118,6 +136,7 @@ export const createExternalApiKey = withExternalApiKeyAction("create")
       ),
       generationGroupId,
       creditLimit: normalizeExternalApiKeyCreditLimit(parsedInput.creditLimit),
+      relayOnly,
     });
 
     return { apiKey };
@@ -284,4 +303,32 @@ export const updateExternalApiKeyQuota = withExternalApiKeyAction("updateQuota")
       );
 
     return { success: true, creditLimit };
+  });
+
+export const updateExternalApiKeyRelay = withExternalApiKeyAction("updateRelay")
+  .schema(
+    z.object({
+      id: z.string().min(1),
+      relayOnly: z.boolean(),
+    })
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    const plan = await ensureExternalApiAllowed(ctx.userId);
+    // 仅 Pro+ 可开启纯中转；关闭（false）任何套餐都允许。
+    const relayOnly = await normalizeRelayOnly(parsedInput.relayOnly, plan);
+
+    await db
+      .update(externalApiKey)
+      .set({
+        relayOnly,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(externalApiKey.id, parsedInput.id),
+          eq(externalApiKey.userId, ctx.userId)
+        )
+      );
+
+    return { success: true, relayOnly };
   });

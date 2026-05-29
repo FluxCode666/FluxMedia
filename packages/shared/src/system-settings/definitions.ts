@@ -193,6 +193,7 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "externalApi.responses": "pro",
     "externalApi.agent": "ultra",
     "externalApi.streaming": "starter",
+    "externalApi.relay": "pro",
     "moderation.blocking": "free",
     "moderation.onlyFailureSettlement": "ultra",
   },
