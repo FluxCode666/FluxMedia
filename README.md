@@ -303,6 +303,10 @@ pnpm db:studio
 - **Agent 批量图片工具**：评估 `generate_image_batch` 类工具接入，同时解决粘性会话、计费、任务卡展示和多图引用的一致性。
 - **PSD 生成接口**：预留 PSD 生成/导出接口适配，方便后续对接分层设计图、海报编辑和素材交付场景。
 
+## 特别致谢
+
+- [LINUX DO](https://linux.do/)
+
 ## License
 
 AGPL-3.0-only
