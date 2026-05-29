@@ -461,20 +461,32 @@ export const creditsBatch = pgTable(
  * @field metadata - 扩展元数据（JSON）
  * @field createdAt - 创建时间
  */
-export const creditsTransaction = pgTable("credits_transaction", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  type: creditsTransactionTypeEnum("type").notNull(),
-  amount: numeric("amount", { precision: 18, scale: 2, mode: "number" })
-    .notNull(),
-  debitAccount: text("debit_account").notNull(),
-  creditAccount: text("credit_account").notNull(),
-  description: text("description"),
-  metadata: json("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const creditsTransaction = pgTable(
+  "credits_transaction",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: creditsTransactionTypeEnum("type").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2, mode: "number" })
+      .notNull(),
+    debitAccount: text("debit_account").notNull(),
+    creditAccount: text("credit_account").notNull(),
+    description: text("description"),
+    // 来源引用（幂等键）：同一 (type, source_ref) 只记一次。
+    // 用于消费路径的请求级幂等（重试/并发重复扣费防护），对齐发放/退款的幂等设计。
+    sourceRef: text("source_ref"),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    // 偏唯一索引：source_ref 为空的交易（绝大多数历史/无幂等需求的扣费）不受约束。
+    uniqueIndex("credits_transaction_type_source_ref_unique")
+      .on(table.type, table.sourceRef)
+      .where(sql`${table.sourceRef} is not null`),
+  ]
+);
 
 // ============================================
 // 系统设置表 (System Settings)
@@ -941,6 +953,9 @@ export const externalApiKey = pgTable("external_api_key", {
     .default(0),
   lastUsedAt: timestamp("last_used_at"),
   isActive: boolean("is_active").notNull().default(true),
+  // 纯中转模式：开启后该 key 的请求不写生成历史、不上传对象存储、站内不可查看，
+  // 仅保留扣费/审核/额度计数。用于保护用户隐私、不额外占用服务器存储。
+  relayOnly: boolean("relay_only").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

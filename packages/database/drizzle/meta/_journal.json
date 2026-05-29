@@ -183,6 +183,20 @@
       "when": 1780000000000,
       "tag": "0025_credits_batch_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0026_external_api_key_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1780400060000,
+      "tag": "0027_credits_transaction_idempotency",
+      "breakpoints": true
     }
   ]
 }
