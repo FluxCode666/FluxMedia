@@ -11,7 +11,10 @@
 - [x] **分支保护已启用**（2026-05-30，经 gh API）：`dev` 与 `main` 均要求 5 个 status check 通过（`Docs mirror (CLAUDE == AGENTS)`/`Lint & format (changed files)`/`Typecheck`/`Unit tests`/`Build web`），strict（须先与目标分支同步）、禁 force-push/删除、要求会话解决。`enforce_admins=false`（管理员可应急直推）。
 - [x] **`main` 分支已创建**（= 当时绿色的 dev HEAD `bc1b139`）。默认分支仍为 `dev`；如需以 main 为默认请在仓库设置切换。
 - [x] **Dependabot 首批 11 个 PR（#3–#13）已处理**（2026-05-30）：在 `.github/dependabot.yml` 增加忽略 semver-major 规则（npm + github-actions）后，Dependabot **自动关闭**了全部 10 个大版本 PR（#3–#7 Action 大版本、#9–#13 npm 大版本）；#8（npm minor/patch 分组，42 项）非大版本未被自动关，已手动关闭——因其破坏 `Build web`（分组内含破坏性变更）。当前 0 个 open PR。
-- [ ] **#8 残留问题**：minor/patch 分组（非大版本）在 CI 破坏 `Build web`，下一轮 Dependabot 仍会重开。需 root-cause 是 42 项里哪个依赖破坏 `next build`，再决定单独忽略该依赖或修复。可临时把 npm 分组拆细（去掉 group）以隔离定位。
+- [x] **#8 构建破坏点已定位并预修复**（2026-05-30，workflow 调查 + 对抗式复核）：元凶是 `better-auth ^1.4.17→^1.6.12`——它放宽 kysely peer 至 `^0.28.5 || ^0.29.0`，使 pnpm 把 kysely 浮到 0.29.2；而 kysely 0.29 把迁移导出迁到 `kysely/migration` 子路径，随 better-auth 1.6.12 打包的 `@better-auth/kysely-adapter` 编译产物仍从 kysely 根导入 → Turbopack 12 个 `Export ... doesn't exist` 编译错误。`drizzle-orm 0.45.2` 仅共谋非元凶。
+  - **修复**：根 `package.json` 加 pnpm override `kysely: 0.28.17`（commit de3d6ca，已在 dev）。满足 adapter 1.6.12 与 drizzle 0.45.2 的 peer，且根入口仍导出迁移符号。当前 dev 仅 kysely 0.28.10→0.28.17；build 编译成功、typecheck+171 测试全绿。
+  - [ ] **待 Dependabot 重开 minor/patch 分组**（含 better-auth 1.6.12）后即可绿灯合并那批更新；可在仓库 Insights→Dependency graph→Dependabot 点 "Check for updates" 立即触发，无需等周期。
+  - [ ] **后续清理**：待上游 `@better-auth/kysely-adapter` 改从 `kysely/migration` 导入（真正兼容 0.29）后，移除该 override。
 - [ ] **（可选）docker-build 设为必需**：当前 `docker-build` 在 PR 上运行但未列为 required（保 PR 迭代速度）。如需强制可加入 required checks。
 - [ ] **（可选）全仓格式化**：历史代码未全量 biome 格式化，故 `lint` 门禁用 `biome lint`（仅 lint、不查格式）。若做一次性 `biome format --write` 全仓重排（大 diff），可将门禁升级为含格式的 `biome ci`。
 - [ ] **（可选）修复存量 lint**：`biome lint` 全仓有 38 errors / 299 warnings 历史债（不阻塞改动文件门禁），可逐步清理；其中 `system-settings-panel.tsx` 有 3 处 `noLabelWithoutControl`（a11y）。
