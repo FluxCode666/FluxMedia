@@ -1,6 +1,60 @@
 import type { StorageProvider } from "../types";
 import { getRuntimeSettingString } from "../../system-settings";
 
+/**
+ * 路径模块的最小接口
+ *
+ * 仅声明 resolveSafePath 所需的方法，便于在 DB-free 单测中直接注入
+ * node:path，避免依赖运行时设置（getBaseDir → getRuntimeSettingString → DB）。
+ */
+type PathLike = Pick<
+  typeof import("node:path"),
+  "join" | "resolve" | "sep"
+>;
+
+/**
+ * 解析并校验本地存储的最终文件路径（纯函数）
+ *
+ * baseDir 由调用方注入，因此不触达运行时设置，可独立单测。这是 local 存储
+ * deleteObject/getObject/putObject 的唯一目录穿越防线：
+ * - 先做 substring 快检拒绝明显的 ".." 穿越；
+ * - 再用 path.resolve + startsWith(base + sep) 做权威校验。
+ * WHY 必须带 path.sep：否则 base="/data/gen" 会错误接受 "/data/gen-evil/x"
+ * 这类前缀混淆路径。
+ *
+ * @param path - 注入的 path 模块（运行时为 node:path）
+ * @param baseDir - 存储根目录
+ * @param bucket - 存储桶名称
+ * @param key - 文件键名
+ * @returns join(baseDir, bucket, key) 得到的安全路径
+ * @throws 当 bucket/key 含目录穿越或解析后逃逸出 base 时
+ */
+export function resolveSafePath(
+  path: PathLike,
+  baseDir: string,
+  bucket: string,
+  key: string
+): string {
+  // Defense-in-depth: fast substring check rejects obvious traversal attempts early,
+  // while the path.resolve + startsWith check below is the authoritative guard.
+  if (key.includes("..") || bucket.includes("..")) {
+    throw new Error("Invalid path: directory traversal not allowed");
+  }
+  const filePath = path.join(baseDir, bucket, key);
+
+  // 防止路径遍历攻击：确保解析后的路径在允许的目录范围内
+  const resolvedPath = path.resolve(filePath);
+  const resolvedBase = path.resolve(baseDir, bucket);
+  if (
+    !resolvedPath.startsWith(resolvedBase + path.sep) &&
+    resolvedPath !== resolvedBase
+  ) {
+    throw new Error("Invalid path: directory traversal not allowed");
+  }
+
+  return filePath;
+}
+
 async function getBaseDir() {
   const configured =
     (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
@@ -21,28 +75,20 @@ async function getPath() {
 }
 
 async function safePath(bucket: string, key: string): Promise<string> {
-  // Defense-in-depth: fast substring check rejects obvious traversal attempts early,
-  // while the path.resolve + startsWith check below is the authoritative guard.
-  if (key.includes("..") || bucket.includes("..")) {
-    throw new Error("Invalid path: directory traversal not allowed");
-  }
   const path = await getPath();
   const baseDir = await getBaseDir();
-  const filePath = path.join(baseDir, bucket, key);
-
-  // 防止路径遍历攻击：确保解析后的路径在允许的目录范围内
-  const resolvedPath = path.resolve(filePath);
-  const resolvedBase = path.resolve(baseDir, bucket);
-  if (
-    !resolvedPath.startsWith(resolvedBase + path.sep) &&
-    resolvedPath !== resolvedBase
-  ) {
-    throw new Error("Invalid path: directory traversal not allowed");
-  }
-
-  return filePath;
+  return resolveSafePath(path, baseDir, bucket, key);
 }
 
+/**
+ * 本地存储提供者
+ *
+ * 注意（语义差异，调用方须知）：本地后端没有预签名能力，getSignedUrl 与
+ * getSignedUploadUrl 都仅返回普通 GET 路由 `/api/storage/{bucket}/{key}`，
+ * 忽略 contentType/expiresIn，且 getSignedUploadUrl 返回的并非可直接 PUT 的
+ * 上传 URL（该路由只实现 GET）。S3 后端返回真正的预签名 PUT/GET。
+ * 因此依赖预签名直传的调用方在 local 后端下需要走专门的本地上传端点。
+ */
 export const localProvider: StorageProvider = {
   async getSignedUrl(key: string, bucket: string): Promise<string> {
     return `/api/storage/${bucket}/${key}`;

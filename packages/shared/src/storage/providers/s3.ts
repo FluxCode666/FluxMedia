@@ -24,6 +24,13 @@ import { getRuntimeSettingString } from "../../system-settings";
 // S3 客户端单例
 // ============================================
 
+/**
+ * S3 客户端进程级单例
+ *
+ * 注意：一经创建即永不失效，而端点/凭证/区域均来自运行时设置
+ * （getRuntimeSettingString，可经管理后台修改）。轮换密钥或切换端点后，
+ * 运行进程仍沿用旧客户端——须重启进程方可生效。
+ */
 let s3Client: S3Client | null = null;
 
 /**

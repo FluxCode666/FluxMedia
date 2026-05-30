@@ -15,6 +15,7 @@ import { getRuntimeSettingString } from "../system-settings";
 
 import { getStorageProvider } from "./providers";
 import { ALLOWED_IMAGE_TYPES, type AllowedImageType } from "./types";
+import { isBucketAllowed, keyBelongsToUser } from "./utils";
 
 const withStorageAction = (name: string) =>
   protectedAction.metadata({ action: `storage.${name}` });
@@ -79,14 +80,14 @@ export const getSignedUploadUrlAction = withStorageAction("getSignedUploadUrl")
 
     // 安全检查：验证存储桶在白名单中
     const allowedBuckets = await getAllowedBuckets();
-    if (!allowedBuckets.includes(bucket)) {
+    if (!isBucketAllowed(bucket, allowedBuckets)) {
       throw new Error("不允许访问该存储桶");
     }
 
     // 安全检查：确保用户只能上传自己的文件
-    // 文件键名必须包含用户 ID
-    if (!key.includes(userId)) {
-      throw new Error("文件路径无效：必须包含用户 ID");
+    // 文件键名必须锚定在用户 ID 边界上（前缀匹配，而非子串）
+    if (!keyBelongsToUser(key, userId)) {
+      throw new Error("文件路径无效：必须以用户 ID 为前缀");
     }
 
     const { plan } = await getUserPlan(userId);
@@ -132,12 +133,12 @@ export const deleteFileAction = withStorageAction("deleteFile")
 
     // 安全检查：验证存储桶在白名单中
     const allowedBuckets = await getAllowedBuckets();
-    if (!allowedBuckets.includes(bucket)) {
+    if (!isBucketAllowed(bucket, allowedBuckets)) {
       throw new Error("不允许访问该存储桶");
     }
 
-    // 安全检查：确保用户只能删除自己的文件
-    if (!key.includes(userId)) {
+    // 安全检查：确保用户只能删除自己的文件（前缀匹配，而非子串）
+    if (!keyBelongsToUser(key, userId)) {
       throw new Error("无权删除此文件");
     }
 

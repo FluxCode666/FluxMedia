@@ -77,3 +77,48 @@ export function generateAvatarKey(userId: string, file: File): string {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
   return `${userId}-${timestamp}.${extension}`;
 }
+
+// ============================================
+// 归属与存储桶校验工具
+// ============================================
+
+/**
+ * 判断文件键名是否归属于指定用户
+ *
+ * 归属判定锚定在 userId 边界上，而非旧实现的 key.includes(userId) 子串匹配。
+ * WHY：子串匹配过弱——当一个 userId 恰为另一 userId 的子串，或目标 userId
+ * 出现在 key 的任意位置时，旧校验会被绕过，构成潜在越权（IDOR）。本仓的
+ * 存储键命名为 `${userId}-${timestamp}.ext`（见 generateAvatarKey）或以
+ * `${userId}/` 作前缀，因此只接受以 `${userId}/`、`${userId}-` 开头或与
+ * `${userId}` 完全相等的键，杜绝子串混淆。
+ *
+ * @param key - 文件键名
+ * @param userId - 当前用户 ID
+ * @returns 键名是否归属该用户
+ */
+export function keyBelongsToUser(key: string, userId: string): boolean {
+  if (!userId) {
+    return false;
+  }
+  return (
+    key === userId ||
+    key.startsWith(`${userId}/`) ||
+    key.startsWith(`${userId}-`)
+  );
+}
+
+/**
+ * 判断存储桶是否在白名单内
+ *
+ * 安全措施：只允许访问预定义的存储桶，避免跨桶越权。
+ *
+ * @param bucket - 待校验的存储桶名称
+ * @param allowedBuckets - 允许的存储桶列表
+ * @returns 是否允许访问该存储桶
+ */
+export function isBucketAllowed(
+  bucket: string,
+  allowedBuckets: readonly string[]
+): boolean {
+  return allowedBuckets.includes(bucket);
+}
