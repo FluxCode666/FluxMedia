@@ -1,11 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
+  getImageBase64,
   toExternalGenerationUsage,
   toOpenAIErrorPayload,
 } from "./images";
+
+const storageMocks = vi.hoisted(() => {
+  const getObjectMock = vi.fn();
+  const getStorageProviderMock = vi.fn(async () => ({
+    getObject: getObjectMock,
+  }));
+
+  return { getObjectMock, getStorageProviderMock };
+});
+
+vi.mock("@repo/shared/storage/providers", () => ({
+  getStorageProvider: storageMocks.getStorageProviderMock,
+}));
 
 async function readFirstChunk(response: Response) {
   const reader = response.body?.getReader();
@@ -14,6 +28,12 @@ async function readFirstChunk(response: Response) {
   await reader.cancel();
   return new TextDecoder().decode(value);
 }
+
+beforeEach(() => {
+  storageMocks.getObjectMock.mockReset();
+  storageMocks.getStorageProviderMock.mockClear();
+  vi.unstubAllGlobals();
+});
 
 describe("external image stream response", () => {
   it("sets no-buffer headers for proxied SSE", async () => {
@@ -83,6 +103,56 @@ describe("external generation usage payload", () => {
       generationIds: ["gen_1", "gen_2"],
       credits_consumed: 3.28,
     });
+  });
+});
+
+describe("external image base64 loading", () => {
+  it("reads local storage URLs directly instead of fetching the public route", async () => {
+    storageMocks.getObjectMock.mockResolvedValue(Buffer.from("image-bytes"));
+    const request = new Request("https://example.com/v1/images/generations", {
+      headers: { Authorization: "Bearer external-key" },
+    });
+
+    await expect(
+      getImageBase64(request, "/api/storage/generations/user/out.png")
+    ).resolves.toBe(Buffer.from("image-bytes").toString("base64"));
+
+    expect(storageMocks.getStorageProviderMock).toHaveBeenCalledTimes(1);
+    expect(storageMocks.getObjectMock).toHaveBeenCalledWith(
+      "user/out.png",
+      "generations"
+    );
+  });
+
+  it("reads same-origin absolute storage URLs directly", async () => {
+    storageMocks.getObjectMock.mockResolvedValue(Buffer.from("absolute-image"));
+    const request = new Request("https://example.com/v1/images/generations");
+
+    await expect(
+      getImageBase64(
+        request,
+        "https://example.com/api/storage/generations/user/absolute.jpg"
+      )
+    ).resolves.toBe(Buffer.from("absolute-image").toString("base64"));
+
+    expect(storageMocks.getObjectMock).toHaveBeenCalledWith(
+      "user/absolute.jpg",
+      "generations"
+    );
+  });
+
+  it("does not forward external API authorization when fetching remote image URLs", async () => {
+    const fetchMock = vi.fn(async () => new Response("remote-image"));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://example.com/v1/images/generations", {
+      headers: { Authorization: "Bearer external-key" },
+    });
+
+    await expect(
+      getImageBase64(request, "https://cdn.example.test/out.png")
+    ).resolves.toBe(Buffer.from("remote-image").toString("base64"));
+
+    expect(fetchMock).toHaveBeenCalledWith("https://cdn.example.test/out.png");
   });
 });
 

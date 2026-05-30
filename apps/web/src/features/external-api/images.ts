@@ -22,6 +22,11 @@ type JsonKeepAliveOptions = {
   status?: number;
 };
 
+type StorageImageReference = {
+  bucket: string;
+  key: string;
+};
+
 export type ExternalApiErrorOptions = {
   type?: string;
   code?: string | null;
@@ -42,6 +47,44 @@ function getRequestBaseUrl(request: Request) {
   );
 }
 
+function parseLocalStorageImageUrl(
+  request: Request,
+  imageUrl?: string
+): StorageImageReference | null {
+  if (!imageUrl) return null;
+
+  try {
+    const baseUrl = getRequestBaseUrl(request);
+    const parsed = new URL(imageUrl, baseUrl);
+    const isRelativeStorageUrl = imageUrl.startsWith("/api/storage/");
+    const isOwnStorageUrl =
+      parsed.origin === new URL(baseUrl).origin &&
+      parsed.pathname.startsWith("/api/storage/");
+
+    if (!(isRelativeStorageUrl || isOwnStorageUrl)) return null;
+
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const storageIndex = segments.indexOf("storage");
+    const bucket = segments[storageIndex + 1];
+    const keySegments = segments.slice(storageIndex + 2);
+    if (storageIndex < 0 || !bucket || keySegments.length === 0) return null;
+
+    const key = keySegments
+      .map((segment) => decodeURIComponent(segment))
+      .join("/");
+    if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\")) {
+      return null;
+    }
+
+    return {
+      bucket: decodeURIComponent(bucket),
+      key,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function getPublicImageUrl(request: Request, imageUrl?: string) {
   if (!imageUrl) return undefined;
   if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
@@ -54,15 +97,25 @@ export function getPublicImageUrl(request: Request, imageUrl?: string) {
 export async function getImageBase64(request: Request, imageUrl?: string) {
   if (!imageUrl) return undefined;
 
+  const storageReference = parseLocalStorageImageUrl(request, imageUrl);
+  if (storageReference) {
+    const { getStorageProvider } = await import(
+      "@repo/shared/storage/providers"
+    );
+    const storage = await getStorageProvider();
+    const data = await storage.getObject(
+      storageReference.key,
+      storageReference.bucket
+    );
+    return Buffer.from(data).toString("base64");
+  }
+
   const url =
     imageUrl.startsWith("http://") || imageUrl.startsWith("https://")
       ? imageUrl
       : new URL(imageUrl, getRequestBaseUrl(request)).toString();
 
-  const authorization = request.headers.get("authorization");
-  const response = await fetch(url, {
-    headers: authorization ? { Authorization: authorization } : undefined,
-  });
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to load generated image: ${response.status}`);
   }
