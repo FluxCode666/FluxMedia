@@ -25,6 +25,7 @@ import {
   openAIImageError,
   toOpenAIErrorPayload,
   toOpenAIImagesResponse,
+  toLoggedOpenAIErrorPayload,
   wantsImageStreamResponse,
 } from "@/features/external-api/images";
 import { runBatchImageGeneration } from "@/features/image-generation/batch-runner";
@@ -253,15 +254,26 @@ export const postExternalImageGenerations = withApiLogging(
           }),
           onResult: async (result, index) => {
             if (result.error) {
+              const errorPayload = toLoggedOpenAIErrorPayload(
+                result.error,
+                {
+                  route: "/v1/images/generations",
+                  stream: true,
+                  index,
+                  model: imageModel,
+                  size: input.size,
+                },
+                {
+                  generationId: result.generationId,
+                  creditsConsumed: result.creditsConsumed,
+                }
+              );
               await emit({
                 event: "error",
                 data: {
                   type: "upstream_error",
                   message: result.error,
-                  error: toOpenAIErrorPayload(result.error, {
-                    generationId: result.generationId,
-                    creditsConsumed: result.creditsConsumed,
-                  }).error,
+                  error: errorPayload.error,
                   generation_id: result.generationId,
                   generationId: result.generationId,
                   credits_consumed: result.creditsConsumed,
@@ -306,7 +318,13 @@ export const postExternalImageGenerations = withApiLogging(
           request,
           results,
           responseFormat,
-          created
+          created,
+          {
+            route: "/v1/images/generations",
+            async: true,
+            model: imageModel,
+            size: input.size,
+          }
         );
         const completedTask = completeAsyncImageTask(task.id, {
           error:
@@ -349,7 +367,13 @@ export const postExternalImageGenerations = withApiLogging(
         request,
         results,
         responseFormat,
-        created
+        created,
+        {
+          route: "/v1/images/generations",
+          stream: false,
+          model: imageModel,
+          size: input.size,
+        }
       );
     });
   }

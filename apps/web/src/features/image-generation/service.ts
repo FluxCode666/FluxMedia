@@ -1439,7 +1439,16 @@ async function generateChatImageWithChatCompletions(
   params: ChatImageParams,
   callbacks?: ImageGenerationCallbacks
 ): Promise<GenerateImageResult> {
-  const model = params.model || config.model || GPT54_CHAT_MODEL;
+  const requestedModel = params.model?.trim();
+  const configuredModel = config.model?.trim();
+  const model =
+    (requestedModel && !isImageModel(requestedModel)
+      ? requestedModel
+      : undefined) ||
+    (configuredModel && !isImageModel(configuredModel)
+      ? configuredModel
+      : undefined) ||
+    GPT54_CHAT_MODEL;
   const stream = Boolean(params.stream || config.useStream);
   const rawBody =
     params.rawChatCompletionsBody && isPlainRecord(params.rawChatCompletionsBody)
@@ -1456,6 +1465,15 @@ async function generateChatImageWithChatCompletions(
   delete (body as Record<string, unknown>).moderation;
   delete (body as Record<string, unknown>).output_format;
   delete (body as Record<string, unknown>).output_compression;
+  delete (body as Record<string, unknown>).promptOptimization;
+  delete (body as Record<string, unknown>).prompt_optimization;
+  delete (body as Record<string, unknown>).imageModel;
+  delete (body as Record<string, unknown>).image_model;
+  delete (body as Record<string, unknown>).thinking;
+  delete (body as Record<string, unknown>).mixWebFirst;
+  delete (body as Record<string, unknown>).mix_web_first;
+  delete (body as Record<string, unknown>).requiresResponsesBackend;
+  delete (body as Record<string, unknown>).requires_responses_backend;
 
   try {
     const response = await fetch(`${stripTrailingSlash(config.baseUrl)}/chat/completions`, {

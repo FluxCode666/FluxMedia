@@ -200,16 +200,25 @@ export async function toOpenAIImagesResponse(
   request: Request,
   results: readonly ImageGenerationOperationResult[],
   responseFormat: "url" | "b64_json",
-  created = Math.floor(Date.now() / 1000)
+  created = Math.floor(Date.now() / 1000),
+  logContext?: Record<string, unknown>
 ) {
   const data = [];
 
-  for (const result of results) {
+  for (const [index, result] of results.entries()) {
     if (result.error) {
-      return toOpenAIErrorPayload(result.error, {
+      const options = {
         generationId: result.generationId,
         creditsConsumed: result.creditsConsumed,
-      });
+      };
+      if (logContext) {
+        return toLoggedOpenAIErrorPayload(
+          result.error,
+          { ...logContext, resultIndex: index },
+          options
+        );
+      }
+      return toOpenAIErrorPayload(result.error, options);
     }
     const outputs = getExternalFinalImageOutputs(result);
     for (const output of outputs) {
@@ -417,6 +426,21 @@ function classifyExternalApiError(message: string) {
     };
   }
 
+  if (
+    normalized.includes("unsupported model") ||
+    normalized.includes("unsupported chat model") ||
+    normalized.includes("unsupported gpt model") ||
+    normalized.includes("unsupported image_model") ||
+    normalized.includes("use a gpt-image") ||
+    normalized.includes("use a non-image model")
+  ) {
+    return {
+      type: "invalid_request_error",
+      code: "unsupported_model",
+      status: 400,
+    };
+  }
+
   if (normalized.includes("insufficient credits")) {
     return {
       type: "insufficient_quota",
@@ -464,11 +488,39 @@ function classifyExternalApiError(message: string) {
     };
   }
 
-  if (normalized.includes("unsupported model")) {
+  if (
+    normalized.includes("不支持当前请求类型") ||
+    normalized.includes("not support current request type")
+  ) {
     return {
       type: "invalid_request_error",
-      code: "unsupported_model",
+      code: "unsupported_backend_request_type",
       status: 400,
+    };
+  }
+
+  if (
+    normalized.includes("选择的生图后端分组不可用") ||
+    normalized.includes("当前套餐不可用")
+  ) {
+    return {
+      type: "invalid_request_error",
+      code: "backend_group_unavailable",
+      status: 403,
+    };
+  }
+
+  if (
+    normalized.includes("当前生图后端分组没有可用账号或 api") ||
+    normalized.includes("没有可用账号或 api") ||
+    normalized.includes("no available image backend") ||
+    normalized.includes("no available backend") ||
+    normalized.includes("no available image quota")
+  ) {
+    return {
+      type: "server_error",
+      code: "no_available_image_backend",
+      status: 503,
     };
   }
 

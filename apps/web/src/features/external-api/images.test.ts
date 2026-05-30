@@ -254,4 +254,26 @@ describe("external API error classification", () => {
       status: 429,
     });
   });
+
+  it("maps unsupported chat/image model errors to bad requests", () => {
+    expect(
+      toOpenAIErrorPayload(
+        "Unsupported chat model. Use gpt-5.4, gpt-5.4-mini."
+      ).error
+    ).toMatchObject({
+      type: "invalid_request_error",
+      code: "unsupported_model",
+      status: 400,
+    });
+  });
+
+  it("maps unavailable backend pool errors to service unavailable", () => {
+    expect(
+      toOpenAIErrorPayload("当前生图后端分组没有可用账号或 API").error
+    ).toMatchObject({
+      type: "server_error",
+      code: "no_available_image_backend",
+      status: 503,
+    });
+  });
 });

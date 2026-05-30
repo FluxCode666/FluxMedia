@@ -28,6 +28,7 @@ import {
 import {
   DEFAULT_IMAGE_SIZE,
   getImageModel,
+  isImageModel,
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import type {
@@ -406,8 +407,11 @@ export const postExternalChatCompletions = withApiLogging(
       );
     }
 
+    const topLevelModel = parsed.data.model?.trim();
+    const topLevelModelIsImage = isImageModel(topLevelModel);
+    const explicitImageModel = parsed.data.imageModel || parsed.data.image_model;
     const imageModel = getImageModel(
-      parsed.data.imageModel || parsed.data.image_model
+      explicitImageModel || (topLevelModelIsImage ? topLevelModel : undefined)
     );
     if ((parsed.data.imageModel || parsed.data.image_model) && !imageModel) {
       return openAIImageError(
@@ -434,7 +438,7 @@ export const postExternalChatCompletions = withApiLogging(
       images,
       moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
-      model: parsed.data.model,
+      model: topLevelModelIsImage ? undefined : parsed.data.model,
       imageModel: imageModel || undefined,
       quality: parsed.data.quality as ImageQuality | undefined,
       moderation: (parsed.data.moderation || "auto") as ImageModeration,
@@ -451,7 +455,9 @@ export const postExternalChatCompletions = withApiLogging(
       // controlled by the selected backend config so external/user APIs can run
       // in either streamed or non-streamed mode.
       stream: undefined,
-      rawChatCompletionsBody: parsed.data,
+      rawChatCompletionsBody: topLevelModelIsImage
+        ? { ...parsed.data, model: undefined }
+        : parsed.data,
       mixWebFirst: parsed.data.mixWebFirst ?? parsed.data.mix_web_first,
       requiresResponsesBackend:
         parsed.data.requiresResponsesBackend ??
