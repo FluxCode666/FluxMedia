@@ -1,6 +1,7 @@
 import { db } from "@repo/database";
 import { generation, user } from "@repo/database/schema";
 import { consumeCredits } from "@repo/shared/credits/core";
+import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import {
   IMAGE_GENERATION_PENDING_TIMEOUT_MS,
   IMAGE_GENERATION_TIMEOUT_ERROR,
@@ -770,10 +771,20 @@ async function resolveRequestedPoolGptModel(params: {
   allowGpt55: boolean;
 }) {
   const requested = params.model?.trim();
-  if (!requested || !usesPoolAccountBackend(params.config)) return undefined;
+  if (!usesPoolAccountBackend(params.config)) return undefined;
   if (params.config.backend?.accountBackend === "web") {
+    if (!requested) {
+      const configured = params.config.model?.trim();
+      if (configured === GPT55_CHAT_MODEL && !params.allowGpt55) {
+        return undefined;
+      }
+      return configured || undefined;
+    }
     if (requested.startsWith("gpt-image-")) {
       throw new Error("Unsupported GPT model. Use a non-image model.");
+    }
+    if (requested === GPT55_CHAT_MODEL && !params.allowGpt55) {
+      throw new Error("GPT-5.5 chat model requires Ultra plan.");
     }
     return requested;
   }
@@ -1067,7 +1078,11 @@ export async function runImageGenerationForUser(
         config.backend?.type === "pool-account" &&
         config.backend.accountBackend === "web"
       ) {
-        gptModel = input.model?.trim() || config.model?.trim() || undefined;
+        gptModel = await resolveRequestedPoolGptModel({
+          config,
+          model: input.model,
+          allowGpt55: planCapabilities.features["models.gpt55"],
+        });
       } else {
         gptModel = await getResponsesModel(config, input.model, {
           allowGpt55: planCapabilities.features["models.gpt55"],

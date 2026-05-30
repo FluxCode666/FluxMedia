@@ -234,7 +234,10 @@ function normalizeResponsesModel(
   }
 
   if (requested === GPT55_CHAT_MODEL && !options?.allowGpt55) {
-    throw new Error("GPT-5.5 chat model requires Ultra plan.");
+    if (explicit) {
+      throw new Error("GPT-5.5 chat model requires Ultra plan.");
+    }
+    return null;
   }
 
   if (

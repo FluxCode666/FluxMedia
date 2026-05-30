@@ -65,6 +65,35 @@ describe("Responses streaming parser", () => {
     );
   });
 
+  it("falls back from implicit GPT-5.5 defaults when the plan cannot use them", async () => {
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
+    const { getResponsesModel } = await import("./service");
+    const config: ApiConfig = {
+      baseUrl: "https://api.example.test/v1",
+      apiKey: "test-key",
+      model: "gpt-5.5",
+      backend: {
+        type: "pool-account",
+        id: "account_1",
+        groupId: "group_1",
+        accountBackend: "responses",
+        requestKind: "chat",
+        reportResult: false,
+      },
+    };
+
+    await expect(
+      getResponsesModel(config, undefined, { allowGpt55: false })
+    ).resolves.toBe("gpt-5.4");
+    await expect(
+      getResponsesModel(config, "gpt-5.5", { allowGpt55: false })
+    ).rejects.toThrow("GPT-5.5 chat model requires Ultra plan.");
+    await expect(
+      getResponsesModel(config, undefined, { allowGpt55: true })
+    ).resolves.toBe("gpt-5.5");
+  });
+
   it("parses stream=true Responses bodies incrementally even when content-type is wrong", async () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
