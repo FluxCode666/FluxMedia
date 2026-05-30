@@ -47,6 +47,23 @@ export function canManageUserPermissions(role?: string | null) {
   return isSuperAdminRole(role);
 }
 
+/**
+ * 高敏用户管理操作（封禁、积分发放等）的目标权限护栏。
+ *
+ * 规则：超管可操作任意账户；非超管仅能操作"权限等级严格低于自己"的账户。
+ * APP_USER_ROLES 为升序（user < observer_admin < admin < super_admin），index 即等级。
+ * 用于防止普通 admin 封禁/锁死 super_admin 或越级互操作（审计 S-H5）。
+ */
+export function canActOnTargetRole(
+  actorRole?: string | null,
+  targetRole?: string | null
+) {
+  if (isSuperAdminRole(actorRole)) return true;
+  const actorRank = APP_USER_ROLES.indexOf(normalizeUserRole(actorRole));
+  const targetRank = APP_USER_ROLES.indexOf(normalizeUserRole(targetRole));
+  return targetRank < actorRank;
+}
+
 export function getUserRoleLabel(role?: string | null) {
   switch (normalizeUserRole(role)) {
     case "super_admin":

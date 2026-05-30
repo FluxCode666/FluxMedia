@@ -28,6 +28,7 @@ import {
 import {
   ADMIN_MANAGEMENT_ROLES,
   APP_USER_ROLES,
+  canActOnTargetRole,
   getUserRoleLabel,
 } from "../../auth/roles";
 import {
@@ -63,6 +64,24 @@ const withAdminUsersAction = (name: string) =>
   adminAction.metadata({ action: `support.adminUsers.${name}` });
 const withSuperAdminUsersAction = (name: string) =>
   superAdminAction.metadata({ action: `support.adminUsers.${name}` });
+
+/**
+ * 高敏操作的目标权限护栏（封禁、积分发放等用 adminAction 的操作）。
+ *
+ * WHY: 这些操作仅要求 adminAction（普通 admin 即可），但 getUserBasicOrThrow 不校验
+ * 目标角色。若无护栏，普通 admin 可封禁/锁死 super_admin，破坏权限层级（见审计 S-H5）。
+ * 规则：超管可操作任意账户；非超管仅能操作"权限等级严格低于自己"的账户。
+ * APP_USER_ROLES 为升序（user < observer_admin < admin < super_admin），index 即等级。
+ */
+function assertCanActOnTarget(
+  actorRole: string | null | undefined,
+  targetRole: string | null | undefined,
+  operation: string
+) {
+  if (!canActOnTargetRole(actorRole, targetRole)) {
+    throw new Error(`无权对该账户执行${operation}：目标权限不低于操作者`);
+  }
+}
 
 const userStatusSchema = z.enum(["all", "active", "banned", "unverified"]);
 const subscriptionStatusSchema = z.enum([
@@ -712,6 +731,8 @@ export const banUserAction = withAdminUsersAction("banUser")
   .schema(banUserSchema)
   .action(async ({ parsedInput: data, ctx }) => {
     const targetUser = await getUserBasicOrThrow(data.userId);
+    // 目标权限护栏：禁止普通 admin 封禁/解封管理员及超管账户（防锁死超管，见 S-H5）。
+    assertCanActOnTarget(ctx.role, targetUser.role, data.banned ? "封禁" : "解封");
     const reason = data.reason || (data.banned ? "管理员操作" : "解除封禁");
 
     await db
@@ -747,7 +768,13 @@ export const banUserAction = withAdminUsersAction("banUser")
 export const adminGrantCreditsAction = withAdminUsersAction("grantCredits")
   .schema(grantCreditsSchema)
   .action(async ({ parsedInput: data, ctx }) => {
-    await getUserBasicOrThrow(data.userId);
+    const targetUser = await getUserBasicOrThrow(data.userId);
+    // 防单管理员自助铸币：禁止给自己发放积分（见 S-H5）。
+    if (data.userId === ctx.userId) {
+      throw new Error("不能为自己发放积分");
+    }
+    // 目标权限护栏：普通 admin 不得向管理员及超管账户发放积分。
+    assertCanActOnTarget(ctx.role, targetUser.role, "积分发放");
 
     const expiryDays = await getRuntimeSettingNumber(
       "FREE_CREDITS_EXPIRY_DAYS",
