@@ -40,6 +40,7 @@
   - `image-backend-pool/service.ts` 5310 行（按 7+ 职责拆为 scheduler/error-classification/cooldown/oauth/import/sub2api-sync/crud）。
   - `image-backend-pool/admin-panel.tsx` 4350 行、`system-settings/components/system-settings-panel.tsx` 1825 行。
 - [ ] **跨文件重构/DB 迁移类未修 23 条**：C-H2 门闩抽纯函数、S-M11 Creem 金额校验、S-L1/S-L7 财务/存储归属深防御、M-M7/M-M10/M-M15/M-M17 DRY 合并等，逐条理由见计划文档 backlog 节。
+- [ ] **（复测新发现·既有 latent bug）create 页 hydration 不匹配**：硬加载创作页时客户端从 localStorage `gpt2image_create_active_mode_v1` 恢复激活模式（可能为锁定 tab），与服务端默认冲突触发 React hydration mismatch（低危，自愈）。修法：持久化模式恢复后置到 useEffect 或按当前套餐能力校正，避免恢复锁定/不可用模式。属 defer 的 create-page-client.tsx，随其重构一并修。
 
 ## 仍存在的代码层问题（待办）
 

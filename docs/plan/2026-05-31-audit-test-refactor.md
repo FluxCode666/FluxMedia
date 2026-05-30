@@ -50,6 +50,21 @@
 
 测试环境保留运行，可在修复后 git pull + HMR 复测。SSH 隧道命令：ssh -L 3100:127.0.0.1:3100 api2。
 
+## 修复后冒烟 UI 复测（2026-05-31，dev HEAD 114054a）
+
+api2 隔离栈 git pull 到 114054a、清 `.next` 后重启 next dev，本地隧道 localhost:3100 驱动 Playwright。覆盖与结论：
+
+- [x] 落地页 /zh、控制台、创作、账单与用量、外接 API：均 200、控制台 0 error。
+- [x] 鉴权门：登出后访问 /zh/dashboard 正确 302 到 /zh/sign-in；超管凭据登录成功（证明 protectedAction 新增 banned 中间件对正常用户放行无误）。
+- [x] **#1 用户管理（超管）**：用户表渲染 2 行（testuser1-edited / 超管），统计（总用户2/管理员1/封禁0）、搜索/筛选/分页/新增用户/行操作齐全；getAllUsersAction(adminAction) 数据成功加载——S-H5 改的 action 层运行时正常。
+- [x] **S-C1 验证**：admin/settings 超管可见"系统设置"tab（canManageSystemSettings=true）。0 error。
+- 普通用户访问 admin 路由返回 404（隐藏式访问控制），符合预期。
+
+### 复测中定位的两项问题（均非本轮修复回归）
+
+1. **（既有 latent bug，记入 create-page-client 重构 backlog）** 创作页首次硬加载时 React hydration 不匹配：客户端从 localStorage `gpt2image_create_active_mode_v1` 恢复上次激活模式（如锁定的 waterfall），与服务端默认 text 冲突。清 localStorage 后 0 error。根因在 defer 的 create-page-client.tsx——持久化模式恢复应后置到 useEffect 或按当前套餐能力校正，避免恢复到锁定/不可用模式。低危（React 自动重渲染，页面可用）。
+2. **（测试环境产物，非代码问题）** 跨多提交 git pull 后复用旧 `.next`/turbopack 缓存，导致 admin 全区路由 404（清单与新码不一致）。`rm -rf apps/web/.next` 重启后全部恢复。生产 `next build` 全量编译无此问题。复测操作经验：测试环境跨大量提交 pull 后应清 `.next` 再起 dev。
+
 ## 阶段 A 审计：已完成
 
 - Workflow 复核确认 128 条（critical 1 / high 27 / medium 58 / low 39 / info 3；security 27 / maintainability 41 / coverage 60）。
