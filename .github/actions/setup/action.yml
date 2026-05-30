@@ -11,12 +11,12 @@ runs:
     # pnpm/action-setup 会读取根 package.json 的 `packageManager` 字段（pnpm@10.27.0），
     # 因此无需在此硬编码版本号 —— 版本真相只存在于 package.json，杜绝漂移。
     - name: Install pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
     # setup-node 安装指定大版本的 Node，并基于 pnpm lockfile 做依赖缓存（cache: pnpm）。
     # 必须放在 pnpm 安装之后，否则 `cache: pnpm` 找不到 pnpm 可执行文件。
     - name: Install Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: "22" # 与 Dockerfile.web 的 node:22-alpine 对齐，保证本地/CI/生产一致
         cache: "pnpm"

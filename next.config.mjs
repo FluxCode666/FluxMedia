@@ -17,7 +17,13 @@ const nextConfig = {
   // Enable standalone output for Docker deployment
   output: "standalone",
   // Exclude packages with webpack-specific syntax from server bundling
-  serverExternalPackages: ["anki-apkg-export", "sql.js", "pino", "pino-pretty", "@axiomhq/pino"],
+  serverExternalPackages: [
+    "anki-apkg-export",
+    "sql.js",
+    "pino",
+    "pino-pretty",
+    "@axiomhq/pino",
+  ],
 };
 
 // 组合插件: MDX -> NextIntl -> NextConfig
