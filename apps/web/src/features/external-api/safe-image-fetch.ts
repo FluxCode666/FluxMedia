@@ -100,6 +100,116 @@ export async function assertPublicApiBaseUrl(baseUrl: string): Promise<void> {
 }
 
 /**
+ * 校验异步任务回调 URL 指向公网且使用 https。
+ *
+ * 复用 isPrivateIpAddress / assertPublicImageUrl 的内网黑名单（避免各处粘贴副本漂移），
+ * 并在其基础上强制 https：回调正文含生成结果与 generation_id，禁止明文外发。
+ * 仅校验主机；连接时仍须经 fetchPublicCallback 逐跳复检（弥补提交→发送之间的 TOCTOU）。
+ */
+export async function assertPublicCallbackUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new SafeImageFetchError("callback_url must be a valid URL.");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new SafeImageFetchError("callback_url must use https.");
+  }
+  await assertPublicImageUrl(parsed);
+  return parsed;
+}
+
+/**
+ * 以 https POST 投递回调，逐跳复检重定向目标，禁止跳转到内网地址。
+ *
+ * 与 fetchPublicImage 同源（redirect:"manual" + 每跳 assertPublicCallbackUrl），
+ * 关闭"提交时校验通过、完成时被 302 跳内网/云元数据"的盲 SSRF 原语。
+ * 返回最终的非重定向 Response，调用方负责检查 ok。
+ */
+export async function fetchPublicCallback(
+  rawUrl: string,
+  init: { headers?: Record<string, string>; body: string; signal?: AbortSignal }
+): Promise<Response> {
+  let currentUrl = rawUrl;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const parsed = await assertPublicCallbackUrl(currentUrl);
+
+    const response = await fetch(parsed, {
+      method: "POST",
+      redirect: "manual",
+      body: init.body,
+      ...(init.headers ? { headers: init.headers } : {}),
+      ...(init.signal ? { signal: init.signal } : {}),
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        throw new SafeImageFetchError("callback_url redirect missing location.");
+      }
+      // 解析为绝对地址后，下一轮循环会对其再次执行 SSRF + https 校验。
+      currentUrl = new URL(location, parsed).toString();
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new SafeImageFetchError("Too many redirects while posting callback.");
+}
+
+/**
+ * 流式读取响应正文并在累计字节超过 maxBytes 时主动中止。
+ *
+ * 防御 content-length 头可伪造导致的内存耗尽 DoS：不依赖自报的 content-length，
+ * 而是逐块累加真实字节，一旦超限即 cancel reader 并抛错（不把整段正文缓冲进内存）。
+ * 当响应无可读流（如测试 stub）时回退到一次性 arrayBuffer 并对其长度复核。
+ */
+export async function readResponseBytesWithLimit(
+  response: Response,
+  maxBytes: number,
+  onExceeded: () => never
+): Promise<Buffer<ArrayBuffer>> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > maxBytes) {
+      onExceeded();
+    }
+    return Buffer.from(arrayBuffer);
+  }
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        onExceeded();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // 复制到独立的 ArrayBuffer，保证返回值可直接用于 new File([...])（BlobPart 要求 ArrayBuffer）。
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return Buffer.from(merged.buffer);
+}
+
+/**
  * 校验并拉取一个公网图片 URL，逐跳复检重定向目标，禁止跳转到内网地址。
  * 返回最终的非重定向 Response（调用方负责检查 ok / content-type / 大小）。
  */

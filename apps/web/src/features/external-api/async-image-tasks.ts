@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import { logError } from "@repo/shared/logger";
+import {
+  assertPublicCallbackUrl,
+  fetchPublicCallback,
+} from "./safe-image-fetch";
 
 type AsyncImageTaskStatus = "processing" | "completed" | "failed";
 
@@ -37,74 +39,9 @@ const TASK_TTL_MS = 30 * 60 * 1000;
 const CALLBACK_TIMEOUT_MS = 10_000;
 const asyncImageTasks = new Map<string, AsyncImageTask>();
 
-function isPrivateIpAddress(address: string) {
-  const normalized = address.toLowerCase();
-  if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") return true;
-  if (normalized === "::" || normalized.startsWith("fe80:")) return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("::ffff:")) {
-    return isPrivateIpAddress(normalized.replace(/^::ffff:/, ""));
-  }
-
-  const parts = normalized.split(".");
-  if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part))) {
-    return false;
-  }
-
-  const [a = 0, b = 0] = parts.map(Number);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a >= 224) return true;
-  return false;
-}
-
+// 回调 URL 提交期校验：强制 https + 公网（内网黑名单复用 safe-image-fetch 单一来源）。
 export async function validateCallbackUrl(value: string) {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("callback_url must be a valid URL.");
-  }
-
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("callback_url must use http or https.");
-  }
-  if (url.username || url.password) {
-    throw new Error("callback_url must not include credentials.");
-  }
-
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-    throw new Error("callback_url must be publicly reachable.");
-  }
-  if (
-    hostname === "metadata.google.internal" ||
-    hostname.endsWith(".internal")
-  ) {
-    throw new Error("callback_url must be publicly reachable.");
-  }
-
-  const strippedHostname = hostname.replace(/^\[|\]$/g, "");
-  const literalIp = isIP(strippedHostname);
-  if (literalIp) {
-    if (isPrivateIpAddress(strippedHostname)) {
-      throw new Error("callback_url must be publicly reachable.");
-    }
-    return url.toString();
-  }
-
-  const addresses = await lookup(hostname, { all: true, verbatim: true });
-  if (
-    addresses.length === 0 ||
-    addresses.some((entry) => isPrivateIpAddress(entry.address))
-  ) {
-    throw new Error("callback_url must be publicly reachable.");
-  }
-
+  const url = await assertPublicCallbackUrl(value);
   return url.toString();
 }
 
@@ -189,8 +126,8 @@ export async function postAsyncImageCallback(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CALLBACK_TIMEOUT_MS);
   try {
-    const response = await fetch(callbackUrl, {
-      method: "POST",
+    // 完成时再经逐跳复检投递：弥补"提交校验通过、30 分钟后被 302 跳内网"的 TOCTOU 盲 SSRF。
+    const response = await fetchPublicCallback(callbackUrl, {
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",

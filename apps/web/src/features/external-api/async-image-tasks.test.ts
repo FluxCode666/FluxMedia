@@ -61,8 +61,14 @@ describe("external async image tasks", () => {
 
   it("rejects private callback URLs", async () => {
     await expect(
-      validateCallbackUrl("http://127.0.0.1/callback")
+      validateCallbackUrl("https://127.0.0.1/callback")
     ).rejects.toThrow("publicly reachable");
+  });
+
+  it("rejects http callback URLs to keep results off plaintext", async () => {
+    await expect(
+      validateCallbackUrl("http://example.com/callback")
+    ).rejects.toThrow("https");
   });
 
   it("posts callback payloads with the callback marker header", async () => {
@@ -73,14 +79,32 @@ describe("external async image tasks", () => {
     await postAsyncImageCallback("https://example.com/callback", task);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com/callback",
+      expect.objectContaining({ href: "https://example.com/callback" }),
       expect.objectContaining({
         method: "POST",
+        redirect: "manual",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           "X-Tokens-Callback": "true",
         }),
       })
     );
+  });
+
+  it("does not follow a callback redirect into a private address", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://169.254.169.254/latest/meta-data/" },
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const task = createAsyncImageTask({ userId: "user_1" });
+
+    await postAsyncImageCallback("https://example.com/callback", task);
+
+    // 第二跳是内网且为 http，逐跳校验拦下，绝不对内网/元数据发起请求。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

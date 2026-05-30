@@ -25,6 +25,13 @@ class ActionAuthError extends Error {
   }
 }
 
+class ActionBannedError extends Error {
+  constructor() {
+    super("账号已被封禁");
+    this.name = "ActionBannedError";
+  }
+}
+
 /**
  * 基础 Action 客户端
  *
@@ -40,7 +47,7 @@ const baseActionClient = createSafeActionClient({
    * - 生产环境下隐藏具体错误信息
    */
   handleServerError(error) {
-    if (error instanceof ActionAuthError) {
+    if (error instanceof ActionAuthError || error instanceof ActionBannedError) {
       return error.message;
     }
 
@@ -103,6 +110,12 @@ export const protectedAction = actionClient.use(async ({ next }) => {
   // 如果没有会话或用户信息，重定向到登录页
   if (!session || !session.user) {
     throw new ActionAuthError();
+  }
+
+  // 封禁强制点：被封用户的现有会话立即失效，不再放行任何受保护操作。
+  // 管理员 banUserAction 仅写 banned=true 而不删会话，故必须在每次受保护调用时复查。
+  if ((session.user as { banned?: boolean | null }).banned) {
+    throw new ActionBannedError();
   }
 
   // 设置用户上下文到日志

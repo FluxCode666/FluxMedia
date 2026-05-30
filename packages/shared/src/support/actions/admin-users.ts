@@ -22,6 +22,7 @@ import {
   creditsTransaction,
   externalApiKey,
   generation,
+  session,
   subscription,
   user,
 } from "@repo/database/schema";
@@ -743,6 +744,12 @@ export const banUserAction = withAdminUsersAction("banUser")
         updatedAt: new Date(),
       })
       .where(eq(user.id, data.userId));
+
+    // 封禁须立即撤销现有访问：删除目标的所有会话行，被封用户的活跃会话不再有效。
+    // 否则其 7 天会话仍可调用受保护操作（protectedAction 的 banned 复查也会拦，但删行更彻底）。
+    if (data.banned) {
+      await db.delete(session).where(eq(session.userId, data.userId));
+    }
 
     await writeAdminAuditLog({
       adminUserId: ctx.userId,
