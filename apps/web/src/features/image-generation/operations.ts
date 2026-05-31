@@ -47,7 +47,6 @@ import {
   getImageModel,
   type ImageBaseCreditPricing,
   isImageSizeWithinPixelRange,
-  isOneKImageSize,
   normalizeImageSize,
   roundCreditAmount,
   roundUpCreditAmount,
@@ -114,7 +113,12 @@ type RunImageGenerationInput =
 const DEFAULT_FORCE_WEB_MIN_PIXELS = 660_000;
 const DEFAULT_FORCE_WEB_MAX_PIXELS = 2_000_000;
 
-async function getForceWebPixelRange() {
+type ForceWebPixelRange = {
+  minPixels: number;
+  maxPixels: number;
+};
+
+async function getForceWebPixelRange(): Promise<ForceWebPixelRange> {
   const [minPixels, maxPixels] = await Promise.all([
     getRuntimeSettingNumber(
       "IMAGE_FORCE_WEB_MIN_PIXELS",
@@ -134,17 +138,38 @@ async function getForceWebPixelRange() {
   };
 }
 
-async function shouldForceWebBackend(
+function shouldForceWebBackend(
   input: RunImageGenerationInput,
-  size: string
+  size: string,
+  range: ForceWebPixelRange
 ) {
   const requiresResponsesBackend = Boolean(
     input.requiresResponsesBackend || (input.mode === "chat" && input.agentMode)
   );
   if (!input.forceWebBackend || requiresResponsesBackend) return false;
 
-  const { minPixels, maxPixels } = await getForceWebPixelRange();
-  return isImageSizeWithinPixelRange(size, minPixels, maxPixels);
+  return isImageSizeWithinPixelRange(size, range.minPixels, range.maxPixels);
+}
+
+function shouldUseMixWebFirstRouting({
+  input,
+  size,
+  range,
+  requiresResponsesBackend,
+  forceWebBackend,
+}: {
+  input: RunImageGenerationInput;
+  size: string;
+  range: ForceWebPixelRange;
+  requiresResponsesBackend: boolean;
+  forceWebBackend: boolean;
+}) {
+  return Boolean(
+    input.mixWebFirst &&
+      isImageSizeWithinPixelRange(size, range.minPixels, range.maxPixels) &&
+      !requiresResponsesBackend &&
+      !forceWebBackend
+  );
 }
 
 const TEXT_MODERATION_ONLY_CREDITS =
@@ -758,6 +783,7 @@ function buildBackendExecutionMetadata(params: {
       requestKind: backend.requestKind,
       accountBackend: backend.accountBackend,
       apiInterfaceMode: backend.apiInterfaceMode,
+      imagesUpstreamMode: backend.imagesUpstreamMode,
       apiForceResponsesEndpoint: backend.apiForceResponsesEndpoint,
       useCredits: params.useCredits,
       baseUrl: params.config.baseUrl,
@@ -845,13 +871,20 @@ export async function runImageGenerationForUser(
   const requiresResponsesBackend = Boolean(
     input.requiresResponsesBackend || (input.mode === "chat" && input.agentMode)
   );
-  const forceWebBackend = await shouldForceWebBackend(input, size);
-  const mixWebFirst = Boolean(
-    input.mixWebFirst &&
-      isOneKImageSize(size) &&
-      !requiresResponsesBackend &&
-      !forceWebBackend
+  const forceWebPixelRange = await getForceWebPixelRange();
+  const forceWebBackend = shouldForceWebBackend(
+    input,
+    size,
+    forceWebPixelRange
   );
+  const mixWebFirst = shouldUseMixWebFirstRouting({
+    input,
+    size,
+    range: forceWebPixelRange,
+    requiresResponsesBackend,
+    forceWebBackend,
+  });
+  const preferWebWithFallback = forceWebBackend || mixWebFirst;
   const inputImages = getInputImages(input);
   const isChatInput = input.mode === "chat";
   const bucket =
@@ -1007,7 +1040,7 @@ export async function runImageGenerationForUser(
         preferredMemberId: input.preferredBackendMemberId,
         accountBackendPreference: requiresResponsesBackend
           ? "responses"
-          : forceWebBackend || mixWebFirst
+          : preferWebWithFallback
             ? "web"
             : undefined,
         accountBackendPreferenceMode: forceWebBackend
@@ -1017,7 +1050,7 @@ export async function runImageGenerationForUser(
       });
     } catch (error) {
       if (
-        !mixWebFirst ||
+        !preferWebWithFallback ||
         !(error instanceof ImageBackendPoolUnavailableError)
       ) {
         throw error;
@@ -1028,6 +1061,9 @@ export async function runImageGenerationForUser(
         requestKind: backendRequestKind,
         preferredMemberId: input.preferredBackendMemberId,
         accountBackendPreference: "responses",
+        accountBackendPreferenceMode: forceWebBackend
+          ? "mixed-only"
+          : undefined,
         ignoreUserConfig: requiresResponsesBackend,
       });
     }
@@ -1168,6 +1204,7 @@ export async function runImageGenerationForUser(
           recordModel,
           allowGpt55: planCapabilities.features["models.gpt55"],
           moderationEnabled,
+          mixWebFirst,
           forceWebBackend,
         })
     );
@@ -1209,6 +1246,7 @@ async function runQueuedImageGenerationForUser({
   recordModel,
   allowGpt55,
   moderationEnabled,
+  mixWebFirst,
   forceWebBackend,
 }: {
   input: RunImageGenerationInput;
@@ -1237,6 +1275,7 @@ async function runQueuedImageGenerationForUser({
   recordModel: string;
   allowGpt55: boolean;
   moderationEnabled: boolean;
+  mixWebFirst: boolean;
   forceWebBackend: boolean;
 }): Promise<ImageGenerationOperationResult> {
   const startedAt = Date.now();
@@ -1259,9 +1298,6 @@ async function runQueuedImageGenerationForUser({
     recordModel,
   });
   const inputImagesMetadata = buildInputImagesMetadata(inputImages);
-  const mixWebFirst = Boolean(
-    input.mixWebFirst && isOneKImageSize(size) && !forceWebBackend
-  );
   const isAgentChatInput = input.mode === "chat" && input.agentMode === true;
 
   // 纯中转：不落生成历史。其余 db.update(generation) 在无行时天然 no-op。

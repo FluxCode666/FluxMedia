@@ -50,6 +50,8 @@ const schemaMock = vi.hoisted(() => {
       "apiKey",
       "model",
       "interfaceMode",
+      "chatCompletionsUpstreamMode",
+      "imageUpstreamMode",
       "useStream",
       "contentSafetyEnabled",
       "isEnabled",
@@ -402,6 +404,47 @@ describe("image backend pool scheduler selection", () => {
 
     expect(result?.groupId).toBe("default-group");
     expect(result?.config.backend?.billingGroupId).toBe("default-group");
+  });
+
+  it("uses the images upstream switch for responses-only API image requests", async () => {
+    const baseApi = {
+      id: "api-1",
+      groupId: "group-a",
+      name: "External Responses",
+      baseUrl: "https://api.example.test/v1",
+      apiKey: "key",
+      model: "external-chat-model",
+      interfaceMode: "responses",
+      chatCompletionsUpstreamMode: "responses",
+      useStream: false,
+      contentSafetyEnabled: true,
+      priority: 1,
+      concurrency: 1,
+      lastUsedAt: null,
+      createdAt: new Date(2026, 0, 1),
+    };
+    dbMock.state.accounts = [];
+    dbMock.state.apis = [{ ...baseApi, imageUpstreamMode: "images" }];
+
+    await expect(
+      resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+      })
+    ).resolves.toBeNull();
+
+    dbMock.state.apis = [{ ...baseApi, imageUpstreamMode: "responses" }];
+    const result = await resolveImageBackendPoolConfig({
+      userId: "user-a",
+      requestKind: "image_generation",
+    });
+
+    expect(result?.memberType).toBe("api");
+    expect(result?.memberId).toBe("api-1");
+    expect(result?.config.backend).toMatchObject({
+      apiInterfaceMode: "responses",
+      imagesUpstreamMode: "responses",
+    });
   });
 
   it("reactivates limited accounts after a successful retry", async () => {

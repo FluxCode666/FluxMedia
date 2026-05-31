@@ -90,7 +90,7 @@ import {
   type ImageBaseCreditPricing,
   IMAGE_1K_BASE_EDGE,
   IMAGE_DIMENSION_STEP,
-  isOneKImageSize,
+  isImageSizeWithinPixelRange,
   MAX_IMAGE_DIMENSION,
   normalizeImageSize,
   normalizeValidImageSize,
@@ -351,6 +351,54 @@ type ImageSizeDialogValue = {
   mixWebFirst: boolean;
 };
 
+type ForceWebPixelRange = {
+  minPixels: number;
+  maxPixels: number;
+};
+
+const DEFAULT_FORCE_WEB_PIXEL_RANGE: ForceWebPixelRange = {
+  minPixels: 660_000,
+  maxPixels: 2_000_000,
+};
+
+function normalizeForceWebPixelRange(
+  range?: ForceWebPixelRange | null
+): ForceWebPixelRange {
+  const min =
+    typeof range?.minPixels === "number" && Number.isFinite(range.minPixels)
+      ? Math.max(0, range.minPixels)
+      : DEFAULT_FORCE_WEB_PIXEL_RANGE.minPixels;
+  const max =
+    typeof range?.maxPixels === "number" && Number.isFinite(range.maxPixels)
+      ? Math.max(1, range.maxPixels)
+      : DEFAULT_FORCE_WEB_PIXEL_RANGE.maxPixels;
+  return {
+    minPixels: Math.min(min, max),
+    maxPixels: Math.max(min, max),
+  };
+}
+
+function isWithinForceWebPixelRange(
+  size?: string | null,
+  range?: ForceWebPixelRange | null
+) {
+  const normalized = normalizeForceWebPixelRange(range);
+  return isImageSizeWithinPixelRange(
+    size,
+    normalized.minPixels,
+    normalized.maxPixels
+  );
+}
+
+function formatPixelRange(range?: ForceWebPixelRange | null) {
+  const normalized = normalizeForceWebPixelRange(range);
+  const formatPixels = (pixels: number) =>
+    `${(pixels / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}MP`;
+  return `${formatPixels(normalized.minPixels)}-${formatPixels(
+    normalized.maxPixels
+  )}`;
+}
+
 function getNearestSupportedSizeForRatio(
   base: ImageSizeBase,
   ratio: { width: number; height: number }
@@ -556,6 +604,7 @@ function ImageSizeDialog({
   copy,
   validationMessage,
   showMixRouting,
+  mixRoutingPixelRange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -565,6 +614,7 @@ function ImageSizeDialog({
   copy: (en: string, zh: string) => string;
   validationMessage: (message?: string) => string | undefined;
   showMixRouting?: boolean;
+  mixRoutingPixelRange?: ForceWebPixelRange;
 }) {
   const initial = inferImageSizeDialogState(value);
   const [mode, setMode] = useState<ImageSizeMode>(initial.mode);
@@ -613,8 +663,10 @@ function ImageSizeDialog({
         : ratioSize;
   const previewCheck = validateImageSize(previewSize);
   const mixRoutingAvailable = Boolean(
-    showMixRouting && isOneKImageSize(previewSize)
+    showMixRouting &&
+      isWithinForceWebPixelRange(previewSize, mixRoutingPixelRange)
   );
+  const mixRoutingRangeLabel = formatPixelRange(mixRoutingPixelRange);
   const effectiveMixWebFirst = mixRoutingAvailable && mixWebFirst;
   const canConfirm =
     mode === "auto" ||
@@ -861,21 +913,21 @@ function ImageSizeDialog({
               <span>
                 <span className="block text-sm font-medium text-foreground">
                   {copy(
-                    "1K mixed group Web-first routing",
-                    "1K 混合分组优先走 Web"
+                    "Mixed group Web-first routing",
+                    "混合分组优先走 Web"
                   )}
                 </span>
                 <span className="mt-1 block">
                   {copy(
-                    "When the active backend group is mixed and the selected size is in the 1K tier (up to 1248px on the longest edge), try all available Web accounts first; if they fail or are exhausted, fall back to Codex/Responses accounts. Web does not support exact resolution, image model, quality, output format, or OAI moderation controls, so unrelated controls are disabled while this is enabled.",
-                    "当前后端分组为混合分组且选择 1K 档（最长边不超过 1248px）时，会优先遍历所有可用 Web 账号；失败或耗尽后再回退到 Codex/Responses 账号。Web 不支持精确分辨率、图片模型、质量、输出格式、OAI 审核等控制，因此开启后无关选项会置灰。"
+                    `When the active backend group is mixed and the selected size is within the configured Web-first pixel range (${mixRoutingRangeLabel}), try all available Web accounts first; if they fail or are exhausted, fall back to Codex/Responses accounts. Web does not support exact resolution, image model, quality, output format, or OAI moderation controls, so unrelated controls are disabled while this is enabled.`,
+                    `当前后端分组为混合分组且选择尺寸处于后台配置的 Web-first 像素区间（${mixRoutingRangeLabel}）时，会优先遍历所有可用 Web 账号；失败或耗尽后再回退到 Codex/Responses 账号。Web 不支持精确分辨率、图片模型、质量、输出格式、OAI 审核等控制，因此开启后无关选项会置灰。`
                   )}
                 </span>
                 {!mixRoutingAvailable && (
                   <span className="mt-1 block text-[11px] text-muted-foreground">
                     {copy(
-                      "Available only when the selected size is in the 1K tier.",
-                      "仅在当前尺寸属于 1K 档时可用。"
+                      `Available only when the selected size is within ${mixRoutingRangeLabel}.`,
+                      `仅在当前尺寸处于 ${mixRoutingRangeLabel} 区间时可用。`
                     )}
                   </span>
                 )}
@@ -1112,6 +1164,7 @@ interface CreatePageClientProps {
   customApiActive: boolean;
   moderationEnabled: boolean;
   imageBasePricing: ImageBaseCreditPricing;
+  forceWebPixelRange: ForceWebPixelRange;
   timeZone: string;
 }
 
@@ -1756,6 +1809,7 @@ export function CreatePageClient({
   customApiActive,
   moderationEnabled,
   imageBasePricing,
+  forceWebPixelRange,
   timeZone,
 }: CreatePageClientProps) {
   const locale = useLocale();
@@ -2649,16 +2703,21 @@ export function CreatePageClient({
     activeMode === "agent" ? agentRoundCreditCost : chatRoundCreditCost;
   const batchFallbackSize = hasChatImageAttachments ? chatCustomEditSize : size;
   const textMixWebFirstActive =
-    canUseMixWebFirstRouting && textMixWebFirst && isOneKImageSize(size);
+    canUseMixWebFirstRouting &&
+    textMixWebFirst &&
+    isWithinForceWebPixelRange(size, forceWebPixelRange);
   const editMixWebFirstActive =
     canUseMixWebFirstRouting &&
     editMixWebFirst &&
     Boolean(effectiveEditSize) &&
-    isOneKImageSize(effectiveEditSize);
+    isWithinForceWebPixelRange(effectiveEditSize, forceWebPixelRange);
   const chatMixWebFirstActive =
     canUseMixWebFirstRouting &&
     chatMixWebFirst &&
-    isOneKImageSize(hasChatImageAttachments ? chatCustomEditSize : size);
+    isWithinForceWebPixelRange(
+      hasChatImageAttachments ? chatCustomEditSize : size,
+      forceWebPixelRange
+    );
   const agentBackendUnavailableReason = isWebOnlyBackend
     ? copy(
         "Agent mode requires Codex/Responses backend. Web backend keeps the original ChatGPT Web route and does not expose Agent tools.",
@@ -2678,8 +2737,8 @@ export function CreatePageClient({
     isWebOnlyBackend || currentModeMixWebFirstActive;
   const responsesOnlyDisabledReason = currentModeMixWebFirstActive
     ? copy(
-        "Disabled while 1K mixed routing tries Web first. These controls apply after fallback to Codex/Responses.",
-        "1K 混合路由优先走 Web 时置灰；这些控制仅在回退到 Codex/Responses 后生效。"
+        "Disabled while mixed routing tries Web first. These controls apply after fallback to Codex/Responses.",
+        "混合路由优先走 Web 时置灰；这些控制仅在回退到 Codex/Responses 后生效。"
       )
     : undefined;
   const batchSingleCreditCost = applyBillingMultiplier(
@@ -2787,8 +2846,8 @@ export function CreatePageClient({
       )
     : editHasImageReference
       ? copy(
-          "This request contains @ references and will use Codex/Responses, even if custom API or 1K Mixed Web-first routing is enabled.",
-          "本次请求包含 @ 引用，将走 Codex/Responses；即使自填 API 或 1K Mixed Web-first 已开启也不会走这些路线。"
+          "This request contains @ references and will use Codex/Responses, even if custom API or Mixed Web-first routing is enabled.",
+          "本次请求包含 @ 引用，将走 Codex/Responses；即使自填 API 或 Mixed Web-first 已开启也不会走这些路线。"
         )
       : copy(
           "Type @ to choose a source image. Using @ references routes this request to Codex/Responses so the backend can attach the selected image as real input.",
@@ -9159,6 +9218,7 @@ export function CreatePageClient({
         copy={copy}
         validationMessage={validationMessage}
         showMixRouting={canUseMixWebFirstRouting}
+        mixRoutingPixelRange={forceWebPixelRange}
         onConfirm={(next) => {
           setUseAutoSize(next.auto);
           setTextMixWebFirst(next.mixWebFirst);
@@ -9176,6 +9236,7 @@ export function CreatePageClient({
         copy={copy}
         validationMessage={validationMessage}
         showMixRouting={canUseMixWebFirstRouting}
+        mixRoutingPixelRange={forceWebPixelRange}
         onConfirm={(next) => {
           setUseEditFirstImageSize(false);
           setUseAutoEditSize(next.auto);
@@ -9194,6 +9255,7 @@ export function CreatePageClient({
         copy={copy}
         validationMessage={validationMessage}
         showMixRouting={canUseMixWebFirstRouting}
+        mixRoutingPixelRange={forceWebPixelRange}
         onConfirm={(next) => {
           setChatMixWebFirst(next.mixWebFirst);
           if (hasChatImageAttachments) {

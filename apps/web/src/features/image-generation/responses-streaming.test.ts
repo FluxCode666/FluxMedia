@@ -213,6 +213,127 @@ describe("Responses streaming parser", () => {
     );
   });
 
+  it("routes pool API images generations through Responses when image upstream mode is responses", async () => {
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
+    const { generateImage } = await import("./service");
+    const imageBase64 = Buffer.from("responses-image-result").toString("base64");
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        sseBlock("response.completed", {
+          type: "response.completed",
+          response: {
+            id: "resp_test",
+            output: [
+              {
+                id: "ig_1",
+                type: "image_generation_call",
+                status: "completed",
+                result: imageBase64,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateImage(
+      {
+        baseUrl: "https://api.example.test/v1",
+        apiKey: "test-key",
+        model: "external-responses-model",
+        backend: {
+          type: "pool-api",
+          apiInterfaceMode: "responses",
+          imagesUpstreamMode: "responses",
+          requestKind: "image_generation",
+        },
+      },
+      {
+        prompt: "make an icon",
+        model: "gpt-image-2",
+        size: "1024x1024",
+      }
+    );
+
+    expect(result.imageBase64).toBe(imageBase64);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/v1/responses",
+      expect.objectContaining({
+        body: expect.stringContaining('"action":"generate"'),
+      })
+    );
+  });
+
+  it("routes pool API images edits through Responses when image upstream mode is responses", async () => {
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";
+    const { editImage } = await import("./service");
+    const imageBase64 = Buffer.from("responses-edit-result").toString("base64");
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        sseBlock("response.completed", {
+          type: "response.completed",
+          response: {
+            id: "resp_test",
+            output: [
+              {
+                id: "ig_1",
+                type: "image_generation_call",
+                status: "completed",
+                result: imageBase64,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await editImage(
+      {
+        baseUrl: "https://api.example.test/v1",
+        apiKey: "test-key",
+        model: "external-responses-model",
+        backend: {
+          type: "pool-api",
+          apiInterfaceMode: "responses",
+          imagesUpstreamMode: "responses",
+          requestKind: "image_edit",
+        },
+      },
+      {
+        prompt: "make it blue",
+        images: [
+          {
+            name: "source.png",
+            type: "image/png",
+            data: Buffer.from("source-image"),
+          },
+        ],
+        model: "gpt-image-2",
+        size: "1024x1024",
+      }
+    );
+
+    expect(result.imageBase64).toBe(imageBase64);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/v1/responses",
+      expect.objectContaining({
+        body: expect.stringContaining('"action":"edit"'),
+      })
+    );
+  });
+
   it("uses the final completed image instead of streamed partial image data", async () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL || "postgresql://test:test@127.0.0.1:5432/test";

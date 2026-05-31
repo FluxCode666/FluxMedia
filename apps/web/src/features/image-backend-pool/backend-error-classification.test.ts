@@ -77,6 +77,16 @@ describe("image backend error classification", () => {
         "I can't help create explicit sexual content."
       )
     ).toBe(false);
+    expect(
+      isImageBackendSwitchableError(
+        "Sorry, I can’t create that exact cosplay photo from this reference. I can help with a safer version instead."
+      )
+    ).toBe(false);
+    expect(
+      isImageBackendSwitchableError(
+        "抱歉，图像生成请求被系统拒绝了，当前无法返回生成图。"
+      )
+    ).toBe(false);
     expect(isImageBackendSwitchableError("image_generation_user_error")).toBe(
       false
     );

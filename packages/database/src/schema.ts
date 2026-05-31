@@ -873,6 +873,7 @@ export const imageBackendApi = pgTable("image_backend_api", {
   chatCompletionsUpstreamMode: text("chat_completions_upstream_mode")
     .notNull()
     .default("responses"),
+  imageUpstreamMode: text("image_upstream_mode").notNull().default("images"),
   contentSafetyEnabled: boolean("content_safety_enabled").notNull().default(true),
   isEnabled: boolean("is_enabled").notNull().default(true),
   priority: integer("priority").notNull().default(50),

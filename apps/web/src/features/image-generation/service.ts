@@ -265,7 +265,8 @@ function isPoolApiResponsesBackend(config: ApiConfig) {
     imageBackendApiUsesResponsesEndpoint(
       config.backend.apiInterfaceMode,
       config.backend.requestKind,
-      config.backend.apiForceResponsesEndpoint
+      config.backend.apiForceResponsesEndpoint,
+      config.backend.imagesUpstreamMode
     )
   );
 }
@@ -1004,6 +1005,39 @@ async function retryPoolBackendResult(
   let candidate = config;
   let lastResult: GenerateImageResult | null = null;
   let attempt = 0;
+  const shouldFallbackFromWebPreference = () =>
+    accountBackendPreference === "web" &&
+    (options?.mixWebFirst || options?.accountBackendPreference === "web");
+  const resolveResponsesFallback = async (lastError?: string) => {
+    logWarn("混合分组 Web 优先阶段已无可用账号，切换 Codex", {
+      attempt,
+      requestKind,
+      excludedCount: excluded.size,
+      lastError,
+    });
+    accountBackendPreference = "responses";
+    try {
+      return await resolveImageBackendPoolConfig({
+        userId: config.backend?.userId || "",
+        apiKeyId: config.backend?.apiKeyId,
+        requestKind: requestKind as ImageBackendRequestKind,
+        excludedMemberKeys: Array.from(excluded),
+        accountBackendPreference,
+        accountBackendPreferenceMode: options?.accountBackendPreferenceMode,
+      });
+    } catch (fallbackError) {
+      if (fallbackError instanceof ImageBackendPoolUnavailableError) {
+        logWarn("生图后端没有可切换的账号池成员", {
+          attempt,
+          requestKind,
+          excludedCount: excluded.size,
+          lastError,
+        });
+        return null;
+      }
+      throw fallbackError;
+    }
+  };
 
   while (true) {
     attempt += 1;
@@ -1073,39 +1107,9 @@ async function retryPoolBackendResult(
       });
     } catch (error) {
       if (error instanceof ImageBackendPoolUnavailableError) {
-        if (
-          accountBackendPreference === "web" &&
-          !options?.accountBackendPreference
-        ) {
-          logWarn("混合分组 1K Web 优先阶段已无可用账号，切换 Codex", {
-            attempt,
-            requestKind,
-            excludedCount: excluded.size,
-            lastError: result.error,
-          });
-          accountBackendPreference = "responses";
-          try {
-            next = await resolveImageBackendPoolConfig({
-              userId: config.backend.userId,
-              apiKeyId: config.backend.apiKeyId,
-              requestKind,
-              excludedMemberKeys: Array.from(excluded),
-              accountBackendPreference,
-              accountBackendPreferenceMode:
-                options?.accountBackendPreferenceMode,
-            });
-          } catch (fallbackError) {
-            if (fallbackError instanceof ImageBackendPoolUnavailableError) {
-              logWarn("生图后端没有可切换的账号池成员", {
-                attempt,
-                requestKind,
-                excludedCount: excluded.size,
-                lastError: result.error,
-              });
-              break;
-            }
-            throw fallbackError;
-          }
+        if (shouldFallbackFromWebPreference()) {
+          next = await resolveResponsesFallback(result.error);
+          if (!next?.config?.backend) break;
         } else {
           logWarn("生图后端没有可切换的账号池成员", {
             attempt,
@@ -1118,6 +1122,9 @@ async function retryPoolBackendResult(
       } else {
         throw error;
       }
+    }
+    if (!next?.config?.backend && shouldFallbackFromWebPreference()) {
+      next = await resolveResponsesFallback(result.error);
     }
     if (!next?.config?.backend) break;
     if (poolBackendMemberKey(next.config) === memberKey) {
@@ -3441,9 +3448,7 @@ export async function generateImage(
           : params.forceWebBackend
             ? "web"
             : undefined,
-        accountBackendPreferenceMode: params.forceWebBackend
-          ? "mixed-only"
-          : undefined,
+        accountBackendPreferenceMode: params.forceWebBackend ? "mixed-only" : undefined,
       }
     );
   }
@@ -3564,9 +3569,7 @@ export async function editImage(
           : params.forceWebBackend
             ? "web"
             : undefined,
-        accountBackendPreferenceMode: params.forceWebBackend
-          ? "mixed-only"
-          : undefined,
+        accountBackendPreferenceMode: params.forceWebBackend ? "mixed-only" : undefined,
       }
     );
   }

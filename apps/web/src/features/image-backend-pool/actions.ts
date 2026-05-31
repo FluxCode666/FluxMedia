@@ -68,6 +68,7 @@ const chatCompletionsUpstreamModeSchema = z.enum([
   "responses",
   "chat_completions",
 ]);
+const imagesUpstreamModeSchema = z.enum(["images", "responses"]);
 const sub2ApiTokenSyncModeSchema = z.enum(["web", "responses", "both"]);
 const sub2ApiPlanFilterSchema = z.enum([
   "all",
@@ -519,6 +520,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       interfaceMode: apiInterfaceModeSchema.default("mixed"),
       chatCompletionsUpstreamMode:
         chatCompletionsUpstreamModeSchema.default("responses"),
+      imagesUpstreamMode: imagesUpstreamModeSchema.default("images"),
       useStream: z.boolean().default(false),
       contentSafetyEnabled: z.boolean().default(true),
       isEnabled: z.boolean().default(true),
@@ -536,6 +538,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       model: parsedInput.model || null,
       interfaceMode: parsedInput.interfaceMode,
       chatCompletionsUpstreamMode: parsedInput.chatCompletionsUpstreamMode,
+      imagesUpstreamMode: parsedInput.imagesUpstreamMode,
       useStream: parsedInput.useStream,
       contentSafetyEnabled: parsedInput.contentSafetyEnabled,
       isEnabled: parsedInput.isEnabled,

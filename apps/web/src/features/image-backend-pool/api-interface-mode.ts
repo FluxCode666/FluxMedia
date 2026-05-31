@@ -2,6 +2,7 @@ import type {
   ChatCompletionsUpstreamMode,
   ImageBackendApiInterfaceMode,
   ImageBackendRequestKind,
+  ImagesUpstreamMode,
 } from "./types";
 
 export function normalizeImageBackendApiInterfaceMode(
@@ -17,13 +18,29 @@ export function normalizeChatCompletionsUpstreamMode(
   return value === "chat_completions" ? "chat_completions" : "responses";
 }
 
+export function normalizeImagesUpstreamMode(
+  value?: unknown
+): ImagesUpstreamMode {
+  return value === "responses" ? "responses" : "images";
+}
+
+function isImageRequestKind(requestKind?: ImageBackendRequestKind) {
+  return requestKind === "image_generation" || requestKind === "image_edit";
+}
+
 export function imageBackendApiInterfaceAllowsRequest(
   value: unknown,
-  requestKind: ImageBackendRequestKind
+  requestKind: ImageBackendRequestKind,
+  imagesUpstreamMode?: unknown
 ) {
   const mode = normalizeImageBackendApiInterfaceMode(value);
+  if (isImageRequestKind(requestKind)) {
+    const imageMode = normalizeImagesUpstreamMode(imagesUpstreamMode);
+    if (imageMode === "responses") return mode !== "images";
+    return mode !== "responses";
+  }
   if (mode === "images") {
-    return requestKind === "image_generation" || requestKind === "image_edit";
+    return false;
   }
   if (mode === "responses") {
     return requestKind === "chat" || requestKind === "responses";
@@ -34,14 +51,17 @@ export function imageBackendApiInterfaceAllowsRequest(
 export function imageBackendApiUsesResponsesEndpoint(
   value: unknown,
   requestKind?: ImageBackendRequestKind,
-  forceResponsesEndpoint = false
+  forceResponsesEndpoint = false,
+  imagesUpstreamMode?: unknown
 ) {
-  if (forceResponsesEndpoint) {
+  if (isImageRequestKind(requestKind)) {
     return (
-      normalizeImageBackendApiInterfaceMode(value) !== "images" &&
-      requestKind !== "image_generation" &&
-      requestKind !== "image_edit"
+      normalizeImagesUpstreamMode(imagesUpstreamMode) === "responses" &&
+      normalizeImageBackendApiInterfaceMode(value) !== "images"
     );
+  }
+  if (forceResponsesEndpoint) {
+    return normalizeImageBackendApiInterfaceMode(value) !== "images";
   }
   const mode = normalizeImageBackendApiInterfaceMode(value);
   if (mode === "responses") {

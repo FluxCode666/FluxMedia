@@ -43,6 +43,22 @@ const USER_REQUEST_PATTERNS = [
   "account frozen",
 ];
 
+const MODERATION_SERVICE_FAILURE_PATTERNS = [
+  "aliyun moderation timed out",
+  "aliyun moderation failed",
+  "content moderation failed",
+  "moderation skipped unexpectedly",
+  "moderation timed out",
+  "moderation failed",
+  "socket hang up",
+  "socket closed",
+  "connection reset",
+  "econnreset",
+  "operation was aborted",
+  "temporarily unavailable",
+  "service unavailable",
+];
+
 export const CONTENT_SAFETY_REJECTION_PATTERNS = [
   "content failed moderation",
   "content blocked",
@@ -105,31 +121,107 @@ export const CONTENT_SAFETY_REJECTION_PATTERNS = [
   "无法直接生成",
 ];
 
+const APOLOGY_REFUSAL_PATTERNS = [
+  "i can't",
+  "i cannot",
+  "i won't",
+  "i couldn't",
+  "can't help",
+  "can't create",
+  "can't generate",
+  "can't complete",
+  "can't process",
+  "cannot help",
+  "cannot create",
+  "cannot generate",
+  "cannot complete",
+  "cannot process",
+  "couldn't complete",
+  "could not complete",
+  "not able to",
+  "not allowed",
+  "request was rejected",
+  "request is rejected",
+  "was rejected",
+  "blocked",
+  "flagged",
+  "abusive",
+  "copyright",
+  "protected",
+  "sexualized",
+  "explicit",
+  "我不能",
+  "不能生成",
+  "不能协助",
+  "不能帮助",
+  "不能按",
+  "不能保留",
+  "不能将",
+  "不能处理",
+  "我无法",
+  "无法生成",
+  "无法处理",
+  "无法帮助",
+  "无法按",
+  "未能",
+  "拒绝",
+  "拦截",
+  "安全",
+  "审核",
+  "受版权保护",
+  "人身辱骂",
+  "辱骂",
+  "不允许",
+];
+
 const MODERATION_PATTERNS = [
-  "moderation",
-  "content moderation",
   ...CONTENT_SAFETY_REJECTION_PATTERNS,
-  "aliyun",
   "omni-moderation",
   "risklevel",
 ];
+
+function normalizeErrorText(error: string | null | undefined) {
+  return (error || "").toLowerCase().replace(/[’‘`]/g, "'");
+}
 
 function includesAny(value: string, patterns: string[]) {
   return patterns.some((pattern) => value.includes(pattern));
 }
 
+function isApologyRefusal(value: string) {
+  const hasApology = /\bsorry\b/.test(value) || value.includes("抱歉");
+  return hasApology && includesAny(value, APOLOGY_REFUSAL_PATTERNS);
+}
+
+function isModerationServiceFailure(value: string) {
+  if (value.includes("content blocked by aliyun moderation")) return false;
+  if (value.includes("moderation_blocked")) return false;
+  if (value.includes("safety_violations")) return false;
+  return includesAny(value, MODERATION_SERVICE_FAILURE_PATTERNS);
+}
+
 export function isContentSafetyRejection(error: string | null | undefined) {
-  const normalized = (error || "").toLowerCase();
-  return includesAny(normalized, CONTENT_SAFETY_REJECTION_PATTERNS);
+  const normalized = normalizeErrorText(error);
+  if (isModerationServiceFailure(normalized)) return false;
+  return (
+    includesAny(normalized, CONTENT_SAFETY_REJECTION_PATTERNS) ||
+    isApologyRefusal(normalized)
+  );
 }
 
 export function classifyGenerationError(error: string | null | undefined) {
-  const normalized = (error || "").toLowerCase();
-  if (includesAny(normalized, MODERATION_PATTERNS)) {
-    return "moderation" satisfies GenerationErrorCategory;
+  const normalized = normalizeErrorText(error);
+  if (isModerationServiceFailure(normalized)) {
+    return "platform" satisfies GenerationErrorCategory;
   }
   if (includesAny(normalized, USER_REQUEST_PATTERNS)) {
     return "user_request" satisfies GenerationErrorCategory;
+  }
+  if (
+    isContentSafetyRejection(error) ||
+    includesAny(normalized, MODERATION_PATTERNS)
+  ) {
+    return "moderation" satisfies GenerationErrorCategory;
   }
   return "platform" satisfies GenerationErrorCategory;
 }

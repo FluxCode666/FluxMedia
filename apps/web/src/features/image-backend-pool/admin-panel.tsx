@@ -87,6 +87,7 @@ import { parseImportTokensText } from "./import-token-parser";
 import type {
   ImageBackendApiInterfaceMode,
   ImageBackendGroupBackendType,
+  ImagesUpstreamMode,
 } from "./types";
 
 type Group = {
@@ -151,6 +152,7 @@ type Api = {
   model: string | null;
   interfaceMode: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode: ChatCompletionsUpstreamModeFormValue;
+  imagesUpstreamMode: ImagesUpstreamModeFormValue;
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -171,6 +173,7 @@ type ApiInterfaceModeFormValue = ImageBackendApiInterfaceMode;
 type ChatCompletionsUpstreamModeFormValue =
   | "responses"
   | "chat_completions";
+type ImagesUpstreamModeFormValue = ImagesUpstreamMode;
 type TokenSyncMode = "web" | "responses" | "both";
 type Sub2ApiPlanFilter = "all" | "free" | "plus" | "pro" | "non_free";
 
@@ -281,7 +284,7 @@ const API_INTERFACE_MODE_OPTIONS: Array<{
     value: "mixed",
     label: "混合 API",
     detail:
-      "同时支持 /v1/images/* 和 /v1/responses；Chat/Agent 会走 /responses。",
+      "该上游同时支持 /images/* 和 /responses；具体使用哪个由下方两个上游开关决定。",
   },
   {
     value: "images",
@@ -291,7 +294,27 @@ const API_INTERFACE_MODE_OPTIONS: Array<{
   {
     value: "responses",
     label: "仅 Responses",
-    detail: "所有生图请求都转换为 /v1/responses，支持 Chat/Agent。",
+    detail:
+      "该上游只支持 /responses；可承接 Chat/Agent/Responses，也可在下方开启 Images 转 Responses。",
+  },
+];
+
+const IMAGES_UPSTREAM_MODE_OPTIONS: Array<{
+  value: ImagesUpstreamModeFormValue;
+  label: string;
+  detail: string;
+}> = [
+  {
+    value: "images",
+    label: "原生 Images",
+    detail:
+      "命中文生图/图生图时请求上游 /images/generations 或 /images/edits。默认推荐。",
+  },
+  {
+    value: "responses",
+    label: "转换为 Responses",
+    detail:
+      "命中文生图/图生图时转换为上游 /responses + image_generation tool，适合只提供 Responses 的上游。",
   },
 ];
 
@@ -693,6 +716,7 @@ export function ImageBackendPoolAdminPanel({
     interfaceMode: "mixed" as ApiInterfaceModeFormValue,
     chatCompletionsUpstreamMode:
       "responses" as ChatCompletionsUpstreamModeFormValue,
+    imagesUpstreamMode: "images" as ImagesUpstreamModeFormValue,
     useStream: false,
     contentSafetyEnabled: true,
     isEnabled: true,
@@ -965,6 +989,7 @@ export function ImageBackendPoolAdminPanel({
       interfaceMode: "mixed" as ApiInterfaceModeFormValue,
       chatCompletionsUpstreamMode:
         "responses" as ChatCompletionsUpstreamModeFormValue,
+      imagesUpstreamMode: "images" as ImagesUpstreamModeFormValue,
       useStream: false,
       contentSafetyEnabled: true,
       isEnabled: true,
@@ -1095,6 +1120,7 @@ export function ImageBackendPoolAdminPanel({
       interfaceMode: api.interfaceMode || "images",
       chatCompletionsUpstreamMode:
         api.chatCompletionsUpstreamMode || "responses",
+      imagesUpstreamMode: api.imagesUpstreamMode || "images",
       useStream: api.useStream,
       contentSafetyEnabled: api.contentSafetyEnabled,
       isEnabled: api.isEnabled,
@@ -3102,6 +3128,36 @@ export function ImageBackendPoolAdminPanel({
                 </p>
               </div>
               <div className="space-y-2">
+                <Label>Images 上游</Label>
+                <Select
+                  value={apiForm.imagesUpstreamMode}
+                  onValueChange={(value) =>
+                    setApiForm((current) => ({
+                      ...current,
+                      imagesUpstreamMode: value as ImagesUpstreamModeFormValue,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IMAGES_UPSTREAM_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {
+                    IMAGES_UPSTREAM_MODE_OPTIONS.find(
+                      (option) => option.value === apiForm.imagesUpstreamMode
+                    )?.detail
+                  }
+                </p>
+              </div>
+              <div className="space-y-2">
                 <Label>Chat Completions 上游</Label>
                 <Select
                   value={apiForm.chatCompletionsUpstreamMode}
@@ -3207,6 +3263,12 @@ export function ImageBackendPoolAdminPanel({
                           ? "原生"
                           : "Responses"}
                       </Badge>
+                      <Badge variant="outline">
+                        Images:{" "}
+                        {api.imagesUpstreamMode === "responses"
+                          ? "Responses"
+                          : "原生"}
+                      </Badge>
                       <Badge variant="secondary">{api.status}</Badge>
                       {isCoolingDown(api.cooldownUntil) && (
                         <Badge variant="secondary">冷却中</Badge>
@@ -3222,10 +3284,10 @@ export function ImageBackendPoolAdminPanel({
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {api.interfaceMode === "mixed"
-                        ? "文生图/图生图走 Images；Chat/Agent/Responses 走 Responses。"
+                        ? `混合接口；文生图/图生图走 ${api.imagesUpstreamMode === "responses" ? "Responses" : "Images"}，Chat 按独立开关调度。`
                         : api.interfaceMode === "responses"
-                          ? "所有请求转换为 Responses，可用于 Chat/Agent。"
-                          : "仅用于文生图/图生图，不参与 Chat/Agent/Responses 调度。"}
+                          ? `仅 Responses；${api.imagesUpstreamMode === "responses" ? "可承接文生图/图生图转换" : "默认不承接文生图/图生图"}。`
+                          : "仅 Images；只用于文生图/图生图，不参与 Chat/Agent/Responses 调度。"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       成功 {api.successCount} · 失败 {api.failCount} · 冷却至{" "}

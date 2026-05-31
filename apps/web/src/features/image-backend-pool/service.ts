@@ -49,6 +49,7 @@ import type { ApiConfig } from "@/features/image-generation/types";
 import {
   imageBackendApiInterfaceAllowsRequest,
   imageBackendApiUsesResponsesEndpoint,
+  normalizeImagesUpstreamMode,
   normalizeChatCompletionsUpstreamMode,
   normalizeImageBackendApiInterfaceMode,
 } from "./api-interface-mode";
@@ -66,6 +67,7 @@ import type {
   ImageBackendGroupSummary,
   ImageBackendPreferenceMode,
   ImageBackendRequestKind,
+  ImagesUpstreamMode,
 } from "./types";
 
 const MANUAL_TOKEN_IMPORT_LIMIT = 10_000;
@@ -92,6 +94,7 @@ type PoolMember =
       model: string | null;
       interfaceMode: ImageBackendApiInterfaceMode;
       chatCompletionsUpstreamMode: ChatCompletionsUpstreamMode;
+      imagesUpstreamMode: ImagesUpstreamMode;
       useStream: boolean;
       contentSafetyEnabled: boolean;
       priority: number;
@@ -1353,13 +1356,15 @@ async function selectPoolMember(
               groupBackendAllowsRequest(metadata, effectiveRequestKind) &&
               imageBackendApiInterfaceAllowsRequest(
                 row.interfaceMode,
-                effectiveRequestKind
+                effectiveRequestKind,
+                row.imageUpstreamMode
               ) &&
               (!requiresResponsesEndpoint ||
                 imageBackendApiUsesResponsesEndpoint(
                   row.interfaceMode,
                   effectiveRequestKind,
-                  true
+                  true,
+                  row.imageUpstreamMode
                 ))
             );
           })
@@ -1383,6 +1388,9 @@ async function selectPoolMember(
               ),
               chatCompletionsUpstreamMode: normalizeChatCompletionsUpstreamMode(
                 row.chatCompletionsUpstreamMode
+              ),
+              imagesUpstreamMode: normalizeImagesUpstreamMode(
+                row.imageUpstreamMode
               ),
               useStream: row.useStream,
               contentSafetyEnabled: row.contentSafetyEnabled,
@@ -1529,6 +1537,7 @@ function toResolvedPoolConfig(
           requestKind: options.requestKind,
           apiInterfaceMode: member.interfaceMode,
           chatCompletionsUpstreamMode: member.chatCompletionsUpstreamMode,
+          imagesUpstreamMode: member.imagesUpstreamMode,
           apiForceResponsesEndpoint:
             options.accountBackendPreference === "responses",
           billingGroupId: fallbackGroupId,
@@ -5115,6 +5124,7 @@ type UpsertApiInput = {
   model?: string | null;
   interfaceMode?: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode?: ChatCompletionsUpstreamMode;
+  imagesUpstreamMode?: ImagesUpstreamMode;
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -5132,6 +5142,7 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
     chatCompletionsUpstreamMode: normalizeChatCompletionsUpstreamMode(
       input.chatCompletionsUpstreamMode
     ),
+    imageUpstreamMode: normalizeImagesUpstreamMode(input.imagesUpstreamMode),
     useStream: input.useStream,
     contentSafetyEnabled: input.contentSafetyEnabled,
     isEnabled: input.isEnabled,
@@ -5286,6 +5297,7 @@ export async function listAdminImageBackendPool() {
       model: imageBackendApi.model,
       interfaceMode: imageBackendApi.interfaceMode,
       chatCompletionsUpstreamMode: imageBackendApi.chatCompletionsUpstreamMode,
+      imagesUpstreamMode: imageBackendApi.imageUpstreamMode,
       useStream: imageBackendApi.useStream,
       contentSafetyEnabled: imageBackendApi.contentSafetyEnabled,
       isEnabled: imageBackendApi.isEnabled,

@@ -5,6 +5,7 @@ import { isContentModerationEnabled } from "@repo/shared/moderation";
 import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
@@ -17,6 +18,9 @@ import {
   getUserImageBackendPreference,
   listSelectableImageBackendGroups,
 } from "@/features/image-backend-pool/service";
+
+const DEFAULT_FORCE_WEB_MIN_PIXELS = 660_000;
+const DEFAULT_FORCE_WEB_MAX_PIXELS = 2_000_000;
 
 export default async function CreatePage() {
   const user = await getCurrentUser();
@@ -42,10 +46,29 @@ export default async function CreatePage() {
     getUserImageBackendPreference(user.id, plan.plan),
     isContentModerationEnabled(),
   ]);
-  const [capabilities, imageBasePricing] = await Promise.all([
+  const [
+    capabilities,
+    imageBasePricing,
+    forceWebMinPixels,
+    forceWebMaxPixels,
+  ] = await Promise.all([
     getPlanCapabilitySnapshot(plan.plan),
     getRuntimeImageBaseCreditPricing(),
+    getRuntimeSettingNumber(
+      "IMAGE_FORCE_WEB_MIN_PIXELS",
+      DEFAULT_FORCE_WEB_MIN_PIXELS,
+      { nonNegative: true }
+    ),
+    getRuntimeSettingNumber(
+      "IMAGE_FORCE_WEB_MAX_PIXELS",
+      DEFAULT_FORCE_WEB_MAX_PIXELS,
+      { positive: true }
+    ),
   ]);
+  const forceWebPixelRange = {
+    minPixels: Math.min(forceWebMinPixels, forceWebMaxPixels),
+    maxPixels: Math.max(forceWebMinPixels, forceWebMaxPixels),
+  };
 
   const balance = creditsData?.balance || 0;
 
@@ -80,6 +103,7 @@ export default async function CreatePage() {
       customApiActive={Boolean(userApiConfig)}
       moderationEnabled={moderationEnabled}
       imageBasePricing={imageBasePricing}
+      forceWebPixelRange={forceWebPixelRange}
       timeZone={timeZone}
     />
   );

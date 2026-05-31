@@ -260,7 +260,7 @@ const sections = {
         "外接 API Key 可设置独立积分限额；GET /v1/credits 可查询 Key 限额、已用额度和账户余额。",
         "用户已启用“接入其他站 API”时，普通 /v1/chat/completions、/v1/images/generations、/v1/images/edits 和 /v1/responses 仍优先使用用户自接 API；命中时 credits_consumed 为 0，不扣本站余额，也不增加本站 API Key 已用额度。",
         "/v1/agents/images 和需要 Codex/Responses 能力的页面功能会忽略用户自接 API，按平台后端池或外接后端池结算本站积分。",
-        "image 接口的 force_web / forceWeb 只在进入平台 mixed 后端池后生效，不会覆盖用户自接 API。",
+        "image 接口的 web_first / webFirst / force_web / forceWeb 是 Web-first 优先路由，不是硬性只走 Web；它只在进入平台 mixed 后端池后生效，不会覆盖用户自接 API，Web 不可用或失败时会降级 Codex/Responses。",
       ],
       officialRefsTitle: "官方参考",
       officialRefs: [
@@ -552,7 +552,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：mixed 分组下可让 1K 尺寸优先尝试 Web，失败再回退 Codex/Responses。",
+                "本站扩展：mixed 分组下，请求尺寸在 Web-first 像素区间内时优先尝试 Web，失败再回退 Codex/Responses。区间由 IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS 配置，默认 0.66MP-2MP。",
             },
             {
               name: "requiresResponsesBackend / requires_responses_backend",
@@ -592,7 +592,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             },
           ],
           notes: [
-            "上游 API 配置可选择 Chat Completions 上游模式：默认 responses 会请求上游 /responses + image_generation tool，保留图片生成、图片引用和 Codex/Responses 能力。",
+            "上游 API 配置有两个独立开关：Images 上游控制 /v1/images/generations 与 /v1/images/edits 命中后请求上游 /images/* 还是转换到 /responses + image_generation tool；Chat Completions 上游只控制 /v1/chat/completions 命中后请求上游 /chat/completions 还是 /responses。",
             "选择 chat_completions 后，本站 /v1/chat/completions 会请求命中上游的 /chat/completions；这更适合纯聊天兼容，但是否能返回图片取决于上游实现。Agent 和 /v1/responses 不受该配置影响。",
             "OpenAI 官方 Chat Completions 并不定义“生成图片”的标准返回字段；本站为了兼容对话生图，在 Chat Completions 外形上扩展 choices[].message.images、顶层 images，并在 content 中追加 Markdown 图片链接。严格按官方生图协议接入时，建议使用 /v1/images/generations、/v1/images/edits 或 /v1/responses。",
             "该接口走页面 Chat 的非 Agent 模式，不会注入 web_search、continue_generation，也不会展示 Agent 多轮任务卡。",
@@ -655,7 +655,7 @@ curl https://your-domain.example/v1/images/generations \\
     "promptOptimization": false
   }'
 
-# 4. mixed 分组按可配置像素区间强制调度 Web 账号；非 mixed 分组会忽略 force_web
+# 4. mixed 分组按可配置像素区间优先尝试 Web；失败或耗尽后降级 Codex/Responses
 curl https://your-domain.example/v1/images/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -664,7 +664,7 @@ curl https://your-domain.example/v1/images/generations \\
     "prompt": "一张 1:1 头像海报",
     "size": "1024x1024",
     "response_format": "url",
-    "force_web": true
+    "web_first": true
   }'
 
 # 5. 流式返回；也可用 Accept: text/event-stream 触发
@@ -843,11 +843,11 @@ curl https://your-domain.example/v1/images/task_... \\
                 "minimal、none、low、medium、high、xhigh。仅针对 Codex/Responses 后端；Web 或普通 Images API 后端可能忽略。",
             },
             {
-              name: "force_web / forceWeb",
+              name: "web_first / webFirst / force_web / forceWeb",
               requirement: "可选",
               custom: true,
               description:
-                "仅 image 接口支持。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，只调度 Web 账号。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。Web 后端不能严格保证分辨率或 4K。",
+                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
             },
           ],
           responses: [
@@ -958,7 +958,7 @@ curl https://your-domain.example/v1/images/edits \\
     "thinking": "low"
   }'
 
-# 4. mixed 分组按可配置像素区间强制调度 Web 账号；非 mixed 分组会忽略 force_web
+# 4. mixed 分组按可配置像素区间优先尝试 Web；失败或耗尽后降级 Codex/Responses
 curl https://your-domain.example/v1/images/edits \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -968,7 +968,7 @@ curl https://your-domain.example/v1/images/edits \\
     "images": ["https://example.com/reference.png"],
     "size": "1024x1024",
     "response_format": "url",
-    "force_web": true
+    "web_first": true
   }'
 
 # 5. 流式图生图
@@ -1138,11 +1138,11 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
                 "minimal、none、low、medium、high、xhigh。仅针对 Codex/Responses 后端；Web 或普通 Images API 后端可能忽略。",
             },
             {
-              name: "force_web / forceWeb",
+              name: "web_first / webFirst / force_web / forceWeb",
               requirement: "可选",
               custom: true,
               description:
-                "仅 image 接口支持。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，只调度 Web 账号。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。Web 后端不能严格保证分辨率或 4K。",
+                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
             },
           ],
           responses: [
@@ -1653,8 +1653,9 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       description:
         "走管理员配置的 OpenAI 兼容 Base URL/API Key，最终能力由对方服务决定。",
       valid: [
-        "Images generation/edit 调用对方 Images API。",
-        "Responses 请求调用对方 /responses。",
+        "接口模式只声明上游支持哪些端点：仅 Images 只参与文生图/图生图；仅 Responses 只参与 Chat/Agent/Responses，除非 Images 上游开关设为 Responses；混合 API 两边都可参与。",
+        "Images 上游开关独立控制文生图/图生图：原生 Images 会请求对方 /images/generations 和 /images/edits；转换为 Responses 会请求对方 /responses + image_generation tool。",
+        "Chat Completions 上游开关独立控制 /v1/chat/completions：Responses 生图模式请求对方 /responses；原生模式请求对方 /chat/completions。",
         "模型、尺寸、质量、流式事件、usage 字段是否支持，以对方接口为准。",
       ],
       invalid: [
@@ -1951,7 +1952,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "External API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
         "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and GPT2IMAGE does not charge account credits or API key quota.",
         "/v1/agents/images and page features that require Codex/Responses capability ignore user custom API and are billed through the platform or external backend pool.",
-        "Image endpoint force_web / forceWeb only applies after routing enters a platform mixed backend group; it does not override user custom API.",
+        "Image endpoint web_first / webFirst / force_web / forceWeb means Web-first preference, not hard Web-only routing. It only applies after routing enters a platform mixed backend group, does not override user custom API, and falls back to Codex/Responses when Web is unavailable or fails.",
       ],
       officialRefsTitle: "Official References",
       officialRefs: [
@@ -2244,7 +2245,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension. In mixed groups, 1K sizes can try Web first and fall back to Codex/Responses.",
+                "GPT2IMAGE extension. In mixed groups, sizes inside the Web-first pixel range try Web first and fall back to Codex/Responses. The range is configured by IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS and defaults to 0.66MP-2MP.",
             },
             {
               name: "requiresResponsesBackend / requires_responses_backend",
@@ -2284,7 +2285,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             },
           ],
           notes: [
-            "Upstream API configs can choose the Chat Completions upstream mode. The default responses mode calls upstream /responses with the image_generation tool so image generation, image references, and Codex/Responses capabilities are preserved.",
+            "Upstream API configs have two independent switches: Images upstream controls whether /v1/images/generations and /v1/images/edits call upstream /images/* or are converted to /responses + the image_generation tool; Chat Completions upstream only controls whether /v1/chat/completions calls upstream /chat/completions or /responses.",
             "Selecting chat_completions makes GPT2IMAGE /v1/chat/completions call the selected upstream's /chat/completions. This is better for pure chat compatibility, but image output depends on the upstream implementation. Agent and /v1/responses are not affected.",
             "OpenAI official Chat Completions does not define a standard generated-image response field. GPT2IMAGE extends the Chat Completions shape with choices[].message.images, top-level images, and Markdown image links in content. For strict official image-generation semantics, use /v1/images/generations, /v1/images/edits, or /v1/responses.",
             "This endpoint uses page Chat non-Agent mode. It does not inject web_search or continue_generation and does not return Agent task cards.",
@@ -2347,7 +2348,7 @@ curl https://your-domain.example/v1/images/generations \\
     "promptOptimization": false
   }'
 
-# 4. Force Web account scheduling for mixed groups within the configured pixel range. Non-mixed groups ignore force_web.
+# 4. Prefer Web account scheduling for mixed groups within the configured pixel range. Failed or exhausted Web routing falls back to Codex/Responses.
 curl https://your-domain.example/v1/images/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -2356,7 +2357,7 @@ curl https://your-domain.example/v1/images/generations \\
     "prompt": "A 1:1 avatar poster",
     "size": "1024x1024",
     "response_format": "url",
-    "force_web": true
+    "web_first": true
   }'
 
 # 5. Streaming response. Accept: text/event-stream also enables streaming.
@@ -2535,11 +2536,11 @@ curl https://your-domain.example/v1/images/task_... \\
                 "minimal, none, low, medium, high, or xhigh. Only applies to Codex/Responses backends; Web or plain Images API backends may ignore it.",
             },
             {
-              name: "force_web / forceWeb",
+              name: "web_first / webFirst / force_web / forceWeb",
               requirement: "Optional",
               custom: true,
               description:
-                "Only supported by image endpoints. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups schedule Web accounts only when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field. Web backends cannot strictly guarantee resolution or 4K output.",
+                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
             },
           ],
           responses: [
@@ -2651,7 +2652,7 @@ curl https://your-domain.example/v1/images/edits \\
     "thinking": "low"
   }'
 
-# 4. Force Web account scheduling for mixed groups within the configured pixel range. Non-mixed groups ignore force_web.
+# 4. Prefer Web account scheduling for mixed groups within the configured pixel range. Failed or exhausted Web routing falls back to Codex/Responses.
 curl https://your-domain.example/v1/images/edits \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -2661,7 +2662,7 @@ curl https://your-domain.example/v1/images/edits \\
     "images": ["https://example.com/reference.png"],
     "size": "1024x1024",
     "response_format": "url",
-    "force_web": true
+    "web_first": true
   }'
 
 # 5. Streaming image edit.
@@ -2833,11 +2834,11 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
                 "minimal, none, low, medium, high, or xhigh. Only applies to Codex/Responses backends; Web or plain Images API backends may ignore it.",
             },
             {
-              name: "force_web / forceWeb",
+              name: "web_first / webFirst / force_web / forceWeb",
               requirement: "Optional",
               custom: true,
               description:
-                "Only supported by image endpoints. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups schedule Web accounts only when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field. Web backends cannot strictly guarantee resolution or 4K output.",
+                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
             },
           ],
           responses: [
@@ -3355,8 +3356,9 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       description:
         "Uses an admin-configured OpenAI-compatible Base URL/API Key. Final capability depends on that service.",
       valid: [
-        "Images generation/edit call the external Images API.",
-        "Responses requests call the external /responses endpoint.",
+        "Interface mode only declares which upstream endpoints exist: Images-only participates in image generation/edit only; Responses-only participates in Chat/Agent/Responses unless Images upstream is set to Responses; Mixed API can participate in both sides.",
+        "Images upstream independently controls image generation/edit: native Images calls external /images/generations and /images/edits; Responses conversion calls external /responses + the image_generation tool.",
+        "Chat Completions upstream independently controls /v1/chat/completions: Responses image mode calls external /responses; native mode calls external /chat/completions.",
         "Model, size, quality, streaming events, and usage fields depend on the external API implementation.",
       ],
       invalid: [

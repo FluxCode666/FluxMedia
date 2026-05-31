@@ -21,7 +21,7 @@ describe("image backend API interface mode", () => {
     );
   });
 
-  it("keeps responses-only API backends on responses and chat requests", () => {
+  it("keeps responses-only API backends on responses and chat requests by default", () => {
     expect(
       imageBackendApiInterfaceAllowsRequest("responses", "image_generation")
     ).toBe(false);
@@ -43,6 +43,46 @@ describe("image backend API interface mode", () => {
     expect(imageBackendApiUsesResponsesEndpoint("responses", "chat")).toBe(
       true
     );
+  });
+
+  it("routes image requests through responses only when the image switch is enabled", () => {
+    expect(
+      imageBackendApiInterfaceAllowsRequest(
+        "responses",
+        "image_generation",
+        "responses"
+      )
+    ).toBe(true);
+    expect(
+      imageBackendApiInterfaceAllowsRequest(
+        "responses",
+        "image_edit",
+        "responses"
+      )
+    ).toBe(true);
+    expect(
+      imageBackendApiUsesResponsesEndpoint(
+        "responses",
+        "image_generation",
+        false,
+        "responses"
+      )
+    ).toBe(true);
+    expect(
+      imageBackendApiUsesResponsesEndpoint(
+        "mixed",
+        "image_edit",
+        false,
+        "responses"
+      )
+    ).toBe(true);
+    expect(
+      imageBackendApiInterfaceAllowsRequest(
+        "images",
+        "image_generation",
+        "responses"
+      )
+    ).toBe(false);
   });
 
   it("uses native image endpoints for mixed image requests and responses for chat", () => {

@@ -98,6 +98,8 @@ const JSON_SCALAR_FIELDS = [
   "thinking",
   "force_web",
   "forceWeb",
+  "web_first",
+  "webFirst",
   "stream",
   "async",
   "callback_url",
@@ -655,6 +657,8 @@ export const postExternalImageEdits = withApiLogging(
     const thinking = thinkingValue as ThinkingLevel | undefined;
     const forceWebBackend = getOptionalBoolean(
       formData,
+      "web_first",
+      "webFirst",
       "force_web",
       "forceWeb"
     );
