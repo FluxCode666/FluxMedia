@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@repo/shared/security/dns-pin", () => ({
+  fetchWithDnsPin: vi.fn(),
+  SsrfBlockedError: class SsrfBlockedError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "SsrfBlockedError";
+    }
+  },
+}));
+
+import { fetchWithDnsPin } from "@repo/shared/security/dns-pin";
 import {
   assertPublicCallbackUrl,
   assertPublicImageUrl,
@@ -9,8 +20,11 @@ import {
   SafeImageFetchError,
 } from "./safe-image-fetch";
 
+const mockFetchWithDnsPin = vi.mocked(fetchWithDnsPin);
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  mockFetchWithDnsPin.mockReset();
 });
 
 describe("assertPublicImageUrl", () => {
@@ -49,15 +63,11 @@ describe("assertPublicImageUrl", () => {
 
 describe("fetchPublicImage", () => {
   it("rejects a redirect that targets a private IP", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(null, {
-            status: 302,
-            headers: { location: "http://169.254.169.254/latest/meta-data/" },
-          })
-      )
+    mockFetchWithDnsPin.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://169.254.169.254/latest/meta-data/" },
+      })
     );
 
     await expect(
@@ -66,18 +76,14 @@ describe("fetchPublicImage", () => {
   });
 
   it("throws after exceeding the redirect budget", async () => {
-    // 用字面公网 IP 避免触发真实 DNS 解析，聚焦重定向预算逻辑。
     let counter = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        counter += 1;
-        return new Response(null, {
-          status: 302,
-          headers: { location: `https://1.1.1.1/hop-${counter}.png` },
-        });
-      })
-    );
+    mockFetchWithDnsPin.mockImplementation(async () => {
+      counter += 1;
+      return new Response(null, {
+        status: 302,
+        headers: { location: `https://1.1.1.1/hop-${counter}.png` },
+      });
+    });
 
     await expect(
       fetchPublicImage("https://1.1.1.1/image.png")
@@ -85,9 +91,8 @@ describe("fetchPublicImage", () => {
   });
 
   it("returns the final response for a public URL", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("ok", { status: 200 }))
+    mockFetchWithDnsPin.mockResolvedValueOnce(
+      new Response("ok", { status: 200 })
     );
 
     const response = await fetchPublicImage("https://1.1.1.1/image.png");
@@ -116,19 +121,17 @@ describe("assertPublicCallbackUrl", () => {
 
 describe("fetchPublicCallback", () => {
   it("does not follow a redirect to a private address", async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(null, {
-          status: 302,
-          headers: { location: "https://10.0.0.5/internal" },
-        })
+    mockFetchWithDnsPin.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://10.0.0.5/internal" },
+      })
     );
-    vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       fetchPublicCallback("https://1.1.1.1/callback", { body: "{}" })
     ).rejects.toBeInstanceOf(SafeImageFetchError);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockFetchWithDnsPin).toHaveBeenCalledTimes(1);
   });
 });
 

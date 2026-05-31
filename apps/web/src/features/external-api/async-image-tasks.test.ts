@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@repo/shared/security/dns-pin", () => ({
+  fetchWithDnsPin: vi.fn(),
+  SsrfBlockedError: class SsrfBlockedError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "SsrfBlockedError";
+    }
+  },
+}));
+
+import { fetchWithDnsPin } from "@repo/shared/security/dns-pin";
 import {
   completeAsyncImageTask,
   createAsyncImageTask,
@@ -8,8 +19,11 @@ import {
   validateCallbackUrl,
 } from "./async-image-tasks";
 
+const mockFetchWithDnsPin = vi.mocked(fetchWithDnsPin);
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  mockFetchWithDnsPin.mockReset();
 });
 
 describe("external async image tasks", () => {
@@ -72,17 +86,15 @@ describe("external async image tasks", () => {
   });
 
   it("posts callback payloads with the callback marker header", async () => {
-    const fetchMock = vi.fn(async () => new Response("ok"));
-    vi.stubGlobal("fetch", fetchMock);
+    mockFetchWithDnsPin.mockResolvedValueOnce(new Response("ok"));
     const task = createAsyncImageTask({ userId: "user_1" });
 
     await postAsyncImageCallback("https://example.com/callback", task);
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.objectContaining({ href: "https://example.com/callback" }),
+    expect(mockFetchWithDnsPin).toHaveBeenCalledWith(
+      expect.stringContaining("https://example.com/callback"),
       expect.objectContaining({
         method: "POST",
-        redirect: "manual",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           "X-Tokens-Callback": "true",
@@ -92,19 +104,16 @@ describe("external async image tasks", () => {
   });
 
   it("does not follow a callback redirect into a private address", async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(null, {
-          status: 302,
-          headers: { location: "http://169.254.169.254/latest/meta-data/" },
-        })
+    mockFetchWithDnsPin.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://169.254.169.254/latest/meta-data/" },
+      })
     );
-    vi.stubGlobal("fetch", fetchMock);
     const task = createAsyncImageTask({ userId: "user_1" });
 
     await postAsyncImageCallback("https://example.com/callback", task);
 
-    // 第二跳是内网且为 http，逐跳校验拦下，绝不对内网/元数据发起请求。
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockFetchWithDnsPin).toHaveBeenCalledTimes(1);
   });
 });
