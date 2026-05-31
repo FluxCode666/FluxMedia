@@ -85,6 +85,80 @@
 
 **实现时机**：管理员 MCP（阶段3）先行；用户 MCP 在管理员 MCP 稳定后作为独立阶段实现。
 
+---
+
+## 多端口/多域名拆分（后续架构任务）
+
+> 目标：将 admin / app(用户前台) / api(v1外接) / platform(落地页/文档) 拆分到独立端口，绑定不同子域名，实现物理级别隔离。
+
+### 架构决策
+
+以 `gpt2image.pro` 为例：
+
+| 子域名 | 端口 | 职责 | 账号体系 |
+|---|---|---|---|
+| `admin.gpt2image.pro` | :3001 | 管理后台 + 管理员 MCP + 内置 Agent | 管理员独立账号系统（与用户隔离） |
+| `app.gpt2image.pro` | :3000 | 用户前台（创作/画廊/设置/工单） | 用户账号 |
+| `api.gpt2image.pro` | :3002 | v1 外接 API + 用户 MCP | API Key / MCP Key |
+| `platform.gpt2image.pro` | :3003 | 落地页/文档/定价/注册入口 | 公开（无需登录） |
+
+**要点**：
+- 管理员账号体系与用户完全隔离（独立 DB 表或独立 Better Auth 实例），杜绝提权跨界
+- 站点管理 Agent、管理员 MCP 只在 admin 站点存在，用户侧完全不可达
+- Nginx 按子域名反代到不同端口（同一 Docker 主机多 Next.js 实例，或单实例多端口监听+中间件路由）
+- 各端口独立的 CORS / CSP / Cookie Domain 配置
+- 当前单进程架构（共享 DB 连接池/settings 缓存/进程队列）在多进程后需迁 Redis；或用中间件路由方案保持单进程
+
+### 实现方式选项
+
+1. **单 Next.js 实例 + Nginx 子域名路由**（渐进式，推荐先行）：
+   - 一个 web 应用，Nginx 按 Host header 将请求转发到不同 base path
+   - 中间件层根据 Host 判断角色域，拒绝跨域访问（admin 域拒绝用户 cookie，反之亦然）
+   - 最小改动，逐步分离
+
+2. **Turborepo 多 app**（彻底隔离）：
+   - apps/admin、apps/web、apps/api、apps/platform 各自独立 Next.js 应用
+   - 共享 packages/shared 和 packages/database
+   - Docker Compose 多容器，每个绑定独立端口
+   - 改动量大但隔离最彻底
+
+### 前置条件
+- [ ] 管理员独立账号系统设计（独立 admin_user 表 vs 复用 user 表加 namespace vs 独立 Better Auth 实例）
+- [ ] 确定单实例路由 vs 多实例部署（影响进程内态共享：队列/inflight/缓存）
+- [ ] Nginx 配置模板（子域名泛解析 + 反代规则 + SSL 泛域名证书）
+- [ ] Cookie domain 策略（`.gpt2image.pro` 共享 vs 各子域独立）
+
+---
+
+## 组织空间 / 企业版（远期规划）
+
+> 面向高级用户（企业版），支持创建组织，拥有独立子域名空间。
+
+### 概念
+
+- 企业用户购买组织版后，可创建组织（Organization）
+- 每个组织拥有独立子域名：`<org-slug>.gpt2image.pro`（需 Nginx 泛解析 `*.gpt2image.pro` + 动态反代）
+- 组织空间内：独立成员管理、独立积分池/配额、独立 API Key 命名空间、独立生成历史/画廊
+- 组织管理员 vs 组织成员 vs 组织 API Key 的三级权限
+
+### 技术要点
+
+- **泛解析端口**：Nginx `server_name *.gpt2image.pro`，根据子域名查 DB 匹配组织，代理到同一 Next.js 实例但注入组织上下文
+- **SSL**：Let's Encrypt 泛域名证书（DNS-01 challenge）或 Cloudflare 代理
+- **多租户隔离**：
+  - 数据层：所有表增 `organizationId` nullable FK，查询层自动注入过滤（RLS 或 Drizzle where 装饰）
+  - 存储层：对象存储按 `org-<id>/` 前缀隔离
+  - 计费层：组织积分池独立于个人（组织 credits_balance + 组织 credits_transaction）
+- **UOL 影响**：Principal 新增 `organizationId?: string`，invokeOperation 自动注入组织上下文，MCP 工具按组织 scope 过滤
+- **现有架构兼容**：无组织的用户（个人版）`organizationId = null`，行为完全不变
+
+### 依赖
+- 多端口/多域名拆分先行（组织子域名是在其之上的扩展）
+- 多租户数据隔离方案确定
+- 泛域名 SSL 自动签发方案
+
+---
+
 ## 部署前必做
 
 - [ ] 应用 `packages/database/drizzle/0025_credits_batch_idempotency.sql` 前，先排查 `credits_batch` 是否已有重复 `(source_type, source_ref)`（历史双发遗留），否则唯一索引创建会失败。排查 SQL 见迁移文件头注释。
