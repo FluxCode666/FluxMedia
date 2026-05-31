@@ -302,10 +302,10 @@
 - UOL 概念在 Go 中的对应实现（Operation Registry + middleware chain）
 - 渐进式迁移：逐个路由从 Next.js 切换到 Go（Nginx 按路径分流），非一次性全切
 
-### 依赖
+### 实施时机
 
-- 多 app 拆分完成（apps/api 独立后更容易替换为 Go 服务）
-- UOL 全量对接完成（明确全部 operation 边界后再迁移）
+- **建议与多 app 拆分同步进行**：拆分 apps/api 时直接用 Go 实现，而非先拆出 Next.js api app 再二次重写为 Go，避免重复工作
+- UOL 全量对接完成后再动手（明确全部 operation 边界）
 
 ---
 
