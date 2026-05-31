@@ -87,46 +87,70 @@
 
 ---
 
-## 多端口/多域名拆分（后续架构任务）
+## 多端口/多域名拆分（Turborepo 多 app 方案，已决策）
 
-> 目标：将 admin / app(用户前台) / api(v1外接) / platform(落地页/文档) 拆分到独立端口，绑定不同子域名，实现物理级别隔离。
+> 决策：Turborepo 多 app 彻底隔离。单容器 PM2 多进程部署。管理员独立 Better Auth 实例。
 
-### 架构决策
+### 确定方案
 
-以 `gpt2image.pro` 为例：
+| 子域名 | app | 端口 | 职责 | 账号体系 |
+|---|---|---|---|---|
+| `admin.gpt2image.pro` | apps/admin | :3001 | 管理后台全部页面 + 管理员 MCP + 内置 Agent | 独立 Better Auth 实例（admin_user/admin_session/admin_account 表） |
+| `app.gpt2image.pro` | apps/web | :3000 | 用户前台（创作/画廊/设置/工单/公告） | 用户 Better Auth（现有） |
+| `api.gpt2image.pro` | apps/api | :3002 | v1 外接 API + 用户 MCP | API Key / MCP Key（无 session） |
+| `platform.gpt2image.pro` | apps/platform | :3003 | 落地页/文档/定价/注册入口 | 公开（Next.js SSR，同栈共享 packages/ui） |
 
-| 子域名 | 端口 | 职责 | 账号体系 |
-|---|---|---|---|
-| `admin.gpt2image.pro` | :3001 | 管理后台 + 管理员 MCP + 内置 Agent | 管理员独立账号系统（与用户隔离） |
-| `app.gpt2image.pro` | :3000 | 用户前台（创作/画廊/设置/工单） | 用户账号 |
-| `api.gpt2image.pro` | :3002 | v1 外接 API + 用户 MCP | API Key / MCP Key |
-| `platform.gpt2image.pro` | :3003 | 落地页/文档/定价/注册入口 | 公开（无需登录） |
+### 关键决策点
 
-**要点**：
-- 管理员账号体系与用户完全隔离（独立 DB 表或独立 Better Auth 实例），杜绝提权跨界
-- 站点管理 Agent、管理员 MCP 只在 admin 站点存在，用户侧完全不可达
-- Nginx 按子域名反代到不同端口（同一 Docker 主机多 Next.js 实例，或单实例多端口监听+中间件路由）
-- 各端口独立的 CORS / CSP / Cookie Domain 配置
-- 当前单进程架构（共享 DB 连接池/settings 缓存/进程队列）在多进程后需迁 Redis；或用中间件路由方案保持单进程
+**管理员账号**：独立 Better Auth 实例（隔离登录入口，共享数据操作权）
+- apps/admin 有自己的 `auth` 配置（独立 `ADMIN_BETTER_AUTH_SECRET`）
+- 独立表：`admin_user` / `admin_session` / `admin_account`（同一 DB 不同前缀）
+- 管理员登录入口独立，用户无法通过 app.gpt2image.pro 进入管理后台
+- **但管理员可操作主站全部数据**（同一 DB，admin 进程有全表读写权限）——隔离目的是防止用户越权和分离使用界面，不是限制管理员访问
+- Cookie domain：`admin.gpt2image.pro`（不设 `.gpt2image.pro` 防 cookie 跨域泄露到用户侧）
 
-### 实现方式选项
+**部署形态**：单容器 PM2 多进程
+- 单个 Docker 镜像内含 4 个 Next.js build 产物
+- PM2 ecosystem.config.js 启动 4 个进程绑定不同端口
+- 共享文件系统（.env.local / local storage 目录）、共享同一 DATABASE_URL
+- Nginx 按 Host header 反代到 127.0.0.1:3000-3003
+- 进程间不共享内存（队列/inflight/缓存各进程独立）——需迁 Redis 或接受退化
 
-1. **单 Next.js 实例 + Nginx 子域名路由**（渐进式，推荐先行）：
-   - 一个 web 应用，Nginx 按 Host header 将请求转发到不同 base path
-   - 中间件层根据 Host 判断角色域，拒绝跨域访问（admin 域拒绝用户 cookie，反之亦然）
-   - 最小改动，逐步分离
+**隔离本质**：
+- 隔离的是**用户入口和界面**，不是数据——管理员需要操作主站所有数据（用户表/积分/生成记录等）
+- 目的：防止用户通过 URL 猜测/越权进入管理页面；管理员和用户各有清晰的使用界面
+- 4 个 app 连同一个 PostgreSQL，admin app 对全表有完整读写权限
 
-2. **Turborepo 多 app**（彻底隔离）：
-   - apps/admin、apps/web、apps/api、apps/platform 各自独立 Next.js 应用
-   - 共享 packages/shared 和 packages/database
-   - Docker Compose 多容器，每个绑定独立端口
-   - 改动量大但隔离最彻底
+**apps/admin 范围**：全部现有 admin 页面 + MCP + Agent
+- 用户管理（列表/详情/封禁/角色/建号/改密）
+- 系统设置面板
+- 后端池管理（账号/组/Sub2API 同步）
+- 工单管理（管理员视角）
+- 公告管理
+- 审计日志查看
+- 管理员 MCP（`/api/mcp/admin` 迁入此 app）
+- 内置 Agent UI
 
-### 前置条件
-- [ ] 管理员独立账号系统设计（独立 admin_user 表 vs 复用 user 表加 namespace vs 独立 Better Auth 实例）
-- [ ] 确定单实例路由 vs 多实例部署（影响进程内态共享：队列/inflight/缓存）
-- [ ] Nginx 配置模板（子域名泛解析 + 反代规则 + SSL 泛域名证书）
-- [ ] Cookie domain 策略（`.gpt2image.pro` 共享 vs 各子域独立）
+**apps/platform**：Next.js SSR（同栈）
+- 共享 packages/ui 组件
+- 落地页、功能介绍、定价表、文档（Fumadocs）
+- 注册/登录入口（跳转 app.gpt2image.pro）
+- SEO + i18n
+
+### 实施步骤（TODO）
+
+- [ ] Turborepo 新增 apps/admin（独立 Next.js，port 3001）
+- [ ] Turborepo 新增 apps/api（独立 Next.js，port 3002，仅 API 路由无 UI）
+- [ ] Turborepo 新增 apps/platform（独立 Next.js，port 3003）
+- [ ] apps/admin 独立 Better Auth 配置 + admin_user/session/account 迁移
+- [ ] 从 apps/web 迁移 admin 路由组到 apps/admin（`/dashboard/admin/*` 全部）
+- [ ] 从 apps/web 迁移 v1 API 路由到 apps/api（`/api/v1/*`、`/api/mcp/user/*`）
+- [ ] 管理员 MCP 从 apps/web 迁移到 apps/admin
+- [ ] apps/web 仅保留用户前台路由（创作/画廊/设置/工单/公告/用户 profile）
+- [ ] Nginx 配置：泛解析 `*.gpt2image.pro` + 4 个 upstream + SSL 泛域名证书
+- [ ] PM2 ecosystem.config.js + Dockerfile 多进程启动
+- [ ] Cookie domain 隔离验证（admin cookie 不泄露到 app/api/platform）
+- [ ] 进程内态退化评估：队列/inflight/settings 缓存 在多进程下的行为（是否需 Redis）
 
 ---
 
