@@ -35,6 +35,12 @@ vi.mock("@/features/image-generation/request-utils", () => ({
   uploadTemporaryImageUrls: mocks.uploadTemporaryImageUrls,
 }));
 
+type BatchRunMockParams = {
+  count: number;
+  generationIds?: string[];
+  run: (generationId: string) => Promise<unknown>;
+};
+
 function chatCompletionsRequest(body: Record<string, unknown>) {
   return new Request("https://example.test/v1/chat/completions", {
     method: "POST",
@@ -71,7 +77,7 @@ describe("external chat completions handler streaming bridge", () => {
       creditsConsumed: 1,
     });
     mocks.runBatchImageGeneration.mockImplementation(
-      async ({ count, generationIds, run }: any) => {
+      async ({ count, generationIds, run }: BatchRunMockParams) => {
         const results = [];
         for (let index = 0; index < count; index += 1) {
           results.push(await run(generationIds?.[index] || `gen_${index + 1}`));
@@ -95,7 +101,9 @@ describe("external chat completions handler streaming bridge", () => {
 
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(payload.object).toBe("chat.completion");
-    const [input, callbacks] = mocks.runImageGenerationForUser.mock.calls[0]!;
+    const call = mocks.runImageGenerationForUser.mock.calls[0];
+    if (!call) throw new Error("expected image generation to be called");
+    const [input, callbacks] = call;
     expect(input).toEqual(
       expect.objectContaining({
         stream: undefined,
@@ -119,7 +127,9 @@ describe("external chat completions handler streaming bridge", () => {
     );
     await response.json();
 
-    const [input] = mocks.runImageGenerationForUser.mock.calls[0]!;
+    const call = mocks.runImageGenerationForUser.mock.calls[0];
+    if (!call) throw new Error("expected image generation to be called");
+    const [input] = call;
     expect(input).toEqual(
       expect.objectContaining({
         model: undefined,
