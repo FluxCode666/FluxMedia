@@ -1,5 +1,6 @@
 import type { StorageProvider } from "../types";
 import { getRuntimeSettingString } from "../../system-settings";
+import { buildSignedStorageImageUrl } from "../signed-url";
 
 /**
  * 路径模块的最小接口
@@ -83,15 +84,19 @@ async function safePath(bucket: string, key: string): Promise<string> {
 /**
  * 本地存储提供者
  *
- * 注意（语义差异，调用方须知）：本地后端没有预签名能力，getSignedUrl 与
- * getSignedUploadUrl 都仅返回普通 GET 路由 `/api/storage/{bucket}/{key}`，
- * 忽略 contentType/expiresIn，且 getSignedUploadUrl 返回的并非可直接 PUT 的
- * 上传 URL（该路由只实现 GET）。S3 后端返回真正的预签名 PUT/GET。
- * 因此依赖预签名直传的调用方在 local 后端下需要走专门的本地上传端点。
+ * 注意（语义差异，调用方须知）：本地后端的 getSignedUrl 返回带 sig/exp 的
+ * 站内读取路由 `/api/storage/{bucket}/{key}`，用于提供给外部服务下载。
+ * getSignedUploadUrl 仍返回普通 GET 路由，并非可直接 PUT 的上传 URL；S3
+ * 后端返回真正的预签名 PUT/GET。因此依赖预签名直传的调用方在 local 后端下
+ * 需要走专门的本地上传端点。
  */
 export const localProvider: StorageProvider = {
-  async getSignedUrl(key: string, bucket: string): Promise<string> {
-    return `/api/storage/${bucket}/${key}`;
+  async getSignedUrl(
+    key: string,
+    bucket: string,
+    expiresIn: number
+  ): Promise<string> {
+    return buildSignedStorageImageUrl(key, bucket, expiresIn) ?? "";
   },
 
   async getSignedUploadUrl(

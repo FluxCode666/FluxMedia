@@ -1,4 +1,4 @@
-import { generateSignedImageUrl } from "@repo/shared/storage/signed-url";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -11,9 +11,7 @@ function stringValue(value: unknown) {
 }
 
 export function buildStorageUrl(bucket: string | null, key: string | null) {
-  if (!key) return undefined;
-  const resolvedBucket = bucket || "generations";
-  return generateSignedImageUrl(resolvedBucket, key);
+  return buildSignedStorageImageUrl(key, bucket) || undefined;
 }
 
 export function getPromptRepairNotice(metadata: unknown) {

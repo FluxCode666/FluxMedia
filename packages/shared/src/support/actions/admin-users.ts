@@ -47,6 +47,7 @@ import {
 } from "../../credits/core";
 import { expireStalePendingGenerations } from "../../generation-maintenance";
 import { adminAction, superAdminAction } from "../../safe-action";
+import { buildSignedStorageImageUrl } from "../../storage/signed-url";
 import { getUserPlan } from "../../subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "../../system-settings";
 import { randomUUID } from "node:crypto";
@@ -687,9 +688,10 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
       transactions,
       generations: generations.map((item) => ({
         ...item,
-        imageUrl: item.storageKey
-          ? `/api/storage/${item.storageBucket ?? "generations"}/${item.storageKey}`
-          : null,
+        imageUrl: buildSignedStorageImageUrl(
+          item.storageKey,
+          item.storageBucket
+        ),
       })),
       apiKeys,
       auditLogs,

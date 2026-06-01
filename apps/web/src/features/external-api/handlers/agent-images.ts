@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { withApiLogging } from "@repo/shared/api-logger";
+import { buildPublicImageUrl } from "@repo/shared/storage/signed-url";
 import {
   canUsePlanCapability,
   getPlanLimits,
@@ -773,11 +774,7 @@ function getRequestBaseUrl(request: NextRequest) {
 }
 
 function toPublicImageUrl(request: NextRequest, imageUrl?: string) {
-  if (!imageUrl) return imageUrl;
-  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-    return imageUrl;
-  }
-  return new URL(imageUrl, getRequestBaseUrl(request)).toString();
+  return buildPublicImageUrl(imageUrl, getRequestBaseUrl(request));
 }
 
 function normalizeHistoryImageUrls(

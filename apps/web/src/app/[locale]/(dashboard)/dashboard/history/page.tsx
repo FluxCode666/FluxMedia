@@ -3,12 +3,12 @@ import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { HistoryClient } from "@/features/image-generation/components/history-client";
 import { extractGenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 import {
   extractGenerationReferenceImages,
   extractPromptRepairNotice,
-  toStoredImageUrl,
 } from "@/features/image-generation/generation-metadata";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
@@ -61,7 +61,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
     error: g.error,
     storageKey: g.storageKey,
     storageBucket: g.storageBucket,
-    imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
+    imageUrl: buildSignedStorageImageUrl(g.storageKey, g.storageBucket),
     referenceImages: extractGenerationReferenceImages(g.metadata),
     createdAt: g.createdAt.toISOString(),
   }));

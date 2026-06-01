@@ -2,6 +2,7 @@ import { db } from "@repo/database";
 import { creditsBalance, generation } from "@repo/database/schema";
 import { auth } from "@repo/shared/auth";
 import { formatCredits } from "@repo/shared/credits/format";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -21,7 +22,6 @@ import {
   listImageBackendGroupOptions,
 } from "@/features/image-backend-pool/service";
 import { RecentCreationsClient } from "@/features/image-generation/components/recent-creations-client";
-import { toStoredImageUrl } from "@/features/image-generation/generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
 import { getImageBaseCreditPricing } from "@/features/image-generation/resolution";
 import { Link } from "@/i18n/routing";
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
     creditsConsumed: gen.creditsConsumed,
     storageKey: gen.storageKey,
     storageBucket: gen.storageBucket,
-    imageUrl: toStoredImageUrl(gen.storageBucket, gen.storageKey),
+    imageUrl: buildSignedStorageImageUrl(gen.storageKey, gen.storageBucket),
     createdAt: gen.createdAt.toISOString(),
   }));
 

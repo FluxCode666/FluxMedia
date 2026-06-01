@@ -1,5 +1,8 @@
 import { logWarn } from "@repo/shared/logger";
-import { generateSignedImageUrl } from "@repo/shared/storage/signed-url";
+import {
+  buildPublicImageUrl,
+  parseStorageImageUrl,
+} from "@repo/shared/storage/signed-url";
 import type { ImageGenerationOperationResult } from "@/features/image-generation/operations";
 import { isContentSafetyRejection } from "@/features/image-generation/sla-classification";
 import type { GeneratedImageOutput } from "@/features/image-generation/types";
@@ -25,11 +28,6 @@ type JsonKeepAliveOptions = {
   keepAliveMs?: number;
   initialWaitMs?: number;
   status?: number;
-};
-
-type StorageImageReference = {
-  bucket: string;
-  key: string;
 };
 
 export type ExternalFinalImageOutput = Pick<
@@ -65,63 +63,8 @@ function getRequestBaseUrl(request: Request) {
   );
 }
 
-function parseLocalStorageImageUrl(
-  request: Request,
-  imageUrl?: string
-): StorageImageReference | null {
-  if (!imageUrl) return null;
-
-  try {
-    const baseUrl = getRequestBaseUrl(request);
-    const parsed = new URL(imageUrl, baseUrl);
-    const isRelativeStorageUrl = imageUrl.startsWith("/api/storage/");
-    const isOwnStorageUrl =
-      parsed.origin === new URL(baseUrl).origin &&
-      parsed.pathname.startsWith("/api/storage/");
-
-    if (!(isRelativeStorageUrl || isOwnStorageUrl)) return null;
-
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    const storageIndex = segments.indexOf("storage");
-    const bucket = segments[storageIndex + 1];
-    const keySegments = segments.slice(storageIndex + 2);
-    if (storageIndex < 0 || !bucket || keySegments.length === 0) return null;
-
-    const key = keySegments
-      .map((segment) => decodeURIComponent(segment))
-      .join("/");
-    if (
-      !key ||
-      key.includes("..") ||
-      key.startsWith("/") ||
-      key.includes("\\")
-    ) {
-      return null;
-    }
-
-    return {
-      bucket: decodeURIComponent(bucket),
-      key,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export function getPublicImageUrl(request: Request, imageUrl?: string) {
-  if (!imageUrl) return undefined;
-  const storageReference = parseLocalStorageImageUrl(request, imageUrl);
-  if (storageReference) {
-    return new URL(
-      generateSignedImageUrl(storageReference.bucket, storageReference.key),
-      getRequestBaseUrl(request)
-    ).toString();
-  }
-  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-    return imageUrl;
-  }
-
-  return new URL(imageUrl, getRequestBaseUrl(request)).toString();
+  return buildPublicImageUrl(imageUrl, getRequestBaseUrl(request));
 }
 
 export async function getImageBase64(request: Request, imageUrl?: string) {
@@ -129,7 +72,10 @@ export async function getImageBase64(request: Request, imageUrl?: string) {
 
   // 本地存储直读快路：若 imageUrl 指向我方存储对象，直接读对象拿字节，
   // 省去一次回环 HTTP（远端引入的优化）。
-  const storageReference = parseLocalStorageImageUrl(request, imageUrl);
+  const storageReference = parseStorageImageUrl(
+    imageUrl,
+    getRequestBaseUrl(request)
+  );
   if (storageReference) {
     const { getStorageProvider } = await import(
       "@repo/shared/storage/providers"
@@ -235,7 +181,8 @@ export function getExternalFinalImageOutputs(
     (output) => output.outputRole !== "agent_draft"
   );
   if (nonDrafts.length > 0) {
-    const last = nonDrafts[nonDrafts.length - 1]!;
+    const last = nonDrafts.at(-1);
+    if (!last) return [];
     return [{ ...last, outputRole: last.outputRole || "final" }];
   }
 
@@ -252,7 +199,8 @@ export function getExternalFinalImageOutputs(
   }
 
   if (outputs.length > 0) {
-    const last = outputs[outputs.length - 1]!;
+    const last = outputs.at(-1);
+    if (!last) return [];
     return [{ ...last, outputRole: "final" }];
   }
 

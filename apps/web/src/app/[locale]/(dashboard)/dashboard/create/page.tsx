@@ -2,6 +2,7 @@ import { getCurrentUser } from "@repo/shared/auth/server";
 
 import { getCreditsBalance } from "@repo/shared/credits/core";
 import { isContentModerationEnabled } from "@repo/shared/moderation";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
@@ -10,7 +11,6 @@ import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
-import { toStoredImageUrl } from "@/features/image-generation/generation-metadata";
 import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
 import { getUserRecentGenerations } from "@/features/image-generation/queries";
 import { getUserApiConfig } from "@/features/image-generation/service";
@@ -80,7 +80,7 @@ export default async function CreatePage() {
     size: g.size,
     creditsConsumed: g.creditsConsumed,
     status: g.status,
-    imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
+    imageUrl: buildSignedStorageImageUrl(g.storageKey, g.storageBucket),
     createdAt: g.createdAt.toISOString(),
   }));
 

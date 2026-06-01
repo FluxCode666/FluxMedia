@@ -1,4 +1,4 @@
-import { generateSignedImageUrl } from "@repo/shared/storage/signed-url";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import type { ImageInputFile } from "./types";
 
 export type GenerationReferenceImage = {
@@ -26,26 +26,11 @@ function numberValue(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/**
- * 从存储桶和键名构造带签名的图像访问 URL。
- *
- * generations 桶的 URL 自动附加 HMAC 签名参数（sig + exp），
- * 防止未授权直接访问。avatars 等公开桶不带签名。
- */
-export function toStoredImageUrl(
-  bucket: string | null | undefined,
-  storageKey: string | null | undefined
-) {
-  if (!storageKey) return null;
-  const resolvedBucket = bucket || "generations";
-  return generateSignedImageUrl(resolvedBucket, storageKey);
-}
-
 export function buildInputImagesMetadata(inputImages: ImageInputFile[]) {
   const images = inputImages.flatMap((image, index) => {
     const storageKey = stringValue(image.storageKey);
     const storageBucket = stringValue(image.storageBucket);
-    const storedUrl = toStoredImageUrl(storageBucket, storageKey);
+    const storedUrl = buildSignedStorageImageUrl(storageKey, storageBucket);
     const imageUrl = storedUrl || stringValue(image.url);
     if (!imageUrl) return [];
 
@@ -86,7 +71,8 @@ export function extractGenerationReferenceImages(
     const storageBucket = stringValue(item.storageBucket);
     const storageKey = stringValue(item.storageKey);
     const imageUrl =
-      toStoredImageUrl(storageBucket, storageKey) || stringValue(item.imageUrl);
+      buildSignedStorageImageUrl(storageKey, storageBucket) ||
+      stringValue(item.imageUrl);
     if (!imageUrl) return [];
 
     const index = numberValue(item.index) ?? fallbackIndex;

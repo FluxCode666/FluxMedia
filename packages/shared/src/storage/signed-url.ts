@@ -12,6 +12,11 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+export type StorageImageReference = {
+  bucket: string;
+  key: string;
+};
+
 /**
  * 不需要签名的公开桶名集合。
  * 头像桶始终公开（OAuth 头像等场景无 cookie/token 可用）。
@@ -108,6 +113,131 @@ export function generateSignedImageUrl(
     expiresInSeconds
   );
   return `/api/storage/${bucket}/${key}?sig=${sig}&exp=${exp}`;
+}
+
+/**
+ * 从数据库存储键名构造站内图像读取 URL。
+ *
+ * 业务层从 storageKey/storageBucket 还原图片 URL 时统一走这里：
+ * - generations 等非公开桶自动追加 sig/exp，供浏览器、外接 API 客户端、
+ *   OAI/第三方上游等无 cookie 场景读取；
+ * - avatars 等公开桶保持普通公开路径；
+ * - 空 key 返回 null，调用方可继续回退到旧 imageUrl。
+ */
+export function buildSignedStorageImageUrl(
+  storageKey: string | null | undefined,
+  storageBucket?: string | null,
+  expiresInSeconds = 3600
+): string | null {
+  const key = storageKey?.trim();
+  if (!key) return null;
+  const bucket =
+    storageBucket?.trim() ||
+    process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME?.trim() ||
+    "generations";
+  return generateSignedImageUrl(bucket, key, expiresInSeconds);
+}
+
+/**
+ * 解析本站 /api/storage/<bucket>/<key> 图片 URL。
+ *
+ * 只接受相对 URL，或与 publicBaseUrl 同源的绝对 URL；第三方对象存储/预签名
+ * URL 不会被误判。返回的 key 已解码并做基础路径安全校验。
+ */
+export function parseStorageImageUrl(
+  imageUrl: string | null | undefined,
+  publicBaseUrl?: string | null
+): StorageImageReference | null {
+  const raw = imageUrl?.trim();
+  if (!raw) return null;
+
+  try {
+    const base = publicBaseUrl?.trim() || "http://localhost";
+    const parsed = new URL(raw, base);
+    const isRelativeStorageUrl = raw.startsWith("/api/storage/");
+    const isOwnStorageUrl =
+      Boolean(publicBaseUrl?.trim()) &&
+      parsed.origin === new URL(base).origin &&
+      parsed.pathname.startsWith("/api/storage/");
+
+    if (!(isRelativeStorageUrl || isOwnStorageUrl)) return null;
+
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const storageIndex = segments.indexOf("storage");
+    const bucket = segments[storageIndex + 1];
+    const keySegments = segments.slice(storageIndex + 2);
+    if (storageIndex < 0 || !bucket || keySegments.length === 0) return null;
+
+    const key = keySegments
+      .map((segment) => decodeURIComponent(segment))
+      .join("/");
+    if (
+      !key ||
+      key.startsWith("/") ||
+      key.includes("\\") ||
+      key.includes("\0") ||
+      key.split("/").some((segment) => segment === "." || segment === "..")
+    ) {
+      return null;
+    }
+
+    return {
+      bucket: decodeURIComponent(bucket),
+      key,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isOwnStorageImageUrl(raw: string, publicBaseUrl?: string | null) {
+  try {
+    const base = publicBaseUrl?.trim() || "http://localhost";
+    const parsed = new URL(raw, base);
+    return (
+      raw.startsWith("/api/storage/") ||
+      (Boolean(publicBaseUrl?.trim()) &&
+        parsed.origin === new URL(base).origin &&
+        parsed.pathname.startsWith("/api/storage/"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 将图片 URL 规范化为对外可访问 URL。
+ *
+ * - 本站 /api/storage/... URL 会统一重签，避免旧裸 URL 被 OAI/外部客户端下载
+ *   时返回 Missing signature；
+ * - 第三方 http(s) URL 保持原样；
+ * - 其他相对 URL 在提供 publicBaseUrl 时转绝对 URL。
+ */
+export function buildPublicImageUrl(
+  imageUrl: string | null | undefined,
+  publicBaseUrl?: string | null,
+  expiresInSeconds = 3600
+): string | undefined {
+  const raw = imageUrl?.trim();
+  if (!raw) return undefined;
+
+  const storageReference = parseStorageImageUrl(raw, publicBaseUrl);
+  if (storageReference) {
+    const signedUrl =
+      buildSignedStorageImageUrl(
+        storageReference.key,
+        storageReference.bucket,
+        expiresInSeconds
+      ) || raw;
+    return publicBaseUrl?.trim()
+      ? new URL(signedUrl, publicBaseUrl).toString()
+      : signedUrl;
+  }
+  if (isOwnStorageImageUrl(raw, publicBaseUrl)) return undefined;
+
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  if (!publicBaseUrl?.trim()) return raw;
+  return new URL(raw, publicBaseUrl).toString();
 }
 
 /**

@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildPublicImageUrl,
+  buildSignedStorageImageUrl,
   generateSignedImageParams,
   generateSignedImageUrl,
   isPublicBucket,
@@ -19,10 +21,13 @@ const TEST_SECRET = "test-secret-for-signing-do-not-use-in-prod";
 describe("signed-url", () => {
   const originalSecret = process.env.BETTER_AUTH_SECRET;
   const originalAvatarBucket = process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME;
+  const originalGenerationsBucket =
+    process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME;
 
   beforeEach(() => {
     process.env.BETTER_AUTH_SECRET = TEST_SECRET;
     delete process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME;
+    delete process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME;
   });
 
   afterEach(() => {
@@ -35,6 +40,12 @@ describe("signed-url", () => {
       delete process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME;
     } else {
       process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME = originalAvatarBucket;
+    }
+    if (originalGenerationsBucket === undefined) {
+      delete process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME;
+    } else {
+      process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME =
+        originalGenerationsBucket;
     }
     vi.restoreAllMocks();
   });
@@ -113,6 +124,65 @@ describe("signed-url", () => {
       const url = generateSignedImageUrl("avatars", "user-1-123.jpg");
       expect(url).toBe("/api/storage/avatars/user-1-123.jpg");
       expect(url).not.toContain("?sig=");
+    });
+  });
+
+  describe("buildSignedStorageImageUrl", () => {
+    it("uses the default generations bucket when storageBucket is empty", () => {
+      const url = buildSignedStorageImageUrl("user-1/out.png", null);
+      expect(url).toMatch(
+        /^\/api\/storage\/generations\/user-1\/out\.png\?sig=[0-9a-f]{64}&exp=\d+$/
+      );
+    });
+
+    it("uses the configured generations bucket when omitted", () => {
+      process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME = "custom-generations";
+
+      const url = buildSignedStorageImageUrl("user-1/out.png");
+
+      expect(url).toMatch(
+        /^\/api\/storage\/custom-generations\/user-1\/out\.png\?sig=[0-9a-f]{64}&exp=\d+$/
+      );
+    });
+
+    it("keeps public bucket URLs unsigned", () => {
+      const url = buildSignedStorageImageUrl("user-1/avatar.png", "avatars");
+      expect(url).toBe("/api/storage/avatars/user-1/avatar.png");
+    });
+
+    it("returns null for empty keys", () => {
+      expect(buildSignedStorageImageUrl("", "generations")).toBeNull();
+      expect(buildSignedStorageImageUrl(null, "generations")).toBeNull();
+    });
+  });
+
+  describe("buildPublicImageUrl", () => {
+    it("re-signs own storage URLs before exposing them", () => {
+      const url = buildPublicImageUrl(
+        "https://app.example.test/api/storage/generations/user-1/out.png",
+        "https://app.example.test"
+      );
+      expect(url).toMatch(
+        /^https:\/\/app\.example\.test\/api\/storage\/generations\/user-1\/out\.png\?sig=[0-9a-f]{64}&exp=\d+$/
+      );
+    });
+
+    it("keeps third-party presigned URLs unchanged", () => {
+      const url = buildPublicImageUrl(
+        "https://r2.example.test/generations/user-1/out.png?X-Amz-Signature=abc",
+        "https://app.example.test"
+      );
+      expect(url).toBe(
+        "https://r2.example.test/generations/user-1/out.png?X-Amz-Signature=abc"
+      );
+    });
+
+    it("does not expose malformed own storage URLs", () => {
+      const url = buildPublicImageUrl(
+        "/api/storage/generations/../secret.png",
+        "https://app.example.test"
+      );
+      expect(url).toBeUndefined();
     });
   });
 

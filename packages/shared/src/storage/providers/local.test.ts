@@ -7,7 +7,7 @@
  */
 
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // local.ts 在模块层 import ../../system-settings，其真实实现会 import
 // @repo/database 并要求 DATABASE_URL。这里 mock 掉以保持 DB-free。
@@ -15,11 +15,27 @@ vi.mock("../../system-settings", () => ({
   getRuntimeSettingString: vi.fn(async () => null),
 }));
 
-import { resolveSafePath } from "./local";
+import { localProvider, resolveSafePath } from "./local";
+import { verifySignedImageUrl } from "../signed-url";
 
 // 统一用 posix 语义，避免 Windows 反斜杠分隔符影响断言。
 const posix = path.posix;
 const BASE = "/data/storage";
+const TEST_SECRET = "test-secret-for-local-provider";
+
+const originalSecret = process.env.BETTER_AUTH_SECRET;
+
+beforeEach(() => {
+  process.env.BETTER_AUTH_SECRET = TEST_SECRET;
+});
+
+afterEach(() => {
+  if (originalSecret === undefined) {
+    delete process.env.BETTER_AUTH_SECRET;
+  } else {
+    process.env.BETTER_AUTH_SECRET = originalSecret;
+  }
+});
 
 describe("resolveSafePath", () => {
   it("正常 key 返回 join(base, bucket, key)", () => {
@@ -66,5 +82,36 @@ describe("resolveSafePath", () => {
     expect(resolveSafePath(posix, BASE, "avatars", ".")).toBe(
       "/data/storage/avatars"
     );
+  });
+});
+
+describe("localProvider.getSignedUrl", () => {
+  it("returns a signed read URL for non-public buckets", async () => {
+    const url = await localProvider.getSignedUrl(
+      "user-1/out.png",
+      "generations",
+      60
+    );
+    const parsed = new URL(url, "https://app.example.test");
+    const sig = parsed.searchParams.get("sig");
+    const exp = Number(parsed.searchParams.get("exp"));
+
+    expect(parsed.pathname).toBe("/api/storage/generations/user-1/out.png");
+    expect(sig).toMatch(/^[a-f0-9]{64}$/);
+    expect(exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    if (!sig) throw new Error("missing signature");
+    expect(verifySignedImageUrl("generations", "user-1/out.png", sig, exp)).toBe(
+      "valid"
+    );
+  });
+
+  it("keeps public bucket URLs unsigned", async () => {
+    const url = await localProvider.getSignedUrl(
+      "user-1/avatar.png",
+      "avatars",
+      60
+    );
+
+    expect(url).toBe("/api/storage/avatars/user-1/avatar.png");
   });
 });

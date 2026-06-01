@@ -476,6 +476,31 @@ describe("Responses image references", () => {
     ).toBe(true);
   });
 
+  it("uses signed temporary URLs for current uploaded images when available", () => {
+    const content = buildCurrentResponsesContent("make variants", [
+      {
+        ...testImage,
+        url: "https://app.example.test/api/storage/generations/user/requests/ref.png?sig=old&exp=1",
+        storageBucket: "generations",
+        storageKey: "user/requests/ref.png",
+      },
+    ]);
+
+    expect(content).toContainEqual({
+      type: "input_image",
+      image_url:
+        "https://app.example.test/api/storage/generations/user/requests/ref.png?sig=old&exp=1",
+    });
+    expect(
+      content.some(
+        (part) =>
+          part.type === "input_image" &&
+          typeof part.image_url === "string" &&
+          part.image_url.startsWith("data:image/")
+      )
+    ).toBe(false);
+  });
+
   it("uses image file IDs as real input_image references", () => {
     const content = buildCurrentResponsesContent("edit <ref id=\"file\" />", [
       {

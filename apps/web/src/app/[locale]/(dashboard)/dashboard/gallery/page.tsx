@@ -3,11 +3,11 @@ import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { GalleryClient } from "@/features/image-generation/components/gallery-client";
 import {
   extractGenerationReferenceImages,
   extractPromptRepairNotice,
-  toStoredImageUrl,
 } from "@/features/image-generation/generation-metadata";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
@@ -42,7 +42,10 @@ function extractAgentDraftGenerations(
       if (output.role !== "agent_draft" && output.primary !== false) return [];
       const storageKey =
         typeof output.storageKey === "string" ? output.storageKey : null;
-      const storedImageUrl = toStoredImageUrl(g.storageBucket, storageKey);
+      const storedImageUrl = buildSignedStorageImageUrl(
+        storageKey,
+        g.storageBucket
+      );
       const fallbackImageUrl =
         typeof output.imageUrl === "string" ? output.imageUrl : null;
       if (!storedImageUrl && !fallbackImageUrl) return [];
@@ -215,7 +218,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
             creditsConsumed: g.creditsConsumed,
             storageKey: g.storageKey,
             storageBucket: g.storageBucket,
-            imageUrl: toStoredImageUrl(g.storageBucket, g.storageKey),
+            imageUrl: buildSignedStorageImageUrl(g.storageKey, g.storageBucket),
             createdAt: g.createdAt.toISOString(),
             outputRole: "final" as GalleryOutputRole,
             referenceImages: extractGenerationReferenceImages(g.metadata),
