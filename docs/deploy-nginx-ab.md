@@ -9,7 +9,7 @@
 - 当前公网主 upstream：`127.0.0.1:3308`
 - 备用 upstream：`127.0.0.1:3307`
 - 主服务旁路验证端口：`3303`
-- Next 静态 alias：`/var/www/your-domain.example/_next/static/`
+- Next 静态 alias：以当前 `nginx -T` 里的 `location ~ ^/gpt2-assets-.../_next/static/(.*)$` 为准；不要使用本文占位域名路径。
 - release 根目录：`/home/user1/gpt2image-releases/`
 - Node：`/home/user1/.nvm/versions/node/v24.15.0/bin`
 
@@ -23,7 +23,8 @@
 - 切换公网实例前先摘流或切到备用实例；确认新实例健康后再切回，避免部署窗口内 `/v1/*` 请求命中正在重启的进程。
 - release 不能复制 `storage`，否则会把用户生成图复制进 release，目录可能膨胀到几十 GB。
 - release 不能排除 `apps/web/.next/standalone/node_modules`，否则 standalone 启动会报 `Cannot find module 'next'`。
-- Nginx 静态 alias 不会读 release 目录，必须单独同步 `apps/web/.next/static` 到 `/var/www/your-domain.example/_next/static/`。
+- Nginx 静态 alias 不会读 release 目录，必须单独同步 `apps/web/.next/static` 到实际 alias 目录。
+- 同步静态资源不要使用 `--delete`。Cloudflare 或用户浏览器可能仍持有旧 HTML；删除旧 build id 目录会导致旧页面 chunk/buildManifest 404，表现为前端状态异常、按钮不可用、余额显示错误。
 - systemd 有 drop-in 覆盖路径，必须改 drop-in，不要只看主 unit。
 
 ## 上线前检查
@@ -155,12 +156,18 @@ rg -n '"assetPrefix"|gpt2-assets' "$release/apps/web/.next/standalone/apps/web/.
 ### 6. 同步 Nginx 静态资源
 
 ```bash
-rsync -a --delete \
+static_alias=/var/www/<actual-nginx-alias>/_next/static
+mkdir -p "$static_alias"
+rsync -a \
   "$release/apps/web/.next/static/" \
-  /var/www/your-domain.example/_next/static/
+  "$static_alias/"
 ```
 
-注意：先同步静态资源，再切服务。否则 Cloudflare 可能缓存新版 chunk 的 404。
+注意：
+
+- 先用 `sudo nginx -T` 确认 `alias` 的真实目录，不要照抄占位路径。
+- 先同步静态资源，再切服务。否则 Cloudflare 可能缓存新版 chunk 的 404。
+- 保留旧静态资源，至少保留上一版 build id。
 
 ### 7. 摘流公网实例
 
