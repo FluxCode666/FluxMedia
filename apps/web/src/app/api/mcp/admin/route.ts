@@ -32,6 +32,7 @@ import {
   OperationError,
   type Principal,
 } from "@repo/shared/uol";
+import { ensureUolInitialized } from "@/server/uol-init";
 
 // 确保所有操作已注册到 registry
 import "@repo/shared/uol/operations";
@@ -182,6 +183,15 @@ export async function POST(request: Request) {
 
   const { principal } = authResult;
 
+  try {
+    await ensureUolInitialized();
+  } catch {
+    return NextResponse.json(
+      jsonRpcError(null, JSONRPC_INTERNAL_ERROR, "MCP tools are not ready"),
+      { status: 500 },
+    );
+  }
+
   // 4. 解析请求体
   let body: unknown;
   try {
@@ -277,6 +287,19 @@ async function handleToolsCall(
 
   // 工具名 → 操作名
   const operationName = toolNameToOperationName(toolName);
+  const allowed = buildAdminMcpTools(principal).some(
+    (tool) => tool.name === toolName,
+  );
+  if (!allowed) {
+    return NextResponse.json(
+      jsonRpcError(
+        id,
+        JSONRPC_METHOD_NOT_FOUND,
+        `Tool not available: ${toolName}`,
+      ),
+      { status: 400 },
+    );
+  }
 
   // 审计日志（脱敏参数）
   logger.info(

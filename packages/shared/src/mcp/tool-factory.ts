@@ -16,7 +16,7 @@
  * - 添加 readOnlyHint / destructiveHint 注解供 agent 决策参考
  */
 import type { Principal } from "../uol/principal";
-import { listOperations } from "../uol/registry";
+import { isOperationBound, listOperations } from "../uol/registry";
 import type { AccessRequirement, OperationDefinition } from "../uol/types";
 import { getMcpDeniedOps, getMcpReadOnlyMode } from "./config";
 
@@ -92,6 +92,9 @@ function isOperationExposable(
 ): boolean {
   // 权限白名单过滤
   if (!ALLOWED_ACCESS_KINDS.has(op.access.kind)) return false;
+
+  // 仍是 shared 包中的 stub 时不暴露给 MCP 客户端。
+  if (!isOperationBound(op.name)) return false;
 
   // 排除域过滤
   if (EXCLUDED_DOMAINS.has(op.domain)) return false;

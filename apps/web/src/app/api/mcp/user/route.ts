@@ -42,6 +42,7 @@ import type { Principal } from "@repo/shared/uol";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { logWarn } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import { ensureUolInitialized } from "@/server/uol-init";
 
 // 副作用导入：确保所有 UOL 操作已注册到 registry
 import "@repo/shared/uol/operations";
@@ -208,6 +209,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 429 },
       );
     }
+  }
+
+  try {
+    await ensureUolInitialized();
+  } catch {
+    return NextResponse.json(
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: JSON_RPC_SERVER_ERROR,
+          message: "MCP tools are not ready",
+        },
+      } satisfies JsonRpcResponse,
+      { status: 500 },
+    );
   }
 
   // 4. 解析 JSON-RPC 请求体

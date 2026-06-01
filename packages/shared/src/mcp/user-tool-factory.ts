@@ -12,7 +12,7 @@
  * 使用方：MCP user route handler（tools/list 方法）
  * 关键依赖：../uol/registry（listOperations、getOperation）、../uol/types
  */
-import { getOperation } from "../uol/registry";
+import { getOperation, isOperationBound } from "../uol/registry";
 import type { OperationDefinition } from "../uol/types";
 import type { Principal } from "../uol/principal";
 
@@ -139,6 +139,7 @@ export function buildUserMcpTools(
   for (const opName of USER_MCP_ALLOWED_OPERATIONS) {
     const def: OperationDefinition | undefined = getOperation(opName);
     if (!def) continue;
+    if (!isOperationBound(opName)) continue;
 
     // 基本 access 校验：apiKey 和 protected 类型操作对 MCP user 均可
     if (
