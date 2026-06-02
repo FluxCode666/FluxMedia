@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { withApiLogging } from "@repo/shared/api-logger";
 import {
+  MAX_PLAN_BATCH_COUNT,
   canUsePlanCapability,
   getPlanLimits,
 } from "@repo/shared/subscription/services/plan-capabilities";
@@ -58,7 +59,7 @@ const externalImageGenerationSchema = z.object({
   thinking: z
     .enum(["minimal", "none", "low", "medium", "high", "xhigh"])
     .optional(),
-  n: z.number().int().min(1).max(100).optional(),
+  n: z.number().int().min(1).max(MAX_PLAN_BATCH_COUNT).optional(),
   size: z
     .string()
     .optional()

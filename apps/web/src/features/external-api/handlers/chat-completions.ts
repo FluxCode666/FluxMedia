@@ -1,5 +1,6 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import {
+  MAX_PLAN_BATCH_COUNT,
   canUsePlanCapability,
   getPlanLimits,
 } from "@repo/shared/subscription/services/plan-capabilities";
@@ -77,7 +78,7 @@ const chatCompletionSchema = z
     model: z.string().optional(),
     messages: z.array(chatCompletionMessageSchema).min(1),
     stream: z.boolean().optional(),
-    n: z.number().int().min(1).max(100).optional(),
+    n: z.number().int().min(1).max(MAX_PLAN_BATCH_COUNT).optional(),
     size: z
       .string()
       .optional()

@@ -15,6 +15,7 @@ vi.mock("@/features/external-api/auth", () => ({
 }));
 
 vi.mock("@repo/shared/subscription/services/plan-capabilities", () => ({
+  MAX_PLAN_BATCH_COUNT: 10_000,
   canUsePlanCapability: mocks.canUsePlanCapability,
   getPlanLimits: mocks.getPlanLimits,
 }));

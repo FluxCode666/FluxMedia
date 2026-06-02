@@ -21,6 +21,8 @@ import {
   getPlanMonthlyCredits,
   getPlanPrivilegesFromCapabilities,
   getPlanQueueSettings,
+  MAX_PLAN_BATCH_COUNT,
+  MAX_PLAN_IMAGE_COUNT,
   megabytesToBytes,
   normalizePlanCapabilityMatrix,
   normalizePlanModerationBlockRiskLevel,
@@ -205,9 +207,9 @@ describe("plan capability matrix defaults", () => {
           queuePriority: "urgent",
           imageGenerationConcurrency: 20_000,
           monthlyCredits: "invalid",
-          maxBatchCount: 101.9,
-          maxEditImages: 150,
-          maxChatImages: "200",
+          maxBatchCount: MAX_PLAN_BATCH_COUNT + 1.9,
+          maxEditImages: MAX_PLAN_IMAGE_COUNT + 50,
+          maxChatImages: String(MAX_PLAN_IMAGE_COUNT + 200),
           maxChatContextChars: 999_999,
         },
       },
@@ -219,10 +221,28 @@ describe("plan capability matrix defaults", () => {
       queuePriority: DEFAULT_PLAN_CAPABILITY_MATRIX.limits.free.queuePriority,
       imageGenerationConcurrency: 10_000,
       monthlyCredits: DEFAULT_PLAN_CAPABILITY_MATRIX.limits.free.monthlyCredits,
-      maxBatchCount: 100,
-      maxEditImages: 100,
-      maxChatImages: 100,
+      maxBatchCount: MAX_PLAN_BATCH_COUNT,
+      maxEditImages: MAX_PLAN_IMAGE_COUNT,
+      maxChatImages: MAX_PLAN_IMAGE_COUNT,
       maxChatContextChars: 200_000,
+    });
+  });
+
+  it("allows enterprise batch and reference-image limits above 100", () => {
+    const matrix = normalizePlanCapabilityMatrix({
+      limits: {
+        enterprise: {
+          maxBatchCount: 500,
+          maxEditImages: 256,
+          maxChatImages: 300,
+        },
+      },
+    });
+
+    expect(matrix.limits.enterprise).toMatchObject({
+      maxBatchCount: 500,
+      maxEditImages: 256,
+      maxChatImages: 300,
     });
   });
 

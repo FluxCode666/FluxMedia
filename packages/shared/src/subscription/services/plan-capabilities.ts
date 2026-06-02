@@ -17,11 +17,11 @@ import {
 
 const BYTES_PER_MB = 1024 * 1024;
 const MAX_LIMIT_VALUE = 1_000_000;
-const MAX_BATCH_COUNT = 100;
+export const MAX_PLAN_BATCH_COUNT = 10_000;
+export const MAX_PLAN_IMAGE_COUNT = 10_000;
 // 单用户图片生成并发上限的归一化硬顶。设计上支持并发 1000 以上(issue #16)，
 // 故取较大上界；实际并行仍受全局并发(默认 500)与队列调度约束。
 const MAX_GENERATION_CONCURRENCY = 10_000;
-const MAX_IMAGE_COUNT = 100;
 const MAX_CHAT_CONTEXT_CHARS = 200_000;
 
 const QUEUE_PRIORITY_RANK: Record<QueuePriority, number> = {
@@ -332,17 +332,17 @@ function normalizePlanLimits(value: unknown) {
         maxBatchCount: parsePositiveNumber(
           raw.maxBatchCount,
           fallback.maxBatchCount,
-          { integer: true, max: MAX_BATCH_COUNT }
+          { integer: true, max: MAX_PLAN_BATCH_COUNT }
         ),
         maxEditImages: parsePositiveNumber(
           raw.maxEditImages,
           fallback.maxEditImages,
-          { integer: true, max: MAX_IMAGE_COUNT }
+          { integer: true, max: MAX_PLAN_IMAGE_COUNT }
         ),
         maxChatImages: parsePositiveNumber(
           raw.maxChatImages,
           fallback.maxChatImages,
-          { integer: true, max: MAX_IMAGE_COUNT }
+          { integer: true, max: MAX_PLAN_IMAGE_COUNT }
         ),
         maxChatContextChars: parsePositiveNumber(
           raw.maxChatContextChars,
