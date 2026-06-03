@@ -2349,7 +2349,7 @@ export function ImageBackendPoolAdminPanel({
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>并发权重</Label>
+                  <Label>最大并发数</Label>
                   <Input
                     type="number"
                     min={1}
@@ -2364,7 +2364,7 @@ export function ImageBackendPoolAdminPanel({
                   />
                   <p className="text-xs text-muted-foreground">
                     作为负载分母：运行中请求数 /
-                    并发权重。值越大，同优先级下越容易分到更多请求。
+                    最大并发数。值越大，同优先级下越容易分到更多请求。
                   </p>
                 </div>
               </div>
@@ -2448,8 +2448,8 @@ export function ImageBackendPoolAdminPanel({
                   <div className="font-medium">调度规则</div>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     调度会先排除停用、错误、限流/冷却、分组类型或请求类型不匹配的账号；剩余后端按优先级从小到大选择。同优先级比较当前负载率（运行中请求数
-                    / 并发权重），再比较运行中请求数和最近使用时间。API
-                    直透后端的并发权重固定为 1。
+                    / 最大并发数），再比较运行中请求数和最近使用时间。账号与 API
+                    后端均可各自配置最大并发数（整池可并发 = 各后端最大并发数之和）。
                   </p>
                 </div>
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2896,7 +2896,7 @@ export function ImageBackendPoolAdminPanel({
                           }))
                         }
                       />
-                      改并发权重
+                      改最大并发数
                       <Input
                         className="ml-auto w-24"
                         type="number"
@@ -3008,7 +3008,7 @@ export function ImageBackendPoolAdminPanel({
                         getWebAccountInfo(account)?.email ||
                         "无邮箱"}{" "}
                       · {groupNames(groups, accountGroupIds(account))} · 优先级{" "}
-                      {account.priority} · 并发权重 {account.concurrency} ·{" "}
+                      {account.priority} · 最大并发数 {account.concurrency} ·{" "}
                       {formatDate(account.lastUsedAt, timeZone)}
                     </p>
                     {account.metadata?.sourceAccountId && (
@@ -3268,11 +3268,11 @@ export function ImageBackendPoolAdminPanel({
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  数字越小越先调度；同优先级下再按并发数（负载权重）比较负载。
+                  数字越小越先调度；同优先级下再按最大并发数（负载权重）比较负载。
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label>并发数</Label>
+                <Label>最大并发数</Label>
                 <Input
                   type="number"
                   min={1}
@@ -3287,7 +3287,7 @@ export function ImageBackendPoolAdminPanel({
                 />
                 <p className="text-xs text-muted-foreground">
                   单后端最大同时在飞请求数（1-100）。同时也是同优先级下的负载权重：
-                  值越大越能分到更多请求。整池可并发数 = 各后端并发数之和；后端少时
+                  值越大越能分到更多请求。整池可并发 = 各后端最大并发数之和；后端少时
                   务必调大，否则高并发会被挡成「无可用账号或 API」。
                 </p>
               </div>
@@ -3397,7 +3397,7 @@ export function ImageBackendPoolAdminPanel({
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {api.baseUrl} · {groupName(groups, api.groupId)} · 优先级{" "}
-                      {api.priority} · 并发数 {api.concurrency} ·{" "}
+                      {api.priority} · 最大并发数 {api.concurrency} ·{" "}
                       {formatDate(api.lastUsedAt, timeZone)}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -4162,7 +4162,7 @@ export function ImageBackendPoolAdminPanel({
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label>并发权重</Label>
+                <Label>最大并发数</Label>
                 <Input
                   type="number"
                   min={1}
@@ -4319,7 +4319,7 @@ export function ImageBackendPoolAdminPanel({
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label>并发权重</Label>
+                <Label>最大并发数</Label>
                 <Input
                   type="number"
                   min={1}
