@@ -878,6 +878,9 @@ export const imageBackendApi = pgTable("image_backend_api", {
   imageUpstreamMode: text("image_upstream_mode").notNull().default("images"),
   contentSafetyEnabled: boolean("content_safety_enabled").notNull().default(true),
   isEnabled: boolean("is_enabled").notNull().default(true),
+  // 遇错也始终可用：与 isEnabled 同时为真时，该 API 永不进入冷却、不因失败被
+  // 调度器置 error 排除（失败仍记录 lastError，但始终留在候选里）。
+  alwaysActive: boolean("always_active").notNull().default(false),
   priority: integer("priority").notNull().default(50),
   successCount: integer("success_count").notNull().default(0),
   failCount: integer("fail_count").notNull().default(0),

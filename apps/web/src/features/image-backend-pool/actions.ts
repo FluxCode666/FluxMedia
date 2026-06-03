@@ -33,6 +33,7 @@ import {
   refreshImageBackendAccountsInfo,
   runSub2ApiManualSync,
   runSub2ApiAutoSyncTaskNow,
+  setImageBackendApiAlwaysActive,
   setImageBackendApiEnabled,
   setSub2ApiAutoSyncTaskEnabled,
   setSub2ApiAutoSyncTaskOverwriteLocalUnavailableState,
@@ -526,6 +527,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       useStream: z.boolean().default(false),
       contentSafetyEnabled: z.boolean().default(true),
       isEnabled: z.boolean().default(true),
+      alwaysActive: z.boolean().default(false),
       priority: z.coerce.number().int().min(0).max(10000).default(50),
       status: z.string().trim().max(80).optional(),
     })
@@ -544,6 +546,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       useStream: parsedInput.useStream,
       contentSafetyEnabled: parsedInput.contentSafetyEnabled,
       isEnabled: parsedInput.isEnabled,
+      alwaysActive: parsedInput.alwaysActive,
       priority: parsedInput.priority,
       status: parsedInput.status || "active",
     });
@@ -563,6 +566,19 @@ export const setImageBackendApiEnabledAction = withImageBackendPoolAdminAction(
     await setImageBackendApiEnabled(parsedInput);
     return { success: true };
   });
+
+export const setImageBackendApiAlwaysActiveAction =
+  withImageBackendPoolAdminAction("setApiAlwaysActive")
+    .schema(
+      z.object({
+        id: z.string().trim().min(1),
+        alwaysActive: z.boolean(),
+      })
+    )
+    .action(async ({ parsedInput }) => {
+      await setImageBackendApiAlwaysActive(parsedInput);
+      return { success: true };
+    });
 
 export const testImageBackendApiAction = withImageBackendPoolAdminAction(
   "testApi"

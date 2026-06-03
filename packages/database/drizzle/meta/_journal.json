@@ -225,6 +225,13 @@
       "when": 1780400300000,
       "tag": "0031_image_backend_inflight_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1780400360000,
+      "tag": "0032_image_backend_api_always_active",
+      "breakpoints": true
     }
   ]
 }

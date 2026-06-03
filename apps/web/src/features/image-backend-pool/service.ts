@@ -2005,14 +2005,21 @@ async function selectPoolMember(
         and(
           eq(imageBackendApi.isEnabled, true),
           apiGroupFilter,
-          isBackendAvailableStatus(
-            imageBackendApi.status,
-            imageBackendApi.cooldownUntil,
-            now
-          ),
+          // always_active 的 API 无视 status/cooldown 始终入选；其余维持原"健康且
+          // 未冷却"判定。
           or(
-            sql`${imageBackendApi.cooldownUntil} IS NULL`,
-            sql`${imageBackendApi.cooldownUntil} <= ${now}`
+            eq(imageBackendApi.alwaysActive, true),
+            and(
+              isBackendAvailableStatus(
+                imageBackendApi.status,
+                imageBackendApi.cooldownUntil,
+                now
+              ),
+              or(
+                sql`${imageBackendApi.cooldownUntil} IS NULL`,
+                sql`${imageBackendApi.cooldownUntil} <= ${now}`
+              )
+            )
           )
         )
       )
@@ -2588,7 +2595,10 @@ export async function reportImageBackendResult(
 
   if (input.memberType === "api") {
     const [api] = await db
-      .select({ metadata: imageBackendApi.metadata })
+      .select({
+        metadata: imageBackendApi.metadata,
+        alwaysActive: imageBackendApi.alwaysActive,
+      })
       .from(imageBackendApi)
       .where(eq(imageBackendApi.id, input.memberId))
       .limit(1);
@@ -2597,6 +2607,8 @@ export async function reportImageBackendResult(
       input,
       now
     );
+    // always_active：遇错也不下线——失败时不改 status、不进冷却（仅记 lastError/failCount）。
+    const apiFailure = api?.alwaysActive ? {} : effectiveFailure;
     await db
       .update(imageBackendApi)
       .set(
@@ -2613,11 +2625,9 @@ export async function reportImageBackendResult(
           : {
               failCount: sql`${imageBackendApi.failCount} + 1`,
               metadata,
-              ...(effectiveFailure.status
-                ? { status: effectiveFailure.status }
-                : {}),
-              ...(effectiveFailure.cooldownUntil !== undefined
-                ? { cooldownUntil: effectiveFailure.cooldownUntil }
+              ...(apiFailure.status ? { status: apiFailure.status } : {}),
+              ...(apiFailure.cooldownUntil !== undefined
+                ? { cooldownUntil: apiFailure.cooldownUntil }
                 : {}),
               lastError: error,
               lastErrorAt: now,
@@ -6049,6 +6059,7 @@ type UpsertApiInput = {
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
+  alwaysActive: boolean;
   priority: number;
   status?: string;
 };
@@ -6067,6 +6078,7 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
     useStream: input.useStream,
     contentSafetyEnabled: input.contentSafetyEnabled,
     isEnabled: input.isEnabled,
+    alwaysActive: input.alwaysActive,
     priority: input.priority,
     status: input.status || "active",
     updatedAt: new Date(),
@@ -6107,6 +6119,32 @@ export async function setImageBackendApiEnabled(input: {
   await db
     .update(imageBackendApi)
     .set({ isEnabled: input.isEnabled, updatedAt: new Date() })
+    .where(eq(imageBackendApi.id, input.id));
+}
+
+/**
+ * 设置一个 API 直透后端的"遇错仍可用（always_active）"开关。
+ *
+ * 开启后（且 isEnabled 为真）：该 API 无视 status/cooldown 始终入选、失败不进
+ * 冷却、不被置 error。关闭后恢复常规：失败可被调度器冷却/标 error 排除。
+ * 开启时顺手把当前 error/cooldown 清掉，让它立即回到候选。
+ *
+ * @param input.id 目标 imageBackendApi 行 id。
+ * @param input.alwaysActive 目标开关态。
+ */
+export async function setImageBackendApiAlwaysActive(input: {
+  id: string;
+  alwaysActive: boolean;
+}): Promise<void> {
+  await db
+    .update(imageBackendApi)
+    .set({
+      alwaysActive: input.alwaysActive,
+      ...(input.alwaysActive
+        ? { status: "active", cooldownUntil: null }
+        : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(imageBackendApi.id, input.id));
 }
 
@@ -6154,6 +6192,7 @@ export async function probeImageBackendApi(id: string): Promise<{
       interfaceMode: imageBackendApi.interfaceMode,
       imageUpstreamMode: imageBackendApi.imageUpstreamMode,
       chatCompletionsUpstreamMode: imageBackendApi.chatCompletionsUpstreamMode,
+      alwaysActive: imageBackendApi.alwaysActive,
     })
     .from(imageBackendApi)
     .where(eq(imageBackendApi.id, id))
@@ -6189,8 +6228,10 @@ export async function probeImageBackendApi(id: string): Promise<{
       })
       .where(eq(imageBackendApi.id, id));
   } else {
+    // always_active：遇错也不下线——只记录 lastError，不置 error。
     const markError =
-      result.status === "no_image" || result.status === "auth_failed";
+      !api.alwaysActive &&
+      (result.status === "no_image" || result.status === "auth_failed");
     await db
       .update(imageBackendApi)
       .set({
@@ -6334,6 +6375,7 @@ export async function listAdminImageBackendPool() {
       useStream: imageBackendApi.useStream,
       contentSafetyEnabled: imageBackendApi.contentSafetyEnabled,
       isEnabled: imageBackendApi.isEnabled,
+      alwaysActive: imageBackendApi.alwaysActive,
       priority: imageBackendApi.priority,
       status: imageBackendApi.status,
       successCount: imageBackendApi.successCount,

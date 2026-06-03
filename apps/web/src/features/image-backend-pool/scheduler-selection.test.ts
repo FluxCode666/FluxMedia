@@ -55,6 +55,7 @@ const schemaMock = vi.hoisted(() => {
       "useStream",
       "contentSafetyEnabled",
       "isEnabled",
+      "alwaysActive",
       "priority",
       "concurrency",
       "successCount",

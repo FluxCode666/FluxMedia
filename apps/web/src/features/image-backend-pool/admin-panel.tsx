@@ -41,6 +41,7 @@ import {
   ChevronRight,
   CheckCircle2,
   CircleAlert,
+  Infinity as InfinityIcon,
   CircleOff,
   Database,
   ExternalLink,
@@ -80,6 +81,7 @@ import {
   saveImageBackendAccountAction,
   saveImageBackendApiAction,
   saveImageBackendGroupAction,
+  setImageBackendApiAlwaysActiveAction,
   setImageBackendApiEnabledAction,
   setSub2ApiAutoSyncTaskEnabledAction,
   setSub2ApiAutoSyncTaskOverwriteLocalUnavailableStateAction,
@@ -159,6 +161,7 @@ type Api = {
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
+  alwaysActive: boolean;
   priority: number;
   status: string;
   successCount: number;
@@ -723,6 +726,7 @@ export function ImageBackendPoolAdminPanel({
     useStream: false,
     contentSafetyEnabled: true,
     isEnabled: true,
+    alwaysActive: false,
     priority: 50,
   });
   const [bulkAccountForm, setBulkAccountForm] = useState<BulkAccountForm>({
@@ -996,6 +1000,7 @@ export function ImageBackendPoolAdminPanel({
       useStream: false,
       contentSafetyEnabled: true,
       isEnabled: true,
+      alwaysActive: false,
       priority: 50,
     });
 
@@ -1127,6 +1132,7 @@ export function ImageBackendPoolAdminPanel({
       useStream: api.useStream,
       contentSafetyEnabled: api.contentSafetyEnabled,
       isEnabled: api.isEnabled,
+      alwaysActive: api.alwaysActive,
       priority: api.priority,
     });
   };
@@ -1291,6 +1297,16 @@ export function ImageBackendPoolAdminPanel({
         toast.error(error.serverError || "更新 API 后端状态失败"),
     }
   );
+
+  const { execute: setApiAlwaysActive, isPending: isSettingApiAlwaysActive } =
+    useAction(setImageBackendApiAlwaysActiveAction, {
+      onSuccess: () => {
+        toast.success("已更新「遇错仍可用」设置");
+        reload();
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "更新「遇错仍可用」失败"),
+    });
 
   // 测活：记录正在测试的成员 id，仅该行显示加载态；结果按状态提示并刷新列表。
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
@@ -3275,6 +3291,24 @@ export function ImageBackendPoolAdminPanel({
                   }
                 />
               </div>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div>
+                  <Label>遇错仍保持可用（永不冷却）</Label>
+                  <p className="text-xs text-muted-foreground">
+                    开启后该 API 不会因失败被自动下线或冷却，始终参与调度；失败仍会
+                    记录并切换到其他后端。需与「是否启用」同时开启才生效。
+                  </p>
+                </div>
+                <Switch
+                  checked={apiForm.alwaysActive}
+                  onCheckedChange={(checked) =>
+                    setApiForm((current) => ({
+                      ...current,
+                      alwaysActive: checked,
+                    }))
+                  }
+                />
+              </div>
               <Button
                 className="w-full"
                 onClick={() => saveApi(apiForm)}
@@ -3332,6 +3366,9 @@ export function ImageBackendPoolAdminPanel({
                       )}
                       {!api.isEnabled && (
                         <Badge variant="secondary">停用</Badge>
+                      )}
+                      {api.alwaysActive && (
+                        <Badge variant="outline">遇错常驻</Badge>
                       )}
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -3398,6 +3435,21 @@ export function ImageBackendPoolAdminPanel({
                               启用
                             </>
                           )}
+                        </Button>
+                        <Button
+                          variant={api.alwaysActive ? "secondary" : "outline"}
+                          size="sm"
+                          disabled={isSettingApiAlwaysActive}
+                          onClick={() =>
+                            setApiAlwaysActive({
+                              id: api.id,
+                              alwaysActive: !api.alwaysActive,
+                            })
+                          }
+                          title="开启后该 API 遇错也不下线、永不冷却，始终参与调度"
+                        >
+                          <InfinityIcon className="mr-2 h-4 w-4" />
+                          {api.alwaysActive ? "取消常驻" : "遇错常驻"}
                         </Button>
                         <Button
                           variant="outline"
