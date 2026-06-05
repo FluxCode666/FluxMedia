@@ -21,6 +21,7 @@
     "@repo/ui": "workspace:*",
     "@sentry/nextjs": "^10.55.0",
     "@types/mdx": "^2.0.13",
+    "ag-psd": "^30.1.1",
     "better-auth": "^1.6.12",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^12.40.0",
