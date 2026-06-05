@@ -1,5 +1,6 @@
 "use client";
 
+import { buildStorageThumbnailUrl } from "@repo/shared/storage/signed-url";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Card } from "@repo/ui/components/card";
@@ -55,12 +56,10 @@ export function ImageCard({
   const locale = useLocale();
   const clickable = Boolean(onClick);
   // 列表缩略图:对同源存储图(/api/storage)请求按需缩放后的小图(w=640),把全分辨率
-  // 大图(平均 2.4MB)降到缩略图尺寸,大幅降低列表的下载/解码/内存占用——这是“点历史/
-  // 图库后整体发卡”的主因。非存储图(外链回退)保持原样,附加参数无副作用。
-  const thumbnailUrl =
-    imageUrl?.startsWith("/api/storage/")
-      ? `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}w=640`
-      : imageUrl;
+  // 大图(平均 2.4MB)降到缩略图尺寸,大幅降低列表的下载/解码/内存占用。宽度走"路径段"
+  // (而非 ?w= 查询参数),以绕过 Cloudflare 忽略 query 的边缘缓存键——否则会命中并下回
+  // 整张原图、挤占 HTTP/2 连接带宽、饿死导航请求。非存储图(外链回退)保持原样。
+  const thumbnailUrl = buildStorageThumbnailUrl(imageUrl, 640);
 
   return (
     <Card
@@ -78,6 +77,9 @@ export function ImageCard({
             sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="object-contain transition-transform duration-300 group-hover:scale-[1.02]"
             unoptimized
+            // 低优先级:与导航 RSC 共用同一条 HTTP/2 连接时,让浏览器优先把带宽给
+            // 用户点击触发的导航请求,避免一屏缩略图把切页/切 Tab 拖住。
+            fetchPriority="low"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">

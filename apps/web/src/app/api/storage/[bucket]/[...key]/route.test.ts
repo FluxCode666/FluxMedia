@@ -40,6 +40,9 @@ function makeRequest(
     nextUrl: {
       searchParams: params,
     },
+    // 读取路由会把 request.signal 透传给 getObject(取消传播),并在缩略图路径读取
+    // signal.aborted;提供一个未中止的 AbortSignal 占位,避免读取 undefined.aborted。
+    signal: { aborted: false } as AbortSignal,
   } as unknown as NextRequest;
 }
 
@@ -159,7 +162,9 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
       makeParams("generations", ["user-123", "abc.png"])
     );
     expect(res.status).toBe(200);
-    expect(getObject).toHaveBeenCalledWith("user-123/abc.png", "generations");
+    expect(getObject).toHaveBeenCalledWith("user-123/abc.png", "generations", {
+      signal: expect.anything(),
+    });
     expect(res.headers.get("Content-Type")).toBe("image/png");
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Cache-Control")).toContain("immutable");
@@ -176,7 +181,9 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
       makeParams("avatars", ["user-9", "profile.jpg"])
     );
     expect(res.status).toBe(200);
-    expect(getObject).toHaveBeenCalledWith("user-9/profile.jpg", "avatars");
+    expect(getObject).toHaveBeenCalledWith("user-9/profile.jpg", "avatars", {
+      signal: expect.anything(),
+    });
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
   });
 
@@ -214,6 +221,36 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
     );
     expect(res.status).toBe(404);
     expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("缩略图宽度走路径段 /w<width>/:验签前剥离宽度段,getObject 用真实 key", async () => {
+    // 签名只覆盖真实 key(不含 w128 段);URL 路径首段是 w128。
+    // 验证:剥离宽度段后用真实 key 验签通过(非 403)、getObject 收到真实 key。
+    // 注:sharp 对非图片字节缩放会失败并回退返回原图(本测试不关心缩放结果)。
+    getObject.mockResolvedValue(Buffer.from("png-bytes"));
+    const { sig, exp } = generateSignedImageParams(
+      "generations",
+      "user-123/abc.png"
+    );
+    const res = await GET(
+      makeRequest({ sig, exp: String(exp) }),
+      makeParams("generations", ["w128", "user-123", "abc.png"])
+    );
+    expect(res.status).toBe(200);
+    expect(getObject).toHaveBeenCalledWith("user-123/abc.png", "generations", {
+      signal: expect.anything(),
+    });
+  });
+
+  it("路径宽度段用错误 key 的签名仍 403(宽度段不能绕过鉴权)", async () => {
+    // 用 "其它/key.png" 的签名去访问 "user-123/abc.png",即便带 w128 段也应 403。
+    const { sig, exp } = generateSignedImageParams("generations", "other/key.png");
+    const res = await GET(
+      makeRequest({ sig, exp: String(exp) }),
+      makeParams("generations", ["w128", "user-123", "abc.png"])
+    );
+    expect(res.status).toBe(403);
+    expect(getObject).not.toHaveBeenCalled();
   });
 
   it("基础设施故障映射为 502 并记日志（不静默吞成 404）", async () => {

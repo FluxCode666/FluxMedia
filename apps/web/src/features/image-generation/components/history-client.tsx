@@ -1,6 +1,7 @@
 "use client";
 
 import { formatCredits } from "@repo/shared/credits/format";
+import { buildStorageThumbnailUrl } from "@repo/shared/storage/signed-url";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
@@ -196,18 +197,20 @@ export function HistoryClient({
                   <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded border border-border bg-muted md:h-14 md:w-14">
                     {item.imageUrl && item.status === "completed" ? (
                       <Image
-                        // 列表缩略图(56–64px):对同源存储图请求 w=128 的小图,避免下整图
-                        // (平均 2.4MB)。与 ImageCard 同款,消除“点历史发卡”的残留来源。
+                        // 列表缩略图(56–64px):请求 w=128 的小图,避免下整图(平均 2.4MB)。
+                        // 宽度走"路径段"(非 ?w= 查询参数),绕过 Cloudflare 忽略 query 的边缘
+                        // 缓存键(否则命中并下回整张原图、挤占连接、饿死导航)。
                         src={
-                          item.imageUrl.startsWith("/api/storage/")
-                            ? `${item.imageUrl}${item.imageUrl.includes("?") ? "&" : "?"}w=128`
-                            : item.imageUrl
+                          buildStorageThumbnailUrl(item.imageUrl, 128) ??
+                          item.imageUrl
                         }
                         alt={item.prompt}
                         fill
                         sizes="64px"
                         className="object-contain"
                         unoptimized
+                        // 低优先级:把 HTTP/2 连接带宽优先让给导航请求(见 ImageCard 注释)。
+                        fetchPriority="low"
                       />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-muted-foreground">

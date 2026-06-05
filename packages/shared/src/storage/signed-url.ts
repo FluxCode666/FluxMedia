@@ -116,6 +116,47 @@ export function generateSignedImageUrl(
 }
 
 /**
+ * 把已签名的站内存储图 URL 改写成"按路径段携带宽度"的缩略图 URL。
+ *
+ * WHY 用路径段而非 `?w=` 查询参数:线上 Cloudflare 对 `/api/storage/*` 的边缘缓存
+ * 键忽略 query(含 w),导致所有 `?w=` 缩略图请求都命中并吐回被缓存的整张原图(几百
+ * KB~1.5MB),把浏览器↔CF 的单条 HTTP/2 连接带宽占满、饿死同连接上的导航 RSC 请求,
+ * 表现为"加载图片时点侧边栏没反应"。把宽度放进 bucket 之后的路径段
+ * (`/api/storage/<bucket>/w<width>/<key>`)后:CF 按路径区分各宽度、且是全新路径形态,
+ * 不会命中旧的原图缓存键 → 边缘真正缓存源站返回的小 webp。
+ *
+ * 签名仅覆盖 `bucket/key`,宽度段不参与签名(由读取路由在验签前剥离),故 sig/exp 不变。
+ * 仅改写本站 `/api/storage/` 相对 URL;其它(第三方/绝对/空)原样返回。
+ *
+ * @param signedUrl - generateSignedImageUrl 产出的 `/api/storage/<bucket>/<key>?sig=&exp=`
+ * @param width - 目标宽度像素(正整数);非法或非本站 URL 时原样返回入参
+ */
+export function buildStorageThumbnailUrl(
+  signedUrl: string | null | undefined,
+  width: number
+): string | null | undefined {
+  if (!signedUrl || !signedUrl.startsWith("/api/storage/")) {
+    return signedUrl;
+  }
+  if (!Number.isInteger(width) || width <= 0) {
+    return signedUrl;
+  }
+  const prefix = "/api/storage/";
+  const qIndex = signedUrl.indexOf("?");
+  const pathname = qIndex === -1 ? signedUrl : signedUrl.slice(0, qIndex);
+  const query = qIndex === -1 ? "" : signedUrl.slice(qIndex);
+  const rest = pathname.slice(prefix.length); // <bucket>/<...key>
+  const slash = rest.indexOf("/");
+  // 必须同时有 bucket 段与至少一个 key 段,否则不是可改写的图片 URL。
+  if (slash <= 0 || slash >= rest.length - 1) {
+    return signedUrl;
+  }
+  const bucket = rest.slice(0, slash);
+  const keyPath = rest.slice(slash + 1);
+  return `${prefix}${bucket}/w${width}/${keyPath}${query}`;
+}
+
+/**
  * 从数据库存储键名构造站内图像读取 URL。
  *
  * 业务层从 storageKey/storageBucket 还原图片 URL 时统一走这里：

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildPublicImageUrl,
   buildSignedStorageImageUrl,
+  buildStorageThumbnailUrl,
   generateSignedImageParams,
   generateSignedImageUrl,
   isPublicBucket,
@@ -323,6 +324,56 @@ describe("signed-url", () => {
         exp
       );
       expect(result).toBe("invalid");
+    });
+  });
+
+  describe("buildStorageThumbnailUrl", () => {
+    it("把宽度作为 bucket 后的路径段插入,保留 sig/exp 查询参数", () => {
+      const result = buildStorageThumbnailUrl(
+        "/api/storage/generations/user-1/abc.png?sig=deadbeef&exp=123",
+        640
+      );
+      expect(result).toBe(
+        "/api/storage/generations/w640/user-1/abc.png?sig=deadbeef&exp=123"
+      );
+    });
+
+    it("无查询参数时也能改写(公开桶/无签名场景)", () => {
+      expect(
+        buildStorageThumbnailUrl("/api/storage/avatars/u/avatar.png", 128)
+      ).toBe("/api/storage/avatars/w128/u/avatar.png");
+    });
+
+    it("多级 key 路径完整保留在宽度段之后", () => {
+      expect(
+        buildStorageThumbnailUrl("/api/storage/generations/a/b/c.jpg", 256)
+      ).toBe("/api/storage/generations/w256/a/b/c.jpg");
+    });
+
+    it("非本站 /api/storage 的 URL 原样返回(第三方外链)", () => {
+      const ext = "https://cdn.example.com/x.png";
+      expect(buildStorageThumbnailUrl(ext, 640)).toBe(ext);
+    });
+
+    it("null/undefined 原样返回", () => {
+      expect(buildStorageThumbnailUrl(null, 640)).toBeNull();
+      expect(buildStorageThumbnailUrl(undefined, 640)).toBeUndefined();
+    });
+
+    it("非法宽度(0/负数/非整数)原样返回入参,不改写", () => {
+      const url = "/api/storage/generations/a/b.png?sig=x&exp=1";
+      expect(buildStorageThumbnailUrl(url, 0)).toBe(url);
+      expect(buildStorageThumbnailUrl(url, -5)).toBe(url);
+      expect(buildStorageThumbnailUrl(url, 12.5)).toBe(url);
+    });
+
+    it("缺少 key 段(只有 bucket)时不改写", () => {
+      expect(buildStorageThumbnailUrl("/api/storage/generations", 640)).toBe(
+        "/api/storage/generations"
+      );
+      expect(buildStorageThumbnailUrl("/api/storage/generations/", 640)).toBe(
+        "/api/storage/generations/"
+      );
     });
   });
 });

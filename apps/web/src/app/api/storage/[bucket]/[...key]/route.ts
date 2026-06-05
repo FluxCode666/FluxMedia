@@ -267,7 +267,18 @@ export async function GET(
   { params }: { params: Promise<{ bucket: string; key: string[] }> }
 ) {
   const { bucket, key } = await params;
-  const fileKey = key.join("/");
+  // 缩略图宽度可经"路径段"传入:/api/storage/<bucket>/w<width>/<key>。这是为绕过
+  // 线上 Cloudflare 忽略 query 的边缘缓存键(见 signed-url.buildStorageThumbnailUrl
+  // 的 WHY):用查询参数 ?w= 会命中被缓存的整张原图。宽度段不参与签名,这里在验签前
+  // 剥离,fileKey 仍是真实存储键;同时兼容旧的 ?w= 查询参数(老客户端缓存)。
+  let keySegments = key;
+  let pathWidth: string | null = null;
+  const firstSegment = keySegments[0];
+  if (firstSegment && /^w\d+$/.test(firstSegment) && keySegments.length > 1) {
+    pathWidth = firstSegment.slice(1);
+    keySegments = keySegments.slice(1);
+  }
+  const fileKey = keySegments.join("/");
 
   if (!ALLOWED_BUCKETS.has(bucket)) {
     return NextResponse.json({ error: "Bucket not allowed" }, { status: 403 });
@@ -297,7 +308,7 @@ export async function GET(
       : PUBLIC_ASSET_CACHE_CONTROL;
 
   const thumbWidth = THUMB_RESIZABLE_TYPES.has(ext)
-    ? parseThumbWidth(request.nextUrl.searchParams.get("w"))
+    ? parseThumbWidth(pathWidth ?? request.nextUrl.searchParams.get("w"))
     : null;
 
   // 缩略图请求:先查 进程内 → 磁盘 缓存(命中则连原图都不拉、不缩放,直接秒回);
