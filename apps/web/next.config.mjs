@@ -37,6 +37,10 @@ const nextConfig = {
     "@axiomhq/pino",
     // 原生模块（存储路由的按需缩略图缩放）：保持外置，避免被打进 server bundle。
     "sharp",
+    // PSD 导出组装库:仅被 server action 经 use server 引用,Next 默认未把它 trace 进
+    // standalone(运行时会 Cannot find module 'ag-psd')。外置后 Next 会把它及其依赖
+    // (base64-js/pako)一并拷入 standalone node_modules。
+    "ag-psd",
   ],
 };
 
