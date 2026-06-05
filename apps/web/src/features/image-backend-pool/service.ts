@@ -253,6 +253,18 @@ const MAX_PARSED_RESET_COOLDOWN_DAYS = 14;
 // 直接采纳会让冷却≈0、账号被立刻重选再撞限流。低于地板一律抬到地板。真·用量限制
 // (5h/7d)重置远大于地板,不受影响。
 const MIN_RESET_COOLDOWN_MS = 60_000;
+
+// 全量同步进度(进程内):同一时刻只跑一个全量同步,故用单槽即可;startedAt 供前端
+// 区分是否为本次发起。best-effort,绝不影响同步本身。前端轮询取不到时回退渐进动画。
+let sub2ApiSyncProgress: {
+  processed: number;
+  total: number;
+  startedAt: number;
+} | null = null;
+
+export function readSub2ApiSyncProgress() {
+  return sub2ApiSyncProgress;
+}
 const BACKEND_SCHEDULER_EWMA_ALPHA = 0.2;
 const DEFAULT_UNRECOVERABLE_BACKEND_ERROR_KEYWORDS = [
   "refresh token",
@@ -5520,7 +5532,16 @@ export async function syncImageBackendAccountsFromSub2Api(input: {
       sourceGroupId: input.sourceGroupId,
       planFilter,
     });
+    // 初始化本次同步进度(供前端轮询);处理每个源账号时 +1(粗粒度足够)。
+    sub2ApiSyncProgress = {
+      processed: 0,
+      total: accounts.length,
+      startedAt: Date.now(),
+    };
     for (const account of accounts) {
+      if (sub2ApiSyncProgress) {
+        sub2ApiSyncProgress.processed += 1;
+      }
       for (const mode of modes) {
         try {
           const existing = await getExistingSub2ApiSyncedAccountState(

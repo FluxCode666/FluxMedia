@@ -40,6 +40,7 @@ import {
   setUserImageBackendPreference,
   syncImageBackendAccountsFromSub2Api,
   updateSub2ApiAutoSyncTaskOptions,
+  readSub2ApiSyncProgress,
   upsertImageBackendAccount,
   upsertImageBackendApi,
   upsertImageBackendGroup,
@@ -135,6 +136,14 @@ export const getSub2ApiSyncStatusAction = withImageBackendPoolAdminAction(
   return {
     configured: await isSub2ApiPostgresConfigured(),
   };
+});
+
+// 全量同步进行中由前端轮询读取进度(进程内单槽,best-effort)。
+export const getSub2ApiSyncProgressAction = withImageBackendPoolAdminAction(
+  "sub2ApiSyncProgress"
+).action(async () => {
+  const progress = readSub2ApiSyncProgress();
+  return { progress: progress ? { ...progress } : null };
 });
 
 export const getSub2ApiSourceGroupsAction = withImageBackendPoolAdminAction(

@@ -71,6 +71,7 @@ import {
   getAdminImageBackendPoolAction,
   getSub2ApiAutoSyncTasksAction,
   getSub2ApiSourceGroupsAction,
+  getSub2ApiSyncProgressAction,
   getSub2ApiSyncStatusAction,
   importImageBackendAccountsFromRefreshTokensAction,
   importImageBackendWebAccountsFromAccessTokensAction,
@@ -1360,6 +1361,9 @@ export function ImageBackendPoolAdminPanel({
   const { executeAsync: runSub2ApiManualSync } = useAction(
     runSub2ApiManualSyncAction
   );
+  const { executeAsync: fetchSub2ApiSyncProgress } = useAction(
+    getSub2ApiSyncProgressAction
+  );
   const [isSyncingSub2Api, setIsSyncingSub2Api] = useState(false);
 
   const {
@@ -1610,9 +1614,9 @@ export function ImageBackendPoolAdminPanel({
       message: "正在按任务配置全量同步 Sub2API 账号",
     });
 
-    // 全量同步是单次后端调用、无中间进度上报(后端还要做 cleanup/建任务等原子操作,
-    // 不宜客户端分批)。用渐进动画让进度条平滑爬向 ~90% 表示"在跑",真实结果返回后
-    // 由下方 setSyncProgress 跳到 100%——避免长同步时看着像卡死。
+    // 渐进动画兜底:全量同步是单次后端调用(后端还做 cleanup/建任务等原子操作,不宜
+    // 客户端分批),没有真实进度时进度条平滑爬向 ~90% 表示"在跑",完成跳 100%。
+    const syncStartedAt = Date.now();
     let progressTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
       setSyncProgress((prev) =>
         prev.status === "running" && prev.value < 90
@@ -1626,10 +1630,36 @@ export function ImageBackendPoolAdminPanel({
           : prev
       );
     }, 700);
+    // 真实进度:轮询服务端进程内进度槽(逐账号),拿到就覆盖动画、显示真实百分比与计数。
+    // startedAt 用于过滤上一次同步的残留进度。轮询取不到(如打到别的实例)时退回动画。
+    let pollTimer: ReturnType<typeof setInterval> | null = setInterval(async () => {
+      try {
+        const res = await fetchSub2ApiSyncProgress();
+        const p = res?.data?.progress;
+        if (p && p.total > 0 && p.startedAt >= syncStartedAt - 3000) {
+          const pct = Math.min(95, Math.round((p.processed / p.total) * 95));
+          setSyncProgress((prev) =>
+            prev.status === "running"
+              ? {
+                  ...prev,
+                  value: Math.max(prev.value, pct),
+                  message: `正在同步账号 ${p.processed}/${p.total}`,
+                }
+              : prev
+          );
+        }
+      } catch {
+        // 轮询失败忽略,继续用动画兜底。
+      }
+    }, 900);
     const stopSyncProgressTimer = () => {
       if (progressTimer) {
         clearInterval(progressTimer);
         progressTimer = null;
+      }
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
     };
 
