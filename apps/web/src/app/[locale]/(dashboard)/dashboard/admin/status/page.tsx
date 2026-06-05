@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Activity, AlertTriangle, Coins, ImageIcon, Server } from "lucide-react";
@@ -1600,7 +1601,9 @@ async function loadStatusData() {
   const stats7d = buildGenerationWindowStats(rows);
 
   return {
-    now,
+    // 全局状态对所有 admin 相同、且被 unstable_cache 缓存,序列化要求 now 为字符串
+    // (缓存命中后会是 ISO 字符串);此处统一返回 ISO,展示侧再 new Date 还原。
+    now: now.toISOString(),
     stats24h,
     stats7d,
     topErrors24h: topErrors(rows24h),
@@ -1659,6 +1662,16 @@ async function loadStatusData() {
   };
 }
 
+// 全局状态聚合很重(全表 generation 聚合 ~2.6s 含逐行 jsonb 解析 + 拉 last7d 7 万行
+// /~270MB metadata 进 JS),且对所有 admin 相同、不依赖 searchParams、只需准实时。
+// 用 unstable_cache 缓存其结果(小聚合对象),120s 内重复打开秒开,后台按需重算。
+// 页面仍 force-dynamic(逐请求渲染),数据缓存与整页缓存相互独立。
+const getCachedStatusData = unstable_cache(
+  loadStatusData,
+  ["admin-global-status"],
+  { revalidate: 120 }
+);
+
 export default async function GlobalStatusPage({
   searchParams,
 }: GlobalStatusPageProps) {
@@ -1679,7 +1692,7 @@ export default async function GlobalStatusPage({
   ]);
   const errorFilters = parseHistoricalErrorFilters(params, timeZone);
   const [data, historicalErrors] = await Promise.all([
-    loadStatusData(),
+    getCachedStatusData(),
     loadHistoricalGenerationErrors(errorFilters),
   ]);
   const generationTotals = data.generationTotals;
@@ -1705,7 +1718,7 @@ export default async function GlobalStatusPage({
         </div>
         <Badge variant="outline" className="w-fit">
           {copy(locale, "Updated", "更新时间")}{" "}
-          {formatDateTime(data.now, locale, timeZone)}
+          {formatDateTime(new Date(data.now), locale, timeZone)}
         </Badge>
       </div>
 
