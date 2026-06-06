@@ -193,6 +193,8 @@ export interface ChatImageParams {
   agentMode?: boolean;
   agentMaxRounds?: number;
   agentForceMaxRounds?: boolean;
+  /** 分层生成("生成即分层"):agent 先出整图、再逐层生成。仅 agentMode 下有效。 */
+  layeredGeneration?: boolean;
   waterfallMode?: boolean;
   rawResponsesBody?: unknown;
   rawChatCompletionsBody?: unknown;

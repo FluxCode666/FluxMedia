@@ -2126,6 +2126,11 @@ export function CreatePageClient({
     "agentMaxRounds",
     3
   );
+  // 分层生成("生成即分层"):agent 先出整图、再逐层生成。仅 agent 模式有效。
+  const [layeredGeneration, setLayeredGeneration] = useCreateRuntimeState(
+    "layeredGeneration",
+    false
+  );
   const [imageGptModel, setImageGptModel] = useCreateRuntimeState<
     ChatModel | "default"
   >("imageGptModel", "default");
@@ -3568,6 +3573,7 @@ export function CreatePageClient({
       if (agentMode) {
         formData.append("agent_max_rounds", String(agentMaxRounds));
         formData.append("agent_force_max_rounds", String(agentForceRounds));
+        formData.append("layered_generation", String(layeredGeneration));
       }
       formData.append("waterfall_mode", String(Boolean(streamCardId)));
       if (promptOptimizationAllowed) {
@@ -5276,6 +5282,24 @@ export function CreatePageClient({
                   disabled={isChatGenerating}
                 />
                 {copy("Force", "强制")}
+              </label>
+              <label
+                htmlFor="layered-generation"
+                className="flex items-center gap-1.5 text-xs text-foreground"
+                title={copy(
+                  "Layered generation: the agent first creates the full image, then generates it layer by layer (background + each element). Use 'Export PSD' afterwards to assemble.",
+                  "分层生成:先出整图,再逐层生成(背景 + 每个元素各一层)。"
+                )}
+              >
+                <Checkbox
+                  id="layered-generation"
+                  checked={layeredGeneration}
+                  onCheckedChange={(checked) =>
+                    setLayeredGeneration(checked === true)
+                  }
+                  disabled={isChatGenerating}
+                />
+                {copy("Layered", "分层")}
               </label>
               <Select
                 value={String(agentMaxRounds)}

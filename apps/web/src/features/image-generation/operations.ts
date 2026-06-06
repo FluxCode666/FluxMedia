@@ -2018,6 +2018,7 @@ async function runQueuedImageGenerationForUser({
               agentMode: input.agentMode,
               agentMaxRounds: input.agentMaxRounds,
               agentForceMaxRounds: input.agentForceMaxRounds,
+              layeredGeneration: input.layeredGeneration,
               rawResponsesBody: input.rawResponsesBody,
               mixWebFirst,
               requiresResponsesBackend: input.requiresResponsesBackend,

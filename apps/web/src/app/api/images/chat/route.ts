@@ -708,6 +708,12 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     "agentForceMaxRounds",
     "agent_force_max_rounds"
   );
+  // 分层生成:仅 agent 模式下有效(见后端 generateChatImage)。
+  const layeredGeneration = getOptionalBoolean(
+    formData,
+    "layeredGeneration",
+    "layered_generation"
+  );
   const waterfallMode =
     conversationMode === "waterfall" ||
     (!conversationMode &&
@@ -936,6 +942,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           agentMode,
           agentMaxRounds,
           agentForceMaxRounds,
+          layeredGeneration,
           waterfallMode,
           mixWebFirst: requiresResponsesBackend ? false : mixWebFirst,
           requiresResponsesBackend,

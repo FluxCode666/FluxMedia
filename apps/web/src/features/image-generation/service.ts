@@ -38,6 +38,8 @@ import {
   createDefaultAgentAdditionalTools,
   DEFAULT_AGENT_IMAGE_ROUNDS,
   DEFAULT_RESPONSES_IMAGE_INSTRUCTIONS,
+  LAYERED_CONTINUE_INSTRUCTIONS,
+  LAYERED_RESPONSES_IMAGE_INSTRUCTIONS,
   ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS,
 } from "./agent-tools";
 import {
@@ -4129,8 +4131,11 @@ export async function generateChatImage(
           },
         ]
       : manualHistoryInput;
-    const baseInstructions =
-      params.promptOptimization === false
+    // 分层生成:agent 模式下走专用"生成即分层"指令(先出整图、逐层生成)。
+    const useLayered = Boolean(params.agentMode && params.layeredGeneration);
+    const baseInstructions = useLayered
+      ? LAYERED_RESPONSES_IMAGE_INSTRUCTIONS
+      : params.promptOptimization === false
         ? params.agentMode
           ? ORIGINAL_PROMPT_RESPONSES_IMAGE_INSTRUCTIONS
           : ORIGINAL_PROMPT_CHAT_RESPONSES_IMAGE_INSTRUCTIONS
@@ -4249,7 +4254,11 @@ export async function generateChatImage(
           instructions:
             round === 1
               ? requestBody.instructions
-              : `${requestBody.instructions || instructions}\n\n${AGENT_CONTINUE_INSTRUCTIONS}`,
+              : `${requestBody.instructions || instructions}\n\n${
+                  useLayered
+                    ? LAYERED_CONTINUE_INSTRUCTIONS
+                    : AGENT_CONTINUE_INSTRUCTIONS
+                }`,
         };
         await emitAgentProgress(callbacks, {
           kind: "message",
