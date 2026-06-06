@@ -38,6 +38,12 @@ services:
       - ${GPT2IMAGE_ENV_FILE:-.env}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-gpt2image}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-gpt2image}
+      # 鉴权必填:未配置会导致所有人(含超管)登录失败,务必先在 env 文件中设置。
+      # BETTER_AUTH_SECRET: 会话/Cookie 签名密钥(随机长字符串,如 `openssl rand -base64 32`)。
+      # BETTER_AUTH_URL: 站点对外访问地址(如 https://your-domain),须与浏览器实际访问的域名一致,
+      #   否则登录回调/Cookie 域不匹配,超管也进不去。
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET 必填:会话签名密钥,未设置将无法登录}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?BETTER_AUTH_URL 必填:须为站点公网访问地址(如 https://your-domain),否则登录失败}
       LOCAL_STORAGE_PATH: /app/storage
       CHATGPT_WEB_PROXY_URL: http://chatgpt-web-proxy:3021
       CHATGPT_WEB_PROXY_SECRET: ${CHATGPT_WEB_PROXY_SECRET:-}
