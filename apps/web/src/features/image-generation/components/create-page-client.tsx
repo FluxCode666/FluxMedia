@@ -814,10 +814,14 @@ function ImageSizeDialog({
                   </Button>
                   {customRatioOpen && (
                     <div className="space-y-2 rounded-xl border border-border bg-background p-3">
-                      <label className="text-xs font-medium text-muted-foreground">
+                      <label
+                        htmlFor="create-custom-ratio"
+                        className="text-xs font-medium text-muted-foreground"
+                      >
                         {copy("Custom ratio", "输入自定义比例")}
                       </label>
                       <Input
+                        id="create-custom-ratio"
                         value={customRatio}
                         onChange={(event) => setCustomRatio(event.target.value)}
                         placeholder="16:9"
@@ -842,10 +846,14 @@ function ImageSizeDialog({
                   </h3>
                   <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">
+                      <label
+                        htmlFor="create-custom-width"
+                        className="text-xs font-medium text-muted-foreground"
+                      >
                         {copy("Width", "宽度")}
                       </label>
                       <Input
+                        id="create-custom-width"
                         type="number"
                         min={256}
                         max={MAX_IMAGE_DIMENSION}
@@ -858,10 +866,14 @@ function ImageSizeDialog({
                     </div>
                     <div className="pb-2 text-muted-foreground">x</div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">
+                      <label
+                        htmlFor="create-custom-height"
+                        className="text-xs font-medium text-muted-foreground"
+                      >
                         {copy("Height", "高度")}
                       </label>
                       <Input
+                        id="create-custom-height"
                         type="number"
                         min={256}
                         max={MAX_IMAGE_DIMENSION}
@@ -911,11 +923,13 @@ function ImageSizeDialog({
 
           {showMixRouting && (
             <label
+              htmlFor="create-mix-web-first"
               className={`flex items-start gap-3 rounded-2xl border border-border bg-muted/20 p-4 text-xs leading-5 text-muted-foreground ${
                 mixRoutingAvailable ? "cursor-pointer" : "cursor-not-allowed"
               }`}
             >
               <Checkbox
+                id="create-mix-web-first"
                 checked={effectiveMixWebFirst}
                 onCheckedChange={(checked) => setMixWebFirst(checked === true)}
                 disabled={!mixRoutingAvailable}
@@ -5082,6 +5096,7 @@ export function CreatePageClient({
         <div className="mt-2 space-y-1 border-t border-border pt-2">
           {task.events.slice(-3).map((event, index) => (
             <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 事件为追加型日志、仅取末3条且不重排,index 与状态组合作 key 安全
               key={`${task.key}-event-${event.status || ""}-${index}`}
               className="flex items-center gap-2 text-[11px] text-muted-foreground"
             >
@@ -5153,6 +5168,7 @@ export function CreatePageClient({
                 <div className="mt-3 space-y-1 border-t border-border pt-2">
                   {round.notes.map((note, noteIndex) => (
                     <p
+                      // biome-ignore lint/suspicious/noArrayIndexKey: round notes 为追加型、不重排,noteIndex 作 key 安全
                       key={`${round.key}-note-${noteIndex}`}
                       className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground"
                     >
@@ -6767,7 +6783,7 @@ export function CreatePageClient({
     }, "image/png");
   };
 
-  const useResultAsReference = async (sourceResult = result) => {
+  const applyResultAsReference = async (sourceResult = result) => {
     if (!sourceResult?.imageUrl) return;
 
     try {
@@ -7375,7 +7391,7 @@ export function CreatePageClient({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => useResultAsReference(modeResult)}
+                  onClick={() => applyResultAsReference(modeResult)}
                 >
                   <RefreshCcw className="mr-2 h-4 w-4" />
                   {copy("Edit this", "编辑这张")}
