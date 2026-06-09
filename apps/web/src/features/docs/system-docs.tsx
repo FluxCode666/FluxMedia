@@ -564,11 +564,16 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
                 "本站扩展：审核改写重试开关。false 时审核失败直接返回真实错误，不自动改写提示词重试；与 /v1/images/generations 同义。",
             },
             {
-              name: "background / transparent_matte",
+              name: "background",
               requirement: "可选",
-              custom: true,
               description:
-                "与图片接口相同（chat 模式适用，不含 agent 分层）：background 取 transparent、opaque、auto；transparent_matte=true 时若后端不支持透明返回 400，则自动改不透明重绘并在服务端用 ISNet 抠图得到透明 PNG。详见 /v1/images/generations 说明。",
+                "transparent、opaque、auto。与 /v1/images/generations 同义；chat 模式适用，不含 agent 分层。",
+            },
+            {
+              name: "transparent_matte",
+              requirement: "可选",
+              description:
+                "默认 false。仅当 background=transparent 且显式设为 true 时生效：命中的后端不支持透明返回 400 时自动改不透明重绘，再在服务端用 ISNet 抠图得到透明 PNG。详见 /v1/images/generations 说明。",
             },
             {
               name: "thinking / reasoning.effort",
@@ -1628,11 +1633,16 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
                 "本站便捷字段：未在 image_generation tool 内指定压缩率时，作为本次 output_compression 使用。",
             },
             {
-              name: "background / transparent_matte",
+              name: "background",
               requirement: "可选",
-              custom: true,
               description:
-                "本站便捷字段：background 取 transparent、opaque、auto；transparent_matte=true 时若后端不支持透明返回 400，则自动改不透明重绘并用 ISNet 抠图得到透明 PNG。详见 /v1/images/generations 说明。",
+                "transparent、opaque、auto，作为本次生图 background。详见 /v1/images/generations 说明。",
+            },
+            {
+              name: "transparent_matte",
+              requirement: "可选",
+              description:
+                "默认 false。仅当 background=transparent 且设为 true 时：命中的后端不支持透明返回 400 后自动改不透明重绘，再用 ISNet 抠图得到透明 PNG。详见 /v1/images/generations 说明。",
             },
             {
               name: "promptRepair / prompt_repair",
