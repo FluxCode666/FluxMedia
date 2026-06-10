@@ -23,6 +23,7 @@ import {
   bindImageBackendStickyMember,
   ImageBackendPoolUnavailableError,
   isImageBackendSwitchableError,
+  isUnclassifiedBackendError,
   recordImageBackendSchedulerSwitch,
   releaseImageBackendInflightLease,
   reportImageBackendResult,
@@ -1011,6 +1012,10 @@ async function fetchResponsesWithPreviousResponseFallback(
   return previousResponseFallbackResult;
 }
 
+// 未知(未被任何分类记录)错误允许的最大切换次数：这类错误疑似平台问题，给
+// 有限次换后端机会兜底新形态错误，同时防止真终态错误在大池子里无限放大。
+const MAX_UNCLASSIFIED_ERROR_SWITCHES = 3;
+
 async function retryPoolBackendResult(
   config: ApiConfig,
   run: (candidate: ApiConfig) => Promise<GenerateImageResult>,
@@ -1037,6 +1042,7 @@ async function retryPoolBackendResult(
   let candidate = config;
   let lastResult: GenerateImageResult | null = null;
   let attempt = 0;
+  let unclassifiedErrorSwitches = 0;
   const shouldFallbackFromWebPreference = () =>
     accountBackendPreference === "web" &&
     (options?.mixWebFirst || options?.accountBackendPreference === "web");
@@ -1108,12 +1114,23 @@ async function retryPoolBackendResult(
     );
     lastResult = result;
 
+    // 未被任何分类记录的未知错误：白名单制下默认不可切换，但首次出现的新
+    // 形态平台错误不应当场砸在用户头上，允许有限次切换后端兜底。
+    const unclassifiedRetry =
+      unclassifiedErrorSwitches < MAX_UNCLASSIFIED_ERROR_SWITCHES &&
+      isUnclassifiedBackendError(result.error);
+
     if (
       !result.error ||
-      !(shouldRetry || isImageBackendSwitchableError(result.error))
+      !(
+        shouldRetry ||
+        isImageBackendSwitchableError(result.error) ||
+        unclassifiedRetry
+      )
     ) {
       return attachStickyBackendMember(candidate, result);
     }
+    if (unclassifiedRetry) unclassifiedErrorSwitches += 1;
 
     const memberKey = poolBackendMemberKey(candidate);
     if (memberKey) excluded.add(memberKey);
@@ -1133,6 +1150,8 @@ async function retryPoolBackendResult(
       backendId: backend.id,
       groupId: backend.groupId,
       error: result.error,
+      unclassifiedRetry,
+      unclassifiedErrorSwitches,
     });
 
     let next: Awaited<ReturnType<typeof resolveImageBackendPoolConfig>>;

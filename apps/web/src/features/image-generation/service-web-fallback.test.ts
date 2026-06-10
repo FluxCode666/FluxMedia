@@ -25,6 +25,8 @@ const backendPoolMock = vi.hoisted(() => {
     isImageBackendSwitchableError: vi.fn((error?: string | null) =>
       (error || "").includes("terminated")
     ),
+    // 本测试只关注可切换错误的回退路径，未知错误兜底固定不触发。
+    isUnclassifiedBackendError: vi.fn(() => false),
     reportImageBackendResult: vi.fn(async (input: { success: boolean }) => ({
       success: input.success,
       retryable: !input.success,

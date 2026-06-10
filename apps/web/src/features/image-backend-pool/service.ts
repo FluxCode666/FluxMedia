@@ -1248,6 +1248,23 @@ export function isImageGenDisabledBackendError(error?: string | null) {
   );
 }
 
+/**
+ * 识别"API Key 所属分组被上游停用"(HTTP 403 GROUP_DISABLED)的确定性坏配置错误。
+ *
+ * WHY 单列：中转把整组 Key 停用后，该后端的一切请求都会 403 且不会自愈。
+ * 2026-06-10 事故：该文案不命中任何白名单 → 不切换当场失败，叠加 always_active
+ * 不下线，形成"持续吃流量、每次都失败"的黑洞。应当：可切换到别的后端 +
+ * 把该后端标记为 error 踢出轮换，等管理员处理(测活/重新启用)后再回来。
+ */
+export function isGroupDisabledBackendError(error?: string | null) {
+  const normalized = (error || "").toLowerCase();
+  return (
+    normalized.includes("group_disabled") ||
+    normalized.includes("分组已停用") ||
+    normalized.includes("分组已禁用")
+  );
+}
+
 function isUserRequestBackendError(error?: string | null) {
   // 缺图像工具是后端能力问题（非用户内容拒绝）：放行去走"可切换 + 标记 error"，
   // 否则会被下方 isApologyRefusal 误判成用户拒绝而当场失败、不切换。
@@ -1299,7 +1316,26 @@ export function isImageBackendSwitchableError(error?: string | null) {
       !isLocalAbortTimeoutError(error) &&
       (isRecoverableBackendError(error) ||
         isInvalidBackendCredentialError(error) ||
-        isImageGenDisabledBackendError(error))
+        isImageGenDisabledBackendError(error) ||
+        isGroupDisabledBackendError(error))
+  );
+}
+
+/**
+ * 识别"未被任何已知规则记录"的未知后端错误：非用户请求错误、非本地超时
+ * abort，也不命中任何可切换白名单。
+ *
+ * WHY 单列：isImageBackendSwitchableError 是白名单制，首次出现的新形态平台
+ * 错误(上游新增的错误文案)默认不可切换，会当场失败砸在用户头上(GROUP_DISABLED
+ * 事故即此类)。重试循环对这类错误允许有限次切换后端兜底，见
+ * image-generation/service.ts 的 retryPoolBackendResult。
+ */
+export function isUnclassifiedBackendError(error?: string | null) {
+  return Boolean(
+    error &&
+      !isUserRequestBackendError(error) &&
+      !isLocalAbortTimeoutError(error) &&
+      !isImageBackendSwitchableError(error)
   );
 }
 
@@ -1596,6 +1632,10 @@ export async function classifyFailure(
   }
   // 该后端/分组未开通图像生成(403 permission)：确定性坏配置，标记 error 踢出轮换。
   if (isImageGenDisabledBackendError(error)) {
+    return { status: "error", cooldownUntil: null };
+  }
+  // API Key 所属分组被上游停用(403 GROUP_DISABLED)：确定性坏配置，标记 error 踢出轮换。
+  if (isGroupDisabledBackendError(error)) {
     return { status: "error", cooldownUntil: null };
   }
   if (

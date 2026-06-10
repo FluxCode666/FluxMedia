@@ -217,4 +217,43 @@ describe("image backend error classification", () => {
       false
     );
   });
+
+  it("marks group-disabled backends (403 GROUP_DISABLED) switchable and as error", async () => {
+    const svc = await loadService();
+    // 2026-06-10 事故文案：中转把整组 API Key 停用，确定性坏配置。
+    const err =
+      "Upstream Images API returned HTTP 403: API Key 所属分组已停用 | GROUP_DISABLED";
+
+    expect(svc.isGroupDisabledBackendError(err)).toBe(true);
+    expect(svc.isImageBackendSwitchableError(err)).toBe(true);
+    const failure = await svc.classifyFailure(err);
+    expect(failure.status).toBe("error");
+  });
+
+  it("treats unmatched novel errors as unclassified (eligible for limited switching)", async () => {
+    const svc = await loadService();
+
+    // 未命中任何白名单/用户错/本地超时的新形态错误：未分类，重试循环允许有限次切换。
+    expect(
+      svc.isUnclassifiedBackendError(
+        "Upstream Images API returned HTTP 418: some brand new upstream failure"
+      )
+    ).toBe(true);
+    // 已被白名单记录的可切换错误：不算未分类。
+    expect(svc.isUnclassifiedBackendError("fetch failed")).toBe(false);
+    expect(
+      svc.isUnclassifiedBackendError(
+        "Upstream Images API returned HTTP 403: API Key 所属分组已停用 | GROUP_DISABLED"
+      )
+    ).toBe(false);
+    // 用户请求错误与本地超时 abort：不算未分类，维持当场失败语义。
+    expect(
+      svc.isUnclassifiedBackendError(
+        "Your request was rejected by the safety system."
+      )
+    ).toBe(false);
+    expect(
+      svc.isUnclassifiedBackendError("The operation was aborted due to timeout")
+    ).toBe(false);
+  });
 });
