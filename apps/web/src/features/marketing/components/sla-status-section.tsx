@@ -114,8 +114,8 @@ export function SlaStatusSection({
           <div>
             <p className="text-sm font-medium text-muted-foreground">
               {copy(
-                `Live sample: latest ${formatNumber(stats.sampleSize)} generations`,
-                `实时样本：最近 ${formatNumber(stats.sampleSize)} 张生成记录`
+                `Live sample: latest ${formatNumber(stats.sampleSize)} finished generations`,
+                `实时样本：最近 ${formatNumber(stats.sampleSize)} 张已完结生成记录`
               )}
             </p>
             <h2 className="mt-2 font-serif text-2xl font-medium tracking-tight">

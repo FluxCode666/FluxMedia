@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
-import { desc } from "drizzle-orm";
+import { desc, inArray } from "drizzle-orm";
 export {
   classifyGenerationError,
   type GenerationErrorCategory,
@@ -22,12 +22,15 @@ export type GenerationSlaStats = {
 export async function getRecentGenerationSlaStats(
   limit = 1000
 ): Promise<GenerationSlaStats> {
+  // 样本只取已完结记录(completed/failed):pending 在途任务既不属于成功也
+  // 不属于失败,混进样本会让"样本数"与各分类卡片的合计对不上(差额即在途数)。
   const rows = await db
     .select({
       status: generation.status,
       error: generation.error,
     })
     .from(generation)
+    .where(inArray(generation.status, ["completed", "failed"]))
     .orderBy(desc(generation.createdAt))
     .limit(limit);
 
