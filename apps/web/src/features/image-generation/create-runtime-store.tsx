@@ -111,6 +111,24 @@ export function useCreateRuntimeState<T>(
   return [value, setValue];
 }
 
+// 重置指定 key 的值,用于路由切换时清理创作页面的表单状态。
+export function useResetCreateRuntimeKeys() {
+  const contextStore = useContext(CreateRuntimeContext);
+  const store = contextStore || fallbackStore;
+
+  return useCallback(
+    (keys: string[]) => {
+      for (const key of keys) {
+        if (store.values.has(key)) {
+          store.values.delete(key);
+          notify(store, key);
+        }
+      }
+    },
+    [store]
+  );
+}
+
 export function useCreateRuntimeRef<T>(
   key: string,
   initialValue: T | (() => T)

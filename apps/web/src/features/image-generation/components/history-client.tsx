@@ -14,8 +14,9 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import type {
   LightboxReferenceImage,
@@ -136,14 +137,42 @@ export function HistoryClient({
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const statusLabel = (status: string) =>
     isZh ? STATUS_LABELS_ZH[status] || status : status;
+  const router = useRouter();
   const [items, setItems] = useState<HistoryGeneration[]>(initialGenerations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pageInput, setPageInput] = useState(String(page));
+
+  // page prop 变化时同步输入框显示值
+  useEffect(() => {
+    setPageInput(String(page));
+  }, [page]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const historyHref = (nextPage: number) =>
     `/${locale}/dashboard/history?page=${nextPage}`;
   const createHref = `/${locale}/dashboard/create`;
+
+  /**
+   * 处理页码输入框提交：解析、校验、导航。
+   * 用于 onKeyDown(Enter) 和 onBlur，提取为公共函数避免重复。
+   */
+  const commitPageInput = () => {
+    const parsed = Number.parseInt(pageInput, 10);
+    if (Number.isNaN(parsed) || parsed < 1) {
+      // 无效输入，重置为当前页
+      setPageInput(String(page));
+      return;
+    }
+    const clamped = Math.min(parsed, totalPages);
+    if (clamped === page) {
+      // 目标页与当前页相同，仅同步显示值
+      setPageInput(String(page));
+      return;
+    }
+    setPageInput(String(clamped));
+    router.push(historyHref(clamped));
+  };
 
   const handleDelete = (id: string) => {
     setItems((prev) => prev.filter((x) => x.id !== id));
@@ -313,6 +342,26 @@ export function HistoryClient({
                 </span>
               )}
             </Button>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  commitPageInput();
+                }
+              }}
+              onBlur={commitPageInput}
+              aria-label={copy(
+                "Page number",
+                "页码"
+              )}
+              className="h-8 w-16 rounded border border-border bg-background text-center text-sm text-foreground"
+            />
+            <span className="text-xs text-muted-foreground">
+              / {totalPages}
+            </span>
             <Button
               asChild={page < totalPages}
               variant="outline"

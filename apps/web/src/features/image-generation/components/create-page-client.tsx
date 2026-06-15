@@ -63,6 +63,7 @@ import { toast } from "sonner";
 import {
   useCreateRuntimeRef,
   useCreateRuntimeState,
+  useResetCreateRuntimeKeys,
 } from "@/features/image-generation/create-runtime-store";
 import {
   hasSeenWaterfallFirstTimeWarning,
@@ -2229,6 +2230,26 @@ export function CreatePageClient({
     "editBatchCount",
     1
   );
+
+  // 路由切换时重置创作页面的表单输入状态,防止从其他页面切换回来时
+  // 仍显示上一次的内容。仅清理输入类状态,保留用户偏好(模型/尺寸/质量等)。
+  const resetKeys = useResetCreateRuntimeKeys();
+  useEffect(() => {
+    // 如果 URL 携带 sendRef 参数,说明是从图库/历史发送参考图过来,
+    // 不应清理状态(reference-handoff 会填充正确的值)。
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("sendRef")) return;
+
+    resetKeys([
+      "prompt",
+      "editPrompt",
+      "chatPrompt",
+      "batchPrompt",
+      "linePrompts",
+      "chatAttachments",
+    ]);
+  }, [resetKeys]);
+
   useEffect(() => {
     setBatchCount((value) => Math.min(value, batchCountMax));
     setLineBatchRepeatCount((value) => Math.min(value, batchCountMax));

@@ -3,11 +3,19 @@
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Tabs, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
-import { ImagePlus } from "lucide-react";
+import {
+  Download,
+  ImagePlus,
+  MousePointerClick,
+  Trash2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useLocale } from "next-intl";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ImageCard } from "@/features/image-generation/components/image-card";
+import { batchDeleteGenerationAction } from "@/features/image-generation/actions";
 import dynamic from "next/dynamic";
 import type {
   LightboxReferenceImage,
@@ -69,8 +77,155 @@ export function GalleryClient({
   const [items, setItems] = useState<GenerationWithUrl[]>(initialGenerations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // -- 多选模式状态 --
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    new Set()
+  );
+  /** 记录上一次点选的索引,用于 Shift 范围选择 */
+  const lastSelectedIndexRef = useRef<number>(-1);
+  /** 批量删除二次确认:第一次点击设为 true,第二次才真正执行 */
+  const [confirmBatchDelete, setConfirmBatchDelete] =
+    useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const hasMore = items.length < totalCount;
+
+  // -- 多选模式:退出时清空选中集 --
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setConfirmBatchDelete(false);
+    lastSelectedIndexRef.current = -1;
+  }, []);
+
+  // -- 多选模式:切换单个 item 的选中状态,支持 Shift 范围选 --
+  const handleSelect = useCallback(
+    (id: string, event: React.MouseEvent) => {
+      const currentIndex = items.findIndex((i) => i.id === id);
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+
+        // Shift+点击:选中上次与本次之间的所有项
+        if (
+          event?.shiftKey &&
+          lastSelectedIndexRef.current >= 0 &&
+          lastSelectedIndexRef.current !== currentIndex
+        ) {
+          const start = Math.min(
+            lastSelectedIndexRef.current,
+            currentIndex
+          );
+          const end = Math.max(
+            lastSelectedIndexRef.current,
+            currentIndex
+          );
+          for (let i = start; i <= end; i++) {
+            const item = items[i];
+            if (item) next.add(item.id);
+          }
+        } else {
+          // 普通点击 / Ctrl+点击:切换单项
+          if (next.has(id)) {
+            next.delete(id);
+          } else {
+            next.add(id);
+          }
+        }
+
+        return next;
+      });
+
+      lastSelectedIndexRef.current = currentIndex;
+      // 重置删除二次确认
+      setConfirmBatchDelete(false);
+    },
+    [items]
+  );
+
+  // -- 批量下载:依次创建临时 <a> 触发下载,间隔 100ms 避免浏览器拦截 --
+  const handleBatchDownload = useCallback(() => {
+    const toDownload = items.filter(
+      (i) => selectedIds.has(i.id) && i.imageUrl
+    );
+    if (toDownload.length === 0) return;
+    for (let idx = 0; idx < toDownload.length; idx++) {
+      const item = toDownload[idx];
+      if (!item?.imageUrl) continue;
+      setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = item.imageUrl as string;
+        a.download = `gpt2image-${item.id}.png`;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }, idx * 100);
+    }
+    toast.success(
+      copy(
+        `Downloading ${toDownload.length} images`,
+        `正在下载 ${toDownload.length} 张图片`
+      )
+    );
+  }, [items, selectedIds, copy]);
+
+  // -- 批量删除 --
+  const handleBatchDelete = useCallback(async () => {
+    if (!confirmBatchDelete) {
+      setConfirmBatchDelete(true);
+      return;
+    }
+    setBatchDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await batchDeleteGenerationAction({
+        generationIds: ids,
+      });
+      if (result?.data?.success) {
+        const count = result.data.deletedCount ?? ids.length;
+        setItems((prev) =>
+          prev.filter((i) => !selectedIds.has(i.id))
+        );
+        setSelectedIds(new Set());
+        setConfirmBatchDelete(false);
+        toast.success(
+          copy(
+            `Deleted ${count} images`,
+            `已删除 ${count} 张图片`
+          )
+        );
+      } else {
+        const msg =
+          result?.serverError ||
+          copy("Failed to delete", "删除失败");
+        toast.error(
+          typeof msg === "string"
+            ? msg
+            : copy("Failed to delete", "删除失败")
+        );
+      }
+    } catch {
+      toast.error(
+        copy("Failed to delete", "删除失败")
+      );
+    } finally {
+      setBatchDeleting(false);
+    }
+  }, [confirmBatchDelete, selectedIds, copy]);
+
+  // -- 全选 / 取消全选 --
+  const handleSelectAll = useCallback(() => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map((i) => i.id)));
+    }
+    setConfirmBatchDelete(false);
+  }, [items, selectedIds.size]);
+
   const createHref = `/${locale}/dashboard/create`;
   const galleryHref = (tab: GalleryClientProps["activeTab"], nextPage = 1) =>
     `/${locale}/dashboard/gallery?tab=${tab}&page=${nextPage}`;
@@ -88,43 +243,78 @@ export function GalleryClient({
   };
 
   const tabs = (
-    <Tabs value={activeTab} className="w-full">
-      <TabsList className="h-auto flex-wrap justify-start border border-border bg-muted/40">
-        <TabsTrigger value="final" asChild>
-          <Link href={galleryHref("final")} scroll={false}>
-            {copy("Final images", "成品")}
-            <Badge
-              variant="outline"
-              className={countBadgeClass(activeTab === "final")}
+    <div className="flex items-center gap-3">
+      <Tabs value={activeTab} className="flex-1">
+        <TabsList className="h-auto flex-wrap justify-start border border-border bg-muted/40">
+          <TabsTrigger value="final" asChild>
+            <Link href={galleryHref("final")} scroll={false}>
+              {copy("Final images", "成品")}
+              <Badge
+                variant="outline"
+                className={countBadgeClass(
+                  activeTab === "final"
+                )}
+              >
+                {finalCount}
+              </Badge>
+            </Link>
+          </TabsTrigger>
+          <TabsTrigger value="agent-drafts" asChild>
+            <Link
+              href={galleryHref("agent-drafts")}
+              scroll={false}
             >
-              {finalCount}
-            </Badge>
-          </Link>
-        </TabsTrigger>
-        <TabsTrigger value="agent-drafts" asChild>
-          <Link href={galleryHref("agent-drafts")} scroll={false}>
-            {copy("Agent drafts", "Agent 中间图")}
-            <Badge
-              variant="outline"
-              className={countBadgeClass(activeTab === "agent-drafts")}
+              {copy("Agent drafts", "Agent 中间图")}
+              <Badge
+                variant="outline"
+                className={countBadgeClass(
+                  activeTab === "agent-drafts"
+                )}
+              >
+                {draftCount}
+              </Badge>
+            </Link>
+          </TabsTrigger>
+          <TabsTrigger value="uploads" asChild>
+            <Link
+              href={galleryHref("uploads")}
+              scroll={false}
             >
-              {draftCount}
-            </Badge>
-          </Link>
-        </TabsTrigger>
-        <TabsTrigger value="uploads" asChild>
-          <Link href={galleryHref("uploads")} scroll={false}>
-            {copy("User uploads", "用户上传图")}
-            <Badge
-              variant="outline"
-              className={countBadgeClass(activeTab === "uploads")}
-            >
-              {uploadCount}
-            </Badge>
-          </Link>
-        </TabsTrigger>
-      </TabsList>
-    </Tabs>
+              {copy("User uploads", "用户上传图")}
+              <Badge
+                variant="outline"
+                className={countBadgeClass(
+                  activeTab === "uploads"
+                )}
+              >
+                {uploadCount}
+              </Badge>
+            </Link>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {/* 多选模式切换按钮 */}
+      <Button
+        variant={selectMode ? "secondary" : "outline"}
+        size="sm"
+        onClick={
+          selectMode ? exitSelectMode : () => setSelectMode(true)
+        }
+        className="shrink-0"
+      >
+        {selectMode ? (
+          <>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            {copy("Cancel", "取消")}
+          </>
+        ) : (
+          <>
+            <MousePointerClick className="mr-1.5 h-3.5 w-3.5" />
+            {copy("Select", "选择")}
+          </>
+        )}
+      </Button>
+    </div>
   );
 
   if (items.length === 0) {
@@ -183,7 +373,16 @@ export function GalleryClient({
               createdAt={item.createdAt}
               status={item.status}
               timeZone={timeZone}
-              onClick={() => setSelectedId(item.id)}
+              selectable={selectMode}
+              selected={selectedIds.has(item.id)}
+              onSelect={
+                selectMode ? handleSelect : undefined
+              }
+              onClick={
+                selectMode
+                  ? undefined
+                  : () => setSelectedId(item.id)
+              }
               badge={
                 item.outputRole === "agent_draft"
                   ? copy("Draft", "中间图")
@@ -203,6 +402,54 @@ export function GalleryClient({
               {copy("Load more", "加载更多")}
             </Link>
           </Button>
+        </div>
+      )}
+
+      {/* 多选模式下的浮动批量操作栏 */}
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-4 py-2.5 shadow-lg">
+            <span className="text-sm text-muted-foreground">
+              {copy(
+                `Selected ${selectedIds.size} items`,
+                `已选择 ${selectedIds.size} 项`
+              )}
+            </span>
+            <div className="h-4 w-px bg-border" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSelectAll}
+            >
+              {selectedIds.size === items.length
+                ? copy("Deselect all", "取消全选")
+                : copy("Select all", "全选")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBatchDownload}
+            >
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              {copy("Download", "下载")}
+            </Button>
+            <Button
+              variant={
+                confirmBatchDelete ? "destructive" : "outline"
+              }
+              size="sm"
+              disabled={batchDeleting}
+              onClick={handleBatchDelete}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              {confirmBatchDelete
+                ? copy(
+                    `Confirm delete ${selectedIds.size} items`,
+                    `确认删除 ${selectedIds.size} 项`
+                  )
+                : copy("Delete", "删除")}
+            </Button>
+          </div>
         </div>
       )}
 
