@@ -21,9 +21,9 @@
 
 ## 近期功能查漏补缺
 
-- [ ] **图库多选批量下载/删除**：画廊页支持多选模式（Shift+点击范围选、Ctrl+点击逐个选），选中后顶部浮出操作栏提供"批量下载"（打包 zip）和"批量删除"（二次确认弹窗）。需服务端新增批量删除 API（校验归属权限），前端新增选中态 UI + 批量操作逻辑。
-- [ ] **记录页增加页码输入**：历史记录/生成记录分页区域增加页码输入框，用户可直接输入页码跳转，而非仅靠上一页/下一页翻页。输入值需校验范围（1 ~ 总页数），超出范围提示。
-- [ ] **修复创作页路由切换后缓存未清除**：当前从创作页切换到其他页面（如画廊/设置）再切回时，创作页仍保留上一次的输入内容（prompt/参数等），但硬刷新（F5）后正常清除。根因推测为 Next.js 客户端路由导航时组件未卸载重建（React 状态保留），需要在路由离开时清理创作页状态，或在路由进入时重置表单状态。
+- [x] **图库多选批量下载/删除**（6900513）：ImageCard 增加 selectable/selected/onSelect 属性与复选框覆盖层；GalleryClient 多选模式（Shift 范围选、全选/取消）、底部浮动操作栏（批量下载逐张触发 <a> / 批量删除二次确认）；actions.ts 新增 batchDeleteGenerationAction（归属校验、存储去重、max 100）。
+- [x] **记录页增加页码输入**（6900513）：分页区域增加页码输入框（input[type=text][inputMode=numeric]），支持 Enter / blur 提交跳转，校验 1~totalPages 范围，页码变化时自动同步输入框值。
+- [x] **修复创作页路由切换后缓存未清除**（6900513）：create-runtime-store 新增 useResetCreateRuntimeKeys hook；create-page-client 挂载时重置 prompt/editPrompt/chatPrompt/batchPrompt/linePrompts/chatAttachments（sendRef 参考图跳转时跳过重置）。
 
 ## Issue 修复（已落地 dev，待 UI 实测）
 
