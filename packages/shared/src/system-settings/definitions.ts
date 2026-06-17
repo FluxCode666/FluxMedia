@@ -1130,13 +1130,13 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "GENERATION_IMAGE_RETENTION_MODE",
     label: "图片清理模式",
     description:
-      "选择如何清理生成图片文件：关闭=永久保存（默认）；按时间=超过“照片销毁时间（小时）”后删除；按张数=仅保留最新的若干张，删除更老的。清理只删图片文件与图库展示，生成记录与计费流水仍保留。",
+      "选择如何清理生成图片文件：关闭=永久保存（默认）；按时间=超过“照片销毁时间（小时）”后删除；按张数=每个用户各自仅保留最新的若干张，删除其更老的。清理只删图片文件与图库展示，生成记录与计费流水仍保留。",
     category: "storage",
     valueType: "select",
     options: [
       { label: "关闭（永久保存）", value: "off" },
       { label: "按时间过期", value: "time" },
-      { label: "按最大张数", value: "count" },
+      { label: "按每用户最大张数", value: "count" },
     ],
     defaultValue: "off",
   },
@@ -1151,9 +1151,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "GENERATION_IMAGE_MAX_COUNT",
-    label: "最大保留张数",
+    label: "每用户最大保留张数",
     description:
-      "“按最大张数”模式下全站保留的已生成图片张数上限；超出后从最老的开始删除。仅在清理模式为“按最大张数”时生效。",
+      "“按每用户最大张数”模式下，每个用户各自保留的已生成图片张数上限；该用户超出后从其最老的开始删除（按用户独立计数，不是全站合计）。仅在清理模式为“按每用户最大张数”时生效。",
     category: "storage",
     valueType: "number",
     defaultValue: 10000,

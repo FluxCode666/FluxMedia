@@ -545,18 +545,20 @@ export async function destroyExpiredGenerationPhotos(
 }
 
 /**
- * 按"最大保留张数"清理：全站只保留最新的 maxCount 张可展示图，删除更老的图片文件。
+ * 按"每用户最大保留张数"清理：每个用户各自保留最新的 maxCount 张可展示图，
+ * 删除该用户更老的图片文件。阈值是 per-user 的，不是全站。
  *
  * 与 destroyExpiredGenerationPhotos 同语义地"只删图、不删行"：删存储对象后把
  * generation 行的 storageKey/fileSize 置空并在 metadata 记审计，画廊/历史的
  * isNotNull(storageKey) 过滤会自动隐藏；绝不删 generation 行、不动 creditsConsumed。
  *
- * "张数"口径 = status='completed' AND storageKey IS NOT NULL 的行数（与按时间模式
- * 一致，全站维度）。按 COALESCE(completedAt, createdAt) DESC 排序（最新在前），
- * OFFSET maxCount 跳过要保留的最新 N 行，其后更老的进入待删集合，LIMIT 限定单批上限。
+ * 口径 = status='completed' AND storageKey IS NOT NULL 的行；按 user_id 分区、
+ * COALESCE(completedAt, createdAt) DESC（最新在前，desc(id) 作确定性次级键）排名，
+ * 删每个用户排名 > maxCount 的行（该用户超出额度的更老图）；不足额度的用户零删除。
+ * LIMIT 限定单批上限。
  *
- * 收敛性：超出量大于单批上限时本批只删最老的一批，后续调度继续删下一批，多次单调
- * 收敛到恰好保留 maxCount 行（删除后总数下降，OFFSET 自然指向新边界，无需游标）。
+ * 收敛性：每批删至多 limit 行超额行，删后其 storageKey 置空退出排名集，下批重排继续，
+ * 多次调度单调收敛到"每个用户恰好保留最新 maxCount 张"。
  *
  * 短路防线：maxCount<=0 或非有限数经 resolveMaxCountRetention 返回 enabled:false，
  * 直接零结果返回，不查库、不删文件。
@@ -589,29 +591,42 @@ export async function destroyGenerationPhotosByMaxCount(
     };
   }
 
-  // DESC（最新在前）+ OFFSET maxCount 跳过要保留的最新 N 张，其后更老的进入待删
-  // 集合，再 LIMIT 取本批。方向与按时间模式 destroyExpiredGenerationPhotos 的 desc
-  // 一致。追加 desc(id) 作确定性次级键，避免时间戳并列时 OFFSET 边界在多次调度间抖动。
+  // 每用户保留：按 user_id 分区、COALESCE(completedAt,createdAt) DESC（最新在前，
+  // desc(id) 为确定性次级键）用 row_number 排名，取每个用户排名 > maxCount 的行
+  // （该用户超出额度的更老图）。多数用户不足额度则零删除。删后这些行 storageKey
+  // 置空退出排名集，下批重排继续，逐批单调收敛。
   const orderExpr = sql`COALESCE(${generation.completedAt}, ${generation.createdAt})`;
-  const rows = await db
-    .select({
-      id: generation.id,
-      userId: generation.userId,
-      storageKey: generation.storageKey,
-      storageBucket: generation.storageBucket,
-      metadata: generation.metadata,
-      completedAt: generation.completedAt,
-      createdAt: generation.createdAt,
-    })
-    .from(generation)
-    .where(
-      and(
-        eq(generation.status, "completed" as const),
-        isNotNull(generation.storageKey)
+  const ranked = db.$with("ranked").as(
+    db
+      .select({
+        id: generation.id,
+        userId: generation.userId,
+        storageKey: generation.storageKey,
+        storageBucket: generation.storageBucket,
+        metadata: generation.metadata,
+        rn: sql<number>`row_number() over (partition by ${generation.userId} order by ${orderExpr} desc, ${generation.id} desc)`.as(
+          "rn"
+        ),
+      })
+      .from(generation)
+      .where(
+        and(
+          eq(generation.status, "completed" as const),
+          isNotNull(generation.storageKey)
+        )
       )
-    )
-    .orderBy(desc(orderExpr), desc(generation.id))
-    .offset(guard.maxCount)
+  );
+  const rows = await db
+    .with(ranked)
+    .select({
+      id: ranked.id,
+      userId: ranked.userId,
+      storageKey: ranked.storageKey,
+      storageBucket: ranked.storageBucket,
+      metadata: ranked.metadata,
+    })
+    .from(ranked)
+    .where(sql`${ranked.rn} > ${guard.maxCount}`)
     .limit(options.limit ?? 500);
 
   const details: Array<{
