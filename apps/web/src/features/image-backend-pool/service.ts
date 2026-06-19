@@ -100,7 +100,7 @@ type ResolveBackendOptions = {
   apiKeyId?: string;
   requestKind: ImageBackendRequestKind;
   preferredMemberId?: string;
-  preferredMemberType?: "api" | "account";
+  preferredMemberType?: "api" | "account" | "adobe";
   stickyPreviousResponseId?: string;
   stickySessionKey?: string;
   accountBackendPreference?: ImageBackendAccountBackend;
@@ -109,7 +109,7 @@ type ResolveBackendOptions = {
 };
 
 type StickyBindingMember = {
-  type: "api" | "account";
+  type: "api" | "account" | "adobe";
   id: string;
   groupId?: string | null;
   accountBackend?: "web" | "responses";
@@ -2045,7 +2045,7 @@ async function selectPoolMember(
   requestKind?: ImageBackendRequestKind,
   excluded?: Set<string>,
   preferredMemberId?: string,
-  preferredMemberType?: "api" | "account",
+  preferredMemberType?: "api" | "account" | "adobe",
   stickyPreviousMember?: StickyBindingMember | null,
   stickySessionMember?: StickyBindingMember | null,
   accountBackendPreference?: ImageBackendAccountBackend,
@@ -6746,6 +6746,159 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
   return id;
 }
 
+// Adobe 后端与分组关系写入（镜像 setImageBackendApiGroups）。
+async function setImageBackendAdobeGroups(input: {
+  adobeId: string;
+  groupIds: string[];
+  replace: boolean;
+}) {
+  const groupIds = normalizeAccountGroupIds(input.groupIds);
+  if (input.replace) {
+    await db
+      .delete(imageBackendAdobeGroup)
+      .where(eq(imageBackendAdobeGroup.adobeId, input.adobeId));
+  }
+  if (!groupIds.length) return;
+  await db
+    .insert(imageBackendAdobeGroup)
+    .values(
+      groupIds.map((groupId) => ({
+        id: `${input.adobeId}:${groupId}`,
+        adobeId: input.adobeId,
+        groupId,
+      }))
+    )
+    .onConflictDoNothing();
+}
+
+export type UpsertAdobeInput = {
+  id?: string;
+  groupId?: string | null;
+  groupIds?: string[];
+  mergeGroupIds?: boolean;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  enabledModels?: string[] | null;
+  defaultRatio: string;
+  defaultResolution: string;
+  supportsVideo: boolean;
+  contentSafetyEnabled: boolean;
+  isEnabled: boolean;
+  alwaysActive: boolean;
+  failureCooldownEnabled: boolean;
+  priority: number;
+  concurrency: number;
+  status?: string;
+};
+
+/**
+ * 新建/更新一个 Adobe（adobe2api）后端。镜像 upsertImageBackendApi：groupIds 为多分组
+ * 真相，primaryGroupId（首个）保留为主分组；编辑时仅在传入 apiKey 时才覆写密钥。
+ */
+export async function upsertImageBackendAdobe(input: UpsertAdobeInput) {
+  const groupIds = accountGroupIdsFromInput(input);
+  const primaryGroupId = groupIds[0] || null;
+  let existingPrimaryGroupId: string | null | undefined;
+
+  if (input.id) {
+    const [existing] = await db
+      .select({ groupId: imageBackendAdobe.groupId })
+      .from(imageBackendAdobe)
+      .where(eq(imageBackendAdobe.id, input.id))
+      .limit(1);
+    existingPrimaryGroupId = existing?.groupId ?? null;
+  }
+
+  const updateBase = {
+    name: input.name,
+    baseUrl: stripTrailingSlash(input.baseUrl),
+    enabledModels: input.enabledModels ?? null,
+    defaultRatio: input.defaultRatio,
+    defaultResolution: input.defaultResolution,
+    supportsVideo: input.supportsVideo,
+    contentSafetyEnabled: input.contentSafetyEnabled,
+    isEnabled: input.isEnabled,
+    alwaysActive: input.alwaysActive,
+    failureCooldownEnabled: input.failureCooldownEnabled,
+    priority: input.priority,
+    concurrency: Math.max(1, Math.min(10000, input.concurrency)),
+    status: input.status || "active",
+    updatedAt: new Date(),
+  };
+
+  if (input.id) {
+    const update = {
+      ...updateBase,
+      groupId: input.mergeGroupIds
+        ? existingPrimaryGroupId || primaryGroupId
+        : primaryGroupId,
+    };
+    await db
+      .update(imageBackendAdobe)
+      .set(input.apiKey ? { ...update, apiKey: input.apiKey } : update)
+      .where(eq(imageBackendAdobe.id, input.id));
+    await setImageBackendAdobeGroups({
+      adobeId: input.id,
+      groupIds,
+      replace: !input.mergeGroupIds,
+    });
+    return input.id;
+  }
+
+  if (!input.apiKey) {
+    throw new Error("apiKey is required");
+  }
+  const id = nanoid();
+  await db.insert(imageBackendAdobe).values({
+    id,
+    ...updateBase,
+    groupId: primaryGroupId,
+    apiKey: input.apiKey,
+  });
+  await setImageBackendAdobeGroups({ adobeId: id, groupIds, replace: true });
+  return id;
+}
+
+/** 启用/停用一个 Adobe 后端（镜像 setImageBackendApiEnabled）。 */
+export async function setImageBackendAdobeEnabled(input: {
+  id: string;
+  isEnabled: boolean;
+}): Promise<void> {
+  await db
+    .update(imageBackendAdobe)
+    .set({
+      isEnabled: input.isEnabled,
+      ...(input.isEnabled
+        ? {
+            status: "active",
+            cooldownUntil: null,
+            lastError: null,
+            lastErrorAt: null,
+          }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(imageBackendAdobe.id, input.id));
+}
+
+/** 设置一个 Adobe 后端的 always_active 开关（镜像 api 版）。 */
+export async function setImageBackendAdobeAlwaysActive(input: {
+  id: string;
+  alwaysActive: boolean;
+}): Promise<void> {
+  await db
+    .update(imageBackendAdobe)
+    .set({
+      alwaysActive: input.alwaysActive,
+      ...(input.alwaysActive
+        ? { status: "active", cooldownUntil: null, lastError: null, lastErrorAt: null }
+        : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(imageBackendAdobe.id, input.id));
+}
+
 /**
  * 启用/停用一个 API 直透后端（"是否启用"快速开关）。
  *
@@ -6923,9 +7076,11 @@ export async function probeImageBackendApi(id: string): Promise<{
 export async function deleteImageBackendMembers(input: {
   accountIds?: string[];
   apiIds?: string[];
+  adobeIds?: string[];
 }) {
   let deletedAccountCount = 0;
   let deletedApiCount = 0;
+  let deletedAdobeCount = 0;
   if (input.accountIds?.length) {
     const accountIds = Array.from(new Set(input.accountIds.filter(Boolean)));
     for (let index = 0; index < accountIds.length; index += 500) {
@@ -6948,7 +7103,18 @@ export async function deleteImageBackendMembers(input: {
       deletedApiCount += chunk.length;
     }
   }
-  return { deletedAccountCount, deletedApiCount };
+  if (input.adobeIds?.length) {
+    const adobeIds = Array.from(new Set(input.adobeIds.filter(Boolean)));
+    for (let index = 0; index < adobeIds.length; index += 500) {
+      const chunk = adobeIds.slice(index, index + 500);
+      if (!chunk.length) continue;
+      await db
+        .delete(imageBackendAdobe)
+        .where(inArray(imageBackendAdobe.id, chunk));
+      deletedAdobeCount += chunk.length;
+    }
+  }
+  return { deletedAccountCount, deletedApiCount, deletedAdobeCount };
 }
 
 export async function listAdminImageBackendPool() {
@@ -7086,6 +7252,54 @@ export async function listAdminImageBackendPool() {
     apiGroupIdMap.set(row.apiId, current);
   }
 
+  const adobes = await db
+    .select({
+      id: imageBackendAdobe.id,
+      groupId: imageBackendAdobe.groupId,
+      name: imageBackendAdobe.name,
+      baseUrl: imageBackendAdobe.baseUrl,
+      enabledModels: imageBackendAdobe.enabledModels,
+      defaultRatio: imageBackendAdobe.defaultRatio,
+      defaultResolution: imageBackendAdobe.defaultResolution,
+      supportsVideo: imageBackendAdobe.supportsVideo,
+      contentSafetyEnabled: imageBackendAdobe.contentSafetyEnabled,
+      isEnabled: imageBackendAdobe.isEnabled,
+      alwaysActive: imageBackendAdobe.alwaysActive,
+      failureCooldownEnabled: imageBackendAdobe.failureCooldownEnabled,
+      priority: imageBackendAdobe.priority,
+      concurrency: imageBackendAdobe.concurrency,
+      status: imageBackendAdobe.status,
+      successCount: imageBackendAdobe.successCount,
+      failCount: imageBackendAdobe.failCount,
+      lastUsedAt: imageBackendAdobe.lastUsedAt,
+      cooldownUntil: imageBackendAdobe.cooldownUntil,
+      lastError: imageBackendAdobe.lastError,
+      lastErrorAt: imageBackendAdobe.lastErrorAt,
+      createdAt: imageBackendAdobe.createdAt,
+    })
+    .from(imageBackendAdobe)
+    .orderBy(asc(imageBackendAdobe.priority), desc(imageBackendAdobe.createdAt));
+  const adobeGroupRows = adobes.length
+    ? await db
+        .select({
+          adobeId: imageBackendAdobeGroup.adobeId,
+          groupId: imageBackendAdobeGroup.groupId,
+        })
+        .from(imageBackendAdobeGroup)
+        .where(
+          inArray(
+            imageBackendAdobeGroup.adobeId,
+            adobes.map((adobe) => adobe.id)
+          )
+        )
+    : [];
+  const adobeGroupIdMap = new Map<string, string[]>();
+  for (const row of adobeGroupRows) {
+    const current = adobeGroupIdMap.get(row.adobeId) || [];
+    current.push(row.groupId);
+    adobeGroupIdMap.set(row.adobeId, current);
+  }
+
   return {
     groups: summaries,
     accounts: accounts.map((account) => ({
@@ -7099,6 +7313,12 @@ export async function listAdminImageBackendPool() {
       groupIds:
         apiGroupIdMap.get(api.id) ||
         normalizeAccountGroupIds(api.groupId ? [api.groupId] : []),
+    })),
+    adobes: adobes.map((adobe) => ({
+      ...adobe,
+      groupIds:
+        adobeGroupIdMap.get(adobe.id) ||
+        normalizeAccountGroupIds(adobe.groupId ? [adobe.groupId] : []),
     })),
   };
 }

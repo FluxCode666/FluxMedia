@@ -35,6 +35,8 @@ import {
   runSub2ApiAutoSyncTaskNow,
   runSub2ApiManualSync,
   setImageBackendAccountAlwaysActive,
+  setImageBackendAdobeAlwaysActive,
+  setImageBackendAdobeEnabled,
   setImageBackendApiAlwaysActive,
   setImageBackendApiEnabled,
   setSub2ApiAutoSyncTaskEnabled,
@@ -43,6 +45,7 @@ import {
   syncImageBackendAccountsFromSub2Api,
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
+  upsertImageBackendAdobe,
   upsertImageBackendApi,
   upsertImageBackendGroup,
 } from "./service";
@@ -574,6 +577,69 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
     return { success: true, id };
   });
 
+export const saveImageBackendAdobeAction = withImageBackendPoolAdminAction(
+  "saveAdobe"
+)
+  .schema(
+    z.object({
+      id: z.string().trim().optional(),
+      groupId: nullableGroupIdSchema,
+      groupIds: z.array(z.string().trim().min(1)).max(100).optional(),
+      name: z.string().trim().min(1).max(120),
+      baseUrl: z.string().trim().url(),
+      apiKey: z.string().trim().optional(),
+      enabledModels: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+      defaultRatio: z.string().trim().max(20).default("1x1"),
+      defaultResolution: z.string().trim().max(10).default("2k"),
+      supportsVideo: z.boolean().default(false),
+      contentSafetyEnabled: z.boolean().default(true),
+      isEnabled: z.boolean().default(true),
+      alwaysActive: z.boolean().default(false),
+      failureCooldownEnabled: z.boolean().default(false),
+      priority: z.coerce.number().int().min(0).max(10000).default(50),
+      concurrency: z.coerce.number().int().min(1).max(10000).default(10),
+      status: z.string().trim().max(80).optional(),
+    })
+  )
+  .action(async ({ parsedInput }) => {
+    const id = await upsertImageBackendAdobe({
+      id: parsedInput.id,
+      groupId: parsedInput.groupId,
+      groupIds: parsedInput.groupIds,
+      name: parsedInput.name,
+      baseUrl: parsedInput.baseUrl,
+      apiKey: parsedInput.apiKey || undefined,
+      enabledModels: parsedInput.enabledModels ?? null,
+      defaultRatio: parsedInput.defaultRatio,
+      defaultResolution: parsedInput.defaultResolution,
+      supportsVideo: parsedInput.supportsVideo,
+      contentSafetyEnabled: parsedInput.contentSafetyEnabled,
+      isEnabled: parsedInput.isEnabled,
+      alwaysActive: parsedInput.alwaysActive,
+      failureCooldownEnabled: parsedInput.failureCooldownEnabled,
+      priority: parsedInput.priority,
+      concurrency: parsedInput.concurrency,
+      status: parsedInput.status || "active",
+    });
+    return { success: true, id };
+  });
+
+export const setImageBackendAdobeEnabledAction =
+  withImageBackendPoolAdminAction("setAdobeEnabled")
+    .schema(z.object({ id: z.string().trim().min(1), isEnabled: z.boolean() }))
+    .action(async ({ parsedInput }) => {
+      await setImageBackendAdobeEnabled(parsedInput);
+      return { success: true };
+    });
+
+export const setImageBackendAdobeAlwaysActiveAction =
+  withImageBackendPoolAdminAction("setAdobeAlwaysActive")
+    .schema(z.object({ id: z.string().trim().min(1), alwaysActive: z.boolean() }))
+    .action(async ({ parsedInput }) => {
+      await setImageBackendAdobeAlwaysActive(parsedInput);
+      return { success: true };
+    });
+
 export const setImageBackendApiEnabledAction = withImageBackendPoolAdminAction(
   "setApiEnabled"
 )
@@ -628,7 +694,7 @@ export const deleteImageBackendMemberAction = withImageBackendPoolAdminAction(
 )
   .schema(
     z.object({
-      type: z.enum(["account", "api"]),
+      type: z.enum(["account", "api", "adobe"]),
       id: z.string().trim().min(1),
     })
   )
@@ -636,7 +702,9 @@ export const deleteImageBackendMemberAction = withImageBackendPoolAdminAction(
     await deleteImageBackendMembers(
       parsedInput.type === "account"
         ? { accountIds: [parsedInput.id] }
-        : { apiIds: [parsedInput.id] }
+        : parsedInput.type === "adobe"
+          ? { adobeIds: [parsedInput.id] }
+          : { apiIds: [parsedInput.id] }
     );
     return { success: true };
   });
