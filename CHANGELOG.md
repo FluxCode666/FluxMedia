@@ -2,6 +2,21 @@
 
 本文件记录各发布版本的变更。版本格式 `v<MAJOR>.<MINOR>.<PATCH>`。
 
+## v0.5.4 (2026-06-19)
+
+修复 v0.5.3 引入的 codex 直连 images 端点请求格式问题(生成/图生图恢复正常并遵循尺寸),并统一下载文件名格式。
+
+### 修复
+
+- **codex 直连 images 请求格式适配**(v0.5.3 回归):codex 的 OpenAI 标准 images 端点要 JSON、不接受非标准参数,v0.5.3 的直连请求触发 400。
+  - 生成:去掉非标准 `width`/`height` 与 gpt-image 不支持的 `response_format`(原 `Unknown parameter: 'width'`)。
+  - 图生图:改走直连 JSON `/images/edits`(照 CPA codex 格式:输入图/mask 用 base64 data URL 放 `images[].image_url` / `mask.image_url`,`size` 顶层),不再用 multipart(原 `Unsupported content type`)。
+  - 二者均确定性遵循 size;chat / agent / 瀑布流仍走 `/responses`;pool-api 后端不受影响。
+
+### 新增
+
+- **统一下载文件名格式**:图库 / 灯箱 / PSD 导出的下载文件名统一为 `gpt2image_<hash>_<ISO 8601 毫秒时间戳>`。
+
 ## v0.5.3 (2026-06-18)
 
 图片清理新增「每用户最大保留张数」模式、codex 生图遵循尺寸、Web-first 默认开启,及全库审计 P0/P1 修复与画廊批量操作。
