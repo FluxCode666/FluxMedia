@@ -760,13 +760,16 @@ function isResponsesBackend(config: ApiConfig) {
   return isPoolApiResponsesBackend(config);
 }
 
-// codex(pool-account "responses")后端在【普通生成/编辑】下改走直连
-// /images/generations 与 /images/edits,而非 /responses 的 image_generation 工具。
+// codex(pool-account "responses")后端在【普通生成】下改走直连 /images/generations,
+// 而非 /responses 的 image_generation 工具。
 // WHY: codex 托管 image_generation 工具不暴露/不尊重 size(见 openai/codex #19175;
 // CLIProxyAPI 的 direct image API proxying 同此结论),导致生图不遵循尺寸指令。直连
-// images 端点用【同一账号、同一 OAuth 凭据、同一 baseUrl】,只是改 path,size 走顶层
-// 被确定性尊重。chat/agent/瀑布流依赖工具循环与多轮,仍走 /responses,不在此列。
-// 仅作用于 codex 账号(pool-account responses);pool-api 的 responses 后端不受影响。
+// /images/generations 用【同一账号、同一 OAuth 凭据、同一 baseUrl】,只改 path,size
+// 走顶层被确定性尊重。
+// 注意【仅生成】:图生图(/images/edits)需 multipart/form-data,而 codex 该端点不接受
+// (返回 400 Unsupported content type),故 editImage 不调用本函数、仍走 /responses。
+// chat/agent/瀑布流依赖工具循环与多轮,也走 /responses。仅作用于 codex 账号
+// (pool-account responses);pool-api 的 responses 后端不受影响。
 function shouldCodexUseDirectImagesEndpoint(config: ApiConfig) {
   return isPoolAccountBackend(config, "responses");
 }
@@ -4019,7 +4022,10 @@ export async function editImage(
       })
     );
   }
-  if (isResponsesBackend(config) && !shouldCodexUseDirectImagesEndpoint(config)) {
+  // codex(pool-account responses)的图生图仍走 /responses:其直连 /images/edits 端点
+  // 不接受 multipart/form-data(返回 400 Unsupported content type),故编辑不走直连。
+  // 仅普通生成(generateImage)走 codex 直连 /images/generations 以遵循 size。
+  if (isResponsesBackend(config)) {
     try {
       const gptModel =
         params.gptModel ||

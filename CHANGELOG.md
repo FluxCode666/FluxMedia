@@ -13,7 +13,7 @@
 
 ### 改进
 
-- **codex 生图遵循尺寸**:codex(Codex/Responses 账号)的普通生成/编辑改走该账号 `/images/generations`、`/images/edits` 直连端点(size 走顶层),确定性遵循尺寸;此前经 `/responses` 的 image_generation 托管工具不尊重 size。chat / agent / 瀑布流仍走 `/responses`。
+- **codex 生图遵循尺寸**:codex(Codex/Responses 账号)的普通生成改走该账号 `/images/generations` 直连端点(size 走顶层),确定性遵循尺寸;此前经 `/responses` 的 image_generation 托管工具不尊重 size。图生图(edit)因 codex 的 `/images/edits` 不接受 multipart(返回 400 Unsupported content type),仍走 `/responses`;chat / agent / 瀑布流同样走 `/responses`。
 - **Web-first 默认开启**:Web-first 优先路由改为默认开启(不传即优先 Web、失败回退 Codex/Responses);仅当显式传 false 时才用 Web-first 像素区间判定。chat 的 `mix_web_first` 并入同一决策。仅对 mixed 后端分组生效,agent 不受影响。
 
 ### 修复
