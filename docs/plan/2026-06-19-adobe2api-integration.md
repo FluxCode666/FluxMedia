@@ -133,3 +133,42 @@
 - Entities 的归属与配额（per-user vs 全站；与 Adobe 账号绑定关系如何对用户呈现）。
 - Adobe gpt-image 与现有 codex/web gpt-image 在调度上的优先级/分组策略。
 - Firefly 生态 tab 与现有创作页的导航关系（同页签 vs 独立入口）。
+
+## 12. 实施进度与池接入地图
+
+### 已完成（分支 feat/adobe2api-backend）
+- `9160112` Firefly 请求适配器（纯函数 + 14 单测）：`packages/shared/src/adobe/firefly-request.ts`。
+- `f6b365e` 数据模型 `image_backend_adobe`(+group) + 迁移 0040。
+- `1a5a7a2` Firefly 响应解析器（纯函数 + 12 单测）：`firefly-response.ts`（`parseAdobeMediaResult`）。
+- 全绿：typecheck + 26 单测 + lint。
+
+### Phase 1 池接入触点（已扫描，blast radius 已知）
+把第三种成员类型 `"adobe"` 穿过调度器 + 派发：
+
+1. `image-backend-pool/service.ts`：
+   - `PoolMember` 加 `type:"adobe"` 变体；`ResolvedImageBackendPoolConfig.memberType`、
+     `ImageBackendReportResultInput.memberType` 放宽含 `"adobe"`。
+   - 内部 helper 的 `memberType` 形参放宽（约 6 处：~899/989/1016/2513/2818，租约/粘性/SLA 指标）。
+   - `resolvePoolMember` 候选收集：查 `imageBackendAdobe`(+group)，镜像 api/account 的
+     where（含 always_active + 终态错误规则：`status<>'error'`）、优先级/SLA 排序。
+   - `toResolvedPoolConfig` 加 adobe 分支：构造 `config.backend = { type:"pool-adobe", ...,
+     adobeEnabledModels/defaultRatio/defaultResolution/supportsVideo }`。
+   - `reportImageBackendResult` 加 adobe 分支：镜像 api 的 always_active + 终态错误标 error +
+     冷却，写 `imageBackendAdobe`。
+   - `classifyFailure` / 错误分类对 adobe 响应适配。
+2. `image-generation/types.ts`：`backend.type` 联合加 `"pool-adobe"`（+ adobe 专属字段）。
+3. `image-generation/service.ts` 与 `operations.ts`：约 15+ 处
+   `backend.type === "pool-api" ? "api" : "account"` 映射须改三态（含 adobe）；
+   **真正的派发**（generate/edit）加 adobe 分支：用 `buildAdobeImageRequestBody` → POST
+   `{baseUrl}/v1/chat/completions` → `parseAdobeMediaResult` → fetch 媒体 re-host。
+4. admin：`image_backend_adobe` 后端表单（baseUrl + apiKey + enabledModels + 默认 ratio/res）。
+
+### Phase 2 账号管理（已确认可行）
+adobe2api 账号/cookie/token 管理全暴露 HTTP API（`/api/v1/tokens`、
+`/api/v1/refresh-profiles/import-cookie` 等），鉴权为 **admin session 登录**（`/api/v1/auth/login`）。
+gpt2image admin 做服务端代理（login 拿 session → 转发导入/列表/刷新/删除）。
+需给 `image_backend_adobe` 加 adobe2api 的 **admin 凭据字段**（与生成用 apiKey 分开）。
+注意：生成用 Service API Key；账号管理用 admin 登录——两套凭据。
+
+### 待 live 校准
+错误响应体格式、`/generated/*` URL 时效/鉴权、限流响应（需一个能用的 adobe2api 实例）。
