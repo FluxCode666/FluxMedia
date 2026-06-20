@@ -3861,23 +3861,43 @@ export function poolBackendMemberType(
 
 // adobe（pool-adobe）后端的图像家族选择：Phase 1 默认 gpt-image；若后端声明了
 // enabledModels，取其中首个受支持的家族。
+const ADOBE_IMAGE_FAMILIES: AdobeImageFamily[] = [
+  "gpt-image",
+  "nano-banana",
+  "nano-banana2",
+  "nano-banana-pro",
+];
+
 function pickAdobeImageFamily(
   enabled: string[] | null | undefined
 ): AdobeImageFamily {
-  const allowed: AdobeImageFamily[] = [
-    "gpt-image",
-    "nano-banana",
-    "nano-banana2",
-    "nano-banana-pro",
-  ];
   if (enabled) {
     for (const candidate of enabled) {
-      if (allowed.includes(candidate as AdobeImageFamily)) {
+      if (ADOBE_IMAGE_FAMILIES.includes(candidate as AdobeImageFamily)) {
         return candidate as AdobeImageFamily;
       }
     }
   }
   return "gpt-image";
+}
+
+// 从请求 model（firefly-<family>[-<res>-<ratio>]）解析模型族；解析不到返回 null（由调用
+// 方回退后端默认）。按最长前缀匹配，避免 nano-banana 误吞 nano-banana-pro/nano-banana2。
+function pickAdobeFamilyFromModel(
+  model: string | null | undefined
+): AdobeImageFamily | null {
+  const normalized = String(model || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized.startsWith("firefly-")) return null;
+  const rest = normalized.slice("firefly-".length);
+  const byLength = [...ADOBE_IMAGE_FAMILIES].sort(
+    (a, b) => b.length - a.length
+  );
+  for (const family of byLength) {
+    if (rest === family || rest.startsWith(`${family}-`)) return family;
+  }
+  return null;
 }
 
 // adobe（pool-adobe）派发：用 Firefly 适配器构造 /v1/chat/completions 请求，解析产物
@@ -3887,6 +3907,7 @@ async function runAdobeImageRequest(
   config: ApiConfig,
   params: {
     prompt: string;
+    model?: string | null;
     size?: string | null;
     images?: Array<{ data: Buffer; type?: string | null }>;
     signal?: AbortSignal;
@@ -3896,7 +3917,10 @@ async function runAdobeImageRequest(
   if (config.backend?.adobeMode === "direct") {
     return runAdobeDirectImageRequest(config, params);
   }
-  const family = pickAdobeImageFamily(config.backend?.adobeEnabledModels);
+  // 网关模式：family 优先取请求 model 的族（firefly-*），否则后端默认。
+  const family =
+    pickAdobeFamilyFromModel(params.model) ??
+    pickAdobeImageFamily(config.backend?.adobeEnabledModels);
   const body = buildAdobeImageRequestBody({
     family,
     prompt: params.prompt,
@@ -3972,6 +3996,7 @@ export async function generateImage(
       applyPromptOptimizationResultVisibility(
         await runAdobeImageRequest(config, {
           prompt: getEffectivePrompt(params),
+          model,
           size: params.size,
           signal: params.signal,
         })
@@ -4136,6 +4161,7 @@ export async function editImage(
       applyPromptOptimizationResultVisibility(
         await runAdobeImageRequest(config, {
           prompt: effectiveEditPrompt,
+          model,
           size: params.size,
           images: params.images,
           signal: params.signal,

@@ -299,6 +299,28 @@ function pickFamily(enabled: string[] | null | undefined): AdobeImageFamily {
   return "gpt-image";
 }
 
+// 从请求 model（firefly-<family> 或 firefly-<family>-<res>-<ratio>）解析模型族；
+// 用户在创作页/接口选的具体 Firefly 模型优先，解析不到才回退后端默认族。按最长前缀
+// 匹配，避免 nano-banana 误吞 nano-banana-pro / nano-banana2。
+function resolveAdobeFamilyFromModel(
+  model: string | null | undefined,
+  enabled: string[] | null | undefined
+): AdobeImageFamily {
+  const normalized = String(model || "")
+    .trim()
+    .toLowerCase();
+  if (normalized.startsWith("firefly-")) {
+    const rest = normalized.slice("firefly-".length);
+    const byLength = [...ALLOWED_FAMILIES].sort((a, b) => b.length - a.length);
+    for (const family of byLength) {
+      if (rest === family || rest.startsWith(`${family}-`)) {
+        return family;
+      }
+    }
+  }
+  return pickFamily(enabled);
+}
+
 /**
  * mode=direct 的 adobe 派发：选 token → 选模型族/尺寸 → 图生图先上传 → generateImage。
  * 出错返回 { error }，由上层管线统一处理（含池上报）。
@@ -307,6 +329,7 @@ export async function runAdobeDirectImageRequest(
   config: ApiConfig,
   params: {
     prompt: string;
+    model?: string | null;
     size?: string | null;
     images?: Array<{ data: Buffer; type?: string | null }>;
     signal?: AbortSignal;
@@ -326,8 +349,12 @@ export async function runAdobeDirectImageRequest(
     };
   }
 
-  // 模型族 + 宽高比/分辨率：family 来自后端配置；ratio/res 由 size 映射，缺省走后端默认。
-  const family = pickFamily(config.backend?.adobeEnabledModels);
+  // 模型族 + 宽高比/分辨率：family 优先取请求 model（创作页/接口选的 Firefly 模型），
+  // 解析不到回退后端默认族；ratio/res 由 size 映射，缺省走后端默认。
+  const family = resolveAdobeFamilyFromModel(
+    params.model,
+    config.backend?.adobeEnabledModels
+  );
   const fallbackRatio = (config.backend?.adobeDefaultRatio ||
     "1x1") as AdobeRatio;
   const fallbackResolution = (config.backend?.adobeDefaultResolution ||
