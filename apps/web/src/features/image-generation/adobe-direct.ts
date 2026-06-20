@@ -27,10 +27,12 @@ import {
   type FireflyTransport,
   fetchAccountInfo,
   isTokenExpired,
+  fireflyVideoSize,
   ProxyFireflyTransport,
   QuotaExhaustedError,
   refreshAccessTokenFromCookie,
   resolveFireflyImageModel,
+  resolveFireflyVideoModel,
 } from "@repo/shared/adobe/firefly-direct";
 import { logError } from "@repo/shared/logger";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
@@ -416,6 +418,101 @@ export async function runAdobeDirectImageRequest(
     logError(error, { source: "adobe-direct-generate", adobeId });
     return {
       error: error instanceof Error ? error.message : "Adobe 直连生成失败",
+    };
+  }
+}
+
+export type AdobeVideoResult =
+  | { bytes: Buffer; contentType: string; raw: Record<string, unknown> }
+  | { error: string };
+
+/**
+ * mode=direct 的 adobe 视频派发：解析视频模型 → 选 token → 图生视频先上传输入图 →
+ * generateVideo（submit→轮询→下载）→ 返回视频字节。产物持久化（video_generation 落库、
+ * re-host、扣费）由调用方完成。出错返回 { error }，token 级错误标记 token 状态便于轮换。
+ */
+export async function runAdobeDirectVideoRequest(
+  config: ApiConfig,
+  params: {
+    prompt: string;
+    model: string;
+    inputImages?: Array<{ data: Buffer; type?: string | null }>;
+    negativePrompt?: string | null;
+    signal?: AbortSignal;
+  }
+): Promise<AdobeVideoResult> {
+  const adobeId = config.backend?.id;
+  if (!adobeId) return { error: "Adobe 直连后端缺少 id" };
+
+  const conf = resolveFireflyVideoModel(params.model);
+  if (!conf) {
+    return { error: `Adobe 直连不支持的视频模型: ${params.model}` };
+  }
+  const size = fireflyVideoSize(conf.outputResolution, conf.aspectRatio);
+  if (!size) {
+    return {
+      error: `视频尺寸映射失败: ${conf.outputResolution}/${conf.aspectRatio}`,
+    };
+  }
+
+  const sessionKey = `adobe-${adobeId}`;
+  const { apiTransport, downloadTransport } =
+    await buildAdobeTransports(sessionKey);
+  const acquired = await acquireToken(adobeId, apiTransport, params.signal);
+  if (!acquired) {
+    return {
+      error: "Adobe 直连无可用账号/token（请在 admin 导入 Adobe cookie 账号）",
+    };
+  }
+
+  const client = new AdobeFireflyClient({
+    transport: apiTransport,
+    downloadTransport,
+  });
+
+  try {
+    let sourceImageIds: string[] | undefined;
+    if (params.inputImages && params.inputImages.length > 0) {
+      sourceImageIds = [];
+      for (const image of params.inputImages) {
+        const id = await client.uploadImage(
+          acquired.value,
+          image.data,
+          image.type || "image/png",
+          params.signal
+        );
+        sourceImageIds.push(id);
+      }
+    }
+
+    const output = await client.generateVideo({
+      token: acquired.value,
+      prompt: params.prompt,
+      upstreamModel: conf.upstreamModel,
+      upstreamModelId: conf.upstreamModelId,
+      upstreamModelVersion: conf.upstreamModelVersion,
+      engine: conf.engine,
+      duration: conf.duration,
+      size,
+      generateAudio: conf.generateAudio,
+      ...(conf.referenceMode ? { referenceMode: conf.referenceMode } : {}),
+      ...(params.negativePrompt != null
+        ? { negativePrompt: params.negativePrompt }
+        : {}),
+      ...(sourceImageIds ? { sourceImageIds } : {}),
+      signal: params.signal,
+    });
+
+    return { bytes: output.bytes, contentType: "video/mp4", raw: output.raw };
+  } catch (error) {
+    if (error instanceof QuotaExhaustedError) {
+      await markTokenStatus(acquired.id, "exhausted").catch(() => {});
+    } else if (error instanceof AuthError) {
+      await markTokenStatus(acquired.id, "invalid").catch(() => {});
+    }
+    logError(error, { source: "adobe-direct-video", adobeId });
+    return {
+      error: error instanceof Error ? error.message : "Adobe 直连视频生成失败",
     };
   }
 }

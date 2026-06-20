@@ -15,8 +15,11 @@ export {
   extractResultLink,
   type GenerateImageInput,
   type GenerateImageOutput,
+  type GenerateVideoInput,
+  type GenerateVideoOutput,
 } from "./client";
 export * from "./errors";
 export * from "./payloads";
 export * from "./signing";
+export * from "./video-catalog";
 export * from "./transport";
