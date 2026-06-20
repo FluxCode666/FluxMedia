@@ -58,6 +58,7 @@ import {
   DEFAULT_IMAGE_SIZE,
   getImageCreditCostBreakdown,
   getImageModel,
+  getImageSizePixels,
   type ImageBaseCreditPricing,
   type ImageQualityLevel,
   type ImageThinkingLevel,
@@ -184,10 +185,12 @@ function shouldForceWebBackend(
   // chat 的 mix_web_first 落到 input.mixWebFirst;任一被显式给出则取其值,均未给(默认)
   // 按 true 处理。这样 chat 的 mix_web_first 仍被纳入决策,不会因默认 web-first 失效。
   const webFirst = input.forceWebBackend ?? input.mixWebFirst ?? true;
-  // 默认/显式 true → 总是优先 Web(不受 Web-first 像素区间限制)。
-  if (webFirst) return true;
-  // 仅当显式 false 时,才用 Web-first 像素区间决定:尺寸落在区间内才优先 Web,
-  // 否则不优先(走正常调度)。该判定只对 mixed 分组生效(preferenceMode=mixed-only)。
+  // web_first 显式 false → 不优先 Web(走正常调度)。
+  if (!webFirst) return false;
+  // web_first 为 true(含默认未传)→ Web-first 像素区间生效:尺寸可解析且落在区间内
+  // 才优先 Web;超出区间(如 4K)则不优先,避免把 Web 出不了的大图塞给 Web。auto/无法
+  // 解析的尺寸无从判断大小,视为可走 Web。该判定只对 mixed 分组生效(mixed-only)。
+  if (getImageSizePixels(size) === null) return true;
   return isImageSizeWithinPixelRange(size, range.minPixels, range.maxPixels);
 }
 
