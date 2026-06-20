@@ -1324,6 +1324,12 @@ export function ImageBackendPoolAdminPanel({
       priority: adobe.priority,
       concurrency: adobe.concurrency,
     });
+    // 编辑表单是内联卡片(非弹窗),点击后滚动到它,避免"点了没反应"的观感。
+    if (typeof document !== "undefined") {
+      document
+        .getElementById("adobe-backend-form")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
 
   const { execute: loadPool, isPending: isLoading } = useAction(
@@ -3951,7 +3957,7 @@ export function ImageBackendPoolAdminPanel({
           )}
         >
           {!readOnly && (
-            <Card>
+            <Card id="adobe-backend-form">
               <CardHeader>
                 <CardTitle className="text-base">
                   {adobeForm.id ? "编辑 Adobe 后端" : "新增 Adobe 后端"}
