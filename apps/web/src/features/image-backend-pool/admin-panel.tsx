@@ -328,12 +328,6 @@ const GROUP_BACKEND_TYPE_OPTIONS: Array<{
     label: "仅 Codex/Responses",
     detail: "只调度 Codex/Responses 账号，界面隐藏 Web 独有提示。",
   },
-  {
-    value: "adobe",
-    label: "仅 Adobe Firefly",
-    detail:
-      "只调度 Adobe 后端，与 Codex/Web 完全隔离；只承接图像生成/编辑，界面用 Firefly 模型与宽高比。",
-  },
 ];
 
 const API_INTERFACE_MODE_OPTIONS: Array<{

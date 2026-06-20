@@ -3718,6 +3718,7 @@ export async function getEffectiveConfig(
     userId?: string;
     apiKeyId?: string;
     requestKind?: ImageBackendRequestKind;
+    requestedModel?: string;
     preferredMemberId?: string;
     preferredMemberType?: "api" | "account" | "adobe";
     stickyPreviousResponseId?: string;
@@ -3741,6 +3742,7 @@ export async function getEffectiveConfig(
         userId: options.userId,
         apiKeyId: options.apiKeyId,
         requestKind: options.requestKind,
+        requestedModel: options.requestedModel,
         preferredMemberId: options.preferredMemberId,
         preferredMemberType: options.preferredMemberType,
         stickyPreviousResponseId: options.stickyPreviousResponseId,

@@ -99,6 +99,9 @@ type ResolveBackendOptions = {
   userId: string;
   apiKeyId?: string;
   requestKind: ImageBackendRequestKind;
+  // 请求的模型 id。adobe（Firefly）按模型前缀自动路由：firefly-* 只调度 adobe 后端，
+  // 其余模型（gpt-image 等）只调度 codex/web/api，二者互不混用。
+  requestedModel?: string;
   preferredMemberId?: string;
   preferredMemberType?: "api" | "account" | "adobe";
   stickyPreviousResponseId?: string;
@@ -360,9 +363,13 @@ function normalizeAccountBackend(
 function normalizeGroupBackendType(
   value?: unknown
 ): ImageBackendGroupBackendType {
-  return value === "web" || value === "responses" || value === "adobe"
-    ? value
-    : "mixed";
+  return value === "web" || value === "responses" ? value : "mixed";
+}
+
+// adobe（Firefly）模型按前缀识别：所有 firefly-* 模型自动路由到 adobe 后端，其余模型
+// （gpt-image 等）只走 codex/web/api。用于调度时的成员过滤，保证二者互不混用。
+function isAdobeFireflyModelId(model?: string | null): boolean {
+  return (model || "").trim().toLowerCase().startsWith("firefly-");
 }
 
 function stripTrailingSlash(value: string) {
@@ -449,10 +456,6 @@ function groupBackendAllowsRequest(
   requestKind: ImageBackendRequestKind
 ) {
   const backendType = getGroupBackendType(metadata);
-  // adobe 分组与 codex/web 完全隔离：只承接图像生成/编辑，不参与 chat/responses。
-  if (backendType === "adobe") {
-    return requestKind === "image_generation" || requestKind === "image_edit";
-  }
   if (requestKind === "responses") {
     return backendType === "responses" || backendType === "mixed";
   }
@@ -2058,6 +2061,7 @@ async function selectPoolMember(
   stickySessionMember?: StickyBindingMember | null,
   accountBackendPreference?: ImageBackendAccountBackend,
   accountBackendPreferenceMode?: ImageBackendPreferenceMode,
+  requestedModel?: string,
   staleRetryCount = 0
 ): Promise<PoolMember | null> {
   const selectionStartedAt = Date.now();
@@ -2380,8 +2384,8 @@ async function selectPoolMember(
             const requiresResponsesEndpoint =
               effectiveAccountBackendPreference === "responses";
             return (
-              // adobe 分组与 codex/web/api 隔离：通用 API 后端不进 adobe 分组。
-              getGroupBackendType(metadata) !== "adobe" &&
+              // 模型前缀路由：firefly-* 请求只走 adobe，通用 API 后端不参与。
+              !isAdobeFireflyModelId(requestedModel) &&
               groupBackendAllowsRequest(metadata, effectiveRequestKind) &&
               imageBackendApiInterfaceAllowsRequest(
                 row.interfaceMode,
@@ -2449,6 +2453,8 @@ async function selectPoolMember(
         ? effectiveContextPreferences.get(matchedGroupId)
         : effectiveAccountBackendPreference;
       return (
+        // 模型前缀路由：firefly-* 请求只走 adobe，codex/web 账号不参与。
+        !isAdobeFireflyModelId(requestedModel) &&
         (!rowPreference || rowPreference === backend) &&
         groupBackendAllowsAccount(metadata, backend) &&
         accountBackendAllowsRequest(
@@ -2488,13 +2494,11 @@ async function selectPoolMember(
       metadata: row.metadata,
     }));
 
-  // adobe 成员：仅在 backendType="adobe" 的【专属分组】里入选，与 codex/web/api 完全
-  // 隔离——adobe 永不进 mixed/web/responses 分组。只承接图像生成/编辑。
-  const adobeMembers: PoolMember[] =
-    effectiveAccountBackendPreference === "web" ||
-    effectiveAccountBackendPreference === "responses"
-      ? []
-      : adobeRows
+  // adobe 成员：按模型前缀路由——仅当请求模型为 firefly-* 时入选，与 codex/web/api 互不
+  // 混用（非 firefly 模型一律不选 adobe）。adobe 默认参与调度，只承接图像生成/编辑。
+  const adobeMembers: PoolMember[] = !isAdobeFireflyModelId(requestedModel)
+    ? []
+    : adobeRows
           .filter((row) => {
             const matchedGroupId = row.matchedGroupId || row.groupId;
             const context = matchedGroupId
@@ -2503,7 +2507,6 @@ async function selectPoolMember(
             const metadata = context?.metadata ?? groupMetadata;
             const effectiveRequestKind = requestKind || "image_generation";
             return (
-              getGroupBackendType(metadata) === "adobe" &&
               (effectiveRequestKind === "image_generation" ||
                 effectiveRequestKind === "image_edit") &&
               groupBackendAllowsRequest(metadata, effectiveRequestKind)
@@ -2694,6 +2697,7 @@ async function selectPoolMember(
       stickySessionMember,
       accountBackendPreference,
       accountBackendPreferenceMode,
+      requestedModel,
       staleRetryCount + 1
     );
   }
@@ -2927,7 +2931,8 @@ async function resolvePoolMember(
     stickyPreviousMember,
     stickySessionMember,
     options.accountBackendPreference,
-    options.accountBackendPreferenceMode
+    options.accountBackendPreferenceMode,
+    options.requestedModel
   );
   if (!member) {
     const fallback = await resolveAnyResponsesMember();
@@ -2978,7 +2983,8 @@ async function resolveAnyResponsesPoolMember(
       stickyPreviousMember,
       stickySessionMember,
       "responses",
-      options.accountBackendPreferenceMode
+      options.accountBackendPreferenceMode,
+      options.requestedModel
     );
     if (member) return { group, member };
   }
