@@ -1047,11 +1047,11 @@ async function retryPoolBackendResult(
     allowAnyResponsesBackend?: boolean;
   }
 ) {
-  if (
-    !config.backend?.reportResult ||
-    (config.backend.type !== "pool-api" &&
-      config.backend.type !== "pool-account")
-  ) {
+  // 仅"不需要上报"的后端直接跑一次返回。pool-adobe 等带 reportResult 的池后端必须进入
+  // 下方主循环(跑一次→上报→释放租约→因非 api/account 而 break 不切换);若在此提前
+  // return run(config),config 仍带 reportResult=true,generateImage 会再次进入本函数,
+  // 形成同步无限递归(Maximum call stack size exceeded)。
+  if (!config.backend?.reportResult) {
     return run(config);
   }
 
@@ -1106,7 +1106,8 @@ async function retryPoolBackendResult(
     const currentBackend = candidate.backend;
     const hasPoolBackend =
       currentBackend?.type === "pool-api" ||
-      currentBackend?.type === "pool-account";
+      currentBackend?.type === "pool-account" ||
+      currentBackend?.type === "pool-adobe";
     const acquiredBeforeRun =
       hasPoolBackend && currentBackend.inflightLease !== true;
     if (acquiredBeforeRun) {
