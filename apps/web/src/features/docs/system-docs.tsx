@@ -58,6 +58,11 @@ const sections = {
           kind: "image_edit",
         },
         {
+          label: "外部视频 API",
+          path: "POST /v1/videos/generations",
+          kind: "video",
+        },
+        {
           label: "外部异步图片任务",
           path: "GET /v1/images/{task_id}",
           kind: "image_generation",
@@ -154,6 +159,12 @@ const sections = {
           "multipart 图片会被转成统一图片输入，再按分组调度。",
         ],
         [
+          "Adobe Firefly video",
+          "/v1/videos/generations",
+          "video",
+          "本站扩展。固定路由到 Adobe（Firefly）后端的长任务，keep-alive 撑住连接直到出片，返回产物视频 URL。",
+        ],
+        [
           "Async image task",
           "/v1/images/{task_id}",
           "image_generation",
@@ -206,7 +217,7 @@ const sections = {
         ],
         [
           "外接 API 入口",
-          "/v1/chat/completions、/v1/images/generations、/v1/images/edits、/v1/images/{task_id}、/v1/responses、/v1/agents/images",
+          "/v1/chat/completions、/v1/images/generations、/v1/images/edits、/v1/videos/generations、/v1/images/{task_id}、/v1/responses、/v1/agents/images",
           "/api/v1/* 是同一 handler 的别名；只负责 API Key、OpenAI 兼容请求和响应格式适配。",
         ],
         [
@@ -277,6 +288,7 @@ const sections = {
         "用户已启用“接入其他站 API”时，普通 /v1/chat/completions、/v1/images/generations、/v1/images/edits 和 /v1/responses 仍优先使用用户自接 API；命中时 credits_consumed 为 0，不扣本站余额，也不增加本站 API Key 已用额度。",
         "/v1/agents/images 和需要 Codex/Responses 能力的页面功能会忽略用户自接 API，按平台后端池或外接后端池结算本站积分。",
         "image 接口的 web_first / webFirst / force_web / forceWeb（chat 对应 mix_web_first）是 Web-first 优先路由，不是硬性只走 Web，且默认开启。开启时（不传或显式 true）按 Web-first 像素区间（IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS，默认 0.66MP-2MP）判定：尺寸落在区间内才优先 Web、失败回退 Codex/Responses，超出区间（如 4K）则走正常调度；auto 或无法解析的尺寸视为可优先 Web。显式传 false 则不优先 Web。该路由只对 mixed 后端分组生效（纯 Web / 纯 Codex-Responses 分组无此概念），不会覆盖用户自接 API；agent 始终走 Codex/Responses，不受此项影响。",
+        "Adobe（Firefly）后端：传入 firefly-* 模型或 force_firefly=true 会显式路由到 Adobe；Adobe 也会按配置优先级作为普通后端池的 fallback 参与调度。图像计费 = 尺寸基础积分 × 模型族倍率 × Adobe 后端倍率 × 分组倍率；视频计费见 /v1/videos/generations。",
       ],
       officialRefsTitle: "官方参考",
       officialRefs: [
@@ -808,7 +820,14 @@ curl https://your-domain.example/v1/images/task_... \\
               name: "model",
               requirement: "可选",
               description:
-                "图片模型。本站只接受 gpt-image-* 类图片模型；Responses 对话模型请使用 /v1/responses。",
+                "图片模型。本站接受 gpt-image-* 类图片模型；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，如 firefly-nano-banana-pro-2k-16x9，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。family ∈ gpt-image-2、gpt-image-1.5、nano-banana、nano-banana2、nano-banana-pro；resolution ∈ 1k、2k、4k；ratio ∈ 1x1、16x9、9x16、4x3、3x4。Responses 对话模型请使用 /v1/responses。",
+            },
+            {
+              name: "force_firefly / forceFirefly",
+              requirement: "可选",
+              custom: true,
+              description:
+                "本站扩展：true 时强制把本次请求路由到 Adobe（Firefly）后端，使用标准参数（你的 prompt/size/quality/model）。未传 firefly-* 模型时默认族为 gpt-image-2；size 自动映射到 firefly 的宽高比/分辨率，quality 映射到 gpt_image_quality；不支持的参数（output_format、background、thinking、moderation 等级）会被忽略。",
             },
             {
               name: "n",
@@ -1107,7 +1126,15 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "model",
               requirement: "可选",
-              description: "图片模型，需为 gpt-image-* 类图片模型。",
+              description:
+                "图片模型，需为 gpt-image-* 类图片模型；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。取值范围同 /v1/images/generations。",
+            },
+            {
+              name: "force_firefly / forceFirefly",
+              requirement: "可选",
+              custom: true,
+              description:
+                "本站扩展：true 时强制把本次编辑请求路由到 Adobe（Firefly）后端，使用标准参数。未传 firefly-* 模型时默认族为 gpt-image-2；size 自动映射 firefly 宽高比/分辨率，quality 映射 gpt_image_quality；不支持的参数会被忽略。详见 /v1/images/generations 说明。",
             },
             {
               name: "n",
@@ -1252,6 +1279,90 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             "官方 JSON file_id 图片引用当前未实现，请使用公网 image_url 或 multipart 上传。",
             "background=transparent 并非所有模型都支持；OpenAI 官方文档当前列出 gpt-image-1.5、gpt-image-1、gpt-image-1-mini 支持透明背景，且通常还要求 png 或 webp 输出。不支持的上游可能直接返回 HTTP 400，而不是自动降级。",
             "async 任务当前为进程内状态，30 分钟后过期；服务重启或多实例切换会导致未完成任务无法继续查询，callback 已发送的结果不受影响。",
+          ],
+        },
+        {
+          title: "Create video",
+          method: "POST",
+          path: "/v1/videos/generations",
+          contentType: "application/json",
+          description:
+            "本站扩展：Adobe Firefly 视频生成。固定路由到 Adobe（Firefly）后端，是长任务（保持连接 / keep-alive 撑住连接直到出片），返回 OpenAI Images 风格结构，data[].url 为产物视频 URL。鉴权与其他 v1 接口一致（外部 API Key）。",
+          example: `# 1. 文生视频；model 为完整 Firefly 视频 id
+curl https://your-domain.example/v1/videos/generations \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "firefly-veo31-8s-16x9-1080p",
+    "prompt": "一只柯基在海边奔跑，电影级运镜，黄昏光线",
+    "negative_prompt": "低分辨率, 模糊, 水印"
+  }'
+
+# 2. 图生视频；image 为 base64 data URL 数组（首帧/参考），最多 3 张
+curl https://your-domain.example/v1/videos/generations \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "firefly-kling3-5s-9x16",
+    "prompt": "让画面中的人物缓缓抬头微笑",
+    "image": ["data:image/png;base64,iVBORw0KGgo..."]
+  }'`,
+          responseExample: `{
+  "created": 1713833628,
+  "model": "firefly-veo31-8s-16x9-1080p",
+  "data": [
+    { "url": "https://your-domain.example/api/storage/generations/..." }
+  ],
+  "credits_consumed": 240
+}`,
+          fields: [
+            {
+              name: "prompt",
+              requirement: "必填",
+              description: "视频提示词，最多 32000 字符。",
+            },
+            {
+              name: "model",
+              requirement: "必填",
+              description:
+                "Firefly 视频模型 id：firefly-<family>-<dur>s-<ratio>[-<res>]（如 firefly-veo31-8s-16x9-1080p）。family ∈ sora2、sora2-pro、veo31、veo31-ref、veo31-fast、kling-o3、kling3；非法或未知 id 会返回参数错误。可用组合见 /v1/models。",
+            },
+            {
+              name: "negative_prompt / negativePrompt",
+              requirement: "可选",
+              description: "负向提示词，最多 8000 字符。",
+            },
+            {
+              name: "image",
+              requirement: "可选",
+              description:
+                "图生视频输入图（首帧 / 参考），为 base64 image data URL 数组，最多 3 张。",
+            },
+          ],
+          responses: [
+            {
+              name: "created",
+              description: "Unix 秒时间戳。",
+            },
+            {
+              name: "model",
+              description: "本次使用的 Firefly 视频模型 id。",
+            },
+            {
+              name: "data[].url",
+              description: "产物视频的本站存储 URL。",
+            },
+            {
+              name: "credits_consumed",
+              description: "本次结算积分。",
+              custom: true,
+            },
+          ],
+          notes: [
+            "该接口是本站扩展，不是 OpenAI 官方接口；/api/v1/videos/generations 是同一 handler 的别名。",
+            "视频生成是长任务，本站用 keep-alive 撑住连接直到出片或失败；请把客户端读超时设置得足够长。",
+            "计费 = 每秒基础积分（默认 30）× 时长（秒）× 模型族倍率，结果向上取两位小数；时长由 model id 中的 <dur> 决定。",
+            "默认需要 externalApi.images.generate 能力（入门版及以上），可在套餐能力矩阵中调整。",
           ],
         },
         {
@@ -1854,6 +1965,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           kind: "image_edit",
         },
         {
+          label: "External video API",
+          path: "POST /v1/videos/generations",
+          kind: "video",
+        },
+        {
           label: "External async image task",
           path: "GET /v1/images/{task_id}",
           kind: "image_generation",
@@ -1965,6 +2081,12 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Multipart images are converted into unified image inputs before backend routing.",
         ],
         [
+          "Adobe Firefly video",
+          "/v1/videos/generations",
+          "video",
+          "GPT2IMAGE extension. A long-running job that always routes to the Adobe (Firefly) backend, holds the connection with keep-alive until the video is ready, and returns the produced video URL.",
+        ],
+        [
           "Async image task",
           "/v1/images/{task_id}",
           "image_generation",
@@ -2017,7 +2139,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         ],
         [
           "External API entries",
-          "/v1/chat/completions, /v1/images/generations, /v1/images/edits, /v1/images/{task_id}, /v1/responses, /v1/agents/images",
+          "/v1/chat/completions, /v1/images/generations, /v1/images/edits, /v1/videos/generations, /v1/images/{task_id}, /v1/responses, /v1/agents/images",
           "/api/v1/* is an alias to the same handlers; these adapt API keys and OpenAI-compatible request/response formats.",
         ],
         [
@@ -2088,6 +2210,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and GPT2IMAGE does not charge account credits or API key quota.",
         "/v1/agents/images and page features that require Codex/Responses capability ignore user custom API and are billed through the platform or external backend pool.",
         "Image endpoint web_first / webFirst / force_web / forceWeb means Web-first preference, not hard Web-only routing. It only applies after routing enters a platform mixed backend group, does not override user custom API, and falls back to Codex/Responses when Web is unavailable or fails.",
+        "Adobe (Firefly) backend: passing a firefly-* model or force_firefly=true routes explicitly to Adobe; Adobe also participates as a normal backend-pool fallback by configured priority. Image billing = size base credits × model-family multiplier × Adobe backend multiplier × group multiplier; see /v1/videos/generations for video billing.",
       ],
       officialRefsTitle: "Official References",
       officialRefs: [
@@ -2620,7 +2743,14 @@ curl https://your-domain.example/v1/images/task_... \\
               name: "model",
               requirement: "Optional",
               description:
-                "Image model. GPT2IMAGE accepts gpt-image-* style image models here. Use /v1/responses for Responses chat models.",
+                "Image model. GPT2IMAGE accepts gpt-image-* style image models here. It also accepts Adobe Firefly model ids (firefly-<family>-<resolution>-<ratio>, e.g. firefly-nano-banana-pro-2k-16x9, or just a family such as firefly-gpt-image-2), which route to the Adobe (Firefly) backend. family ∈ gpt-image-2, gpt-image-1.5, nano-banana, nano-banana2, nano-banana-pro; resolution ∈ 1k, 2k, 4k; ratio ∈ 1x1, 16x9, 9x16, 4x3, 3x4. Use /v1/responses for Responses chat models.",
+            },
+            {
+              name: "force_firefly / forceFirefly",
+              requirement: "Optional",
+              custom: true,
+              description:
+                "GPT2IMAGE extension: when true, forces this request to the Adobe (Firefly) backend using standard parameters (your prompt/size/quality/model). When no firefly-* model is given, the default family is gpt-image-2; size auto-maps to the firefly ratio/resolution and quality maps to gpt_image_quality; unsupported parameters (output_format, background, thinking, moderation level) are ignored.",
             },
             {
               name: "n",
@@ -2922,7 +3052,14 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               name: "model",
               requirement: "Optional",
               description:
-                "Image model; must be a gpt-image-* style image model.",
+                "Image model; a gpt-image-* style image model, or an Adobe Firefly model id (firefly-<family>-<resolution>-<ratio>, or just a family such as firefly-gpt-image-2) that routes to the Adobe (Firefly) backend. Same value range as /v1/images/generations.",
+            },
+            {
+              name: "force_firefly / forceFirefly",
+              requirement: "Optional",
+              custom: true,
+              description:
+                "GPT2IMAGE extension: when true, forces this edit request to the Adobe (Firefly) backend using standard parameters. When no firefly-* model is given, the default family is gpt-image-2; size auto-maps to the firefly ratio/resolution and quality maps to gpt_image_quality; unsupported parameters are ignored. See /v1/images/generations.",
             },
             {
               name: "n",
@@ -3067,6 +3204,90 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             "Official JSON file_id image references are not implemented. Use public image_url or multipart uploads.",
             "background=transparent is not universally supported. OpenAI's official docs currently list gpt-image-1.5, gpt-image-1, and gpt-image-1-mini as supporting transparent backgrounds, and png or webp output is usually required. Unsupported upstream models may reject the request with HTTP 400 instead of silently falling back.",
             "async tasks are process-local and expire after 30 minutes. A restart or multi-instance switch can make unfinished tasks unavailable for polling; already-sent callbacks are unaffected.",
+          ],
+        },
+        {
+          title: "Create video",
+          method: "POST",
+          path: "/v1/videos/generations",
+          contentType: "application/json",
+          description:
+            "GPT2IMAGE extension: Adobe Firefly video generation. It always routes to the Adobe (Firefly) backend, is a long-running job (the connection is held with keep-alive until the video is ready), and returns an OpenAI Images-style shape where data[].url is the produced video URL. Auth matches other v1 endpoints (external API key).",
+          example: `# 1. Text-to-video. model is a full Firefly video id.
+curl https://your-domain.example/v1/videos/generations \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "firefly-veo31-8s-16x9-1080p",
+    "prompt": "A corgi running on the beach, cinematic camera, golden hour",
+    "negative_prompt": "low resolution, blurry, watermark"
+  }'
+
+# 2. Image-to-video. image is an array of base64 data URLs (first frame / reference), up to 3.
+curl https://your-domain.example/v1/videos/generations \\
+  -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "firefly-kling3-5s-9x16",
+    "prompt": "Make the person slowly look up and smile",
+    "image": ["data:image/png;base64,iVBORw0KGgo..."]
+  }'`,
+          responseExample: `{
+  "created": 1713833628,
+  "model": "firefly-veo31-8s-16x9-1080p",
+  "data": [
+    { "url": "https://your-domain.example/api/storage/generations/..." }
+  ],
+  "credits_consumed": 240
+}`,
+          fields: [
+            {
+              name: "prompt",
+              requirement: "Required",
+              description: "Video prompt, up to 32000 characters.",
+            },
+            {
+              name: "model",
+              requirement: "Required",
+              description:
+                "Firefly video model id: firefly-<family>-<dur>s-<ratio>[-<res>] (e.g. firefly-veo31-8s-16x9-1080p). family ∈ sora2, sora2-pro, veo31, veo31-ref, veo31-fast, kling-o3, kling3. Invalid or unknown ids return a parameter error. See /v1/models for available combinations.",
+            },
+            {
+              name: "negative_prompt / negativePrompt",
+              requirement: "Optional",
+              description: "Negative prompt, up to 8000 characters.",
+            },
+            {
+              name: "image",
+              requirement: "Optional",
+              description:
+                "Image-to-video input (first frame / reference). An array of base64 image data URLs, up to 3.",
+            },
+          ],
+          responses: [
+            {
+              name: "created",
+              description: "Unix timestamp in seconds.",
+            },
+            {
+              name: "model",
+              description: "The Firefly video model id used.",
+            },
+            {
+              name: "data[].url",
+              description: "GPT2IMAGE storage URL of the produced video.",
+            },
+            {
+              name: "credits_consumed",
+              description: "Credits billed for this request.",
+              custom: true,
+            },
+          ],
+          notes: [
+            "This endpoint is a GPT2IMAGE extension, not an official OpenAI endpoint. /api/v1/videos/generations is an alias.",
+            "Video generation is long-running. GPT2IMAGE holds the connection with keep-alive until the video is ready or fails, so set a generous client read timeout.",
+            "Billing = base credits per second (default 30) × duration in seconds × model-family multiplier, rounded up to two decimals. The duration comes from <dur> in the model id.",
+            "Requires externalApi.images.generate by default (Starter or higher); admins can change it in the Plan Capability Matrix.",
           ],
         },
         {
