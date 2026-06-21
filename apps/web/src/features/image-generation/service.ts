@@ -3726,6 +3726,8 @@ export async function getEffectiveConfig(
     stickySessionKey?: string;
     accountBackendPreference?: ImageBackendAccountBackend;
     accountBackendPreferenceMode?: ImageBackendPreferenceMode;
+    // force_firefly：强制把候选收敛到 adobe（firefly）后端，对任意模型生效。
+    forceFirefly?: boolean;
     ignoreUserConfig?: boolean;
     allowAnyResponsesBackend?: boolean;
   }
@@ -3750,6 +3752,7 @@ export async function getEffectiveConfig(
         stickySessionKey: options.stickySessionKey,
         accountBackendPreference: options.accountBackendPreference,
         accountBackendPreferenceMode: options.accountBackendPreferenceMode,
+        forceFirefly: options.forceFirefly,
         allowAnyResponsesBackend: options.allowAnyResponsesBackend,
       });
     } catch (error) {
@@ -3870,19 +3873,6 @@ const ADOBE_IMAGE_FAMILIES: AdobeImageFamily[] = [
   "nano-banana-pro",
 ];
 
-function pickAdobeImageFamily(
-  enabled: string[] | null | undefined
-): AdobeImageFamily {
-  if (enabled) {
-    for (const candidate of enabled) {
-      if (ADOBE_IMAGE_FAMILIES.includes(candidate as AdobeImageFamily)) {
-        return candidate as AdobeImageFamily;
-      }
-    }
-  }
-  return "gpt-image-2";
-}
-
 // 从请求 model（firefly-<family>[-<res>-<ratio>]）解析模型族；解析不到返回 null（由调用
 // 方回退后端默认）。按最长前缀匹配，避免 nano-banana 误吞 nano-banana-pro/nano-banana2。
 function pickAdobeFamilyFromModel(
@@ -3920,10 +3910,9 @@ async function runAdobeImageRequest(
   if (config.backend?.adobeMode === "direct") {
     return runAdobeDirectImageRequest(config, params);
   }
-  // 网关模式：family 优先取请求 model 的族（firefly-*），否则后端默认。
-  const family =
-    pickAdobeFamilyFromModel(params.model) ??
-    pickAdobeImageFamily(config.backend?.adobeEnabledModels);
+  // 网关模式：family 优先取请求 model 的族（firefly-*）；非 firefly 模型（如普通 gpt-image
+  // 经 force_firefly 强制路由到 adobe）一律落 gpt-image-2，而非后端 enabledModels 首项。
+  const family = pickAdobeFamilyFromModel(params.model) ?? "gpt-image-2";
   const body = buildAdobeImageRequestBody({
     family,
     prompt: params.prompt,

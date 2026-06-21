@@ -343,23 +343,13 @@ const ALLOWED_FAMILIES: AdobeImageFamily[] = [
   "nano-banana-pro",
 ];
 
-function pickFamily(enabled: string[] | null | undefined): AdobeImageFamily {
-  if (enabled) {
-    for (const candidate of enabled) {
-      if (ALLOWED_FAMILIES.includes(candidate as AdobeImageFamily)) {
-        return candidate as AdobeImageFamily;
-      }
-    }
-  }
-  return "gpt-image-2";
-}
-
 // 从请求 model（firefly-<family> 或 firefly-<family>-<res>-<ratio>）解析模型族；
-// 用户在创作页/接口选的具体 Firefly 模型优先，解析不到才回退后端默认族。按最长前缀
-// 匹配，避免 nano-banana 误吞 nano-banana-pro / nano-banana2。
-function resolveAdobeFamilyFromModel(
+// 用户在创作页/接口选的具体 Firefly 模型优先，按最长前缀匹配，避免 nano-banana 误吞
+// nano-banana-pro / nano-banana2。非 firefly 模型（如普通 gpt-image 经 force_firefly 强制
+// 路由到 adobe）一律落到 gpt-image-2，而非后端 enabledModels 首项（可能是 nano-banana）。
+export function resolveAdobeFamilyFromModel(
   model: string | null | undefined,
-  enabled: string[] | null | undefined
+  _enabled?: string[] | null | undefined
 ): AdobeImageFamily {
   const normalized = String(model || "")
     .trim()
@@ -373,7 +363,7 @@ function resolveAdobeFamilyFromModel(
       }
     }
   }
-  return pickFamily(enabled);
+  return "gpt-image-2";
 }
 
 /**
@@ -406,11 +396,8 @@ export async function runAdobeDirectImageRequest(
   }
 
   // 模型族 + 宽高比/分辨率：family 优先取请求 model（创作页/接口选的 Firefly 模型），
-  // 解析不到回退后端默认族；ratio/res 由 size 映射，缺省走后端默认。
-  const family = resolveAdobeFamilyFromModel(
-    params.model,
-    config.backend?.adobeEnabledModels
-  );
+  // 非 firefly 模型一律落 gpt-image-2；ratio/res 由 size 映射，缺省走后端默认。
+  const family = resolveAdobeFamilyFromModel(params.model);
   const fallbackRatio = (config.backend?.adobeDefaultRatio ||
     "1x1") as AdobeRatio;
   const fallbackResolution = (config.backend?.adobeDefaultResolution ||

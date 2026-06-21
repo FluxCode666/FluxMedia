@@ -58,6 +58,9 @@ const generateImageSchema = z.object({
   outputCompression: z.number().int().min(0).max(100).optional(),
   mixWebFirst: z.boolean().optional(),
   mix_web_first: z.boolean().optional(),
+  // force_firefly：强制把本次请求路由到 adobe（firefly）后端，对任意模型生效。
+  force_firefly: z.boolean().optional(),
+  forceFirefly: z.boolean().optional(),
   requiresResponsesBackend: z.boolean().optional(),
   requires_responses_backend: z.boolean().optional(),
 });
@@ -146,6 +149,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     requiresResponsesBackend:
       parsed.data.requiresResponsesBackend ??
       parsed.data.requires_responses_backend,
+    forceFirefly: parsed.data.forceFirefly ?? parsed.data.force_firefly,
   };
   const requestedGenerationIds =
     parsed.data.generationIds || parsed.data.generation_ids;

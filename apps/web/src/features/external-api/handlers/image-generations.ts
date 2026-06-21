@@ -83,6 +83,9 @@ const externalImageGenerationSchema = z.object({
   forceWeb: z.boolean().optional(),
   web_first: z.boolean().optional(),
   webFirst: z.boolean().optional(),
+  // force_firefly：强制把本次请求路由到 adobe（firefly）后端，对任意模型生效。
+  force_firefly: z.boolean().optional(),
+  forceFirefly: z.boolean().optional(),
   stream: z.boolean().optional(),
   async: z.boolean().optional(),
   callback_url: z.string().url().optional(),
@@ -272,6 +275,7 @@ export const postExternalImageGenerations = withApiLogging(
         parsed.data.webFirst ??
         parsed.data.force_web ??
         parsed.data.forceWeb,
+      forceFirefly: parsed.data.forceFirefly ?? parsed.data.force_firefly,
     };
     const responseFormat = parsed.data.response_format || "b64_json";
 

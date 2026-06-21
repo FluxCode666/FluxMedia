@@ -113,6 +113,7 @@ type RunImageGenerationInput =
       stickySessionKey?: string;
       mixWebFirst?: boolean;
       forceWebBackend?: boolean;
+      forceFirefly?: boolean;
       requiresResponsesBackend?: boolean;
     } & GenerateImageParams)
   | ({
@@ -128,6 +129,7 @@ type RunImageGenerationInput =
       stickySessionKey?: string;
       mixWebFirst?: boolean;
       forceWebBackend?: boolean;
+      forceFirefly?: boolean;
       requiresResponsesBackend?: boolean;
     } & EditImageParams)
   | ({
@@ -144,6 +146,7 @@ type RunImageGenerationInput =
       maxChatContextChars?: number;
       mixWebFirst?: boolean;
       forceWebBackend?: boolean;
+      forceFirefly?: boolean;
       requiresResponsesBackend?: boolean;
     } & ChatImageParams);
 
@@ -1115,9 +1118,11 @@ export async function runImageGenerationForUser(
   // 分别供 gen/edit 路径(forceWebBackend)与 chat 路径(mixWebFirst)透传到 service 层;
   // chat 的 mix_web_first 已并入该决策,不再单独走像素区间判定。
   // Firefly(adobe)模型按前缀路由,永远走 adobe 后端,绝不参与 Web-first 调度;否则会被
-  // 导向 web/codex 账号 → "分组无可用后端"。故 firefly 一律关闭 Web-first 偏好。
+  // 导向 web/codex 账号 → "分组无可用后端"。force_firefly 强制走 adobe 同理。故二者一律
+  // 关闭 Web-first 偏好,确保 firefly 路径不被 Web-first 覆盖。
   const preferWebFirst =
     !isFireflyModel(input.model) &&
+    !input.forceFirefly &&
     shouldForceWebBackend(input, size, forceWebPixelRange);
   const forceWebBackend = preferWebFirst;
   const mixWebFirst = preferWebFirst;
@@ -1298,6 +1303,7 @@ export async function runImageGenerationForUser(
                 accountBackendPreferenceMode: forceWebBackend
                   ? "mixed-only"
                   : undefined,
+                forceFirefly: input.forceFirefly,
                 ignoreUserConfig: requiresResponsesBackend,
               });
             } catch (error) {
@@ -1320,6 +1326,7 @@ export async function runImageGenerationForUser(
                 accountBackendPreferenceMode: forceWebBackend
                   ? "mixed-only"
                   : undefined,
+                forceFirefly: input.forceFirefly,
                 ignoreUserConfig: requiresResponsesBackend,
               });
             }

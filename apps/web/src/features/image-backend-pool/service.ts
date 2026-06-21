@@ -108,6 +108,9 @@ type ResolveBackendOptions = {
   stickySessionKey?: string;
   accountBackendPreference?: ImageBackendAccountBackend;
   accountBackendPreferenceMode?: ImageBackendPreferenceMode;
+  // 强制走 adobe（firefly）后端：与 requestedModel 为 firefly-* 前缀等价地把候选收敛到
+  // 仅 adobe。供 force_firefly 请求标志使用（用户可对任意模型强制改用 adobe 出图）。
+  forceFirefly?: boolean;
   allowAnyResponsesBackend?: boolean;
 };
 
@@ -2090,8 +2093,12 @@ async function selectPoolMember(
   accountBackendPreference?: ImageBackendAccountBackend,
   accountBackendPreferenceMode?: ImageBackendPreferenceMode,
   requestedModel?: string,
+  forceFirefly = false,
   staleRetryCount = 0
 ): Promise<PoolMember | null> {
+  // fireflyOnly：候选收敛到仅 adobe 的两种触发——显式 force_firefly 标志，或请求模型
+  // 本身就是 firefly-* 前缀。两者语义一致：本次只调度 adobe 后端，不混入 api/account。
+  const fireflyOnly = forceFirefly || isAdobeFireflyModelId(requestedModel);
   const selectionStartedAt = Date.now();
   const contexts = groupContexts?.length
     ? groupContexts
@@ -2360,20 +2367,9 @@ async function selectPoolMember(
     createdAt: imageBackendAdobe.createdAt,
     metadata: imageBackendAdobe.metadata,
   };
-  // adobe 默认全局参与调度:请求模型为 firefly-* 前缀时,拉取所有启用的 adobe 后端(忽略
-  // 分组归属),实现"无需挂组、默认可被调度"。非 firefly 请求仍按分组解析(且 adobeMembers
-  // 对非 firefly 一律为空,不会混入 gpt/codex/web 调度)。
-  const adobeRowsPromise = isAdobeFireflyModelId(requestedModel)
-    ? db
-        .select(adobeSelection)
-        .from(imageBackendAdobe)
-        .where(adobeBaseWhere)
-        .orderBy(
-          asc(imageBackendAdobe.priority),
-          asc(imageBackendAdobe.lastUsedAt),
-          asc(imageBackendAdobe.createdAt)
-        )
-    : groupIds.length
+  // adobe 作为特殊 firefly account 成员，按分组归属参与调度（与 api/account 同源）：只从
+  // 本次请求命中的分组拉取 adobe 后端，不再全局忽略分组。挂低优先级即天然成为兜底。
+  const adobeRowsPromise = groupIds.length
     ? db
         .select({
           ...adobeSelection,
@@ -2427,8 +2423,8 @@ async function selectPoolMember(
             const requiresResponsesEndpoint =
               effectiveAccountBackendPreference === "responses";
             return (
-              // 模型前缀路由：firefly-* 请求只走 adobe，通用 API 后端不参与。
-              !isAdobeFireflyModelId(requestedModel) &&
+              // fireflyOnly（force_firefly 或 firefly-* 模型）时只走 adobe，通用 API 不参与。
+              !fireflyOnly &&
               groupBackendAllowsRequest(metadata, effectiveRequestKind) &&
               imageBackendApiInterfaceAllowsRequest(
                 row.interfaceMode,
@@ -2496,8 +2492,8 @@ async function selectPoolMember(
         ? effectiveContextPreferences.get(matchedGroupId)
         : effectiveAccountBackendPreference;
       return (
-        // 模型前缀路由：firefly-* 请求只走 adobe，codex/web 账号不参与。
-        !isAdobeFireflyModelId(requestedModel) &&
+        // fireflyOnly（force_firefly 或 firefly-* 模型）时只走 adobe，codex/web 账号不参与。
+        !fireflyOnly &&
         (!rowPreference || rowPreference === backend) &&
         groupBackendAllowsAccount(metadata, backend) &&
         accountBackendAllowsRequest(
@@ -2537,11 +2533,10 @@ async function selectPoolMember(
       metadata: row.metadata,
     }));
 
-  // adobe 成员：按模型前缀路由——仅当请求模型为 firefly-* 时入选，与 codex/web/api 互不
-  // 混用（非 firefly 模型一律不选 adobe）。adobe 默认参与调度，只承接图像生成/编辑。
-  const adobeMembers: PoolMember[] = !isAdobeFireflyModelId(requestedModel)
-    ? []
-    : adobeRows
+  // adobe 成员：作为特殊 firefly account 成员，对图像生成/编辑请求始终参与候选（无论
+  // fireflyOnly 与否），按 priority 与 api/account 同池排序——管理员把 adobe 优先级调低即
+  // 天然成为兜底。fireflyOnly 时 api/account 已被排除，候选自然只剩 adobe。
+  const adobeMembers: PoolMember[] = adobeRows
           .filter((row) => {
             const matchedGroupId = row.matchedGroupId || row.groupId;
             const context = matchedGroupId
@@ -2744,6 +2739,7 @@ async function selectPoolMember(
       accountBackendPreference,
       accountBackendPreferenceMode,
       requestedModel,
+      forceFirefly,
       staleRetryCount + 1
     );
   }
@@ -2994,7 +2990,8 @@ async function resolvePoolMember(
     stickySessionMember,
     options.accountBackendPreference,
     options.accountBackendPreferenceMode,
-    options.requestedModel
+    options.requestedModel,
+    options.forceFirefly
   );
   if (!member) {
     const fallback = await resolveAnyResponsesMember();
@@ -3046,7 +3043,8 @@ async function resolveAnyResponsesPoolMember(
       stickySessionMember,
       "responses",
       options.accountBackendPreferenceMode,
-      options.requestedModel
+      options.requestedModel,
+      options.forceFirefly
     );
     if (member) return { group, member };
   }
