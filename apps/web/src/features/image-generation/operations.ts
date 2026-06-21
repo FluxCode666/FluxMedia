@@ -64,6 +64,7 @@ import {
   type ImageBaseCreditPricing,
   type ImageQualityLevel,
   type ImageThinkingLevel,
+  isFireflyModel,
   isImageSizeWithinPixelRange,
   normalizeImageSize,
   roundCreditAmount,
@@ -1113,7 +1114,11 @@ export async function runImageGenerationForUser(
   // 统一的 Web-first 偏好(默认开启,详见 shouldForceWebBackend)。两个变量同值,
   // 分别供 gen/edit 路径(forceWebBackend)与 chat 路径(mixWebFirst)透传到 service 层;
   // chat 的 mix_web_first 已并入该决策,不再单独走像素区间判定。
-  const preferWebFirst = shouldForceWebBackend(input, size, forceWebPixelRange);
+  // Firefly(adobe)模型按前缀路由,永远走 adobe 后端,绝不参与 Web-first 调度;否则会被
+  // 导向 web/codex 账号 → "分组无可用后端"。故 firefly 一律关闭 Web-first 偏好。
+  const preferWebFirst =
+    !isFireflyModel(input.model) &&
+    shouldForceWebBackend(input, size, forceWebPixelRange);
   const forceWebBackend = preferWebFirst;
   const mixWebFirst = preferWebFirst;
   const preferWebWithFallback = preferWebFirst;
