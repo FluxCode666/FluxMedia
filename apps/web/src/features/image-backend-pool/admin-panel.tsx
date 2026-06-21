@@ -278,7 +278,7 @@ type Sub2ApiAutoSyncTask = {
   };
 };
 
-type BackendPoolTab = "groups" | "accounts" | "apis" | "import";
+type BackendPoolTab = "groups" | "accounts" | "apis" | "adobe" | "import";
 
 type SyncProgressState = {
   status: "idle" | "running" | "success" | "error";
@@ -2282,6 +2282,7 @@ export function ImageBackendPoolAdminPanel({
           const nextTab =
             value === "accounts" ||
             value === "apis" ||
+            value === "adobe" ||
             value === "import" ||
             value === "groups"
               ? value
@@ -4582,11 +4583,7 @@ export function ImageBackendPoolAdminPanel({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                          // 临时探针:确认 adobe 编辑按钮 onClick 是否触发。定位后移除。
-                          console.log("[ADOBE-EDIT-CLICK]", adobe.id);
-                          editAdobe(adobe);
-                        }}
+                        onClick={() => editAdobe(adobe)}
                       >
                         编辑
                       </Button>
