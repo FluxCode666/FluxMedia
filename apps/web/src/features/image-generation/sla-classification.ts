@@ -227,5 +227,17 @@ export function classifyGenerationError(error: string | null | undefined) {
   ) {
     return "moderation" satisfies GenerationErrorCategory;
   }
+  // 管线对"用户侧"失败统一打 image_generation_user_error / user_error 后缀标签
+  // (上游拒绝的格式不支持如 mpo/avif、尺寸/分辨率/蒙版不符、坏图等)。这类既非平台
+  // 可用性故障,也不应计入平台 SLA 分母、更不该在后台标成"平台"。必须放在审核判定
+  // 之后:审核拒绝同样带该标签,需先归 moderation,否则会被这里误判成 user_request、
+  // 污染审核统计。与后端调度侧 isUserRequestBackendError(image-backend-pool/
+  // service.ts)保持同口径,避免两处分类再次漂移。
+  if (
+    normalized.includes("image_generation_user_error") ||
+    normalized.includes("user_error")
+  ) {
+    return "user_request" satisfies GenerationErrorCategory;
+  }
   return "platform" satisfies GenerationErrorCategory;
 }

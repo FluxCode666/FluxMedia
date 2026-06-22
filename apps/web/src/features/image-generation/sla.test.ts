@@ -54,6 +54,31 @@ describe("generation SLA error classification", () => {
     ).toBe("user_request");
   });
 
+  it("classifies user-uploaded unsupported image formats as user errors", () => {
+    // 客户端上传 mpo/avif(手机多图 JPEG 等)被上游 400 拒绝,带 image_generation_user_error
+    // 标签。是用户输入问题,切后端也救不了,不能算平台失败拖低 SLA、更不该在后台标成"平台"。
+    expect(
+      classifyGenerationError(
+        "Upstream Images API returned HTTP 400: Unsupported image format: mpo. | invalid_image_format | image_generation_user_error"
+      )
+    ).toBe("user_request");
+    expect(
+      classifyGenerationError(
+        "Upstream Images API returned HTTP 400: Unsupported image format: avif. | invalid_image_format | image_generation_user_error"
+      )
+    ).toBe("user_request");
+  });
+
+  it("keeps safety refusals as moderation even when tagged image_generation_user_error", () => {
+    // 审核拒绝同样带 image_generation_user_error 后缀标签;用户错标签判定必须排在审核判定
+    // 之后,否则会把安全拦截误归 user_request、污染审核统计。这是顺序回归守卫。
+    expect(
+      classifyGenerationError(
+        "Your request was rejected by the safety system. safety_violations=[sexual]. | moderation_blocked | image_generation_user_error"
+      )
+    ).toBe("moderation");
+  });
+
   it("classifies updated OAI safety refusals as moderation errors", () => {
     const moderationErrors = [
       "Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID. safety_violations=[sexual].",
