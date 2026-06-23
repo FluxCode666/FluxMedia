@@ -2,6 +2,21 @@
 
 本文件记录各发布版本的变更。版本格式 `v<MAJOR>.<MINOR>.<PATCH>`。
 
+## v0.7.0 (2026-06-23)
+
+新增「Adobe 来源 api 后端」能力与外部 API 跨域(CORS);补齐外部 API 参考文档;修复用户侧格式错误被误判为平台错误。
+
+### 新增
+
+- **Adobe 来源 api 后端**:部分提供商 API 是 OpenAI/gpt 格式但上游实为 Adobe;现可把这类 `image_backend_api` 标记 `adobe_sourced`,使其(1)**按 Adobe 口径计费**——`config.backend.billingMultiplier = 命中组倍率 × 成员倍率`,复用 Adobe 伪账号同一两级倍率链(普通 api 仅组倍率);(2)**纳入 firefly 调度**——候选过滤 `(!fireflyOnly || adobeSourced)`,与真 Adobe 同池按 priority 竞争;(3)**firefly-\* 反向转换**——纯模块 `adobe-sourced-firefly.ts` 把 `firefly-*` 请求截家族名为出站 gpt 模型(`backendModel` 可选覆盖)、由全量 id 推 size,派发层对此绕开 `getModel` 的 gpt-image-only 校验,故 nano-banana 家族也可由 api 后端服务;`force_firefly` 下普通 gpt 请求直接以 gpt 格式服务。后台 api 表单新增「Adobe 来源」开关 + 成员倍率输入 + 实时倍率算例(nano-banana-pro 含模型×组×成员)。迁移 0045 加 `adobe_sourced` + `billing_multiplier` 两列。默认惰性:不开则行为不变。设计文档见 `docs/plan/2026-06-23-adobe-sourced-api-backend.md`。
+- **外部 API 跨域(CORS)**:外部 API(`/v1`、`/api/v1`)开放浏览器跨域,Bearer 鉴权不带 cookie、不开凭据,故 `*` 安全;预检回显 `Access-Control-Request-Headers`(兼容 OpenAI SDK 的 `x-stainless-*`)。是否允许由管理员系统设置 `EXTERNAL_API_CORS_ENABLED`(默认开)控制;落在 Node 路由层(Edge middleware 读不到 DB 设置)。
+- **外部 API 参考文档**:新增 `/docs/external-api`——鉴权、图像(`/v1/images/generations`、`/edits`、`GET /v1/images/{id}`)、视频(`/v1/videos/generations` 同步/异步 + `callback_url`、`GET /v1/videos/{id}`)、其它端点与错误码,对照真实 handler schema 编写。
+- **视频各模型积分对照表**:创作页「视频」面板按族 × 时长展示各模型积分消耗(与预估、扣费同口径),选模型前即可比价。
+
+### 修复
+
+- **SLA 分类:用户侧上传格式错误被误判为平台错误**:`classifyGenerationError` 缺对管线 `image_generation_user_error` 标签的兜底,导致客户端上传 mpo/avif 被上游 400 拒绝这类用户错误落进 `platform` 默认分支——既在后台标成「平台」,又被计入平台 SLA 分母。修法:在审核判定之后加标签兜底归 `user_request`(审核拒绝同样带该标签,故必须排其后);分类读取时计算,历史行无需回填即自动纠正。
+
 ## v0.6.2 (2026-06-22)
 
 视频生成支持异步 + 按 id 查询;图库新增「视频」tab;修复视频后端 inflight 租约泄漏导致的视频全线失败。
