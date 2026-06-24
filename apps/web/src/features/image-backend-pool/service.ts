@@ -315,7 +315,13 @@ let sub2ApiSyncProgress: {
 export function readSub2ApiSyncProgress() {
   return sub2ApiSyncProgress;
 }
-const BACKEND_SCHEDULER_EWMA_ALPHA = 0.2;
+// 健康度 EWMA 平滑系数:近期结果权重。0.4 比旧 0.2 反应快一倍——对账号"变差/恢复"
+// 双向都更实时(一次失败即把 errorEwma 明显抬高、一次成功也更快回落),代价是轻微抖动,
+// 由冷却(硬失败)与下方时间衰减共同兜底,可接受。
+const BACKEND_SCHEDULER_EWMA_ALPHA = 0.4;
+// 健康惩罚按"距上次观测时长"做指数衰减的半衰期(毫秒):age=半衰期时惩罚减半。
+// 让久未观测的旧惩罚淡出,疑似已恢复/闲置的号重新参与轮换、定期复探,提升实时性。
+const BACKEND_HEALTH_PENALTY_HALF_LIFE_MS = 180_000;
 const DEFAULT_UNRECOVERABLE_BACKEND_ERROR_KEYWORDS = [
   "refresh token",
   "invalid refresh token",
@@ -871,6 +877,17 @@ function nextSchedulerMetadataAfterResult(
   };
 }
 
+// 按距上次观测的时长对惩罚做指数衰减:刚观测(age≈0)≈1 全额;久未观测逐步趋 0。
+// 无 lastObservedAt(从未观测)或时间异常时不衰减(返回 1),保持旧行为。
+function recencyDecay(lastObservedAt: string | undefined) {
+  if (!lastObservedAt) return 1;
+  const observedMs = new Date(lastObservedAt).getTime();
+  if (!Number.isFinite(observedMs)) return 1;
+  const ageMs = Date.now() - observedMs;
+  if (ageMs <= 0) return 1;
+  return 0.5 ** (ageMs / BACKEND_HEALTH_PENALTY_HALF_LIFE_MS);
+}
+
 function backendHealthPenalty(member: PoolMember) {
   const scheduler = normalizeSchedulerMetadata(member.metadata);
   const errorPenalty = (scheduler.errorEwma || 0) * 100;
@@ -878,7 +895,11 @@ function backendHealthPenalty(member: PoolMember) {
   const durationPenalty = Math.min(25, durationMs / 10_000);
   const failStreakPenalty = Math.min(20, (scheduler.failStreak || 0) * 3);
   const successRecovery = Math.min(8, (scheduler.successStreak || 0) * 0.5);
-  return errorPenalty + durationPenalty + failStreakPenalty - successRecovery;
+  const raw =
+    errorPenalty + durationPenalty + failStreakPenalty - successRecovery;
+  // 实时性:刚失败的号全额计入惩罚(立即降级);久未观测的旧惩罚指数淡出,让疑似已
+  // 恢复/闲置的号重新进轮换、定期复探,评分反映"当前"而非"陈年"状态。
+  return raw * recencyDecay(scheduler.lastObservedAt);
 }
 
 function hasBackendCapacity(member: PoolMember) {
