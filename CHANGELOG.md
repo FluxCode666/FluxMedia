@@ -2,6 +2,21 @@
 
 本文件记录各发布版本的变更。版本格式 `v<MAJOR>.<MINOR>.<PATCH>`。
 
+## v0.6.4 (2026-06-24)
+
+修复对话生图同提示词出同图;ChatGPT 画图工具限流改为按限流冷却 + 换号重试(不再误判为「无图」);健康度调度更实时;杜绝 ChatGPT web 原始流分片泄漏。外部 API 文档把异步视频流程置顶。
+
+### 修复
+
+- **对话生图同提示词出同图(并发复用同一会话)**:对话生图(千问灵感等)走 ChatGPT web 原生会话续接(复用上一条 `conversationId`/`parentMessageId`),多个并发的同历史请求会锚定同一节点 fork 出几乎一样的图。修法:对「续接会话」加进程内并发互斥——同一会话同时只放行一个续接占用,其余并发请求一律改开新会话,从源头消除同图(不引入随机扰动)。
+- **ChatGPT 画图工具限流被误判为「无图」**:账号画图工具(`image_gen.text2im`)被账号级限流时,上游不返图,而以 `content_type=system_error`、`name=ChatGPTAgentToolRateLimitException` 的消息塞进 o/v 流;此前 SSE 解析两条路径都不命中(`message` 字段是对象、文案无带空格的 "rate limit"),降级成 "no image output" → 丢进 15 分钟通用临时桶、SLA 看不出是限流。修法:新增 `extractWebSystemError` 优先抽出 system_error 的 name+text;`classifyFailure` 增设工具限流分支(置于 usage-limit 之前)按 `limited` 处理,上游给出「resets in …」时按真实重置时间冷却(实测多为每日上限约 22 小时),否则回落独立桶 `IMAGE_BACKEND_TOOL_RATE_LIMIT_COOLDOWN_MINUTES`(默认 3 分钟,可配);并入 `isRecoverableBackendError`/`isResetAwareLimitedBackendError` 保住换号重试。
+- **健康度调度实时性不足**:调度健康评分对账号「变差/恢复」反应偏慢、且只重排不熔断。两处提速:EWMA 平滑系数 0.2→0.4(近期结果权重翻倍,双向反应更快);`backendHealthPenalty` 新增按 `lastObservedAt` 的指数时间衰减(半衰期 3 分钟)——刚失败全额降级、久未观测的旧惩罚淡出,让疑似已恢复/闲置的号重新进轮换、定期复探。硬失败仍由冷却兜底,健康衰减只管软降级。
+- **ChatGPT web 原始流分片泄漏**:`extractWebStreamError` 命中错误条件却抽不到可读字段时,曾把原始 `{"o":"add","v":{…}}` 分片当错误回显;`webErrorPayloadMessage` 现递归进 `v`、抽不到则只回限流/配额关键词短语,绝不回显裸分片。
+
+### 文档
+
+- **外部 API 异步视频流程置顶**:`/docs/external-api` 的「视频」小节由「同步默认 + async 选项」改为异步优先——新增「异步流程」三步(提交 `async:true` → 轮询 `GET /v1/videos/{id}` 或 `callback_url` 回调 → 取 `video_url`),补轮询间隔与终态/失败 `error` 形状,把同步降级为仅短片段兜底的 keep-alive 提示(契合站内 UI 默认异步:视频是长任务、同步直连易被中途掐断丢产物)。
+
 ## v0.6.3 (2026-06-23)
 
 新增「Adobe 来源 api 后端」能力与外部 API 跨域(CORS);补齐外部 API 参考文档;修复用户侧格式错误被误判为平台错误。
