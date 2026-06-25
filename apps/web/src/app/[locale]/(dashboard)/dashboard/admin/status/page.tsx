@@ -9,7 +9,17 @@ import {
   Server,
   Video,
 } from "lucide-react";
-import { and, count, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  lte,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import { db } from "@repo/database";
 import {
@@ -93,10 +103,6 @@ type DurationBucketStats = {
 type DurationBreakdown = Record<
   ResolutionDurationBucket,
   Record<BackendDurationBucket, DurationBucketStats>
->;
-type DurationAccumulator = Record<
-  ResolutionDurationBucket,
-  Record<BackendDurationBucket, number[]>
 >;
 
 type GenerationWindowStats = {
@@ -409,51 +415,9 @@ for (const legacySize of ["1024x1024", "1536x1024", "1024x1536"]) {
   RESOLUTION_PRESET_SIZES["1k"].add(legacySize);
 }
 
-function classifyResolutionDurationBucket(
-  size: string | null | undefined
-): ResolutionDurationBucket {
-  const normalized = size?.trim().toLowerCase();
-  if (!normalized || normalized === AUTO_IMAGE_SIZE) return "custom";
-
-  if (RESOLUTION_PRESET_SIZES["4k"].has(normalized)) return "4k";
-  if (RESOLUTION_PRESET_SIZES["2k"].has(normalized)) return "2k";
-  if (RESOLUTION_PRESET_SIZES["1k"].has(normalized)) return "1k";
-  return "custom";
-}
-
-function getRequestedGenerationSize(row: GenerationMetricRow) {
-  const outputImage = asRecord(asRecord(row.metadata)?.outputImage);
-  return (
-    stringFrom(outputImage?.requestedSize) ||
-    stringFrom(outputImage?.actualSize) ||
-    stringFrom(row.size)
-  );
-}
-
-function getBackendDurationBucket(
-  row: GenerationMetricRow
-): BackendDurationBucket | null {
-  const backend = asRecord(asRecord(row.metadata)?.backend);
-  // Adobe(pool-adobe / firefly)无 accountBackend,也不走 imagesUpstreamMode/
-  // apiInterfaceMode,必须先按 backend.type 识别,否则会落入下方模式判定并被
-  // 当成 null(在监控里整体隐形)。
-  if (backend?.type === "pool-adobe") return "adobe";
-  // 后端"有效模式"来源因后端类型而异:
-  // - pool-account(账号池):backend.accountBackend = "web" | "responses"
-  // - pool-api(API 池):无 accountBackend,用 imagesUpstreamMode(图像上游模式,优先)
-  //   或 apiInterfaceMode = "responses"(Codex/Responses)| "images"(直连图像 API)| "web"
-  // 之前只认 accountBackend,流量切到 pool-api 后该面板全"暂无样本"——这里统一兜底。
-  const mode =
-    backend?.accountBackend ??
-    backend?.imagesUpstreamMode ??
-    backend?.apiInterfaceMode;
-  if (mode === "web") return "web";
-  if (mode === "responses") return "codex";
-  if (mode === "images") return "images";
-  return null;
-}
-
-function getModerationPromptRepairAttempts(row: GenerationMetricRow) {
+function getModerationPromptRepairAttempts(row: {
+  metadata: Record<string, unknown> | null;
+}) {
   const repair = asRecord(asRecord(row.metadata)?.moderationPromptRepair);
   const attempts = Array.isArray(repair?.attempts) ? repair.attempts : [];
   return attempts
@@ -472,7 +436,7 @@ function createModerationPromptRepairStats(): ModerationPromptRepairStats {
 
 function accumulateModerationPromptRepairStats(
   stats: ModerationPromptRepairStats,
-  row: GenerationMetricRow
+  row: { metadata: Record<string, unknown> | null }
 ) {
   const byAttempt = new Map(
     stats.byAttempt.map((item) => [item.attempt, { ...item }])
@@ -512,132 +476,135 @@ function accumulateModerationPromptRepairStats(
   );
 }
 
-function percentile(values: number[], p: number) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.min(
-    sorted.length - 1,
-    Math.max(0, Math.ceil(sorted.length * p) - 1)
-  );
-  return sorted[index] ?? null;
+function isResolutionDurationBucket(
+  value: string
+): value is ResolutionDurationBucket {
+  return (RESOLUTION_DURATION_BUCKETS as readonly string[]).includes(value);
 }
 
-function summarizeDurations(values: number[]): DurationBucketStats {
-  const avgSeconds =
-    values.length > 0
-      ? values.reduce((total, item) => total + item, 0) / values.length
-      : null;
+function isBackendDurationBucket(value: string): value is BackendDurationBucket {
+  return (BACKEND_DURATION_BUCKETS as readonly string[]).includes(value);
+}
+
+function emptyDurationBucketStats(): DurationBucketStats {
+  return { count: 0, avgSeconds: null, p95Seconds: null };
+}
+
+// 全 4x4(分辨率 x 后端)空格子;SQL 分组只回非空组,其余保持空(展示侧渲染"暂无样本")。
+function emptyDurationBreakdown(): DurationBreakdown {
+  const makeRow = () => ({
+    web: emptyDurationBucketStats(),
+    codex: emptyDurationBucketStats(),
+    images: emptyDurationBucketStats(),
+    adobe: emptyDurationBucketStats(),
+  });
   return {
-    count: values.length,
-    avgSeconds,
-    p95Seconds: percentile(values, 0.95),
+    "4k": makeRow(),
+    "2k": makeRow(),
+    "1k": makeRow(),
+    custom: makeRow(),
   };
 }
 
-function createDurationAccumulator(): DurationAccumulator {
-  return {
-    "4k": { web: [], codex: [], images: [], adobe: [] },
-    "2k": { web: [], codex: [], images: [], adobe: [] },
-    "1k": { web: [], codex: [], images: [], adobe: [] },
-    custom: { web: [], codex: [], images: [], adobe: [] },
-  };
-}
-
-function buildDurationBreakdown(
-  accumulator: DurationAccumulator
-): DurationBreakdown {
-  return {
-    "4k": {
-      web: summarizeDurations(accumulator["4k"].web),
-      codex: summarizeDurations(accumulator["4k"].codex),
-      images: summarizeDurations(accumulator["4k"].images),
-      adobe: summarizeDurations(accumulator["4k"].adobe),
-    },
-    "2k": {
-      web: summarizeDurations(accumulator["2k"].web),
-      codex: summarizeDurations(accumulator["2k"].codex),
-      images: summarizeDurations(accumulator["2k"].images),
-      adobe: summarizeDurations(accumulator["2k"].adobe),
-    },
-    "1k": {
-      web: summarizeDurations(accumulator["1k"].web),
-      codex: summarizeDurations(accumulator["1k"].codex),
-      images: summarizeDurations(accumulator["1k"].images),
-      adobe: summarizeDurations(accumulator["1k"].adobe),
-    },
-    custom: {
-      web: summarizeDurations(accumulator.custom.web),
-      codex: summarizeDurations(accumulator.custom.codex),
-      images: summarizeDurations(accumulator.custom.images),
-      adobe: summarizeDurations(accumulator.custom.adobe),
-    },
-  };
-}
-
-// 按窗口精确统计生图 SLA。
-// 计数 / 时延 / 产图 / 积分直接用聚合 SQL 在该窗口区间上算,不受 recentGenerationRows
-// 的 10000 行帽子限制——修复"高峰期 24h 行数即触顶、7d 取样塌缩成与 24h 同一批最近行,
-// 导致两个窗口数值完全一致"的缺陷。
-// 错误三分类只取该窗口的 failed 行 error 文本,喂真实的 classifyGenerationError:失败
-// 行通常只占总量很小比例、且只 SELECT error 文本,几乎不触顶,既保证按窗口精确,又
-// 避免把 sla-classification.ts 里约 150 条分类模式重写进 SQL 而新增第三处分类口径漂移
-// (现已有 SLA 侧 classifyGenerationError 与后端调度侧 isUserRequestBackendError 两处)。
-// durationBreakdown / moderationPromptRepair 是 metadata 重度的次要分布表,仍用传入的
-// 带帽样本 sampleRows 近似(行数触顶时为近似分布,由 rowsTruncated 提示)。
+// 按窗口精确统计生图 SLA。所有展示字段都按 24h / 7d 各自窗口直接用 SQL 聚合,不再依赖
+// recentGenerationRows 的 10000 行帽子——修复"高峰期 24h 行数即触顶、7d 取样塌缩成与
+// 24h 同一批最近行,导致两窗口数值完全一致"的缺陷。
+// - 计数 / 时延(avg、P95)/ 产图 / 积分:聚合 SQL。
+// - 错误三分类:只取该窗口 failed 行的 error 文本,喂真实的 classifyGenerationError——
+//   既精确,又不把 sla-classification.ts 约 150 条模式重写进 SQL 而新增第三处分类漂移。
+// - 耗时分布(分辨率 x 后端):分组 SQL;backend / 分辨率桶用 CASE 复刻原 JS 口径,
+//   预设尺寸用 RESOLUTION_PRESET_SIZES 作数组参数下推(单一真相源,零漂移)。
+// - 审核修剪重试:只取该窗口含 attempts 的少量行,复用现有 JS 累加(零漂移)。
 async function loadGenerationWindowStats(
-  windowStart: Date,
-  sampleRows: GenerationMetricRow[]
+  windowStart: Date
 ): Promise<GenerationWindowStats> {
-  // 完成耗时(秒),clamp 到非负以对齐 JS 侧 Math.max(0, ...);仅在已完成且有
-  // completedAt 的行上聚合。
-  const durationExpr = sql`greatest(0, extract(epoch from (${generation.completedAt} - ${generation.createdAt})))`;
+  const metaJson = sql`${generation.metadata}::jsonb`;
+  // 完成耗时(秒):clamp 非负 + round,对齐 JS 侧 Math.max(0, Math.round(...))。
+  const durationExpr = sql`round(greatest(0, extract(epoch from (${generation.completedAt} - ${generation.createdAt}))))`;
   const completedDurationFilter = sql`filter (where ${generation.status} = 'completed' and ${generation.completedAt} is not null)`;
+  // 后端桶:先按 backend.type=pool-adobe 识别 Adobe,否则取 accountBackend ??
+  // imagesUpstreamMode ?? apiInterfaceMode 映射 web / responses->codex / images。
+  const backendBucketExpr = sql`(case when ${metaJson} #>> '{backend,type}' = 'pool-adobe' then 'adobe' else (case coalesce(${metaJson} #>> '{backend,accountBackend}', ${metaJson} #>> '{backend,imagesUpstreamMode}', ${metaJson} #>> '{backend,apiInterfaceMode}') when 'web' then 'web' when 'responses' then 'codex' when 'images' then 'images' else null end) end)`;
+  // 请求尺寸:requestedSize -> actualSize -> size 列,统一 lower(trim())。
+  const sizeValueExpr = sql`lower(btrim(coalesce(nullif(${metaJson} #>> '{outputImage,requestedSize}', ''), nullif(${metaJson} #>> '{outputImage,actualSize}', ''), ${generation.size})))`;
+  // 分辨率桶:web 统一 1k;空 / auto -> custom;否则匹配预设集,余 custom。
+  const resolutionBucketExpr = sql`(case when ${backendBucketExpr} = 'web' then '1k' when ${sizeValueExpr} = '' or ${sizeValueExpr} = ${AUTO_IMAGE_SIZE} then 'custom' when ${inArray(sizeValueExpr, [...RESOLUTION_PRESET_SIZES["4k"]])} then '4k' when ${inArray(sizeValueExpr, [...RESOLUTION_PRESET_SIZES["2k"]])} then '2k' when ${inArray(sizeValueExpr, [...RESOLUTION_PRESET_SIZES["1k"]])} then '1k' else 'custom' end)`;
 
-  const [aggregateRows, failedRows] = await Promise.all([
-    db
-      .select({
-        total: count(),
-        completed:
-          sql<number>`sum(case when ${generation.status} = 'completed' then 1 else 0 end)`.mapWith(
-            Number
-          ),
-        failed:
-          sql<number>`sum(case when ${generation.status} = 'failed' then 1 else 0 end)`.mapWith(
-            Number
-          ),
-        pending:
-          sql<number>`sum(case when ${generation.status} = 'pending' then 1 else 0 end)`.mapWith(
-            Number
-          ),
-        // 与全站 generationTotals.completedImages 同口径:优先 billableImageOutputCount,
-        // 缺失时回退 storageKey 是否存在。
-        producedImages:
-          sql<number>`coalesce(sum(case when ${generation.status} = 'completed' then case when jsonb_typeof(${generation.metadata}::jsonb #> '{outputImage,billableImageOutputCount}') = 'number' then (${generation.metadata}::jsonb #>> '{outputImage,billableImageOutputCount}')::int when ${generation.storageKey} is not null then 1 else 0 end else 0 end), 0)`.mapWith(
-            Number
-          ),
-        creditsConsumed:
-          sql<number>`coalesce(sum(${generation.creditsConsumed}), 0)`.mapWith(
-            Number
-          ),
-        avgSeconds: sql<
-          string | null
-        >`avg(${durationExpr}) ${completedDurationFilter}`,
-        p95Seconds: sql<
-          string | null
-        >`percentile_disc(0.95) within group (order by ${durationExpr}) ${completedDurationFilter}`,
-      })
-      .from(generation)
-      .where(gte(generation.createdAt, windowStart)),
-    db
-      .select({ error: generation.error })
-      .from(generation)
-      .where(
-        and(
-          gte(generation.createdAt, windowStart),
-          eq(generation.status, "failed")
+  const [aggregateRows, failedRows, durationBreakdownRows, repairRows] =
+    await Promise.all([
+      db
+        .select({
+          total: count(),
+          completed:
+            sql<number>`sum(case when ${generation.status} = 'completed' then 1 else 0 end)`.mapWith(
+              Number
+            ),
+          failed:
+            sql<number>`sum(case when ${generation.status} = 'failed' then 1 else 0 end)`.mapWith(
+              Number
+            ),
+          pending:
+            sql<number>`sum(case when ${generation.status} = 'pending' then 1 else 0 end)`.mapWith(
+              Number
+            ),
+          // 与全站 generationTotals.completedImages 同口径:优先 billableImageOutputCount,
+          // 缺失时回退 storageKey 是否存在。
+          producedImages:
+            sql<number>`coalesce(sum(case when ${generation.status} = 'completed' then case when jsonb_typeof(${metaJson} #> '{outputImage,billableImageOutputCount}') = 'number' then (${metaJson} #>> '{outputImage,billableImageOutputCount}')::int when ${generation.storageKey} is not null then 1 else 0 end else 0 end), 0)`.mapWith(
+              Number
+            ),
+          creditsConsumed:
+            sql<number>`coalesce(sum(${generation.creditsConsumed}), 0)`.mapWith(
+              Number
+            ),
+          avgSeconds: sql<
+            string | null
+          >`avg(${durationExpr}) ${completedDurationFilter}`,
+          p95Seconds: sql<
+            string | null
+          >`percentile_disc(0.95) within group (order by ${durationExpr}) ${completedDurationFilter}`,
+        })
+        .from(generation)
+        .where(gte(generation.createdAt, windowStart)),
+      db
+        .select({ error: generation.error })
+        .from(generation)
+        .where(
+          and(
+            gte(generation.createdAt, windowStart),
+            eq(generation.status, "failed")
+          )
+        ),
+      db
+        .select({
+          resolutionBucket: sql<string>`${resolutionBucketExpr}`,
+          backendBucket: sql<string>`${backendBucketExpr}`,
+          count: count(),
+          avgSeconds: sql<string | null>`avg(${durationExpr})`,
+          p95Seconds: sql<string | null>`percentile_disc(0.95) within group (order by ${durationExpr})`,
+        })
+        .from(generation)
+        .where(
+          and(
+            gte(generation.createdAt, windowStart),
+            eq(generation.status, "completed"),
+            sql`${generation.completedAt} is not null`,
+            sql`${backendBucketExpr} is not null`
+          )
         )
-      ),
-  ]);
+        // 按 select 第 1、2 列(分辨率桶、后端桶)分组。
+        .groupBy(sql`1`, sql`2`),
+      db
+        .select({ metadata: generation.metadata })
+        .from(generation)
+        .where(
+          and(
+            gte(generation.createdAt, windowStart),
+            sql`jsonb_typeof(${metaJson} #> '{moderationPromptRepair,attempts}') = 'array'`,
+            sql`jsonb_array_length(${metaJson} #> '{moderationPromptRepair,attempts}') > 0`
+          )
+        ),
+    ]);
 
   const aggregate = aggregateRows[0];
 
@@ -656,23 +623,26 @@ async function loadGenerationWindowStats(
     }
   }
 
-  // 两张次要分布表用带帽样本近似(metadata 重度,不值得全部下推 SQL)。
-  const durationAccumulator = createDurationAccumulator();
+  // 耗时分布:SQL 只回非空(分辨率, 后端)组,填进空网格。
+  const durationBreakdown = emptyDurationBreakdown();
+  for (const row of durationBreakdownRows) {
+    if (
+      !isResolutionDurationBucket(row.resolutionBucket) ||
+      !isBackendDurationBucket(row.backendBucket)
+    ) {
+      continue;
+    }
+    durationBreakdown[row.resolutionBucket][row.backendBucket] = {
+      count: Number(row.count) || 0,
+      avgSeconds: row.avgSeconds == null ? null : Number(row.avgSeconds),
+      p95Seconds: row.p95Seconds == null ? null : Number(row.p95Seconds),
+    };
+  }
+
+  // 审核修剪重试:复用既有 JS 累加,口径零漂移(行集很小)。
   const moderationPromptRepair = createModerationPromptRepairStats();
-  for (const row of sampleRows) {
+  for (const row of repairRows) {
     accumulateModerationPromptRepairStats(moderationPromptRepair, row);
-    if (row.status !== "completed" || !row.completedAt) continue;
-    const duration = Math.max(
-      0,
-      Math.round((row.completedAt.getTime() - row.createdAt.getTime()) / 1000)
-    );
-    const backendBucket = getBackendDurationBucket(row);
-    if (!backendBucket) continue;
-    const resolutionBucket =
-      backendBucket === "web"
-        ? "1k"
-        : classifyResolutionDurationBucket(getRequestedGenerationSize(row));
-    durationAccumulator[resolutionBucket][backendBucket].push(duration);
   }
 
   const completed = aggregate?.completed ?? 0;
@@ -699,7 +669,7 @@ async function loadGenerationWindowStats(
     userRequestErrors,
     avgSeconds,
     p95Seconds,
-    durationBreakdown: buildDurationBreakdown(durationAccumulator),
+    durationBreakdown,
     moderationPromptRepair,
   };
 }
@@ -1818,16 +1788,15 @@ async function loadStatusData() {
       .groupBy(videoGeneration.family, videoGeneration.status),
   ]);
 
-  // recentGenerationRows(带帽 10000 行样本)只再用于两张次要分布表与 topErrors;
-  // SLA 头部数值(计数/时延/产图/错误三分类)改由 loadGenerationWindowStats 按窗口
-  // 用聚合 SQL 精确算,不受该帽子限制。
+  // recentGenerationRows(带帽 10000 行)现仅用于 topErrors 列表与 rowsTruncated 旗标;
+  // SLA 全部展示字段已由 loadGenerationWindowStats 按窗口用聚合 SQL 精确算,不受帽子限制。
   const sample7d = recentGenerationRows satisfies GenerationMetricRow[];
   const sample24h = sample7d.filter((row) => row.createdAt >= last24h);
-  // 仅表示带帽样本触顶(影响分布表/topErrors 的近似度),SLA 头部已不受其影响
+  // 仅表示 topErrors 样本触顶,SLA 各窗口数值已不受其影响。
   const rowsTruncated = sample7d.length >= 10000;
   const [stats24h, stats7d] = await Promise.all([
-    loadGenerationWindowStats(last24h, sample24h),
-    loadGenerationWindowStats(last7d, sample7d),
+    loadGenerationWindowStats(last24h),
+    loadGenerationWindowStats(last7d),
   ]);
 
   return {
