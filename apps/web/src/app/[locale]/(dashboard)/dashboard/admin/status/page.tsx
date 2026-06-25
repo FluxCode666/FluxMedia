@@ -453,28 +453,6 @@ function getBackendDurationBucket(
   return null;
 }
 
-function getProducedImageCount(row: GenerationMetricRow) {
-  if (row.status !== "completed") return 0;
-
-  const outputImage = asRecord(asRecord(row.metadata)?.outputImage);
-  const billableCount = numberFrom(outputImage?.billableImageOutputCount);
-  if (billableCount !== null) return Math.max(0, Math.floor(billableCount));
-
-  const outputs = Array.isArray(outputImage?.imageOutputs)
-    ? outputImage.imageOutputs
-    : [];
-  if (outputs.length > 0) {
-    const hasChoice = outputs.some((item) => asRecord(item)?.role === "choice");
-    if (hasChoice) {
-      return outputs.some((item) => asRecord(item)?.primary === true) ? 1 : 0;
-    }
-    return outputs.filter((item) => asRecord(item)?.role !== "agent_draft")
-      .length;
-  }
-
-  return row.storageKey ? 1 : 0;
-}
-
 function getModerationPromptRepairAttempts(row: GenerationMetricRow) {
   const repair = asRecord(asRecord(row.metadata)?.moderationPromptRepair);
   const attempts = Array.isArray(repair?.attempts) ? repair.attempts : [];
@@ -596,54 +574,78 @@ function buildDurationBreakdown(
   };
 }
 
-function buildGenerationWindowStats(
-  rows: GenerationMetricRow[]
-): GenerationWindowStats {
-  let completed = 0;
-  let failed = 0;
-  let pending = 0;
-  let producedImages = 0;
-  let creditsConsumed = 0;
+// 按窗口精确统计生图 SLA。
+// 计数 / 时延 / 产图 / 积分直接用聚合 SQL 在该窗口区间上算,不受 recentGenerationRows
+// 的 10000 行帽子限制——修复"高峰期 24h 行数即触顶、7d 取样塌缩成与 24h 同一批最近行,
+// 导致两个窗口数值完全一致"的缺陷。
+// 错误三分类只取该窗口的 failed 行 error 文本,喂真实的 classifyGenerationError:失败
+// 行通常只占总量很小比例、且只 SELECT error 文本,几乎不触顶,既保证按窗口精确,又
+// 避免把 sla-classification.ts 里约 150 条分类模式重写进 SQL 而新增第三处分类口径漂移
+// (现已有 SLA 侧 classifyGenerationError 与后端调度侧 isUserRequestBackendError 两处)。
+// durationBreakdown / moderationPromptRepair 是 metadata 重度的次要分布表,仍用传入的
+// 带帽样本 sampleRows 近似(行数触顶时为近似分布,由 rowsTruncated 提示)。
+async function loadGenerationWindowStats(
+  windowStart: Date,
+  sampleRows: GenerationMetricRow[]
+): Promise<GenerationWindowStats> {
+  // 完成耗时(秒),clamp 到非负以对齐 JS 侧 Math.max(0, ...);仅在已完成且有
+  // completedAt 的行上聚合。
+  const durationExpr = sql`greatest(0, extract(epoch from (${generation.completedAt} - ${generation.createdAt})))`;
+  const completedDurationFilter = sql`filter (where ${generation.status} = 'completed' and ${generation.completedAt} is not null)`;
+
+  const [aggregateRows, failedRows] = await Promise.all([
+    db
+      .select({
+        total: count(),
+        completed:
+          sql<number>`sum(case when ${generation.status} = 'completed' then 1 else 0 end)`.mapWith(
+            Number
+          ),
+        failed:
+          sql<number>`sum(case when ${generation.status} = 'failed' then 1 else 0 end)`.mapWith(
+            Number
+          ),
+        pending:
+          sql<number>`sum(case when ${generation.status} = 'pending' then 1 else 0 end)`.mapWith(
+            Number
+          ),
+        // 与全站 generationTotals.completedImages 同口径:优先 billableImageOutputCount,
+        // 缺失时回退 storageKey 是否存在。
+        producedImages:
+          sql<number>`coalesce(sum(case when ${generation.status} = 'completed' then case when jsonb_typeof(${generation.metadata}::jsonb #> '{outputImage,billableImageOutputCount}') = 'number' then (${generation.metadata}::jsonb #>> '{outputImage,billableImageOutputCount}')::int when ${generation.storageKey} is not null then 1 else 0 end else 0 end), 0)`.mapWith(
+            Number
+          ),
+        creditsConsumed:
+          sql<number>`coalesce(sum(${generation.creditsConsumed}), 0)`.mapWith(
+            Number
+          ),
+        avgSeconds: sql<
+          string | null
+        >`avg(${durationExpr}) ${completedDurationFilter}`,
+        p95Seconds: sql<
+          string | null
+        >`percentile_disc(0.95) within group (order by ${durationExpr}) ${completedDurationFilter}`,
+      })
+      .from(generation)
+      .where(gte(generation.createdAt, windowStart)),
+    db
+      .select({ error: generation.error })
+      .from(generation)
+      .where(
+        and(
+          gte(generation.createdAt, windowStart),
+          eq(generation.status, "failed")
+        )
+      ),
+  ]);
+
+  const aggregate = aggregateRows[0];
+
+  // 失败行用真实分类器分桶,口径与历史错误列表、后端调度完全一致,零额外漂移。
   let platformErrors = 0;
   let moderationErrors = 0;
   let userRequestErrors = 0;
-  const durations: number[] = [];
-  const durationAccumulator = createDurationAccumulator();
-  const moderationPromptRepair = createModerationPromptRepairStats();
-
-  for (const row of rows) {
-    creditsConsumed += Number(row.creditsConsumed) || 0;
-    producedImages += getProducedImageCount(row);
-    accumulateModerationPromptRepairStats(moderationPromptRepair, row);
-
-    if (row.status === "completed") {
-      completed += 1;
-      if (row.completedAt) {
-        const duration = Math.max(
-          0,
-          Math.round(
-            (row.completedAt.getTime() - row.createdAt.getTime()) / 1000
-          )
-        );
-        durations.push(duration);
-        const backendBucket = getBackendDurationBucket(row);
-        if (backendBucket) {
-          const resolutionBucket =
-            backendBucket === "web"
-              ? "1k"
-              : classifyResolutionDurationBucket(getRequestedGenerationSize(row));
-          durationAccumulator[resolutionBucket][backendBucket].push(duration);
-        }
-      }
-      continue;
-    }
-
-    if (row.status === "pending") {
-      pending += 1;
-      continue;
-    }
-
-    failed += 1;
+  for (const row of failedRows) {
     const category = classifyGenerationError(row.error);
     if (category === "moderation") {
       moderationErrors += 1;
@@ -654,27 +656,49 @@ function buildGenerationWindowStats(
     }
   }
 
+  // 两张次要分布表用带帽样本近似(metadata 重度,不值得全部下推 SQL)。
+  const durationAccumulator = createDurationAccumulator();
+  const moderationPromptRepair = createModerationPromptRepairStats();
+  for (const row of sampleRows) {
+    accumulateModerationPromptRepairStats(moderationPromptRepair, row);
+    if (row.status !== "completed" || !row.completedAt) continue;
+    const duration = Math.max(
+      0,
+      Math.round((row.completedAt.getTime() - row.createdAt.getTime()) / 1000)
+    );
+    const backendBucket = getBackendDurationBucket(row);
+    if (!backendBucket) continue;
+    const resolutionBucket =
+      backendBucket === "web"
+        ? "1k"
+        : classifyResolutionDurationBucket(getRequestedGenerationSize(row));
+    durationAccumulator[resolutionBucket][backendBucket].push(duration);
+  }
+
+  const completed = aggregate?.completed ?? 0;
+  const failed = aggregate?.failed ?? 0;
+  const pending = aggregate?.pending ?? 0;
   const finished = completed + failed;
   const platformDenominator = completed + platformErrors;
   const avgSeconds =
-    durations.length > 0
-      ? durations.reduce((total, item) => total + item, 0) / durations.length
-      : null;
+    aggregate?.avgSeconds == null ? null : Number(aggregate.avgSeconds);
+  const p95Seconds =
+    aggregate?.p95Seconds == null ? null : Number(aggregate.p95Seconds);
 
   return {
-    total: rows.length,
+    total: aggregate?.total ?? 0,
     completed,
     failed,
     pending,
-    producedImages,
-    creditsConsumed,
+    producedImages: aggregate?.producedImages ?? 0,
+    creditsConsumed: aggregate?.creditsConsumed ?? 0,
     successRate: finished > 0 ? completed / finished : 1,
     platformSla: platformDenominator > 0 ? completed / platformDenominator : 1,
     platformErrors,
     moderationErrors,
     userRequestErrors,
     avgSeconds,
-    p95Seconds: percentile(durations, 0.95),
+    p95Seconds,
     durationBreakdown: buildDurationBreakdown(durationAccumulator),
     moderationPromptRepair,
   };
@@ -1794,12 +1818,17 @@ async function loadStatusData() {
       .groupBy(videoGeneration.family, videoGeneration.status),
   ]);
 
-  const rows = recentGenerationRows satisfies GenerationMetricRow[];
-  // 查询已加 .limit(10000) 防止内存溢出;若行数触顶,统计为近似值
-  const rowsTruncated = rows.length >= 10000;
-  const rows24h = rows.filter((row) => row.createdAt >= last24h);
-  const stats24h = buildGenerationWindowStats(rows24h);
-  const stats7d = buildGenerationWindowStats(rows);
+  // recentGenerationRows(带帽 10000 行样本)只再用于两张次要分布表与 topErrors;
+  // SLA 头部数值(计数/时延/产图/错误三分类)改由 loadGenerationWindowStats 按窗口
+  // 用聚合 SQL 精确算,不受该帽子限制。
+  const sample7d = recentGenerationRows satisfies GenerationMetricRow[];
+  const sample24h = sample7d.filter((row) => row.createdAt >= last24h);
+  // 仅表示带帽样本触顶(影响分布表/topErrors 的近似度),SLA 头部已不受其影响
+  const rowsTruncated = sample7d.length >= 10000;
+  const [stats24h, stats7d] = await Promise.all([
+    loadGenerationWindowStats(last24h, sample24h),
+    loadGenerationWindowStats(last7d, sample7d),
+  ]);
 
   return {
     // 全局状态对所有 admin 相同、且被 unstable_cache 缓存,序列化要求 now 为字符串
@@ -1809,7 +1838,7 @@ async function loadStatusData() {
     stats7d,
     // 当 last7d 行数触达 limit(10000) 时为 true,表示统计为近似值
     rowsTruncated,
-    topErrors24h: topErrors(rows24h),
+    topErrors24h: topErrors(sample24h),
     generationTotals: generationTotals[0] ?? {
       total: 0,
       completed: 0,
