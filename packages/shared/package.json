@@ -31,6 +31,7 @@
     "./credits/format": "./src/credits/format.ts",
     "./credits/components": "./src/credits/components/index.ts",
     "./generation-maintenance": "./src/generation-maintenance.ts",
+    "./generation-timeout": "./src/generation-timeout.ts",
     "./generation-settlement": "./src/generation-settlement.ts",
     "./image-backend/nested-groups": "./src/image-backend/nested-groups.ts",
     "./storage": "./src/storage/index.ts",

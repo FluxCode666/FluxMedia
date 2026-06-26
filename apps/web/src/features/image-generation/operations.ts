@@ -5,8 +5,8 @@ import { consumeCredits } from "@repo/shared/credits/core";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import {
   IMAGE_GENERATION_PENDING_TIMEOUT_MS,
-  IMAGE_GENERATION_TIMEOUT_ERROR,
   refundGenerationCredits,
+  resolveImageGenerationTimeoutError,
 } from "@repo/shared/generation-maintenance";
 import { getFailedGenerationTargetCredits } from "@repo/shared/generation-settlement";
 import { logWarn } from "@repo/shared/logger";
@@ -1854,7 +1854,7 @@ async function runQueuedImageGenerationForUser({
         .update(generation)
         .set({
           status: "failed",
-          error: IMAGE_GENERATION_TIMEOUT_ERROR,
+          error: resolveImageGenerationTimeoutError(config.backend),
           creditsConsumed: chargedCredits,
           completedAt: new Date(),
           metadata: sql`COALESCE(${generation.metadata}, '{}'::json)::jsonb || ${JSON.stringify(
@@ -1909,7 +1909,7 @@ async function runQueuedImageGenerationForUser({
       }
 
       return {
-        error: IMAGE_GENERATION_TIMEOUT_ERROR,
+        error: resolveImageGenerationTimeoutError(config.backend),
         generationId,
         creditsConsumed: chargedCredits,
       };

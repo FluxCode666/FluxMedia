@@ -1,3 +1,7 @@
+import {
+  IMAGE_GENERATION_TIMEOUT_ERROR,
+  IMAGE_GENERATION_WEB_TIMEOUT_ERROR,
+} from "@repo/shared/generation-timeout";
 import { describe, expect, it } from "vitest";
 import {
   classifyGenerationError,
@@ -105,6 +109,21 @@ describe("generation SLA error classification", () => {
       expect(classifyGenerationError(error)).toBe("moderation");
       expect(isContentSafetyRejection(error)).toBe(true);
     }
+  });
+
+  it("attributes Web backend timeouts to moderation (suspected silent refusal)", () => {
+    // Web 上游对违规内容常静默挂住直至超时（无审核码/拒绝文本），补"疑似审核"标记后归
+    // moderation，避免隐性审核淹没在平台超时里。
+    expect(classifyGenerationError(IMAGE_GENERATION_WEB_TIMEOUT_ERROR)).toBe(
+      "moderation"
+    );
+  });
+
+  it("keeps non-Web (generic) timeouts as platform errors", () => {
+    // 通用超时（codex/responses 账号、外接 API、Adobe）仍算平台，不误归审核。
+    expect(classifyGenerationError(IMAGE_GENERATION_TIMEOUT_ERROR)).toBe(
+      "platform"
+    );
   });
 
   it("keeps apology-only platform failures as platform errors", () => {
