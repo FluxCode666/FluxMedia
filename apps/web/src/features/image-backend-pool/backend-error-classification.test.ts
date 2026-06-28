@@ -324,3 +324,28 @@ describe("image backend error classification", () => {
     expect(failure.cooldownUntil).toBeNull();
   });
 });
+
+describe("always_active failure handling (resolveAlwaysActiveFailure)", () => {
+  it("常驻后端遇 502/HTML 等 dead-relay 终态错误不被自动标 error 踢出", async () => {
+    const svc = await loadService();
+    // 复现：常驻 relay 撞到「HTTP 502: HTML response body」——classifyFailure 判终态 error。
+    const err =
+      "Upstream Images API returned HTTP 502: HTML response body. Check that the API base URL points to an OpenAI-compatible /v1 endpoint.";
+    const failure = await svc.classifyFailure(err);
+    expect(failure.status).toBe("error");
+    // 常驻：豁免——返回空对象，不写 status（不踢出，避免触发"没有可用的默认生图后端"）。
+    expect(svc.resolveAlwaysActiveFailure(true, failure)).toEqual({});
+  });
+
+  it("非常驻后端的终态错误照常踢出（原样保留 status='error'）", async () => {
+    const svc = await loadService();
+    const failure = { status: "error", cooldownUntil: null };
+    expect(svc.resolveAlwaysActiveFailure(false, failure)).toBe(failure);
+  });
+
+  it("常驻后端的临时错误同样不下线", async () => {
+    const svc = await loadService();
+    const failure = { status: "limited", cooldownUntil: new Date(0) };
+    expect(svc.resolveAlwaysActiveFailure(true, failure)).toEqual({});
+  });
+});

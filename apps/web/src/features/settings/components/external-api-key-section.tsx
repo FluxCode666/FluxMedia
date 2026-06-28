@@ -346,11 +346,11 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
           <p className="text-xs text-muted-foreground">
             {t("quota.description")}
           </p>
-          {!moderationBlockingEnabled && (
-            <p className="text-xs text-muted-foreground">
-              {t("moderation.disabledByPlan")}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            {moderationBlockingEnabled
+              ? t("moderation.hint")
+              : t("moderation.disabledByPlan")}
+          </p>
           {!externalApiAllowed && (
             <p className="text-xs text-muted-foreground">
               {t("requiresStarter")}
@@ -605,6 +605,9 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("moderation.hint")}
+                  </p>
                 </div>
                 <div className="mt-3 max-w-xs">
                   <Label htmlFor={`external-key-group-${key.id}`}>

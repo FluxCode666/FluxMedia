@@ -1907,6 +1907,21 @@ function resolveEffectiveFailureForMember(
   };
 }
 
+// always_active（遇错常驻）的失败处置：常驻后端遇【任何】失败都不自动下线——返回空对象
+// 表示"不改 status、不进冷却，仅由调用方记 lastError/failCount"。含 502/HTML、dead-relay、
+// 凭证/分组等终态错误：运营勾了"遇错常驻"即要求它永不被自动标 error 踢出。
+// WHY 含终态：曾经只豁免临时错误、对 status='error' 仍踢出，导致常驻 relay 撞到
+// 「HTTP 502: HTML response body」这类 dead-relay 错误被标 error 踢空，进而触发「没有可用的
+// 默认生图后端」。代价：真·死号会持续被选中、每次浪费一次尝试后换号，需人工停用——这是
+// "常驻"语义的固有取舍，由运营自行承担。非常驻后端不走此函数，按 classifyFailure 的判定
+// （临时冷却 / status='error' 粘性踢出）。
+export function resolveAlwaysActiveFailure(
+  alwaysActive: boolean,
+  effectiveFailure: { status?: string; cooldownUntil?: Date | null }
+): { status?: string; cooldownUntil?: Date | null } {
+  return alwaysActive ? {} : effectiveFailure;
+}
+
 function isBackendAvailableStatus(
   statusColumn:
     | typeof imageBackendAccount.status
@@ -3226,12 +3241,9 @@ export async function reportImageBackendResult(
       input,
       now
     );
-    // always_active：遇【临时】错误不下线——不改 status、不进冷却（仅记 lastError/failCount）。
-    // 例外：终态/鉴权类错误（status="error"）必须照样标 error 踢出,见账号侧同款说明。
-    const apiFailure =
-      alwaysActive && effectiveFailure?.status !== "error"
-        ? {}
-        : effectiveFailure;
+    // always_active：常驻后端遇任何失败（含 502/HTML 等 dead-relay 终态错误）都不自动下线，
+    // 仅记 lastError/failCount，详见 resolveAlwaysActiveFailure。
+    const apiFailure = resolveAlwaysActiveFailure(alwaysActive, effectiveFailure);
     // error 粘性：非常驻后端一旦被置 error，成功不再复活它（高并发下成功多来自
     // 早已在飞的兄弟请求）。只由 测活/手动重新启用/编辑保存/常驻 清除 error。
     const stickyError = api?.status === "error" && !alwaysActive;
@@ -3316,11 +3328,12 @@ export async function reportImageBackendResult(
       input,
       now
     );
-    // 与 api 同款：always_active 仅豁免临时错误；终态 status="error" 照样标 error 踢出。
-    const adobeFailure =
-      alwaysActive && effectiveFailure?.status !== "error"
-        ? {}
-        : effectiveFailure;
+    // 与 api 同款：always_active 常驻后端遇任何失败都不自动下线（含终态 502/HTML），
+    // 详见 resolveAlwaysActiveFailure。
+    const adobeFailure = resolveAlwaysActiveFailure(
+      alwaysActive,
+      effectiveFailure
+    );
     const stickyError = adobe?.status === "error" && !alwaysActive;
     await db
       .update(imageBackendAdobe)
