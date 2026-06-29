@@ -62,7 +62,7 @@ import {
 } from "./input-image-url";
 import {
   buildOpenAIPromptCacheKey,
-  buildRequestInputSignature,
+  buildPromptCacheSalt,
 } from "./openai-prompt-cache";
 import {
   normalizeImageBackground,
@@ -1773,7 +1773,7 @@ async function generateChatImageWithChatCompletions(
           model,
           imageModel: params.imageModel,
           promptOptimization: params.promptOptimization,
-          inputSignature: buildRequestInputSignature(messages),
+          inputSignature: buildPromptCacheSalt(),
         }),
       ...(stream ? { stream: true } : {}),
     };
@@ -4615,7 +4615,7 @@ export async function generateChatImage(
           tool,
           additionalTools: defaultAdditionalTools,
         }),
-        inputSignature: buildRequestInputSignature(input),
+        inputSignature: buildPromptCacheSalt(),
       });
       const requestBody: ResponsesStreamRequestBody =
         params.rawResponsesBody && isPlainRecord(params.rawResponsesBody)

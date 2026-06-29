@@ -5,7 +5,7 @@ import {
 } from "./output-format";
 import {
   buildOpenAIPromptCacheKey,
-  buildRequestInputSignature,
+  buildPromptCacheSalt,
 } from "./openai-prompt-cache";
 import {
   AUTO_IMAGE_SIZE,
@@ -258,7 +258,7 @@ export function buildResponsesImageGenerationRequest(
       imageModel: tool.model,
       promptOptimization: params.promptOptimization,
       toolSignature: toolCacheSignature(tool),
-      inputSignature: buildRequestInputSignature(input),
+      inputSignature: buildPromptCacheSalt(),
     }),
   };
 }
@@ -339,8 +339,8 @@ export function buildResponsesImageEditRequest(
       imageModel: tool.model,
       promptOptimization: params.promptOptimization,
       toolSignature: toolCacheSignature(tool),
-      // 参考图与 prompt 都在 input 里,签名随之变化 → 不同参考图必得不同 key。
-      inputSignature: buildRequestInputSignature(input),
+      // 每请求唯一盐 → key 每请求唯一:不同参考图不串图,同一张参考图也能要不同结果。
+      inputSignature: buildPromptCacheSalt(),
     }),
   };
 }
