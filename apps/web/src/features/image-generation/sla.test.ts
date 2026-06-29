@@ -111,6 +111,19 @@ describe("generation SLA error classification", () => {
     }
   });
 
+  it("classifies upstream image_unsafe marker as moderation, not platform", () => {
+    // 上游(中转/Web)对违规图像返回的代码标记 image_unsafe:应归审核,不该淹没进平台 SLA。
+    const errors = [
+      "image_unsafe",
+      "Upstream Images API returned HTTP 400: image_unsafe | invalid_request_error",
+      '{"code":"image_unsafe","message":"The generated image was flagged."}',
+    ];
+    for (const error of errors) {
+      expect(classifyGenerationError(error)).toBe("moderation");
+      expect(isContentSafetyRejection(error)).toBe(true);
+    }
+  });
+
   it("attributes Web backend timeouts to moderation (suspected silent refusal)", () => {
     // Web 上游对违规内容常静默挂住直至超时（无审核码/拒绝文本），补"疑似审核"标记后归
     // moderation，避免隐性审核淹没在平台超时里。

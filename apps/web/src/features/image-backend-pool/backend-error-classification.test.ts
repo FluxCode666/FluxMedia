@@ -222,6 +222,12 @@ describe("image backend error classification", () => {
     expect(isImageBackendSwitchableError("image_generation_user_error")).toBe(
       false
     );
+    // 上游 image_unsafe 标记=用户内容拒绝(审核):不可换号(换后端也救不了)。
+    expect(
+      isImageBackendSwitchableError(
+        "Upstream Images API returned HTTP 400: image_unsafe | invalid_request_error"
+      )
+    ).toBe(false);
   });
 
   it("marks group-disabled backends (403 GROUP_DISABLED) switchable and as error", async () => {
