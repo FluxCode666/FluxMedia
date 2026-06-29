@@ -772,15 +772,20 @@ function isResponsesBackend(config: ApiConfig) {
   return isPoolApiResponsesBackend(config);
 }
 
-// codex(pool-account "responses")后端的普通生成/图生图改走直连 images 端点
+// codex(pool-account "responses")后端的普通生成/图生图走直连 images 端点
 // (generateImage → JSON /images/generations;editImage → JSON /images/edits,照 CPA
 // codex 直连格式:images[].image_url 的 base64 data URL + size 顶层),而非 /responses
 // 的 image_generation 工具。
-// WHY: codex 托管 image_generation 工具不暴露/不尊重 size(见 openai/codex #19175;
-// CLIProxyAPI 的 direct image API proxying 同此结论),导致生图不遵循尺寸指令。直连
-// images 端点用【同一账号、同一 OAuth 凭据、同一 baseUrl】,只改 path/body,size 走顶层
-// 被确定性尊重。codex images 端点用 JSON(不接受 multipart→400 Unsupported content type),
-// 也不认非标准 width/height 与 response_format,故两条直连路径都按 CPA 格式只发标准字段。
+// WHY 仍走直连端点:codex 托管 image_generation 工具的工具循环/多轮语义对单张生图是多余
+// 开销,直连端点用【同一账号、同一 OAuth 凭据、同一 baseUrl】只改 path/body,请求更简单、
+// 标准字段对齐 gpt-image。codex images 端点用 JSON(不接受 multipart→400 Unsupported
+// content type),也不认非标准 width/height 与 response_format,故两条直连路径都按 CPA
+// 格式只发标准字段。
+// 注意 size 仍不可靠:codex 托管图像工具不尊重 size(openai/codex #19175),而 CLIProxyAPI
+// 的 direct image API 只是把请求转成同一个工具,所以【直连 images 端点照样忽略顶层 size】——
+// 我方虽确发了 size,codex 仍按提示词内容自挑长宽比。生产实测:本组 1024x1024 请求约 40%
+// 返回非方正、70%+ 返回任意非 1024 尺寸(2026-06 审计)。要精确尺寸须避开 codex 组改用真
+// gpt-image 后端,或出图后服务端裁剪兜底;别再以为换到直连端点 size 就被尊重。
 // chat/agent/瀑布流依赖工具循环与多轮,仍走 /responses。仅作用于 codex 账号
 // (pool-account responses);pool-api 的 responses 后端不受影响。
 function shouldCodexUseDirectImagesEndpoint(config: ApiConfig) {
@@ -4089,9 +4094,10 @@ export async function generateImage(
     const size = params.size || DEFAULT_IMAGE_SIZE;
     const dimensions = parseImageSize(size);
     const background = normalizeImageBackground(params.background);
-    // codex 直连 OpenAI 标准 images 接口:只认 size,拒绝非标准的 width/height
-    // (返回 400 Unknown parameter: 'width')与 gpt-image 不支持的 response_format;
-    // 故对 codex 去掉这些字段(b64 为默认返回)。中转(pool-api)后端不受影响,原样发送。
+    // codex 直连 OpenAI 标准 images 接口:拒绝非标准的 width/height(返回 400 Unknown
+    // parameter: 'width')与 gpt-image 不支持的 response_format,故对 codex 去掉这些字段
+    // (b64 为默认返回)。中转(pool-api)后端不受影响,原样发送。
+    // size 仍照发,但 codex 上游不尊重(#19175,直连端点亦然,见 shouldCodexUseDirectImagesEndpoint)。
     const isCodexDirect = shouldCodexUseDirectImagesEndpoint(config);
     const response = await fetch(`${config.baseUrl}/images/generations`, {
       method: "POST",
@@ -4226,9 +4232,11 @@ export async function editImage(
     );
   }
   // codex(pool-account responses)图生图:直连 JSON /images/edits(照 CPA codex 直连格式)。
-  // 输入图/mask 用 images[].image_url / mask.image_url 的 base64 data URL,size 走顶层
-  // → 遵循尺寸。codex /images/edits 不接受 multipart(400 Unsupported content type),也不认
-  // 非标准 width/height 与 response_format(b64_json 为默认返回),故均不发送。
+  // 输入图/mask 用 images[].image_url / mask.image_url 的 base64 data URL,size 走顶层。
+  // 注意 size 仍不被尊重:codex 上游忽略它(#19175,直连端点亦然),实测改图同样高比例返回
+  // 非请求尺寸,详见 shouldCodexUseDirectImagesEndpoint。codex /images/edits 不接受 multipart
+  // (400 Unsupported content type),也不认非标准 width/height 与 response_format
+  // (b64_json 为默认返回),故均不发送。
   if (shouldCodexUseDirectImagesEndpoint(config)) {
     try {
       const size = params.size || DEFAULT_IMAGE_SIZE;
