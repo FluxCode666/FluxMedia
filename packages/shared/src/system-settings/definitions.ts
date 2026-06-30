@@ -146,6 +146,7 @@ export type SettingKey =
   | "IMAGE_BASE_CREDITS_1024"
   | "IMAGE_BASE_CREDITS_4K"
   | "IMAGE_MODEL_MULTIPLIERS"
+  | "IMAGE_SUPER_RESOLUTION_ENABLED"
   | "VIDEO_BASE_CREDITS_PER_SECOND"
   | "VIDEO_MODEL_MULTIPLIERS"
   | "NEXT_PUBLIC_GA_ID"
@@ -1330,6 +1331,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     min: 0.01,
     max: 100_000,
     defaultValue: 10,
+  },
+  {
+    key: "IMAGE_SUPER_RESOLUTION_ENABLED",
+    label: "出图分辨率超分校准",
+    description:
+      "开启后，上游返回图的较长边低于请求尺寸 2/3 时，用 Real-ESRGAN 超分放大并缩到目标分辨率（不裁剪、不改宽高比）。CPU 推理，单张约 1-2 秒，仅对最终图触发；默认关闭。",
+    category: "models",
+    valueType: "boolean",
+    defaultValue: false,
   },
   {
     key: "IMAGE_MODEL_MULTIPLIERS",

@@ -71,6 +71,7 @@ import {
   roundCreditAmount,
   roundUpCreditAmount,
 } from "./resolution";
+import { calibrateImageResolution } from "./resolution-calibration";
 import {
   editImage,
   generateChatImage,
@@ -854,7 +855,21 @@ async function storeGeneratedImageOutput(params: {
   requestedSize: string;
   requestedFormat?: string;
 }) {
-  const imageBuffer = await toImageBuffer(params.output);
+  let imageBuffer: Buffer = await toImageBuffer(params.output);
+  // 分辨率超分校准（gated）：仅对最终图、且开关开启时，上游图较长边 < 目标 2/3 才用
+  // Real-ESRGAN 放大并缩到目标边长（见 resolution-calibration.ts）。失败回退原图、不阻断。
+  const isFinalImage =
+    !params.output.outputRole || params.output.outputRole === "final";
+  if (
+    isFinalImage &&
+    (await getRuntimeSettingBoolean("IMAGE_SUPER_RESOLUTION_ENABLED", false))
+  ) {
+    const calibrated = await calibrateImageResolution(
+      imageBuffer,
+      params.requestedSize || DEFAULT_IMAGE_SIZE
+    );
+    imageBuffer = calibrated.buffer;
+  }
   const storedFormat = resolveStoredImageFormat(
     imageBuffer,
     params.requestedFormat
