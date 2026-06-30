@@ -314,8 +314,9 @@ func (s *server) runRegister(r *http.Request, req registerRequest, emit func(map
 				continue
 			}
 			emit(map[string]any{"type": "log", "line": line})
-			// 每完成一次注册尝试，按节流规则考虑刷新 IP（仅 stdout 的结果行）。
-			if !isStderr && attemptRe.MatchString(line) {
+			// 每完成一次注册尝试，按节流规则考虑刷新 IP。注意：exe 用 Go log 包输出，
+			// 结果行（形如 `[1/2] 失败`）走 stderr，故 stdout/stderr 都要检测。
+			if attemptRe.MatchString(line) {
 				s.maybeRefresh(ctx, req, emit)
 			}
 		}
