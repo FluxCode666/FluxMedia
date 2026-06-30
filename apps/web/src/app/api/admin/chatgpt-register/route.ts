@@ -42,6 +42,11 @@ const AT_PATH = join(EXE_DIR, "at.txt");
 const CONFIG_PATH = join(EXE_DIR, "config.yaml");
 const WINE_PREFIX = "/home/user1/.wine-reg";
 
+// 进程内单槽并发护栏：config.yaml/at.txt 为固定共享路径，多次并发运行会互相
+// 覆盖配置、清空对方正在写入的 at.txt，导致 token 丢失或错配。同一时刻只允许
+// 一个注册任务运行（best-effort，仅本进程内有效）。
+let registerRunning = false;
+
 const requestSchema = z.object({
   count: z.coerce.number().int().min(1).max(MAX_COUNT).default(1),
   concurrency: z.coerce.number().int().min(1).max(MAX_CONCURRENCY).default(5),
@@ -55,18 +60,32 @@ type SseEvent =
   | { type: "error"; message: string }
   | { type: "done" };
 
+// 转义进双引号 YAML 标量的值：反斜杠与双引号须转义，换行/制表符等控制字符
+// 用转义序列，避免管理员配置中的特殊字符破坏 YAML 结构或注入额外字段。
+function yamlDoubleQuote(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+}
+
 function buildConfigYaml(opts: {
   moemailBaseUrl: string;
   moemailApiKey: string;
   moemailDomain: string;
   proxy: string;
 }): string {
-  const domain = opts.moemailDomain || "pt.sanyela.shop";
-  const baseUrl = opts.moemailBaseUrl || "https://mail.52ai.org";
-  const proxy = opts.proxy || "";
+  const domain = yamlDoubleQuote(opts.moemailDomain || "pt.sanyela.shop");
+  const baseUrl = yamlDoubleQuote(
+    opts.moemailBaseUrl || "https://mail.52ai.org"
+  );
+  const apiKey = yamlDoubleQuote(opts.moemailApiKey);
+  const proxy = yamlDoubleQuote(opts.proxy || "");
   return `moemail:
   base_url: "${baseUrl}"
-  api_key: "${opts.moemailApiKey}"
+  api_key: "${apiKey}"
   domains:
     - "${domain}"
   expiry_time: 3600000
@@ -127,6 +146,15 @@ export async function POST(request: NextRequest) {
       headers: { "Content-Type": "application/json" },
     });
   }
+
+  // 并发护栏：已有任务在跑则拒绝，避免共享 config.yaml/at.txt 竞态。
+  if (registerRunning) {
+    return new Response(
+      JSON.stringify({ error: "已有注册任务正在运行，请等待完成后再试" }),
+      { status: 409, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  registerRunning = true;
 
   const encoder = new TextEncoder();
   const flushPadding = `: ${" ".repeat(2048)}\n\n`;
@@ -201,9 +229,17 @@ export async function POST(request: NextRequest) {
           }
         );
 
+        // stdin 自身的 error（如 wine 缺失导致管道破裂 EPIPE）若无监听器会被
+        // Node 当作未捕获异常抛出，拖垮服务进程；这里吞掉，真正的失败由下方的
+        // wineProcess "error"/"close" 事件统一上报。
+        wineProcess.stdin.on("error", () => {});
         // 输入 count 和 concurrency
-        wineProcess.stdin.write(`${params.count}\n${params.concurrency}\n`);
-        wineProcess.stdin.end();
+        try {
+          wineProcess.stdin.write(`${params.count}\n${params.concurrency}\n`);
+          wineProcess.stdin.end();
+        } catch {
+          // 进程已退出，写入失败；交由 "error"/"close" 处理
+        }
 
         // 推流 stdout
         let stdoutBuf = "";
@@ -299,6 +335,8 @@ export async function POST(request: NextRequest) {
           message: error instanceof Error ? error.message : "未知错误",
         });
       } finally {
+        // 释放并发护栏，允许下一次注册任务运行。
+        registerRunning = false;
         clearInterval(keepAlive);
         emit({ type: "done" });
         if (!closed) {
