@@ -2245,9 +2245,9 @@ export function CreatePageClient({
     "transparentMatte",
     false
   );
-  // 高清修复:默认开启(SwinIR 复原,文字/结构最佳);关闭则用轻量 general-x4v3(快)。
-  // 仅在超分主开关开且上游图偏小触发超分时生效。
-  const [hdRepair, setHdRepair] = useCreateRuntimeState("hdRepair", true);
+  // 高清修复:默认关闭(用轻量 general-x4v3,快且安全);勾选才用 SwinIR 复原(文字/结构最佳,
+  // 但 CPU 极慢、吃满多核,仅供受控测试)。仅在超分主开关开且上游图偏小触发超分时生效。
+  const [hdRepair, setHdRepair] = useCreateRuntimeState("hdRepair", false);
   const [outputCompression, setOutputCompression] = useCreateRuntimeState(
     "outputCompression",
     100
@@ -3259,8 +3259,8 @@ export function CreatePageClient({
           : "border-primary/40 bg-primary/5 text-foreground"
       }`}
       title={copy(
-        "HD repair: when the upstream image is much smaller than requested, upscale with SwinIR for the best text/structure restoration (slower on CPU). When off, use the lightweight general-x4v3 model (faster, softer). Only active when server super-resolution is enabled and triggered.",
-        "高清修复:当上游图明显小于所请求尺寸时,用 SwinIR 超分复原,文字/结构还原最佳(CPU 较慢)。关闭则用轻量 general-x4v3(更快、偏软)。仅在服务端超分开启并触发时生效。"
+        "HD repair (SwinIR): off by default. When on, and the upstream image is much smaller than requested, upscale with SwinIR for the best text/structure restoration — but it is very CPU-heavy (tens of seconds, saturates many cores). Leave it off for normal use (fast general-x4v3); enable only for controlled testing. Only active when server super-resolution is enabled and triggered.",
+        "高清修复(SwinIR):默认关闭。勾选后,当上游图明显小于所请求尺寸时用 SwinIR 复原,文字/结构还原最佳,但极耗 CPU(数十秒、吃满多核)。日常请保持关闭(走快速 general-x4v3),仅在受控测试时开启。仅在服务端超分开启并触发时生效。"
       )}
     >
       <Checkbox

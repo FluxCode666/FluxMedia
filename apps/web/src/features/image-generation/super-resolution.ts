@@ -117,14 +117,14 @@ function clamp255(v: number): number {
  * 超分放大 4 倍，返回 PNG 字节。
  *
  * @param image 任意图片字节
- * @param model 模型选择：swinir（默认，高清修复）或 general（快速）
+ * @param model 模型选择：general（默认，快速）或 swinir（高清修复，慢，仅显式请求）
  * @returns 放大 4 倍的 PNG 字节
  * @throws 尺寸不可解析或模型输出异常时抛错
  * 副作用：CPU 密集；大图分块以限内存（tile 大小随模型不同）。
  */
 export async function superResolve(
   image: Buffer,
-  model: SuperResolutionModel = "swinir"
+  model: SuperResolutionModel = "general"
 ): Promise<Buffer> {
   const session = await getSession(model);
   const TILE = MODEL_CONFIG[model].tile;

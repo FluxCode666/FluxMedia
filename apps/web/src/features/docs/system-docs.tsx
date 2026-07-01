@@ -641,7 +641,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：高清修复。默认 true。仅在服务端超分开启且上游图较长边不足目标 2/3 触发超分时生效——true 用 SwinIR 复原（文字/结构最佳，较慢），false 用轻量 general-x4v3（更快、偏软）。与 /v1/images/generations 同义。",
+                "本站扩展：高清修复。默认 false。仅在服务端超分开启且上游图较长边不足目标 2/3 触发超分时生效——默认（false）用轻量 general-x4v3（快）；显式 true 才用 SwinIR 复原（文字/结构最佳，但 CPU 极慢、吃满多核，仅供受控测试）。与 /v1/images/generations 同义。",
             },
             {
               name: "thinking / reasoning.effort",
@@ -948,7 +948,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：高清修复。默认 true。仅在服务端超分开启、且上游返回图较长边不足所请求尺寸 2/3（明显偏小）触发超分放大时生效：true 用 SwinIR 复原，文字/结构还原最佳（CPU 较慢）；false 用轻量 general-x4v3 模型，更快但偏软。上游图已足够大或未开启超分时，本参数无副作用。",
+                "本站扩展：高清修复。默认 false。仅在服务端超分开启、且上游返回图较长边不足所请求尺寸 2/3（明显偏小）触发超分放大时生效：默认（false）用轻量 general-x4v3，快且省资源；显式设为 true 才用 SwinIR 复原，文字/结构还原最佳，但 CPU 极慢（单张数十秒、吃满多核），仅供受控测试。上游图已足够大或未开启超分时，本参数无副作用。",
             },
             {
               name: "stream",
@@ -1269,7 +1269,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：高清修复。默认 true。仅在服务端超分开启、且上游返回图较长边不足所请求尺寸 2/3（明显偏小）触发超分放大时生效：true 用 SwinIR 复原，文字/结构还原最佳（CPU 较慢）；false 用轻量 general-x4v3 模型，更快但偏软。上游图已足够大或未开启超分时，本参数无副作用。",
+                "本站扩展：高清修复。默认 false。仅在服务端超分开启、且上游返回图较长边不足所请求尺寸 2/3（明显偏小）触发超分放大时生效：默认（false）用轻量 general-x4v3，快且省资源；显式设为 true 才用 SwinIR 复原，文字/结构还原最佳，但 CPU 极慢（单张数十秒、吃满多核），仅供受控测试。上游图已足够大或未开启超分时，本参数无副作用。",
             },
             {
               name: "stream",

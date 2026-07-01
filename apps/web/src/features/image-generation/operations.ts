@@ -859,8 +859,9 @@ async function storeGeneratedImageOutput(params: {
 }) {
   let imageBuffer: Buffer = await toImageBuffer(params.output);
   // 分辨率超分校准（gated）：仅对最终图、且开关开启时，上游图较长边 < 目标 2/3 才超分放大
-  // 并缩到目标边长（见 resolution-calibration.ts）。模型按请求级"高清修复"选择：默认 SwinIR
-  // （文字/结构复原最佳但慢），显式关闭走 general-x4v3（快）。失败回退原图、不阻断。
+  // 并缩到目标边长（见 resolution-calibration.ts）。模型按请求级"高清修复"选择：默认走轻量
+  // general-x4v3（快，安全）；仅当显式 hdRepair===true 时才用 SwinIR（复原最佳但 CPU 极慢、
+  // 会吃满多核，只供受控测试、默认关闭）。失败回退原图、不阻断。
   const isFinalImage =
     !params.output.outputRole || params.output.outputRole === "final";
   if (
@@ -870,7 +871,7 @@ async function storeGeneratedImageOutput(params: {
     const calibrated = await calibrateImageResolution(
       imageBuffer,
       params.requestedSize || DEFAULT_IMAGE_SIZE,
-      params.hdRepair === false ? "general" : "swinir"
+      params.hdRepair === true ? "swinir" : "general"
     );
     imageBuffer = calibrated.buffer;
   }
