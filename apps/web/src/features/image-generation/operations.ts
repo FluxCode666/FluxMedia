@@ -73,7 +73,7 @@ import {
   roundCreditAmount,
   roundUpCreditAmount,
 } from "./resolution";
-import { blockRepairImage } from "./block-repair";
+import { generativeRepairImage } from "./generative-repair";
 import { restoreImage } from "./image-restoration";
 import { calibrateImageResolution } from "./resolution-calibration";
 import { superResolve } from "./super-resolution";
@@ -842,12 +842,9 @@ function resolveOutputGenerationId(
     : `${parentGenerationId}-${index + 1}`;
 }
 
-// 分块修复默认提示词：只修复、不改内容/构图（请求级 repair_prompt 可覆盖）。
+// 生成式修复默认提示词：整图重绘、只修不改（请求级 repair_prompt 可覆盖）。
 const DEFAULT_BLOCK_REPAIR_PROMPT =
-  "Restore and sharpen this image tile: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove or reinterpret anything.";
-// 两图输入的系统前缀：说明第一张是待重绘的块、第二张是整图上下文，供模型对齐周围内容以消缝。
-const BLOCK_REPAIR_CONTEXT_INSTRUCTION =
-  "You are given two images. The FIRST image is a tile (a crop) of the SECOND image, which is the full picture provided only as context. Redraw ONLY the FIRST image at the same crop and exact size, keeping it seamlessly consistent with the surrounding content shown in the SECOND image so that adjacent tiles stitch together without visible seams.";
+  "Redraw this entire image to restore and sharpen it: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove, move or reinterpret anything.";
 
 async function storeGeneratedImageOutput(params: {
   output: {
@@ -890,9 +887,10 @@ async function storeGeneratedImageOutput(params: {
       const restored = await restoreImage(imageBuffer);
       imageBuffer = restored.buffer;
     }
-    // 分块修复（手动 blockRepair + 主开关 IMAGE_BLOCK_REPAIR_ENABLED）：把图切成 2×2 web 尺寸
-    // 块,逐块 gpt-image-2 img2img 重绘(重点修文字),羽化拼接,再超分补足到目标。逐块单独计费
-    // (chargeTile)。因自带「超分到 R + 超分到目标」,启用成功时替代下面的独立超分。失败回退不阻断。
+    // 生成式修复（手动 blockRepair + 主开关 IMAGE_BLOCK_REPAIR_ENABLED）：整图缩到 web 甜点
+    // 分辨率,一次 gpt-image-2 img2img 重绘(重点修文字/细节、保持构图内容),再超分补足到目标。
+    // 整图一次重绘=无接缝(早期分块+羽化会在重叠区产生重影,已弃)。计费一次(chargeTile)。因自带
+    // 超分到目标,启用成功时替代下面的独立超分。失败回退不阻断。
     let blockRepaired = false;
     if (
       params.blockRepair === true &&
@@ -905,42 +903,38 @@ async function storeGeneratedImageOutput(params: {
         const repairPrompt =
           params.repairPrompt?.trim() || DEFAULT_BLOCK_REPAIR_PROMPT;
         try {
-          const repairedResult = await blockRepairImage(
+          const repairedResult = await generativeRepairImage(
             imageBuffer,
             targetLongEdge,
-            // 重绘一块:gpt-image-2 img2img(强制 web 后端,尺寸较稳),成功后逐块计费。
-            // 两图输入:第一张=待重绘的块,第二张=整图上下文(帮各块对齐周围内容、改善衔接)。
-            async (tile, w, h, tileIndex, context) => {
+            // 整图重绘:gpt-image-2 img2img(强制 web 后端,尺寸较稳),成功后计费一次。
+            async (whole, w, h) => {
               const edited = await editImage(params.config, {
-                prompt: `${BLOCK_REPAIR_CONTEXT_INSTRUCTION} ${repairPrompt}`,
-                images: [
-                  { data: tile, name: "tile.png", type: "image/png" },
-                  { data: context, name: "context.png", type: "image/png" },
-                ],
+                prompt: repairPrompt,
+                images: [{ data: whole, name: "image.png", type: "image/png" }],
                 size: `${w}x${h}`,
                 model: DEFAULT_IMAGE_MODEL,
                 outputFormat: "png",
                 forceWebBackend: true,
               });
               if (edited.error || !edited.imageBase64) {
-                throw new Error(edited.error || "分块修复:该块无输出");
+                throw new Error(edited.error || "生成式修复:无输出");
               }
-              await params.chargeTile?.(`${w}x${h}`, tileIndex);
+              await params.chargeTile?.(`${w}x${h}`, 0);
               return Buffer.from(edited.imageBase64, "base64");
             },
             superResolve
           );
           imageBuffer = repairedResult.buffer;
-          blockRepaired = repairedResult.tilesRepaired > 0;
+          blockRepaired = repairedResult.repaired;
         } catch (error) {
-          logWarn("分块修复失败，回退原图", {
+          logWarn("生成式修复失败，回退原图", {
             error: error instanceof Error ? error.message : String(error),
           });
         }
       }
     }
     // 超分（自动 + 主开关 IMAGE_SUPER_RESOLUTION_ENABLED）：上游图较长边 < 目标 2/3 时用
-    // 轻量 general-x4v3 放大到目标尺寸（快，见 resolution-calibration.ts）。分块修复已管到
+    // 轻量 general-x4v3 放大到目标尺寸（快，见 resolution-calibration.ts）。生成式修复已管到
     // 目标分辨率时跳过（避免二次超分）。
     if (
       !blockRepaired &&
@@ -2677,7 +2671,7 @@ async function runQueuedImageGenerationForUser({
             hdRepair: input.hdRepair,
             blockRepair: input.blockRepair,
             repairPrompt: input.repairPrompt,
-            // 分块修复逐块计费:每成功重绘一块按块尺寸扣一次,幂等 sourceRef 防重试重复扣。
+            // 生成式修复计费:重绘一次按尺寸扣一次,幂等 sourceRef 防重试重复扣。
             chargeTile: async (tileSize, tileIndex) => {
               const tileCost = applyBillingMultiplierToCreditCost(
                 getImageCreditCostBreakdown(tileSize, {
@@ -2692,8 +2686,8 @@ async function runQueuedImageGenerationForUser({
               await chargeAdditionalCredits(
                 tileCost,
                 "image-generation",
-                `分块修复 tile ${tileIndex} (${tileSize})`,
-                { blockRepairTile: tileIndex, tileSize },
+                `生成式修复 (${tileSize})`,
+                { blockRepair: true, tileSize, index: tileIndex },
                 `${outputGenerationId}:blockrepair-${tileIndex}`
               );
             },

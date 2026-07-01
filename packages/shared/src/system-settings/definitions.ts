@@ -1354,9 +1354,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "IMAGE_BLOCK_REPAIR_ENABLED",
-    label: "出图分块修复（gpt-image-2 逐块重绘）",
+    label: "出图生成式修复（gpt-image-2 整图重绘）",
     description:
-      "开启后，用户勾选「分块修复」的最终图会切成 2×2 个 web 尺寸小块，逐块用 gpt-image-2 img2img 重绘（重点修文字/细节），带重叠羽化拼接，再超分补足到目标分辨率。每块单独调用后端并单独计费（最后加和）；替代自动超分。修复提示词有内置默认，用户/API 可用 repair_prompt 覆盖，无需在此配置。需用户手动勾选、仅对最终图触发；默认关闭。",
+      "开启后，用户勾选「生成式修复」的最终图会缩到 web 甜点分辨率（约 1280），一次性用 gpt-image-2 img2img 整图重绘（重点修文字/细节、保持构图与内容不变），再超分补足到目标分辨率。整图一次重绘无接缝（不再切块，避免重叠重影）；单独调用一次后端并计费。替代自动超分。修复提示词有内置默认，用户/API 可用 repair_prompt 覆盖，无需在此配置。需用户手动勾选、仅对最终图触发；默认关闭。",
     category: "models",
     valueType: "boolean",
     defaultValue: false,

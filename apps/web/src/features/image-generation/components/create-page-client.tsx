@@ -3297,8 +3297,8 @@ export function CreatePageClient({
             : "border-primary/40 bg-primary/5 text-foreground"
         }`}
         title={copy(
-          "Block repair (gpt-image-2): off by default. When on, the final image is split into 2x2 web-sized tiles, each redrawn with gpt-image-2 img2img (focusing on text/detail), feather-stitched, then upscaled to the target. Each tile is a separate backend call billed separately (summed). Slower and costs more; requires the server-side block-repair switch.",
-          "分块修复(gpt-image-2):默认关闭。勾选后,最终图切成 2×2 个 web 尺寸小块,每块用 gpt-image-2 img2img 重绘(重点修文字/细节),重叠羽化拼接,再超分到目标尺寸。每块单独调用后端、单独计费(最后加和),更慢也更贵。需管理端开启「分块修复」主开关。"
+          "Generative repair (gpt-image-2): off by default. When on, the final image is shrunk to the web sweet-spot resolution (~1280) and redrawn once with gpt-image-2 img2img (fixing text/detail while keeping composition and content unchanged), then upscaled to the target. Whole-image redraw means no seams. One extra backend call, billed separately; slower and costlier. Requires the server-side generative-repair switch.",
+          "生成式修复(gpt-image-2):默认关闭。勾选后,最终图缩到 web 甜点分辨率(约1280)、一次性用 gpt-image-2 img2img 整图重绘(修文字/细节、保持构图与内容不变),再超分到目标尺寸。整图一次重绘无接缝。额外调用一次后端、单独计费,更慢也更贵。需管理端开启「生成式修复」主开关。"
         )}
       >
         <Checkbox
@@ -3307,7 +3307,7 @@ export function CreatePageClient({
           onCheckedChange={(checked) => setBlockRepair(checked === true)}
           disabled={params.disabled}
         />
-        {copy("Block repair", "分块修复")}
+        {copy("Generative repair", "生成式修复")}
       </label>
       {blockRepair && (
         <input
