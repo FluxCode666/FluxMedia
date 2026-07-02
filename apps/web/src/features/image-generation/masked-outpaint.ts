@@ -1,11 +1,12 @@
 /**
  * 掩码顺序外绘（masked sequential outpainting）——无缝分块修复。
  *
- * 职责：把图在目标分辨率上切成 1K 重叠块，按光栅顺序逐块用 gpt-image-2 的「带 mask 编辑」重绘：
- *   每块把与已完成邻块的重叠区用 mask 锁死（保留、不重绘），只重绘新区域，让模型「接着」邻块画；
- *   同时把整幅原图（工作分辨率）作为第二张参考图一起喂给模型，使它在只看到 1/4 块时也知道整图
- *   布局/文字，减少跨块文字漂移。拼接时在重叠带内做线性羽化过渡（committed→edited），把
- *   「已提交↔新生成」边界的亚像素级不连续抹平 → 消除硬切竖/横缝。
+ * 职责：把图在目标分辨率上切成 1K 重叠块，按光栅顺序逐块用 gpt-image-2 的「带 mask 编辑」外绘：
+ *   每块把「待补区」填黑、只留与已完成邻块的重叠边（mask 锁死重叠边=保留、黑区=重绘），
+ *   逼模型「从边缘往黑区外绘」而非在原内容上 img2img（后者对 mask 遵守弱、易整块重调色留缝）；
+ *   同时把整幅原图（工作分辨率）作为第二张参考图喂给模型，决定黑区该补什么内容（含文字/布局）。
+ *   首块无邻居，整块按原图内容重绘作种子（见 operations.ts 首块用修复提示词、其余用外绘提示词）。
+ *   拼接时在重叠带内做线性羽化过渡（committed→edited），把边界亚像素级不连续抹平 → 消竖/横缝。
  *
  * 为什么能无缝且尺寸稳：① 1K tile —— codex/api 后端尊重 1K 尺寸（2K/4K 才不尊重，见 #19175）；
  *   ② mask —— web 后端不发 mask，故必须路由到 codex/responses/标准 API（它们把 mask 发给上游，
@@ -156,8 +157,8 @@ export const OUTPAINT_MAX_WORKING =
  * @param superResolve 注入的 4 倍超分（Real-ESRGAN general）；把外绘后的工作图放大补足到目标。
  * @returns { buffer, tilesRepaired }：无缝拼接(+超分)后的图，与实际重绘块数（供计费加和）
  *
- * 流程：封顶工作分辨率(≤~1638 长边 → 2×2=4 块) → 逐块掩码外绘（喂整幅原图参考）→ 超分补足到目标较长边。
- * 关键：重叠带内羽化混合(committed→edited)、纯新区全用编辑结果、纯保留区不动 → 无缝。单块失败则整块保留原像素。
+ * 流程：封顶工作分辨率(≤~1638 长边 → 2×2=4 块) → 逐块留黑外绘（喂整幅原图参考）→ 超分补足到目标较长边。
+ * 关键：非首块待补区填黑逼外绘、重叠带内羽化混合(committed→edited)、纯保留区不动 → 无缝。单块失败则整块保留原像素。
  */
 export async function maskedOutpaintImage(
   image: Buffer,
@@ -203,6 +204,12 @@ export async function maskedOutpaintImage(
     const { left, top } = tileKeepInset(plan, t);
     // 从画布抠出本块当前状态（保留区=已提交邻块像素，其余=原图像素）。
     const tileRaw = extractTile(canvas, workW, t);
+    // 留黑真外绘：非首块把「待补区」(x>=left && y>=top)填黑，只留与已提交邻块的重叠边，
+    // 逼模型从边缘往黑区外绘（内容由整幅原图参考决定）。首块(left=top=0，无邻居)不填黑，
+    // 整块基于原图内容重绘作种子——否则整块变黑、只能凭参考纯生成。
+    if (left > 0 || top > 0) {
+      blackenNewRegion(tileRaw, t, left, top);
+    }
     const tilePng = await sharp(tileRaw, {
       raw: { width: t.w, height: t.h, channels: 3 },
     })
@@ -274,6 +281,23 @@ function extractTile(canvas: Buffer, canvasW: number, t: OutpaintTile): Buffer {
     canvas.copy(out, y * t.w * 3, src, src + t.w * 3);
   }
   return out;
+}
+
+/**
+ * 原地把块的「待补区」(x>=left && y>=top) 填黑（RGB=0），只保留与已提交邻块的重叠边
+ * (x<left || y<top)。配合 mask（黑区=重绘）→ 真外绘：模型只能从非黑的边缘往黑区补，
+ * 而不是在原内容上做 img2img（后者对 mask 遵守弱、易整块重调色、留缝）。
+ */
+export function blackenNewRegion(
+  tileRaw: Buffer,
+  t: OutpaintTile,
+  left: number,
+  top: number
+): void {
+  for (let y = top; y < t.h; y++) {
+    const base = (y * t.w + left) * 3;
+    tileRaw.fill(0, base, base + (t.w - left) * 3);
+  }
 }
 
 /**

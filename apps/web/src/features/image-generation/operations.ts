@@ -844,8 +844,14 @@ function resolveOutputGenerationId(
 }
 
 // 生成式修复默认提示词：整图重绘、只修不改（请求级 repair_prompt 可覆盖）。
+// 也用于掩码外绘的首块（种子块，无邻居、整块基于原图内容重绘）。
 const DEFAULT_BLOCK_REPAIR_PROMPT =
   "Redraw this entire image to restore and sharpen it: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove, move or reinterpret anything.";
+
+// 掩码外绘（留黑）默认提示词：强行让模型把留黑的新区往外补，且严格照整幅原图参考还原该处内容。
+// 用于掩码外绘的非首块——images[0]=已提交邻块边缘 + 黑色待补区，images[1]=整幅原图参考。
+const DEFAULT_OUTPAINT_PROMPT =
+  "Extend this tile to fill its black (empty) area. Use the reference image (the full picture) to determine exactly what content belongs in the black area. Continue seamlessly from the existing non-black pixels at the edges, matching the reference's layout, text, shapes, colors, lighting and style precisely. Keep all existing non-black pixels unchanged. Render text and fine details sharp and legible. Do not add, remove, move or reinterpret anything beyond what the reference shows.";
 
 async function storeGeneratedImageOutput(params: {
   output: {
@@ -907,18 +913,19 @@ async function storeGeneratedImageOutput(params: {
         false
       );
       if (target && maskOutpaint) {
-        // 掩码顺序外绘:在目标尺寸上切 1K 重叠块,逐块带 mask 编辑(锁住已提交重叠区、只重绘新区)。
-        // 路由 codex(会发 mask、尊重 1K);只写新区、保留区不动 → 无缝。
+        // 掩码顺序外绘（留黑真外绘）:在目标尺寸上切 1K 重叠块,逐块把待补区留黑、
+        // 只留已提交邻块的边,让模型「从边缘往黑区外绘」,并严格照整幅原图参考还原该处内容。
+        // 路由 codex(会发 mask、尊重 1K)。首块(i=0,无邻居)按原图内容整块重绘作种子。
         try {
           const res = await maskedOutpaintImage(
             imageBuffer,
             Math.max(target.width, target.height),
             async (tileCanvas, mask, originalRef, w, h, i) => {
               const edited = await editImage(params.config, {
-                prompt: repairPrompt,
-                // images[0]=待修复块（mask 锁住与邻块的重叠区、只重绘新区）；
-                // images[1]=整幅原图（工作分辨率）仅作全局内容参考，让模型在只看到
-                // 1/4 块时也知道整图布局/文字，避免跨块文字漂移。mask 作用于 images[0]。
+                // 首块=img2img 修复(有原图内容);其余=留黑外绘,用外绘提示词强行往黑区补。
+                prompt: i === 0 ? repairPrompt : DEFAULT_OUTPAINT_PROMPT,
+                // images[0]=待补块（已提交邻块边缘 + 黑色待补区，mask 标黑区为重绘）；
+                // images[1]=整幅原图（工作分辨率）作参考，决定黑区该补什么内容。mask 作用于 images[0]。
                 images: [
                   { data: tileCanvas, name: "tile.png", type: "image/png" },
                   {

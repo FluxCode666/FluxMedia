@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blackenNewRegion,
   blendEditedTile,
   OUTPAINT_MAX_WORKING,
   OUTPAINT_TILE,
@@ -124,5 +125,35 @@ describe("blendEditedTile", () => {
     expect(canvas[15]).toBe(99); // (row1,col2)
     expect(canvas[9]).toBe(10); // (row1,col0) 未动
     expect(canvas[0]).toBe(10); // (row0,col0) 未动
+  });
+});
+
+describe("blackenNewRegion", () => {
+  const solid = (n: number, v: number) => Buffer.from(new Array(n * 3).fill(v));
+  const tile = (over: Partial<OutpaintTile>): OutpaintTile => ({
+    x: 0,
+    y: 0,
+    w: 1,
+    h: 1,
+    col: 0,
+    row: 0,
+    ...over,
+  });
+
+  it("左外绘块：左列(committed)保留、右侧待补区填黑", () => {
+    // 1 行 3px，left=1：x=0 保留(50)、x≥1 填黑(0)。
+    const raw = solid(3, 50);
+    blackenNewRegion(raw, tile({ w: 3, col: 1 }), 1, 0);
+    expect([raw[0], raw[3], raw[6]]).toEqual([50, 0, 0]);
+  });
+
+  it("内部块：只填待补角(x≥left&&y≥top)、L 形重叠边保留", () => {
+    // 2×2，left=1,top=1：仅 (1,1) 填黑，(0,0)(1,0)(0,1) 保留。
+    const raw = solid(4, 50);
+    blackenNewRegion(raw, tile({ w: 2, h: 2, col: 1, row: 1 }), 1, 1);
+    expect(raw[0]).toBe(50); // (y0,x0) 保留
+    expect(raw[3]).toBe(50); // (y0,x1) 上重叠保留
+    expect(raw[6]).toBe(50); // (y1,x0) 左重叠保留
+    expect(raw[9]).toBe(0); // (y1,x1) 待补区填黑
   });
 });
