@@ -2,12 +2,15 @@
  * 掩码顺序外绘（masked sequential outpainting）——无缝分块修复。
  *
  * 职责：把图在目标分辨率上切成 1K 重叠块，按光栅顺序逐块用 gpt-image-2 的「带 mask 编辑」重绘：
- *   每块把与已完成邻块的重叠区用 mask 锁死（保留、不重绘），只重绘新区域，让模型「接着」邻块画。
- *   已提交像素永不改动、新区域由模型生成得与之连续 → 从构造上无缝（消除独立重绘+羽化的重影）。
+ *   每块把与已完成邻块的重叠区用 mask 锁死（保留、不重绘），只重绘新区域，让模型「接着」邻块画；
+ *   同时把整幅原图（工作分辨率）作为第二张参考图一起喂给模型，使它在只看到 1/4 块时也知道整图
+ *   布局/文字，减少跨块文字漂移。拼接时在重叠带内做线性羽化过渡（committed→edited），把
+ *   「已提交↔新生成」边界的亚像素级不连续抹平 → 消除硬切竖/横缝。
  *
  * 为什么能无缝且尺寸稳：① 1K tile —— codex/api 后端尊重 1K 尺寸（2K/4K 才不尊重，见 #19175）；
  *   ② mask —— web 后端不发 mask，故必须路由到 codex/responses/标准 API（它们把 mask 发给上游，
  *   标准 images/edits 支持局部重绘）。见 operations.ts 的路由（requiresResponsesBackend）。
+ *   mask 锁住重叠区使模型输出的重叠区≈已提交像素，故重叠带内羽化混合不产生重影。
  *
  * 设计（职责分离，便于单测）：切块几何与每块保留区是纯函数（planOutpaintTiles / tileKeepInset），
  *   单独单测；编排 maskedOutpaintImage 用 sharp 做缩放/切块/合成，用注入的 editWithMask 回调重绘
@@ -17,8 +20,11 @@ import sharp from "sharp";
 
 // 单块边长：web/codex 都稳的 1K。
 export const OUTPAINT_TILE = 1024;
-// 相邻块步进占块边比例（1-步进=重叠比例）。步进 0.75 → 重叠 25%，给模型足够已提交上下文续画。
+// 步进占块边比例：仅用于 axisCount 决定块数；2×2 时实际重叠由 OUTPAINT_MAX_WORKING 决定。
 export const OUTPAINT_STEP_FRACTION = 0.75;
+// 重叠占块边比例：越大 → 喂给模型的已提交上下文越多、羽化过渡带越宽，接缝越不可见
+// （代价：工作分辨率略低、外层超分多担一点）。0.4 → 2×2 时相邻块重叠约 410px。
+export const OUTPAINT_OVERLAP_FRACTION = 0.4;
 
 export type OutpaintTile = {
   x: number;
@@ -44,7 +50,12 @@ function axisCount(target: number, tile: number, step: number): number {
 }
 
 /** 纯函数：某方向上第 i 块的起点（均匀分布，首块 0、末块贴右/下边缘铺满）。 */
-function axisPos(i: number, count: number, target: number, tile: number): number {
+function axisPos(
+  i: number,
+  count: number,
+  target: number,
+  tile: number
+): number {
   if (count <= 1) return 0;
   return Math.round((i * (target - tile)) / (count - 1));
 }
@@ -128,23 +139,25 @@ async function buildTileMask(
     .toBuffer();
 }
 
-// 工作分辨率较长边上限：2×块 − 重叠(约 1792)。使 planOutpaintTiles 自然给 ≤2×2=4 块（控成本）；
+// 工作分辨率较长边上限 = 2×块 − 1 个重叠(约 1638)。使 planOutpaintTiles 自然给 ≤2×2=4 块（控成本）；
 // 更大目标由外层超分补足（照原设计「封顶 2×2 + 超分补足」，而非在全图上切成十几块）。
+// 2×2 时相邻块重叠 = 2×块 − 上限 ≈ 410px（=OUTPAINT_OVERLAP_FRACTION×块边），给羽化足够过渡带。
 export const OUTPAINT_MAX_WORKING =
-  2 * OUTPAINT_TILE - Math.round(OUTPAINT_TILE * (1 - OUTPAINT_STEP_FRACTION));
+  2 * OUTPAINT_TILE - Math.round(OUTPAINT_TILE * OUTPAINT_OVERLAP_FRACTION);
 
 /**
  * 编排：掩码顺序外绘修复。
  *
  * @param image 输入图片字节
  * @param targetLongEdge 期望最终较长边
- * @param editWithMask 注入回调：输入(块画布 PNG, mask PNG, 宽, 高, 块序号)，返回带 mask 编辑后的块。
- *   实际由 operations.ts 用 gpt-image-2（带 mask、路由 codex/api）实现，并逐块计费。
+ * @param editWithMask 注入回调：输入(块画布 PNG, mask PNG, 整幅原图参考 PNG, 宽, 高, 块序号)，
+ *   返回带 mask 编辑后的块。实际由 operations.ts 用 gpt-image-2（images=[块, 原图参考] + mask、
+ *   路由 codex/api）实现，并逐块计费。
  * @param superResolve 注入的 4 倍超分（Real-ESRGAN general）；把外绘后的工作图放大补足到目标。
  * @returns { buffer, tilesRepaired }：无缝拼接(+超分)后的图，与实际重绘块数（供计费加和）
  *
- * 流程：封顶工作分辨率(≤~1792 长边 → 2×2=4 块) → 逐块掩码外绘 → 超分补足到目标较长边。
- * 关键：只把 mask 透明(新生成)区写回画布，已提交(保留)像素原样不动 → 无缝。单块失败则整块保留原像素。
+ * 流程：封顶工作分辨率(≤~1638 长边 → 2×2=4 块) → 逐块掩码外绘（喂整幅原图参考）→ 超分补足到目标较长边。
+ * 关键：重叠带内羽化混合(committed→edited)、纯新区全用编辑结果、纯保留区不动 → 无缝。单块失败则整块保留原像素。
  */
 export async function maskedOutpaintImage(
   image: Buffer,
@@ -152,6 +165,7 @@ export async function maskedOutpaintImage(
   editWithMask: (
     tileCanvas: Buffer,
     mask: Buffer,
+    originalRef: Buffer,
     w: number,
     h: number,
     index: number
@@ -175,6 +189,13 @@ export async function maskedOutpaintImage(
     .removeAlpha()
     .raw()
     .toBuffer();
+  // 整幅原图参考（工作分辨率 PNG，pristine、循环内不变）：作为每块第二张输入图喂给模型，
+  // 让它在只看到 1/4 块时也知道整图布局/文字，减少跨块内容漂移。用循环前的 canvas（此时=纯原图）。
+  const originalRef = await sharp(canvas, {
+    raw: { width: workW, height: workH, channels: 3 },
+  })
+    .png()
+    .toBuffer();
 
   let tilesRepaired = 0;
   for (let i = 0; i < plan.tiles.length; i++) {
@@ -189,14 +210,21 @@ export async function maskedOutpaintImage(
       .toBuffer();
     try {
       const mask = await buildTileMask(t.w, t.h, left, top);
-      const edited = await editWithMask(tilePng, mask, t.w, t.h, i);
+      const edited = await editWithMask(
+        tilePng,
+        mask,
+        originalRef,
+        t.w,
+        t.h,
+        i
+      );
       const editedRaw = await sharp(edited)
         .resize(t.w, t.h, { fit: "fill" })
         .removeAlpha()
         .raw()
         .toBuffer();
-      // 只写回「新生成区」(localX>=left && localY>=top)，保留区(已提交像素)原样不动 → 无缝。
-      writeNewRegion(canvas, workW, t, editedRaw, left, top);
+      // 重叠带内羽化混合(committed→edited)、纯新区全用编辑结果、纯保留区不动 → 无缝。
+      blendEditedTile(canvas, workW, t, editedRaw, left, top);
       tilesRepaired++;
     } catch {
       // 该块失败：画布保留原像素，继续下一块。
@@ -233,16 +261,13 @@ async function upscaleTo(
 ): Promise<Buffer> {
   const meta = await sharp(image).metadata();
   const srcLong = Math.max(meta.width ?? 1, meta.height ?? 1);
-  const base = Math.max(w, h) / srcLong >= 1.5 ? await superResolve(image) : image;
+  const base =
+    Math.max(w, h) / srcLong >= 1.5 ? await superResolve(image) : image;
   return sharp(base).resize(w, h, { fit: "fill" }).png().toBuffer();
 }
 
 /** 从整幅 raw RGB 抠出一块（HWC uint8）。 */
-function extractTile(
-  canvas: Buffer,
-  canvasW: number,
-  t: OutpaintTile
-): Buffer {
+function extractTile(canvas: Buffer, canvasW: number, t: OutpaintTile): Buffer {
   const out = Buffer.allocUnsafe(t.w * t.h * 3);
   for (let y = 0; y < t.h; y++) {
     const src = ((t.y + y) * canvasW + t.x) * 3;
@@ -251,8 +276,15 @@ function extractTile(
   return out;
 }
 
-/** 把编辑后块的「新生成区」(排除左/上保留缩进)写回画布。 */
-function writeNewRegion(
+/**
+ * 把编辑后的块混合回画布，在与已提交邻块的重叠带内做线性羽化过渡：
+ *   权重 w = wx·wy，wx 在左重叠带[0,left)内从 0(邻块侧)线性升到 1、之外=1；wy 同理按 top。
+ *   out = (1-w)·canvas + w·edited。故纯保留区角(w=0)保持已提交像素、纯新区(w=1)全用编辑结果、
+ *   重叠带内平滑过渡。因 mask 锁住重叠区使 edited 的重叠区≈已提交像素，羽化只抹平边界不连续、不重影。
+ *
+ * 注：export 供单测；生产仅 maskedOutpaintImage 内部调用（原地改写 canvas）。
+ */
+export function blendEditedTile(
   canvas: Buffer,
   canvasW: number,
   t: OutpaintTile,
@@ -260,10 +292,30 @@ function writeNewRegion(
   left: number,
   top: number
 ): void {
-  for (let y = top; y < t.h; y++) {
-    const rowSrc = (y * t.w + left) * 3;
-    const rowDst = ((t.y + y) * canvasW + (t.x + left)) * 3;
-    const bytes = (t.w - left) * 3;
-    edited.copy(canvas, rowDst, rowSrc, rowSrc + bytes);
+  for (let y = 0; y < t.h; y++) {
+    const wy = top > 0 && y < top ? y / top : 1;
+    const rowBase = (t.y + y) * canvasW + t.x;
+    const srcRow = y * t.w;
+    for (let x = 0; x < t.w; x++) {
+      const wx = left > 0 && x < left ? x / left : 1;
+      const w = wx * wy;
+      if (w <= 0) continue; // 完全保留：画布不动。
+      const s = (srcRow + x) * 3;
+      const d = (rowBase + x) * 3;
+      if (w >= 1) {
+        canvas[d] = edited[s] ?? 0;
+        canvas[d + 1] = edited[s + 1] ?? 0;
+        canvas[d + 2] = edited[s + 2] ?? 0;
+      } else {
+        const iw = 1 - w;
+        canvas[d] = Math.round((canvas[d] ?? 0) * iw + (edited[s] ?? 0) * w);
+        canvas[d + 1] = Math.round(
+          (canvas[d + 1] ?? 0) * iw + (edited[s + 1] ?? 0) * w
+        );
+        canvas[d + 2] = Math.round(
+          (canvas[d + 2] ?? 0) * iw + (edited[s + 2] ?? 0) * w
+        );
+      }
+    }
   }
 }

@@ -913,11 +913,19 @@ async function storeGeneratedImageOutput(params: {
           const res = await maskedOutpaintImage(
             imageBuffer,
             Math.max(target.width, target.height),
-            async (tileCanvas, mask, w, h, i) => {
+            async (tileCanvas, mask, originalRef, w, h, i) => {
               const edited = await editImage(params.config, {
                 prompt: repairPrompt,
+                // images[0]=待修复块（mask 锁住与邻块的重叠区、只重绘新区）；
+                // images[1]=整幅原图（工作分辨率）仅作全局内容参考，让模型在只看到
+                // 1/4 块时也知道整图布局/文字，避免跨块文字漂移。mask 作用于 images[0]。
                 images: [
                   { data: tileCanvas, name: "tile.png", type: "image/png" },
+                  {
+                    data: originalRef,
+                    name: "reference.png",
+                    type: "image/png",
+                  },
                 ],
                 mask: { data: mask, name: "mask.png", type: "image/png" },
                 size: `${w}x${h}`,
@@ -1487,8 +1495,7 @@ export async function runImageGenerationForUser(
             input.model,
             imageModelMultipliers
           );
-          const billingMultiplier =
-            backendBillingMultiplier * modelMultiplier;
+          const billingMultiplier = backendBillingMultiplier * modelMultiplier;
           const moderationEnabled =
             (await isContentModerationEnabled()) &&
             moderationBlockingEnabled &&
