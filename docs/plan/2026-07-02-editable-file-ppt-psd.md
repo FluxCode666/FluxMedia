@@ -56,7 +56,7 @@ MIME 白名单(识别产物类型):PPT = `…presentationml.presentation` / `app
 
 硬阻塞/必须验证:
 
-1. **账号能力(最关键,未验证)**:产物依赖「代码解释器 + `gpt-5-5-thinking` 灰度模型」,chatgpt2api 限 Plus/Team/Pro/Enterprise。**我们池里到底有没有账号能跑,没验证过**。若没有 → 免费用户点了必失败。→ 缓解:账号池按能力打标(仿 codex 组)+ PPT/PSD 只调有能力组 + 无可用账号明确报错。
+1. **账号能力**:产物依赖「代码解释器 + `gpt-5-5-thinking` 灰度模型」,限 Plus/Pro。**已核实账号 plan_type 存于 credentials JSON、有现成 plan 筛选范式**(见 §8),故只调 plus/pro 账号可行,风险基本解除;仍需实测这些账号能否吃 `gpt-5-5-thinking`(见 §13 第 2 步)。
 2. **模型 slug 可用性**:`gpt-5-5-thinking` + `thinking_effort=extended` 是特定灰度,须实测;上游改版会整条失效(硬编码常量脆弱)。
 3. **长任务 × 多实例**:分钟级(上游 600s 超时),现网 3308/3307 双实例 + 现有 async-image-tasks 是进程内内存态 → 轮询命中另一实例即丢任务。**必须 DB 落库任务态**(见 §4)。
 4. 产物解析脆弱:沙盒路径/附件结构随上游会话树漂移,正则/遍历易碎(同 codex 组多轮怪癖历史坑)。
@@ -106,7 +106,7 @@ editable_file_task
 
 ## 6. 计费（按任务固定价,已决)
 
-- 新增运行时设置 `EDITABLE_FILE_PPT_CREDITS` / `EDITABLE_FILE_PSD_CREDITS`(后台可配,默认值待定,建议初值参照一次多图生成)。
+- 新增运行时设置 `EDITABLE_FILE_PPT_CREDITS` / `EDITABLE_FILE_PSD_CREDITS`(后台可配,**默认各 25 积分**,已定)。
 - 扣费在 service 内(`consumeCredits` 双重记账,幂等键 `(user_id, type, source_ref)`);外部 API 走 `reserveExternalApiKeyCredits` + 失败 `refundExternalApiKeyCredits`。handler 不碰钱。
 - 幂等:`client_task_id` 作对外幂等键;内部 `task.id`=uuid;计费 sourceRef=`editable-file:{taskId}`。**生成失败退款/不扣**。
 
@@ -120,8 +120,10 @@ editable_file_task
 
 ## 8. 账号能力打标
 
-- 后端账号池给「有代码解释器/Plus+ 能力」的账号/组打标(仿 codex 组的组级标记)。
-- PPT/PSD 调度只选打标组;无可用 → 明确错误「no available capable account」,前端引导。
+- **已核实**:账号 `plan_type`(free/plus/pro)存在账号 `credentials` JSON(`credentials->>'plan_type'`);系统已有 `Sub2ApiPlanFilter = "all"|"free"|"plus"|"pro"|"non_free"` + 现成 SQL 按级别筛选(service.ts:5639-5732,目前用于 sub2api 同步导入);`getChatGptWebAccountInfo` 也能实时读 plan_type(chatgpt-web.ts:581)。
+- 故 PPT/PSD 调度**只需加一条「只选 plus/pro 账号」约束**(复用 `credentials->>'plan_type'` 筛选范式),无需另建打标机制。
+- **注意**:plan_type 对 sub2api 同步来源的账号可靠有;非同步来源可能未存 → 保守排除(或用 `getChatGptWebAccountInfo` 回填)。
+- 无可用 plus/pro 账号 → 明确错误「no available plus/pro account」,前端引导。
 - **两层门要在文档/UI 讲清**:套餐层 free 放开 ≠ 账号层可用,避免免费用户点了必失败的困惑。
 
 ## 9. UI tab 改造（create-page-client.tsx,9675 行）
