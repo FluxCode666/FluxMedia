@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OUTPAINT_MAX_WORKING,
   OUTPAINT_TILE,
   planOutpaintTiles,
   tileKeepInset,
@@ -19,19 +20,20 @@ describe("planOutpaintTiles", () => {
     expect(p.tileW).toBe(800);
   });
 
-  it("2880 用 1K tile：4×4=16 块，均匀分布、首块 0 末块贴边", () => {
-    const p = planOutpaintTiles(2880, 2880);
+  it("封顶工作分辨率(OUTPAINT_MAX_WORKING)→ 2×2=4 块(控成本;更大目标外层超分补足)", () => {
+    // 特性实际在 ≤OUTPAINT_MAX_WORKING 的工作分辨率上切块,故为方形时 2×2=4 块。
+    const p = planOutpaintTiles(OUTPAINT_MAX_WORKING, OUTPAINT_MAX_WORKING);
     expect(p.tileW).toBe(OUTPAINT_TILE);
-    expect(p.cols).toBe(4);
-    expect(p.rows).toBe(4);
-    expect(p.tiles).toHaveLength(16);
+    expect(p.cols).toBe(2);
+    expect(p.rows).toBe(2);
+    expect(p.tiles).toHaveLength(4);
     const xs = [...new Set(p.tiles.map((t) => t.x))].sort((a, b) => a - b);
     expect(xs[0]).toBe(0);
-    expect(xs[xs.length - 1]).toBe(2880 - OUTPAINT_TILE); // 末块贴右边缘
+    expect(xs[xs.length - 1]).toBe(OUTPAINT_MAX_WORKING - OUTPAINT_TILE);
   });
 
   it("相邻块有正重叠（步进 < 块边）", () => {
-    const p = planOutpaintTiles(2880, 2880);
+    const p = planOutpaintTiles(OUTPAINT_MAX_WORKING, OUTPAINT_MAX_WORKING);
     const xs = [...new Set(p.tiles.map((t) => t.x))].sort((a, b) => a - b);
     for (let i = 1; i < xs.length; i++) {
       const overlap = OUTPAINT_TILE - (xs[i]! - xs[i - 1]!);

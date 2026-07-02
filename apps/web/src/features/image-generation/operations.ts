@@ -912,8 +912,7 @@ async function storeGeneratedImageOutput(params: {
         try {
           const res = await maskedOutpaintImage(
             imageBuffer,
-            target.width,
-            target.height,
+            Math.max(target.width, target.height),
             async (tileCanvas, mask, w, h, i) => {
               const edited = await editImage(params.config, {
                 prompt: repairPrompt,
@@ -931,7 +930,8 @@ async function storeGeneratedImageOutput(params: {
               }
               await params.chargeTile?.(`${w}x${h}`, i);
               return Buffer.from(edited.imageBase64, "base64");
-            }
+            },
+            superResolve
           );
           imageBuffer = res.buffer;
           blockRepaired = res.tilesRepaired > 0;

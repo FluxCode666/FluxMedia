@@ -128,33 +128,50 @@ async function buildTileMask(
     .toBuffer();
 }
 
+// 工作分辨率较长边上限：2×块 − 重叠(约 1792)。使 planOutpaintTiles 自然给 ≤2×2=4 块（控成本）；
+// 更大目标由外层超分补足（照原设计「封顶 2×2 + 超分补足」，而非在全图上切成十几块）。
+export const OUTPAINT_MAX_WORKING =
+  2 * OUTPAINT_TILE - Math.round(OUTPAINT_TILE * (1 - OUTPAINT_STEP_FRACTION));
+
 /**
  * 编排：掩码顺序外绘修复。
  *
  * @param image 输入图片字节
- * @param targetW/targetH 目标尺寸（先缩到此尺寸再切块）
+ * @param targetLongEdge 期望最终较长边
  * @param editWithMask 注入回调：输入(块画布 PNG, mask PNG, 宽, 高, 块序号)，返回带 mask 编辑后的块。
  *   实际由 operations.ts 用 gpt-image-2（带 mask、路由 codex/api）实现，并逐块计费。
- * @returns { buffer, tilesRepaired }：无缝拼接后的目标尺寸图，与实际重绘块数（供计费加和）
+ * @param superResolve 注入的 4 倍超分（Real-ESRGAN general）；把外绘后的工作图放大补足到目标。
+ * @returns { buffer, tilesRepaired }：无缝拼接(+超分)后的图，与实际重绘块数（供计费加和）
  *
+ * 流程：封顶工作分辨率(≤~1792 长边 → 2×2=4 块) → 逐块掩码外绘 → 超分补足到目标较长边。
  * 关键：只把 mask 透明(新生成)区写回画布，已提交(保留)像素原样不动 → 无缝。单块失败则整块保留原像素。
  */
 export async function maskedOutpaintImage(
   image: Buffer,
-  targetW: number,
-  targetH: number,
+  targetLongEdge: number,
   editWithMask: (
     tileCanvas: Buffer,
     mask: Buffer,
     w: number,
     h: number,
     index: number
-  ) => Promise<Buffer>
+  ) => Promise<Buffer>,
+  superResolve: (img: Buffer) => Promise<Buffer>
 ): Promise<{ buffer: Buffer; tilesRepaired: number }> {
-  const plan = planOutpaintTiles(targetW, targetH);
-  // 画布：目标尺寸的整幅 raw RGB，初始为缩放后的原图。
+  const meta = await sharp(image).metadata();
+  const sW = meta.width ?? 0;
+  const sH = meta.height ?? 0;
+  if (!sW || !sH) return { buffer: image, tilesRepaired: 0 };
+
+  // 工作分辨率：较长边封顶 OUTPAINT_MAX_WORKING(→2×2=4 块)，保持源比例。
+  const workLong = Math.min(targetLongEdge, OUTPAINT_MAX_WORKING);
+  const k = workLong / Math.max(sW, sH);
+  const workW = Math.max(1, Math.round(sW * k));
+  const workH = Math.max(1, Math.round(sH * k));
+  const plan = planOutpaintTiles(workW, workH);
+  // 画布：工作分辨率的整幅 raw RGB，初始为缩放后的原图。
   const canvas = await sharp(image)
-    .resize(targetW, targetH, { fit: "fill" })
+    .resize(workW, workH, { fit: "fill" })
     .removeAlpha()
     .raw()
     .toBuffer();
@@ -164,7 +181,7 @@ export async function maskedOutpaintImage(
     const t = plan.tiles[i]!;
     const { left, top } = tileKeepInset(plan, t);
     // 从画布抠出本块当前状态（保留区=已提交邻块像素，其余=原图像素）。
-    const tileRaw = extractTile(canvas, targetW, t);
+    const tileRaw = extractTile(canvas, workW, t);
     const tilePng = await sharp(tileRaw, {
       raw: { width: t.w, height: t.h, channels: 3 },
     })
@@ -179,19 +196,45 @@ export async function maskedOutpaintImage(
         .raw()
         .toBuffer();
       // 只写回「新生成区」(localX>=left && localY>=top)，保留区(已提交像素)原样不动 → 无缝。
-      writeNewRegion(canvas, targetW, t, editedRaw, left, top);
+      writeNewRegion(canvas, workW, t, editedRaw, left, top);
       tilesRepaired++;
     } catch {
       // 该块失败：画布保留原像素，继续下一块。
     }
   }
 
-  const buffer = await sharp(canvas, {
-    raw: { width: targetW, height: targetH, channels: 3 },
+  let buffer = await sharp(canvas, {
+    raw: { width: workW, height: workH, channels: 3 },
   })
     .png()
     .toBuffer();
+
+  // 超分补足到目标较长边（保持比例）。工作分辨率 < 目标时才放大。
+  if (targetLongEdge > workLong) {
+    const scale = targetLongEdge / workLong;
+    buffer = await upscaleTo(
+      buffer,
+      Math.round(workW * scale),
+      Math.round(workH * scale),
+      superResolve
+    );
+  }
   return { buffer, tilesRepaired };
+}
+
+/**
+ * 把图放大/缩放到精确 (w,h)。放大倍率 ≥1.5 用 Real-ESRGAN 4 倍超分再缩到目标；否则 Lanczos。
+ */
+async function upscaleTo(
+  image: Buffer,
+  w: number,
+  h: number,
+  superResolve: (img: Buffer) => Promise<Buffer>
+): Promise<Buffer> {
+  const meta = await sharp(image).metadata();
+  const srcLong = Math.max(meta.width ?? 1, meta.height ?? 1);
+  const base = Math.max(w, h) / srcLong >= 1.5 ? await superResolve(image) : image;
+  return sharp(base).resize(w, h, { fit: "fill" }).png().toBuffer();
 }
 
 /** 从整幅 raw RGB 抠出一块（HWC uint8）。 */
