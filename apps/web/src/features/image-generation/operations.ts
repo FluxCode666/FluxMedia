@@ -848,10 +848,39 @@ function resolveOutputGenerationId(
 const DEFAULT_BLOCK_REPAIR_PROMPT =
   "Redraw this entire image to restore and sharpen it: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove, move or reinterpret anything.";
 
-// 掩码外绘（留黑）默认提示词：强行让模型把留黑的新区往外补，且严格照「该块同框裁剪的原图」还原内容。
-// 用于掩码外绘的非首块——images[0]=已提交邻块边缘 + 黑色待补区，images[1]=该块对齐裁剪的原图（同框同尺寸）。
-const DEFAULT_OUTPAINT_PROMPT =
-  "Fill the black (empty) area of this tile. The reference image shows exactly what this tile should look like, at the same framing and size. Reproduce the reference's content in the black area — same layout, text, shapes, colors, lighting and style — and continue seamlessly from the existing non-black pixels at the edges. Keep all existing non-black pixels unchanged. Render text and fine details sharp and legible. Do not add, remove, move or reinterpret anything beyond the reference.";
+/** 块在网格中的方位词（如 top-left / top-right / bottom / center）。 */
+function describeOutpaintRegion(
+  col: number,
+  row: number,
+  cols: number,
+  rows: number
+): string {
+  const h =
+    cols <= 1 ? "" : col === 0 ? "left" : col === cols - 1 ? "right" : "center";
+  const v =
+    rows <= 1 ? "" : row === 0 ? "top" : row === rows - 1 ? "bottom" : "middle";
+  return [v, h].filter(Boolean).join("-") || "whole";
+}
+
+/**
+ * 掩码外绘「自主拓展」位置提示词：不喂原图/参考,只按块方位告诉模型「根据四周已渲染内容补出该方位」。
+ * 首块(无左/上邻)=修复种子;其余=从已提交的非黑边缘往黑区补,且强调只画本方位、勿把整幅画塞进一块。
+ */
+function buildOutpaintPrompt(pos: {
+  col: number;
+  row: number;
+  cols: number;
+  rows: number;
+}): string {
+  const region = describeOutpaintRegion(pos.col, pos.row, pos.cols, pos.rows);
+  const hasLeft = pos.col > 0;
+  const hasTop = pos.row > 0;
+  if (!hasLeft && !hasTop) {
+    return `This picture is the ${region} region of a larger complete image. Restore and sharpen only this ${region} region — fix blurry or garbled text and fine details, keep the same content. Render only what belongs in this ${region} region at its true scale; do NOT zoom out or squeeze the whole scene into this frame.`;
+  }
+  const edges = hasLeft && hasTop ? "left and top" : hasLeft ? "left" : "top";
+  return `This tile is the ${region} region of a larger image. The non-black pixels along the ${edges} edge(s) are the already-rendered neighbouring region. Using those surroundings as context, extend the scene into the black area — fill in only the ${region} direction so it continues seamlessly from the ${edges} edge(s), matching style, lighting, colours and perspective. Render only this ${region} region at its true scale; do NOT zoom out or draw the whole scene, and change nothing outside the black area.`;
+}
 
 async function storeGeneratedImageOutput(params: {
   output: {
@@ -925,21 +954,15 @@ async function storeGeneratedImageOutput(params: {
           const res = await maskedOutpaintImage(
             imageBuffer,
             Math.max(target.width, target.height),
-            async (tileCanvas, mask, tileRef, w, h, i) => {
+            async (tileCanvas, mask, pos, w, h, i) => {
               try {
                 const edited = await editImage(params.config, {
-                  // 首块=img2img 修复(有原图内容);其余=留黑外绘,用外绘提示词强行往黑区补。
-                  prompt: i === 0 ? repairPrompt : DEFAULT_OUTPAINT_PROMPT,
-                  // images[0]=待补块（已提交邻块边缘 + 黑色待补区，mask 标黑区为重绘）；
-                  // images[1]=该块对齐裁剪的原图（同框同尺寸）作参考，决定黑区该补什么内容——
-                  // 不能喂整幅原图(模型会把整图塞进一个块)。mask 作用于 images[0]。
+                  // 自主拓展:按块方位给位置提示词(「根据四周已渲染内容补出该方位」),
+                  // 不喂原图/参考。首块=修复种子;其余=从已提交边缘往黑区补该方位。
+                  prompt: buildOutpaintPrompt(pos),
+                  // images[0]=待补块（已提交邻块边缘 + 黑色待补区，mask 标黑区为重绘）；不再给参考图。
                   images: [
                     { data: tileCanvas, name: "tile.png", type: "image/png" },
-                    {
-                      data: tileRef,
-                      name: "reference.png",
-                      type: "image/png",
-                    },
                   ],
                   mask: { data: mask, name: "mask.png", type: "image/png" },
                   size: `${w}x${h}`,
