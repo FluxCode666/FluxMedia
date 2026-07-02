@@ -1,11 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { logError } from "@repo/shared/logger";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
-import { getActiveClearance, refreshClearance } from "./chatgpt-web-clearance";
-import {
-  applyClearanceHeaders,
-  isCloudflareChallenge,
-} from "./chatgpt-web-clearance-util";
 import { parseImageSize } from "./resolution";
 import {
   downloadWebHistoryImageReference,
@@ -195,16 +190,6 @@ function decodeBody(bodyBase64: string | undefined) {
   return Buffer.from(bodyBase64, "base64");
 }
 
-/** 把 base64 响应体解成文本(仅用于挑战检测,失败返回空串)。 */
-function safeDecodeText(bodyBase64: string | undefined): string {
-  if (!bodyBase64) return "";
-  try {
-    return Buffer.from(bodyBase64, "base64").toString("utf-8");
-  } catch {
-    return "";
-  }
-}
-
 async function webErrorMessage(response: Response, context: string) {
   const text = await response.text().catch(() => "");
   const extracted = extractWebErrorPayloadMessage(text);
@@ -317,49 +302,31 @@ async function fetchChatGptWeb(
     controller.abort();
   }, WEB_PROXY_REQUEST_TIMEOUT_MS);
   try {
-    const bodyBase64 = encodeBody(init?.body);
-    // 单次经 Go sidecar 代理(tls-client 指纹 + WARP 出口)转发到 chatgpt.com。headers 为闭包引用,
-    // 命中挑战刷新 clearance 后会被就地改写并重发,故 headerOrder 每次按当前 headers 现算。
-    const sendOnce = async () => {
-      const response = await fetch(`${proxy.url}/request`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(proxy.secret ? { "X-Proxy-Secret": proxy.secret } : {}),
-        },
-        body: JSON.stringify({
-          sessionKey: getWebSessionKey(config),
-          method: init?.method || "GET",
-          urlPath,
-          targetPath,
-          headers,
-          headerOrder: Object.keys(headers),
-          bodyBase64,
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(
-          `ChatGPT Web proxy failed: HTTP ${response.status}${text ? ` ${text.slice(0, 300)}` : ""}`
-        );
-      }
-      return (await response.json()) as WebProxyResponsePayload;
-    };
-    let payload = await sendOnce();
-    // cf_clearance 后备(默认启用但惰性):上游命中 Cloudflare 挑战(403/503 挑战页)时,经 FlareSolverr
-    // (同一 WARP 出口)刷全局 cf_clearance+UA,注入 headers 后重试一次。未命中挑战则从不触发。
-    if (payload.status === 403 || payload.status === 503) {
-      const bodyText = safeDecodeText(payload.bodyBase64);
-      if (isCloudflareChallenge(payload.status, bodyText)) {
-        const clearance = await refreshClearance();
-        if (clearance) {
-          applyClearanceHeaders(headers, clearance);
-          payload = await sendOnce();
-        }
-      }
+    const response = await fetch(`${proxy.url}/request`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(proxy.secret ? { "X-Proxy-Secret": proxy.secret } : {}),
+      },
+      body: JSON.stringify({
+        sessionKey: getWebSessionKey(config),
+        method: init?.method || "GET",
+        urlPath,
+        targetPath,
+        headers,
+        headerOrder: Object.keys(headers),
+        bodyBase64: encodeBody(init?.body),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `ChatGPT Web proxy failed: HTTP ${response.status}${text ? ` ${text.slice(0, 300)}` : ""}`
+      );
     }
+    const payload = (await response.json()) as WebProxyResponsePayload;
     return new Response(decodeBody(payload.bodyBase64), {
       status: payload.status,
       headers: toResponseHeaders(payload.headers),
@@ -488,7 +455,7 @@ function getHeaders(
   extra?: Record<string, string>
 ) {
   const session = getWebSession(config);
-  const headers: Record<string, string> = {
+  return {
     "User-Agent": USER_AGENT,
     Origin: CHATGPT_BASE_URL,
     Referer: `${CHATGPT_BASE_URL}/`,
@@ -520,12 +487,6 @@ function getHeaders(
     Authorization: `Bearer ${config.apiKey}`,
     ...extra,
   };
-  // cf_clearance 后备(全局单例,默认启用但惰性):缓存里有 clearance 时覆盖 UA/Sec-Ch-Ua 并加 Cookie。
-  const clearance = getActiveClearance();
-  if (clearance) {
-    applyClearanceHeaders(headers, clearance);
-  }
-  return headers;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1594,9 +1555,7 @@ async function getConversationText(
     headers: getHeaders(config, path, { Accept: "application/json" }),
   });
   if (!response.ok) {
-    throw new Error(
-      await webErrorMessage(response, "ChatGPT Web conversation")
-    );
+    throw new Error(await webErrorMessage(response, "ChatGPT Web conversation"));
   }
   return JSON.stringify(await response.json());
 }
@@ -1678,9 +1637,7 @@ async function getDownloadUrl(
     headers: getHeaders(config, path, { Accept: "application/json" }),
   });
   if (!response.ok) {
-    throw new Error(
-      await webErrorMessage(response, "ChatGPT Web image lookup")
-    );
+    throw new Error(await webErrorMessage(response, "ChatGPT Web image lookup"));
   }
   const data = (await response.json()) as {
     download_url?: string;
