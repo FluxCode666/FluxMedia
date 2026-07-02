@@ -922,7 +922,8 @@ async function storeGeneratedImageOutput(params: {
               await params.chargeTile?.(`${w}x${h}`, 0);
               return Buffer.from(edited.imageBase64, "base64");
             },
-            superResolve
+            // 生成式修复放大用 anime 模型:输入已被 gpt-image-2 画干净,需边缘/文字保脆而非去糊平滑。
+            (img) => superResolve(img, "anime")
           );
           imageBuffer = repairedResult.buffer;
           blockRepaired = repairedResult.repaired;
