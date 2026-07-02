@@ -848,10 +848,10 @@ function resolveOutputGenerationId(
 const DEFAULT_BLOCK_REPAIR_PROMPT =
   "Redraw this entire image to restore and sharpen it: fix blurry or garbled text and fine details, keep the exact same composition, layout, colors and content unchanged. Do not add, remove, move or reinterpret anything.";
 
-// 掩码外绘（留黑）默认提示词：强行让模型把留黑的新区往外补，且严格照整幅原图参考还原该处内容。
-// 用于掩码外绘的非首块——images[0]=已提交邻块边缘 + 黑色待补区，images[1]=整幅原图参考。
+// 掩码外绘（留黑）默认提示词：强行让模型把留黑的新区往外补，且严格照「该块同框裁剪的原图」还原内容。
+// 用于掩码外绘的非首块——images[0]=已提交邻块边缘 + 黑色待补区，images[1]=该块对齐裁剪的原图（同框同尺寸）。
 const DEFAULT_OUTPAINT_PROMPT =
-  "Extend this tile to fill its black (empty) area. Use the reference image (the full picture) to determine exactly what content belongs in the black area. Continue seamlessly from the existing non-black pixels at the edges, matching the reference's layout, text, shapes, colors, lighting and style precisely. Keep all existing non-black pixels unchanged. Render text and fine details sharp and legible. Do not add, remove, move or reinterpret anything beyond what the reference shows.";
+  "Fill the black (empty) area of this tile. The reference image shows exactly what this tile should look like, at the same framing and size. Reproduce the reference's content in the black area — same layout, text, shapes, colors, lighting and style — and continue seamlessly from the existing non-black pixels at the edges. Keep all existing non-black pixels unchanged. Render text and fine details sharp and legible. Do not add, remove, move or reinterpret anything beyond the reference.";
 
 async function storeGeneratedImageOutput(params: {
   output: {
@@ -920,16 +920,17 @@ async function storeGeneratedImageOutput(params: {
           const res = await maskedOutpaintImage(
             imageBuffer,
             Math.max(target.width, target.height),
-            async (tileCanvas, mask, originalRef, w, h, i) => {
+            async (tileCanvas, mask, tileRef, w, h, i) => {
               const edited = await editImage(params.config, {
                 // 首块=img2img 修复(有原图内容);其余=留黑外绘,用外绘提示词强行往黑区补。
                 prompt: i === 0 ? repairPrompt : DEFAULT_OUTPAINT_PROMPT,
                 // images[0]=待补块（已提交邻块边缘 + 黑色待补区，mask 标黑区为重绘）；
-                // images[1]=整幅原图（工作分辨率）作参考，决定黑区该补什么内容。mask 作用于 images[0]。
+                // images[1]=该块对齐裁剪的原图（同框同尺寸）作参考，决定黑区该补什么内容——
+                // 不能喂整幅原图(模型会把整图塞进一个块)。mask 作用于 images[0]。
                 images: [
                   { data: tileCanvas, name: "tile.png", type: "image/png" },
                   {
-                    data: originalRef,
+                    data: tileRef,
                     name: "reference.png",
                     type: "image/png",
                   },

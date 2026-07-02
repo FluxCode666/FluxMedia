@@ -4,7 +4,9 @@
  * 职责：把图在目标分辨率上切成 1K 重叠块，按光栅顺序逐块用 gpt-image-2 的「带 mask 编辑」外绘：
  *   每块把「待补区」填黑、只留与已完成邻块的重叠边（mask 锁死重叠边=保留、黑区=重绘），
  *   逼模型「从边缘往黑区外绘」而非在原内容上 img2img（后者对 mask 遵守弱、易整块重调色留缝）；
- *   同时把整幅原图（工作分辨率）作为第二张参考图喂给模型，决定黑区该补什么内容（含文字/布局）。
+ *   同时把「该块对齐裁剪的原图」（同框同尺寸）作为第二张参考图喂给模型，决定黑区该补什么内容
+ *   （含文字/布局）。切记不能喂整幅原图——模型不知当前黑块对应原图哪一块，会把整张原图塞进
+ *   这一个块（x 方向「半张图≈整张原图」）；只有同框裁剪，模型才只补这一块。
  *   首块无邻居，整块按原图内容重绘作种子（见 operations.ts 首块用修复提示词、其余用外绘提示词）。
  *   拼接时在重叠带内做线性羽化过渡（committed→edited），把边界亚像素级不连续抹平 → 消竖/横缝。
  *
@@ -151,13 +153,13 @@ export const OUTPAINT_MAX_WORKING =
  *
  * @param image 输入图片字节
  * @param targetLongEdge 期望最终较长边
- * @param editWithMask 注入回调：输入(块画布 PNG, mask PNG, 整幅原图参考 PNG, 宽, 高, 块序号)，
- *   返回带 mask 编辑后的块。实际由 operations.ts 用 gpt-image-2（images=[块, 原图参考] + mask、
+ * @param editWithMask 注入回调：输入(块画布 PNG, mask PNG, 该块对齐裁剪的原图参考 PNG, 宽, 高, 块序号)，
+ *   返回带 mask 编辑后的块。实际由 operations.ts 用 gpt-image-2（images=[块, 该块原图裁剪] + mask、
  *   路由 codex/api）实现，并逐块计费。
  * @param superResolve 注入的 4 倍超分（Real-ESRGAN general）；把外绘后的工作图放大补足到目标。
  * @returns { buffer, tilesRepaired }：无缝拼接(+超分)后的图，与实际重绘块数（供计费加和）
  *
- * 流程：封顶工作分辨率(≤~1638 长边 → 2×2=4 块) → 逐块留黑外绘（喂整幅原图参考）→ 超分补足到目标较长边。
+ * 流程：封顶工作分辨率(≤~1638 长边 → 2×2=4 块) → 逐块留黑外绘（喂该块对齐裁剪原图参考）→ 超分补足到目标较长边。
  * 关键：非首块待补区填黑逼外绘、重叠带内羽化混合(committed→edited)、纯保留区不动 → 无缝。单块失败则整块保留原像素。
  */
 export async function maskedOutpaintImage(
@@ -166,7 +168,7 @@ export async function maskedOutpaintImage(
   editWithMask: (
     tileCanvas: Buffer,
     mask: Buffer,
-    originalRef: Buffer,
+    tileRef: Buffer,
     w: number,
     h: number,
     index: number
@@ -190,13 +192,9 @@ export async function maskedOutpaintImage(
     .removeAlpha()
     .raw()
     .toBuffer();
-  // 整幅原图参考（工作分辨率 PNG，pristine、循环内不变）：作为每块第二张输入图喂给模型，
-  // 让它在只看到 1/4 块时也知道整图布局/文字，减少跨块内容漂移。用循环前的 canvas（此时=纯原图）。
-  const originalRef = await sharp(canvas, {
-    raw: { width: workW, height: workH, channels: 3 },
-  })
-    .png()
-    .toBuffer();
+  // 原图 pristine 工作分辨率 RGB 副本：循环内 canvas 会被写入已提交像素而改变，故另存一份，
+  // 每块从这里按块矩形对齐裁剪出「该块本来长啥样」当参考图（见下）。
+  const origRaw = Buffer.from(canvas);
 
   let tilesRepaired = 0;
   for (let i = 0; i < plan.tiles.length; i++) {
@@ -205,8 +203,8 @@ export async function maskedOutpaintImage(
     // 从画布抠出本块当前状态（保留区=已提交邻块像素，其余=原图像素）。
     const tileRaw = extractTile(canvas, workW, t);
     // 留黑真外绘：非首块把「待补区」(x>=left && y>=top)填黑，只留与已提交邻块的重叠边，
-    // 逼模型从边缘往黑区外绘（内容由整幅原图参考决定）。首块(left=top=0，无邻居)不填黑，
-    // 整块基于原图内容重绘作种子——否则整块变黑、只能凭参考纯生成。
+    // 逼模型从边缘往黑区外绘（内容由下面「该块对齐裁剪原图参考」决定）。首块(left=top=0，无邻居)
+    // 不填黑，整块基于原图内容重绘作种子——否则整块变黑、只能凭参考纯生成。
     if (left > 0 || top > 0) {
       blackenNewRegion(tileRaw, t, left, top);
     }
@@ -215,16 +213,16 @@ export async function maskedOutpaintImage(
     })
       .png()
       .toBuffer();
+    // 该块对齐裁剪的原图（同框同尺寸）作参考：绝不能喂整幅原图，否则模型不知黑块对应原图哪块、
+    // 会把整张原图塞进这一个块。同框裁剪让模型只把这一块的应有内容补进黑区。
+    const tileRef = await sharp(extractTile(origRaw, workW, t), {
+      raw: { width: t.w, height: t.h, channels: 3 },
+    })
+      .png()
+      .toBuffer();
     try {
       const mask = await buildTileMask(t.w, t.h, left, top);
-      const edited = await editWithMask(
-        tilePng,
-        mask,
-        originalRef,
-        t.w,
-        t.h,
-        i
-      );
+      const edited = await editWithMask(tilePng, mask, tileRef, t.w, t.h, i);
       const editedRaw = await sharp(edited)
         .resize(t.w, t.h, { fit: "fill" })
         .removeAlpha()
