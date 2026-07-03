@@ -3,6 +3,7 @@ import { logError } from "@repo/shared/logger";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { parseImageSize } from "./resolution";
 import {
+  buildWebHistoryTranscript,
   downloadWebHistoryImageReference,
   getRecentWebHistoryImageReferences,
 } from "./web-history-references";
@@ -1928,6 +1929,22 @@ async function downloadImageOutputs(
 // 产出几乎一样的图。进程内即可:线上正常流量全打主副本(3308),备副本仅 failover 启用。
 const inflightWebContinuations = new Set<string>();
 
+// 非原生续接时随 prompt 带上的历史文字转录上限(字符)。图不完全附带(见 downloadRecentWebHistory
+// Images 的 limit),但历史文字尽量带上、控制在此上限内(保留最近轮次)。
+const WEB_HISTORY_TRANSCRIPT_MAX_CHARS = 6000;
+
+/**
+ * 非原生续接时,把历史文字转录作为上下文前置到当前请求前(图另行以附件重附)。
+ * 明确标注为"仅供理解上下文",避免模型把历史文字直接画进图/复述。
+ */
+function withWebHistoryContext(prompt: string, transcript: string) {
+  if (!transcript) return prompt;
+  return (
+    "以下是之前的对话记录,仅供你理解上下文(不要把这些文字直接画进图或原样复述):\n" +
+    `${transcript}\n\n请据此完成当前请求:\n${prompt}`
+  );
+}
+
 // 非原生续接(换号/开新会话)时,把最近若干历史图(assistant 生成图 + 用户上传参考图)下成
 // 附件重新带上,弥补 ChatGPT 会话上下文丢失。下载失败的单张跳过,不阻断整轮。
 async function downloadRecentWebHistoryImages(
@@ -1970,8 +1987,18 @@ async function runWebImage(
         claimedWebConversationId = continuation.conversationId;
       }
     }
-    const prompt = applyImageSizePrompt(getPrompt(params), params.size);
-    // 原生续接时 ChatGPT 会话已含历史图,不重复附;换号/新会话时把最近历史图(含用户上传)带上。
+    // 原生续接时 ChatGPT 会话已含历史(文字+图),不重复带;换号/新会话时把历史文字转录前置、
+    // 并重附最近历史图(含用户上传),尽量还原多轮上下文。
+    const historyTranscript = continuation?.useNativeContinuation
+      ? ""
+      : buildWebHistoryTranscript(
+          params.history,
+          WEB_HISTORY_TRANSCRIPT_MAX_CHARS
+        );
+    const prompt = withWebHistoryContext(
+      applyImageSizePrompt(getPrompt(params), params.size),
+      historyTranscript
+    );
     const historyImages = continuation?.useNativeContinuation
       ? []
       : await downloadRecentWebHistoryImages(
@@ -2222,9 +2249,15 @@ async function runWebChat(
       }
     }
     // 网页对话:发用户原始消息(不用图像优化后的 apiPrompt),不注入 picture_v2。
-    const prompt = params.prompt;
-    // 续接同一会话时上下文已在会话内,不重复附;换号/新会话时带最近历史图(含用户上传参考图),
-    // 覆盖"上一轮纯文字、参考图是用户上传"的换号丢图场景。
+    // 续接同一会话时上下文已在会话内;换号/新会话时把历史文字转录前置 + 重附最近历史图(含用户
+    // 上传参考图),覆盖"上一轮纯文字、参考图是用户上传"及多轮文字上下文的换号丢失场景。
+    const historyTranscript = continuation?.useNativeContinuation
+      ? ""
+      : buildWebHistoryTranscript(
+          params.history,
+          WEB_HISTORY_TRANSCRIPT_MAX_CHARS
+        );
+    const prompt = withWebHistoryContext(params.prompt, historyTranscript);
     const historyImages = continuation?.useNativeContinuation
       ? []
       : await downloadRecentWebHistoryImages(

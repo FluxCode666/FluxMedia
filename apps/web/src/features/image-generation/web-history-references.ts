@@ -146,20 +146,60 @@ export function getRecentWebHistoryImageReferences(
   ) {
     const message = history?.[index];
     if (!message || message.error) continue;
+    const label =
+      message.role === "assistant"
+        ? `web-history-assistant-${index + 1}`
+        : `web-history-user-${index + 1}`;
+    // assistant 生成图:站内在 variant.imageUrl,外部 chat/completions 在 message.imageUrls;两处都收。
     if (message.role === "assistant") {
-      add(
-        getActiveHistoryVariantImageUrl(message),
-        `web-history-assistant-${index + 1}`
-      );
-      continue;
+      add(getActiveHistoryVariantImageUrl(message), label);
     }
-    // 用户上传的参考图:同一条消息内也按最新在前。
+    // 用户上传图 / 外部 assistant 图:message.imageUrls,同条消息内也按最新在前。
     for (const url of [...(message.imageUrls || [])].reverse()) {
       if (refs.length >= limit) break;
-      add(url, `web-history-user-${index + 1}`);
+      add(url, label);
     }
   }
   return refs;
+}
+
+/**
+ * 把会话历史压成一段文字转录(用户/助手轮次),供 web 后端"非原生续接"(换号/无 conversationId,
+ * 如外部 /v1/chat/completions)时随 prompt 带上,弥补 ChatGPT 服务端会话上下文的缺失。
+ *
+ * WHY:web 换号后原生续接失效,只重附图会丢多轮文字上下文;codex 侧靠 buildResponsesInput 全量
+ * 重建不受影响。这里生成简洁转录,超 maxChars 时**从最旧逐轮丢弃、保留最近**(最近轮次对当前请求
+ * 最相关),再兜底按尾部截断。图片仅以 [附图]/[生成了图片] 标注(实际像素由 getRecentWebHistoryImage
+ * References 另行重附)。
+ */
+export function buildWebHistoryTranscript(
+  history: ChatHistoryMessage[] | undefined,
+  maxChars: number
+): string {
+  if (!history?.length || maxChars <= 0) return "";
+  const lines: string[] = [];
+  for (const message of history) {
+    if (message.error) continue;
+    if (message.role === "user") {
+      const text = (message.text || "").trim();
+      const note = message.imageUrls?.length ? " [附图]" : "";
+      if (text || note) lines.push(`用户: ${text}${note}`);
+      continue;
+    }
+    const variant =
+      message.variants?.[message.activeVariant || 0] || message.variants?.[0];
+    const text = (variant?.text || message.text || "").trim();
+    const note =
+      variant?.imageUrl || message.imageUrls?.length ? " [生成了图片]" : "";
+    if (text || note) lines.push(`助手: ${text}${note}`);
+  }
+  if (!lines.length) return "";
+  // 超限:从最旧逐轮丢弃保留最近;单轮仍超则尾部硬截断。
+  while (lines.join("\n").length > maxChars && lines.length > 1) {
+    lines.shift();
+  }
+  const joined = lines.join("\n");
+  return joined.length > maxChars ? joined.slice(-maxChars) : joined;
 }
 
 export async function downloadWebHistoryImageReference(
