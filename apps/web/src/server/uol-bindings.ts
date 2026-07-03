@@ -23,6 +23,7 @@ import type { Principal, OperationContext } from "@repo/shared/uol";
 
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
+import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
 import { listAdminImageBackendPool } from "@/features/image-backend-pool/service";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +97,45 @@ bindExecute(
     };
   },
 );
+
+/**
+ * file.generatePpt / file.generatePsd - 可编辑文件(PPT/PSD)生成
+ * 源: apps/web/src/features/image-generation/editable-file-operations.ts
+ * clientRequestId 作计费幂等键(sourceRef=editable-file:{clientRequestId});PSD 强校验非空图。
+ */
+function bindEditableFile(name: "file.generatePpt" | "file.generatePsd") {
+  const kind = name === "file.generatePsd" ? "psd" : "ppt";
+  bindExecute(
+    name,
+    async (
+      input: {
+        userId: string;
+        clientRequestId: string;
+        prompt: string;
+        base64Images?: string[];
+      },
+      _principal: Principal,
+      _ctx: OperationContext,
+    ) => {
+      const result = await runEditableFileForUser({
+        userId: input.userId,
+        kind,
+        prompt: input.prompt,
+        base64Images: input.base64Images ?? [],
+        taskId: input.clientRequestId,
+      });
+      return {
+        taskId: input.clientRequestId,
+        conversationId: result.conversationId,
+        primaryUrl: result.primaryUrl,
+        zipUrl: result.zipUrl,
+        creditsUsed: result.creditsCharged,
+      };
+    },
+  );
+}
+bindEditableFile("file.generatePpt");
+bindEditableFile("file.generatePsd");
 
 // TODO: image.generateAction - 委托 image.generate
 // TODO: image.delete - deleteGenerationAction 逻辑
