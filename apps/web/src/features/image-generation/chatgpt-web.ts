@@ -2068,6 +2068,11 @@ const EDITABLE_FILE_MODEL = "gpt-5-5-thinking";
 const EDITABLE_FILE_THINKING_EFFORT = "extended";
 const EDITABLE_FILE_POLL_TIMEOUT_MS = 600_000; // 文件生成分钟级,10min
 const EDITABLE_FILE_POLL_INTERVAL_MS = 5_000;
+// 下载就绪时序:沙盒文件在会话里"出现"(代码写了目标路径)≠"已产出可下载"——代码可能反复失败、
+// turn 未完成。故轮询时逐候选实际尝试下载,只有真解析出可下载二进制才算"找到";轮询本身即重试。
+// 主文件到手后再给 zip 一段宽限;会话内容长时间停滞且仍无产物则提前结束(避免 10min 空等)。
+const EDITABLE_ZIP_GRACE_MS = 30_000;
+const EDITABLE_STALL_MS = 120_000;
 const EDITABLE_USER_EXTRA_PREFIX = "以下是用户补充需求,请直接结合执行:\n";
 
 // 固定提示词(移植 chatgpt2api _editable_prompt 的三步/两段模板)。
@@ -2299,70 +2304,164 @@ async function resolveEditableDownloadUrl(
     );
     candidates.push(`/backend-api/files/${artifact.fileId}/download`);
   }
+  // 按端点顺序试解析:任一返回 download_url/url 即用;未就绪(空/非 200/抛错)则试下一个,
+  // 全空返回 ""(由轮询循环下一轮重试)。
   for (const path of candidates) {
     try {
       const url = await getDownloadUrl(config, path, config.signal);
       if (url) return url;
     } catch {
-      // 换下一个端点
+      // 该端点未就绪或不适用,试下一个。
     }
   }
   return "";
 }
 
-/** 解析下载 URL → 拉二进制 → EditableFileBinary(保留 mime/文件名)。 */
+/**
+ * 拉取已解析出的下载 URL。按 URL 形态选路:
+ * - chatgpt.com/openai.com 后端 URL 或相对路径:走 Go 代理(WARP 出网 + cookie),
+ *   否则用机房 IP 直连会被 Cloudflare 拦(与生图同源问题)。
+ * - 外部签名 URL(oaiusercontent 等):直连 + Authorization/UA(与 downloadImage 一致)。
+ */
+async function fetchResolvedDownload(
+  config: ApiConfig,
+  url: string
+): Promise<Response> {
+  let abs: URL | null = null;
+  try {
+    abs = new URL(url);
+  } catch {
+    abs = null;
+  }
+  const isBackend =
+    !abs ||
+    abs.host.endsWith("chatgpt.com") ||
+    abs.host.endsWith("openai.com");
+  if (isBackend) {
+    const path = abs ? `${abs.pathname}${abs.search}` : url;
+    return fetchChatGptWeb(config, path, path, {
+      signal: config.signal,
+      headers: getHeaders(config, path, {
+        Accept: "application/octet-stream",
+      }),
+    });
+  }
+  return fetch(url, {
+    signal: config.signal,
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "User-Agent": USER_AGENT,
+    },
+  });
+}
+
+/**
+ * 单次尝试:解析下载 URL → 拉二进制 → EditableFileBinary(保留 mime/文件名)。
+ * 未就绪(空 url / 非 200 / 空体)返回 null;由 pollAndDownloadEditableFile 的轮询循环驱动重试。
+ */
 async function downloadEditableBinary(
   config: ApiConfig,
   conversationId: string,
   artifact: EditableArtifact
 ): Promise<EditableFileBinary | null> {
-  const url = await resolveEditableDownloadUrl(
-    config,
-    conversationId,
-    artifact
-  );
+  const url = await resolveEditableDownloadUrl(config, conversationId, artifact);
   if (!url) return null;
-  const response = await fetch(url, { signal: config.signal });
-  if (!response.ok) return null;
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const mimeType =
-    artifact.mimeType ||
-    response.headers.get("content-type") ||
-    "application/octet-stream";
-  return {
-    buffer,
-    fileName: artifact.name,
-    mimeType,
-    size: buffer.length,
-  };
+  const response = await fetchResolvedDownload(config, url);
+  const buffer = response.ok
+    ? Buffer.from(await response.arrayBuffer())
+    : null;
+  if (buffer && buffer.length > 0) {
+    const mimeType =
+      artifact.mimeType ||
+      response.headers.get("content-type") ||
+      "application/octet-stream";
+    return { buffer, fileName: artifact.name, mimeType, size: buffer.length };
+  }
+  return null;
 }
 
-/** 轮询会话直到同时凑齐「主文件」+「zip」(或超时后取到什么算什么)。 */
-async function pollEditableArtifacts(
+/**
+ * 轮询会话并逐候选实际下载,凑齐可下载的「主文件」(+尽力凑「zip」)。
+ *
+ * WHY 边轮询边下载(而非先"发现路径"再下载):沙盒里 /mnt/data/x.pptx 的路径会先出现在
+ *   assistant 的**代码**里(仅是目标路径),此时文件尚未产出、甚至代码可能反复 Traceback 失败;
+ *   turn 也常未完成。只有 interpreter/download 真解析出可下载二进制,才证明文件已产出。故这里对每个
+ *   候选直接试下载,成功才计入 primary/zip;轮询本身充当"等待文件产出"的重试。
+ * WHY 容错轮询:thinking 模型走 ChatGPT 异步「缓冲流交接」(stream_handoff)——建会话 SSE 秒回
+ *   handoff、turn 在服务端 conduit 异步跑;提交前 GET 会话会短暂 404,须容忍继续轮询。
+ * 收敛:主文件到手后给 zip 一段宽限即返回(zip 可缺);会话内容长时间停滞且仍无主文件 → 提前结束
+ *   (turn 很可能结束但无产物),交由上层换号重试,避免 10min 空等。abort/超时经 throwIfAborted 上抛。
+ */
+async function pollAndDownloadEditableFile(
   config: ApiConfig,
   conversationId: string,
   requestMessageId: string,
   kind: EditableFileKind
-): Promise<{ primary: EditableArtifact | null; zip: EditableArtifact | null }> {
+): Promise<{
+  primary: EditableFileBinary | null;
+  zip: EditableFileBinary | null;
+}> {
   const deadline = Date.now() + EDITABLE_FILE_POLL_TIMEOUT_MS;
-  let primary: EditableArtifact | null = null;
-  let zip: EditableArtifact | null = null;
+  let primary: EditableFileBinary | null = null;
+  let zip: EditableFileBinary | null = null;
+  let everAccessible = false;
+  let lastFetchError = "";
+  let zipGraceDeadline = 0;
+  let lastText = "";
+  let stableSince = 0;
   while (Date.now() < deadline) {
     throwIfAborted(config.signal);
-    const text = await getConversationText(
-      config,
-      conversationId,
-      config.signal
-    );
-    for (const a of extractEditableArtifacts(text, requestMessageId, kind)) {
-      if (a.isZip) {
-        if (!zip) zip = a;
-      } else if (!primary) {
-        primary = a;
+    let text: string;
+    try {
+      text = await getConversationText(config, conversationId, config.signal);
+    } catch (error) {
+      // 真 abort/超时须上抛;交接期的瞬时 404/inaccessible 视为"尚未就绪",继续轮询。
+      throwIfAborted(config.signal);
+      lastFetchError = error instanceof Error ? error.message : String(error);
+      await sleep(EDITABLE_FILE_POLL_INTERVAL_MS);
+      continue;
+    }
+    everAccessible = true;
+    // 逐候选试下载:只有真拿到可下载二进制才计入对应槽位。
+    for (const artifact of extractEditableArtifacts(
+      text,
+      requestMessageId,
+      kind
+    )) {
+      if (artifact.isZip ? zip : primary) continue; // 槽位已满,跳过
+      const binary = await downloadEditableBinary(
+        config,
+        conversationId,
+        artifact
+      );
+      if (!binary) continue;
+      if (artifact.isZip) {
+        zip = binary;
+      } else {
+        primary = binary;
+        zipGraceDeadline = Date.now() + EDITABLE_ZIP_GRACE_MS;
       }
     }
     if (primary && zip) break;
+    if (primary && Date.now() >= zipGraceDeadline) break; // 主文件到手 + zip 宽限过 → 收工
+    // fail-fast:仍无主文件且会话内容长时间不变 → turn 很可能已结束但无产物,提前结束换号。
+    if (!primary) {
+      if (text === lastText) {
+        if (!stableSince) {
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= EDITABLE_STALL_MS) {
+          break;
+        }
+      } else {
+        stableSince = 0;
+        lastText = text;
+      }
+    }
     await sleep(EDITABLE_FILE_POLL_INTERVAL_MS);
+  }
+  // 整段窗口都没成功抓过会话:抛真实原因(如持续 403/被墙),而非笼统的"未取到主文件"。
+  if (!everAccessible && lastFetchError) {
+    throw new Error(lastFetchError);
   }
   return { primary, zip };
 }
@@ -2410,31 +2509,21 @@ export async function generateFileWithChatGptWeb(params: {
     const text = await readSseText(response);
     throwIfAborted(abortController.signal);
     const streamError = extractWebStreamError(text);
-    if (streamError) throw new Error(streamError);
     const conversationId = extractConversationId(text);
+    if (streamError) throw new Error(streamError);
     if (!conversationId) {
       throw new Error("ChatGPT Web file: 无 conversation_id");
     }
-    const { primary, zip } = await pollEditableArtifacts(
-      config,
-      conversationId,
-      requestMessageId,
-      params.kind
-    );
-    if (!primary) {
+    const { primary: primaryBinary, zip: zipBinary } =
+      await pollAndDownloadEditableFile(
+        config,
+        conversationId,
+        requestMessageId,
+        params.kind
+      );
+    if (!primaryBinary) {
       throw new Error(`ChatGPT Web file: 未在超时内取到 ${params.kind} 主文件`);
     }
-    const primaryBinary = await downloadEditableBinary(
-      config,
-      conversationId,
-      primary
-    );
-    if (!primaryBinary) {
-      throw new Error("ChatGPT Web file: 主文件下载失败");
-    }
-    const zipBinary = zip
-      ? await downloadEditableBinary(config, conversationId, zip)
-      : null;
     return { conversationId, primary: primaryBinary, zip: zipBinary };
   } finally {
     clearTimeout(timeout);

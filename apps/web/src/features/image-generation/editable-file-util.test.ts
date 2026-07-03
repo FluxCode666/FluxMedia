@@ -4,6 +4,7 @@ import {
   decodeBase64DataUrl,
   editableFileExtension,
   editableFileServiceName,
+  NO_WEB_ACCOUNT_ERROR,
 } from "./editable-file-util";
 
 describe("decodeBase64DataUrl", () => {
@@ -42,5 +43,13 @@ describe("editableFileExtension / serviceName", () => {
   it("服务名区分 ppt/psd", () => {
     expect(editableFileServiceName("ppt")).toBe("editable_file_ppt");
     expect(editableFileServiceName("psd")).toBe("editable_file_psd");
+  });
+});
+
+describe("NO_WEB_ACCOUNT_ERROR", () => {
+  // 该消息必须含 "no available backend",否则 external-api 会把"无 web 账号"误判成
+  // 502 upstream_error(可疯狂重试)而非 503 no_available_image_backend。改文案勿动此子串。
+  it("含 503 分类所需子串", () => {
+    expect(NO_WEB_ACCOUNT_ERROR.toLowerCase()).toContain("no available backend");
   });
 });

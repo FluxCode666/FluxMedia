@@ -36,6 +36,7 @@ import {
   decodeBase64DataUrl,
   editableFileExtension,
   editableFileServiceName,
+  NO_WEB_ACCOUNT_ERROR,
 } from "./editable-file-util";
 
 const DEFAULT_EDITABLE_CREDITS = 25;
@@ -120,12 +121,26 @@ export async function runEditableFileForUser(params: {
       if (!(error instanceof ImageBackendPoolUnavailableError)) throw error;
     }
     const backend = resolved?.config.backend;
-    if (!backend) {
-      throw new Error(
-        lastError || "no available web account for editable file"
-      );
-    }
+    if (!backend) break; // 池已无候选,跳出走最终报错(NO_WEB_ACCOUNT_ERROR)
     const memberType = poolMemberType(backend.type);
+
+    // 本功能必须用真正的 ChatGPT 网页会话账号(accountBackend==="web",与主图像管线分派 web
+    // 路径同一判据)。WHY:web 偏好只把"账号"候选滤成 web 实现,但池在 web 车道里仍可能返回
+    // web 分组内的 api/responses 后端;这些不是 ChatGPT 网页会话,跑不了 web 文件生成。有些
+    // 用户的池只有 api/codex 后端、无 web 账号——必须明确报错,绝不拿非 web 后端硬跑。
+    // 遇到非 web:仅释放租约(不上报失败——它没失败,只是不适配本功能)、排除后换下一个。
+    if (backend.accountBackend !== "web") {
+      if (backend.id) excluded.push(`${memberType}:${backend.id}`);
+      await releaseImageBackendInflightLease({
+        memberType,
+        memberId: backend.id,
+        leaseId: backend.inflightLeaseId,
+        leasePersisted: backend.inflightLeasePersisted,
+      }).catch(() => {});
+      lastError = NO_WEB_ACCOUNT_ERROR;
+      continue;
+    }
+
     let success = false;
     try {
       const result = await generateFileWithChatGptWeb({

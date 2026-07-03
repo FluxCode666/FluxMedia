@@ -30,3 +30,13 @@ export function editableFileExtension(
 export function editableFileServiceName(kind: "ppt" | "psd"): string {
   return `editable_file_${kind}`;
 }
+
+/**
+ * 无可用 web 账号时的报错消息(供 editable-file-operations 抛出)。
+ * WHY 措辞:必须含子串 "no available backend",让 external-api 的 classifyExternalApiError
+ *   归为 no_available_image_backend(HTTP 503 server_error),而非落到 502 upstream_error
+ *   兜底(会被客户端当可重试而疯狂重试)。有些用户的池只有 api/codex 后端、无 web 账号,
+ *   PPT/PSD 走不了 web 会话,必须清晰报错而非硬跑非 web 后端。改文案务必保留该子串(有单测兜底)。
+ */
+export const NO_WEB_ACCOUNT_ERROR =
+  "No available backend for editable file generation: PPT/PSD requires a ChatGPT web (Plus/Pro) account, but none is available for this plan or account pool.";
