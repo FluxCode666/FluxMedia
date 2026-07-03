@@ -324,7 +324,7 @@ type ResponsesPreviousResponseState = {
   createdAt?: string;
 };
 
-type ConversationMode = "chat" | "agent";
+type ConversationMode = "chat" | "agent" | "web";
 
 type ChatMessage = {
   id: string;
@@ -1593,7 +1593,7 @@ function chatActiveConversationStorageKey(mode: ConversationMode) {
 }
 
 function activeModeToConversationMode(mode: ActiveMode): ConversationMode {
-  return mode === "agent" ? "agent" : "chat";
+  return mode === "agent" ? "agent" : mode === "chat-web" ? "web" : "chat";
 }
 
 function sanitizeChatConversations(value: unknown): ChatConversation[] {
@@ -1863,15 +1863,6 @@ async function urlToEditImageFile(
   };
 }
 
-/** File → base64 data URL(chat(web) 参考图需 data URL 传给 /api/editable-file/generate)。 */
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.readAsDataURL(file);
-  });
-}
 
 export function CreatePageClient({
   balance: initialBalance,
@@ -1926,13 +1917,23 @@ export function CreatePageClient({
   const showThinkingControls = true;
   const showAgentProcessHint = !isWebOnlyBackend;
   const isConversationMode = (mode: ActiveMode) =>
-    mode === "chat" || mode === "agent" || mode === "waterfall";
+    mode === "chat" ||
+    mode === "agent" ||
+    mode === "waterfall" ||
+    mode === "chat-web";
   const getConversationMode = (mode: ActiveMode): ConversationMode =>
     activeModeToConversationMode(mode);
+  // 会话消息归属:agent/web 各自独立;chat 桶收非 agent 非 web(含历史无 mode)。
+  // WHY:chat-web 有独立会话历史(mode="web"),不能与 chat(codex) 串桶。
   const isMessageInConversationMode = (
     message: ChatMessage,
     mode: ConversationMode
-  ) => (mode === "agent" ? message.mode === "agent" : message.mode !== "agent");
+  ) =>
+    mode === "agent"
+      ? message.mode === "agent"
+      : mode === "web"
+        ? message.mode === "web"
+        : message.mode !== "agent" && message.mode !== "web";
   const batchCostSuffix = (count: number) =>
     count > 1
       ? copy(` for ${count}`, `，共 ${count} 张`)
@@ -6204,7 +6205,8 @@ export function CreatePageClient({
     setChatStream(
       createInitialChatStreamState({
         messageId: assistantMessageId,
-        mode: conversationMode,
+        // 流状态 mode 仅作 chat/agent 显示区分;web 会话按 chat 显示。
+        mode: conversationMode === "agent" ? "agent" : "chat",
         agentMode: conversationMode === "agent",
         generationId,
         prompt: currentPrompt,
@@ -7035,46 +7037,6 @@ export function CreatePageClient({
     }
   };
 
-  // chat(web) 模式点最近生成:把该图作为参考图加入/移除(按 data URL 值去重切换,封顶 6 张)。
-  // 拉取签名 URL → File → data URL(编排端 /api/editable-file/generate 需 base64 data URL)。
-  const toggleChatWebReferenceFromRecent = async (
-    generation: RecentGeneration
-  ) => {
-    if (!generation.imageUrl) {
-      toast.error(copy("This image is not available yet", "这张图片暂不可用"));
-      return;
-    }
-    try {
-      const { file } = await urlToEditImageFile(
-        generation.imageUrl,
-        `gpt2image-${generation.id}`,
-        generation.id
-      );
-      const dataUrl = await fileToDataUrl(file);
-      setChatWebRefs((prev) => {
-        if (prev.includes(dataUrl)) {
-          toast.success(copy("Reference image removed", "参考图片已移除"));
-          return prev.filter((item) => item !== dataUrl);
-        }
-        if (prev.length >= 6) {
-          toast.error(
-            copy("Attach up to 6 reference images", "最多可添加 6 张参考图片")
-          );
-          return prev;
-        }
-        toast.success(copy("Reference image attached", "参考图片已添加"));
-        return [...prev, dataUrl];
-      });
-    } catch (error) {
-      toast.error(copy("Failed to use image as reference", "设置参考图片失败"), {
-        description:
-          error instanceof Error
-            ? error.message
-            : copy("Could not load image.", "无法加载图片。"),
-      });
-    }
-  };
-
   const openRecentPreview = (generation: RecentGeneration) => {
     if (!generation.imageUrl) {
       toast.error(copy("This image is not available yet", "这张图片暂不可用"));
@@ -7101,10 +7063,6 @@ export function CreatePageClient({
 
     if (activeMode === "image") {
       void selectRecentAsReference(generation);
-      return;
-    }
-    if (activeMode === "chat-web") {
-      void toggleChatWebReferenceFromRecent(generation);
       return;
     }
     openRecentPreview(generation);
@@ -9585,7 +9543,7 @@ export function CreatePageClient({
                   title={
                     isConversationMode(activeMode)
                       ? copy("Attach as reference", "添加为参考")
-                      : activeMode === "image" || activeMode === "chat-web"
+                      : activeMode === "image"
                         ? copy("Use as reference image", "作为参考图片")
                         : copy("Open image preview", "打开图片预览")
                   }
@@ -9624,11 +9582,6 @@ export function CreatePageClient({
                           {copy("Use as reference", "作为参考图")}
                         </>
                       )
-                    ) : activeMode === "chat-web" ? (
-                      <>
-                        <ImagePlus className="mr-1 h-3 w-3" />
-                        {copy("Use as reference", "作为参考图")}
-                      </>
                     ) : (
                       <>
                         <Eye className="mr-1 h-3 w-3" />
