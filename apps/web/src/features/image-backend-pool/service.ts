@@ -4427,6 +4427,35 @@ function emptyAccessTokenImportResult(message: string) {
   };
 }
 
+/**
+ * 导入后自动刷新账号信息(实时查 ChatGPT /accounts/check 拿 plan_type + 额度,落 metadata.webAccount)。
+ * WHY:web 账号导入时无 plan_type,PPT/PSD 调度按 metadata.webAccount.type 判付费级
+ *   (见 accountPlanFilter);导入即刷新,新账号无需人工点"刷新"就能被正确归类/纳入调度。
+ * fire-and-forget:本服务是常驻进程(非 serverless),后台 promise 随进程存活;best-effort——
+ *   不阻塞导入响应、不因刷新失败影响导入结果。refreshImageBackendAccountsInfo 内部 10 并发、
+ *   逐账号容错、只刷 web 账号。
+ */
+function triggerPostImportAccountRefresh(accountIds: string[]) {
+  const ids = accountIds.filter(Boolean);
+  if (!ids.length) return;
+  void refreshImageBackendAccountsInfo(ids)
+    .then((result) => {
+      logWarn("导入后自动刷新账号信息完成", {
+        requested: result.requestedCount,
+        processed: result.processedCount,
+        refreshed: result.refreshedCount,
+        failed: result.failedCount,
+        skipped: result.skippedCount,
+      });
+    })
+    .catch((error) => {
+      logWarn("导入后自动刷新账号信息异常", {
+        requested: ids.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
 export async function importImageBackendWebAccountsFromAccessTokens(input: {
   accessTokensText: string;
   webGroupId?: string | null;
@@ -4487,6 +4516,9 @@ export async function importImageBackendWebAccountsFromAccessTokens(input: {
     importState,
     importBatchId
   );
+
+  // 导入后自动刷新一次(拿 plan_type 落 metadata.webAccount,供 PPT/PSD 付费过滤)。
+  triggerPostImportAccountRefresh(importedIds);
 
   return {
     sourceCount: parsedAccessTokenCount,
@@ -4699,6 +4731,9 @@ export async function importImageBackendAccountsFromRefreshTokens(input: {
         .where(inArray(imageBackendAccount.id, currentTokenImportedIds));
     }
   }
+
+  // 导入后自动刷新一次(只刷其中的 web 账号,拿 plan_type 落 metadata.webAccount)。
+  triggerPostImportAccountRefresh(importedIds);
 
   return {
     sourceCount: parsedRefreshTokenCount,
