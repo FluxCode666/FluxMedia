@@ -57,9 +57,22 @@ function isUsableHistoryImageUrl(url: string) {
   return (
     url.startsWith("http://") ||
     url.startsWith("https://") ||
+    url.startsWith("data:image/") ||
     url.startsWith("/api/storage/") ||
     url.includes("/api/storage/")
   );
+}
+
+// data:image/<mime>;base64,<payload> → 直接解出二进制(用户上传的参考图在会话历史里以 data URL
+// 持久化,见 create-page-client 的附件预览)。非 base64 或畸形则返回 null。
+function parseDataImageUrl(imageUrl: string) {
+  const match = imageUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/);
+  if (!match) return null;
+  try {
+    return { type: match[1] || "image/png", data: Buffer.from(match[2] || "", "base64") };
+  } catch {
+    return null;
+  }
 }
 
 function parseStorageImageUrl(imageUrl: string) {
@@ -104,30 +117,76 @@ function getActiveHistoryVariantImageUrl(message: ChatHistoryMessage) {
   return variant?.imageUrl;
 }
 
-export function getLatestWebHistoryImageReference(
-  history: ChatHistoryMessage[] | undefined
-): WebHistoryImageReference | null {
-  for (let index = (history || []).length - 1; index >= 0; index--) {
+/**
+ * 收集会话历史里最近的图片引用(assistant 生成图 + 用户上传的参考图),最新在前、去重、限量。
+ *
+ * WHY:web 后端跨轮上下文靠"同账号原生续接"(复用 conversationId);一旦换号(账号冷却/被占用)
+ * 续接失效,此时必须把参考图重新作为附件带上。若只看 assistant 生成图,会漏掉"上一轮是纯文字、
+ * 参考图是用户上传"的常见情形(实测:先问"这是什么"、再"变成青苹果",换号后丢图)。这里同时纳入
+ * 用户上传图,覆盖该场景。
+ */
+export function getRecentWebHistoryImageReferences(
+  history: ChatHistoryMessage[] | undefined,
+  options?: { limit?: number }
+): WebHistoryImageReference[] {
+  const limit = Math.max(1, options?.limit ?? 3);
+  const refs: WebHistoryImageReference[] = [];
+  const seen = new Set<string>();
+  const add = (imageUrl: string | undefined, fileName: string) => {
+    if (!imageUrl || !isUsableHistoryImageUrl(imageUrl) || seen.has(imageUrl)) {
+      return;
+    }
+    seen.add(imageUrl);
+    refs.push({ imageUrl, fileName, sourceId: imageUrl });
+  };
+  for (
+    let index = (history || []).length - 1;
+    index >= 0 && refs.length < limit;
+    index--
+  ) {
     const message = history?.[index];
-    if (!message || message.role !== "assistant" || message.error) continue;
-
-    const imageUrl = getActiveHistoryVariantImageUrl(message);
-    if (!imageUrl || !isUsableHistoryImageUrl(imageUrl)) continue;
-
-    return {
-      imageUrl,
-      fileName: `web-history-assistant-${index + 1}`,
-      sourceId: imageUrl,
-    };
+    if (!message || message.error) continue;
+    if (message.role === "assistant") {
+      add(
+        getActiveHistoryVariantImageUrl(message),
+        `web-history-assistant-${index + 1}`
+      );
+      continue;
+    }
+    // 用户上传的参考图:同一条消息内也按最新在前。
+    for (const url of [...(message.imageUrls || [])].reverse()) {
+      if (refs.length >= limit) break;
+      add(url, `web-history-user-${index + 1}`);
+    }
   }
-
-  return null;
+  return refs;
 }
 
 export async function downloadWebHistoryImageReference(
   reference: WebHistoryImageReference,
   options?: DownloadWebHistoryImageReferenceOptions
 ): Promise<ImageInputFile> {
+  const dataImage = parseDataImageUrl(reference.imageUrl);
+  if (dataImage) {
+    if (dataImage.data.byteLength > MAX_HISTORY_IMAGE_BYTES) {
+      throw new Error("ChatGPT Web history image exceeds size limit.");
+    }
+    const extension =
+      dataImage.type === "image/jpeg"
+        ? "jpg"
+        : dataImage.type === "image/webp"
+          ? "webp"
+          : dataImage.type.slice(6);
+    return {
+      data: dataImage.data,
+      name: reference.fileName.endsWith(`.${extension}`)
+        ? reference.fileName
+        : `${reference.fileName}.${extension}`,
+      type: dataImage.type,
+      url: reference.imageUrl,
+    };
+  }
+
   const storageReference = parseStorageImageUrl(reference.imageUrl);
   if (storageReference) {
     assertAllowedStorageReference(storageReference);

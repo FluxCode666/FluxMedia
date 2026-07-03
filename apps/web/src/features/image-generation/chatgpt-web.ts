@@ -4,7 +4,7 @@ import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { parseImageSize } from "./resolution";
 import {
   downloadWebHistoryImageReference,
-  getLatestWebHistoryImageReference,
+  getRecentWebHistoryImageReferences,
 } from "./web-history-references";
 import type {
   ApiConfig,
@@ -1928,6 +1928,22 @@ async function downloadImageOutputs(
 // 产出几乎一样的图。进程内即可:线上正常流量全打主副本(3308),备副本仅 failover 启用。
 const inflightWebContinuations = new Set<string>();
 
+// 非原生续接(换号/开新会话)时,把最近若干历史图(assistant 生成图 + 用户上传参考图)下成
+// 附件重新带上,弥补 ChatGPT 会话上下文丢失。下载失败的单张跳过,不阻断整轮。
+async function downloadRecentWebHistoryImages(
+  history: ChatHistoryMessage[] | undefined,
+  signal: AbortSignal,
+  limit = 3
+): Promise<ImageInputFile[]> {
+  const references = getRecentWebHistoryImageReferences(history, { limit });
+  const downloaded = await Promise.all(
+    references.map((reference) =>
+      downloadWebHistoryImageReference(reference, { signal }).catch(() => null)
+    )
+  );
+  return downloaded.filter((image): image is ImageInputFile => image !== null);
+}
+
 async function runWebImage(
   config: ApiConfig,
   params: WebImageParams,
@@ -1954,15 +1970,14 @@ async function runWebImage(
         claimedWebConversationId = continuation.conversationId;
       }
     }
-    const historyReference = continuation?.useNativeContinuation
-      ? null
-      : getLatestWebHistoryImageReference(params.history);
     const prompt = applyImageSizePrompt(getPrompt(params), params.size);
-    const historyImage = historyReference
-      ? await downloadWebHistoryImageReference(historyReference, {
-          signal: abortController.signal,
-        })
-      : null;
+    // 原生续接时 ChatGPT 会话已含历史图,不重复附;换号/新会话时把最近历史图(含用户上传)带上。
+    const historyImages = continuation?.useNativeContinuation
+      ? []
+      : await downloadRecentWebHistoryImages(
+          params.history,
+          abortController.signal
+        );
     const references = [
       ...(await Promise.all(
         images.map((image, index) =>
@@ -1971,22 +1986,22 @@ async function runWebImage(
           })
         )
       )),
-      ...(historyImage
-        ? [
-            await uploadAttachment(
-              configWithSignal,
-              historyImage,
-              images.length + 1,
-              { image: true }
-            ),
-          ]
-        : []),
+      ...(await Promise.all(
+        historyImages.map((image, index) =>
+          uploadAttachment(
+            configWithSignal,
+            image,
+            images.length + index + 1,
+            { image: true }
+          )
+        )
+      )),
       ...(await Promise.all(
         (params.files || []).map((file, index) =>
           uploadAttachment(
             configWithSignal,
             file,
-            images.length + (historyImage ? 1 : 0) + index + 1
+            images.length + historyImages.length + index + 1
           )
         )
       )),
@@ -2208,37 +2223,36 @@ async function runWebChat(
     }
     // 网页对话:发用户原始消息(不用图像优化后的 apiPrompt),不注入 picture_v2。
     const prompt = params.prompt;
-    // 续接同一会话时上下文已在会话内,不重复附历史参考图;新会话带最近生成图。
-    const historyReference = continuation?.useNativeContinuation
-      ? null
-      : getLatestWebHistoryImageReference(params.history);
-    const historyImage = historyReference
-      ? await downloadWebHistoryImageReference(historyReference, {
-          signal: abortController.signal,
-        })
-      : null;
+    // 续接同一会话时上下文已在会话内,不重复附;换号/新会话时带最近历史图(含用户上传参考图),
+    // 覆盖"上一轮纯文字、参考图是用户上传"的换号丢图场景。
+    const historyImages = continuation?.useNativeContinuation
+      ? []
+      : await downloadRecentWebHistoryImages(
+          params.history,
+          abortController.signal
+        );
     const references = [
       ...(await Promise.all(
         images.map((image, index) =>
           uploadAttachment(configWithSignal, image, index + 1, { image: true })
         )
       )),
-      ...(historyImage
-        ? [
-            await uploadAttachment(
-              configWithSignal,
-              historyImage,
-              images.length + 1,
-              { image: true }
-            ),
-          ]
-        : []),
+      ...(await Promise.all(
+        historyImages.map((image, index) =>
+          uploadAttachment(
+            configWithSignal,
+            image,
+            images.length + index + 1,
+            { image: true }
+          )
+        )
+      )),
       ...(await Promise.all(
         (params.files || []).map((file, index) =>
           uploadAttachment(
             configWithSignal,
             file,
-            images.length + (historyImage ? 1 : 0) + index + 1
+            images.length + historyImages.length + index + 1
           )
         )
       )),
