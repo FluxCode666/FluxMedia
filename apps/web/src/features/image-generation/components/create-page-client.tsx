@@ -105,6 +105,7 @@ import {
 } from "../resolution";
 import type { VideoPricingInfo } from "../video-operations";
 import { ImageLightbox, type LightboxGeneration } from "./image-lightbox";
+import { ChatWebPanel } from "./chat-web-panel";
 import { VideoCreatePanel } from "./video-create-panel";
 
 type RecentGeneration = {
@@ -576,6 +577,7 @@ type ActiveMode =
   | "text"
   | "image"
   | "chat"
+  | "chat-web"
   | "agent"
   | "waterfall"
   | "video";
@@ -7630,10 +7632,14 @@ export function CreatePageClient({
           </TabsTrigger>
           <TabsTrigger value="chat" disabled={!chatAllowed}>
             <MessageSquare className="h-4 w-4" />
-            {copy("Chat", "对话")}
+            {copy("chat(codex)", "chat(codex)")}
             {!chatAllowed && (
               <span className="text-[10px] text-muted-foreground">Pro</span>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="chat-web">
+            <MessageSquare className="h-4 w-4" />
+            {copy("chat(web)", "chat(web)")}
           </TabsTrigger>
           <TabsTrigger
             value="agent"
@@ -9470,6 +9476,10 @@ export function CreatePageClient({
 
         <div role="tabpanel" hidden={activeMode !== "video"} className="mt-0">
           <VideoCreatePanel recent={recent} pricing={videoPricing} />
+        </div>
+
+        <div role="tabpanel" hidden={activeMode !== "chat-web"} className="mt-0">
+          <ChatWebPanel />
         </div>
       </Tabs>
 
