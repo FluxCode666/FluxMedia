@@ -833,9 +833,13 @@ async function prepareImageConversation(
     promptOptimization?: boolean;
     continuation?: WebContinuationState | null;
     requestMessageId: string;
+    // 系统提示位:图像路径固定 ["picture_v2"](强制出图);网页对话路径传 []
+    // (不强制出图,让模型自行决定文字/出图)。缺省保持图像行为不变。
+    systemHints?: string[];
   }
 ) {
   const path = "/backend-api/f/conversation/prepare";
+  const systemHints = options.systemHints ?? ["picture_v2"];
   const response = await fetchChatGptWeb(config, path, path, {
     method: "POST",
     signal: config.signal,
@@ -861,7 +865,7 @@ async function prepareImageConversation(
       timezone_offset_min: -480,
       timezone: "Asia/Shanghai",
       conversation_mode: { kind: "primary_assistant" },
-      system_hints: ["picture_v2"],
+      system_hints: systemHints,
       partial_query: {
         id: options.requestMessageId,
         author: { role: "user" },
@@ -941,17 +945,27 @@ async function startImageGeneration(
     promptOptimization?: boolean;
     continuation?: WebContinuationState | null;
     requestMessageId: string;
+    // 见 prepareImageConversation 的 systemHints 说明。缺省 ["picture_v2"]。
+    systemHints?: string[];
   },
   references: UploadedAttachment[]
 ) {
   const path = "/backend-api/f/conversation";
+  const systemHints = options.systemHints ?? ["picture_v2"];
   const response = await fetchChatGptWeb(config, path, path, {
     method: "POST",
     signal: config.signal,
     headers: imageHeaders(config, path, requirements, conduitToken),
     body: JSON.stringify({
       action: "next",
-      messages: [buildMessage(prompt, references, options.requestMessageId)],
+      messages: [
+        buildMessage(
+          prompt,
+          references,
+          options.requestMessageId,
+          systemHints
+        ),
+      ],
       ...(options.continuation?.useNativeContinuation
         ? { conversation_id: options.continuation.conversationId }
         : {}),
@@ -964,7 +978,7 @@ async function startImageGeneration(
       timezone: "Asia/Shanghai",
       conversation_mode: { kind: "primary_assistant" },
       enable_message_followups: true,
-      system_hints: ["picture_v2"],
+      system_hints: systemHints,
       supports_buffering: true,
       supported_encodings: ["v1"],
       client_contextual_info: {
@@ -1443,6 +1457,74 @@ function latestConversationMessageIdAfter(
   );
   const latest = nodes.at(-1);
   return latest ? conversationNodeId(latest.node, latest.id) : "";
+}
+
+// ===== 网页对话(文字问答)文本抽取 =====
+//
+// WHY:图像路径注入 picture_v2 强制出图,只回图不回文字。网页对话不注入 picture_v2,模型像
+// 正常 ChatGPT 那样回文字、仅在被要求时出图。这里从会话 mapping 里抽出 assistant 的最终文字答复
+// (content_type=text/multimodal_text 的 parts),跳过 thoughts/reasoning 中间节点;并据 end_turn
+// 判定 turn 是否收尾,供轮询决定何时返回。
+
+/** 取节点内层的 message 对象(节点可能直接是 message,也可能包一层 {message})。 */
+function nodeMessageObject(node: unknown): Record<string, unknown> | null {
+  if (!isRecord(node)) return null;
+  if (isRecord(node.message)) return node.message;
+  if (isRecord(node.content) && isRecord(node.author)) return node;
+  return null;
+}
+
+/** 节点的 author.role(user/assistant/tool/system)。 */
+function nodeAuthorRole(node: unknown): string {
+  const message = nodeMessageObject(node);
+  const author = message && isRecord(message.author) ? message.author : null;
+  return author && typeof author.role === "string" ? author.role : "";
+}
+
+/**
+ * 节点的文字内容:仅 content_type=text/multimodal_text 的字符串 parts 拼接;
+ * thoughts/reasoning/code 等非最终答复内容返回空。
+ */
+function nodeTextContent(node: unknown): string {
+  const message = nodeMessageObject(node);
+  const content = message && isRecord(message.content) ? message.content : null;
+  if (!content) return "";
+  const type =
+    typeof content.content_type === "string" ? content.content_type : "";
+  if (type !== "text" && type !== "multimodal_text") return "";
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  return parts
+    .filter((part): part is string => typeof part === "string")
+    .join("")
+    .trim();
+}
+
+/** turn 是否已收尾(最终 assistant 文字节点带 end_turn=true)。 */
+function nodeEndTurn(node: unknown): boolean {
+  const message = nodeMessageObject(node);
+  return Boolean(message && message.end_turn === true);
+}
+
+/**
+ * 从 requestMessageId 之后的节点里抽出 assistant 最终文字答复。
+ * text:最后一条 assistant text 节点的内容(定稿答复);complete:该 turn 是否已 end_turn 收尾。
+ */
+function extractAssistantAnswer(
+  conversationText: string,
+  requestMessageId: string
+): { text: string; complete: boolean } {
+  let text = "";
+  let complete = false;
+  for (const { node } of conversationNodesAfterMessage(
+    conversationText,
+    requestMessageId
+  )) {
+    if (nodeAuthorRole(node) !== "assistant") continue;
+    const part = nodeTextContent(node);
+    if (part) text = part;
+    if (part && nodeEndTurn(node)) complete = true;
+  }
+  return { text, complete };
 }
 
 /**
@@ -2028,6 +2110,258 @@ export async function editImageWithChatGptWeb(
   return runWebImage(config, params, params.images);
 }
 
+// ===== 网页对话(文字问答 + 按需出图)=====
+//
+// WHY:chat(web) tab 是"真正的网页对话"——用户问"这是什么"要回文字,说"画一只猫"才出图,
+// 而图像路径(runWebImage)注入 picture_v2 强制出图、返回值只有图,问文字也会硬出图。
+// 这里不注入 picture_v2,发用户原始消息,轮询会话抽 assistant 最终文字答复;若模型自发出图
+// 则一并抽图下载。返回 { responseText?, imageBase64?, imageOutputs?, webConversation }。
+// 复用图像路径的 PoW/Sentinel/上传/续接/下载链路,仅 system_hints 与结果抽取不同。
+
+const WEB_CHAT_POLL_TIMEOUT_MS = 180_000;
+const WEB_CHAT_STALL_MS = 45_000;
+
+/**
+ * 轮询会话直到 assistant turn 收尾(或长时间停滞/超时),抽出文字答复与"是否出了图"。
+ * WHY 轮询而非解析 SSE:web SSE 是 o/v 增量协议,直接拼文本易错;轮询 mapping 取定稿节点更稳,
+ * 且兼容 thinking 模型的异步交接(提交前会话短暂 404)。
+ */
+async function pollWebChatResult(
+  config: ApiConfig,
+  conversationId: string,
+  requestMessageId: string,
+  signal?: AbortSignal
+): Promise<{ responseText: string; hasImage: boolean; parentMessageId: string }> {
+  const deadline = Date.now() + WEB_CHAT_POLL_TIMEOUT_MS;
+  let bestText = "";
+  let hasImage = false;
+  let parentMessageId = "";
+  let lastText = "";
+  let stableSince = 0;
+  while (Date.now() < deadline) {
+    throwIfAborted(signal);
+    let text: string;
+    try {
+      text = await getConversationText(config, conversationId, signal);
+    } catch {
+      // 交接期瞬时 404/inaccessible 视为未就绪继续轮询;真 abort/超时上抛。
+      throwIfAborted(signal);
+      await sleep(IMAGE_POLL_INTERVAL_MS);
+      continue;
+    }
+    const answer = extractAssistantAnswer(text, requestMessageId);
+    if (answer.text) bestText = answer.text;
+    if (imageCandidatesAfterMessage(text, requestMessageId).length) {
+      hasImage = true;
+    }
+    const latestParent = latestConversationMessageIdAfter(
+      text,
+      requestMessageId
+    );
+    if (latestParent) parentMessageId = latestParent;
+    // turn 收尾即定稿返回(文字答复到手;若也出了图,hasImage 已置位)。
+    if (answer.complete) {
+      return { responseText: answer.text, hasImage, parentMessageId };
+    }
+    // fail-safe:会话内容长时间不变但未标 end_turn(偶发未回收的 turn),用已抽到的文本收尾。
+    if (text === lastText) {
+      if (!stableSince) {
+        stableSince = Date.now();
+      } else if (
+        Date.now() - stableSince >= WEB_CHAT_STALL_MS &&
+        (bestText || hasImage)
+      ) {
+        return { responseText: bestText, hasImage, parentMessageId };
+      }
+    } else {
+      stableSince = 0;
+      lastText = text;
+    }
+    await sleep(IMAGE_POLL_INTERVAL_MS);
+  }
+  return { responseText: bestText, hasImage, parentMessageId };
+}
+
+async function runWebChat(
+  config: ApiConfig,
+  params: WebImageParams,
+  images: ImageInputFile[]
+): Promise<GenerateImageResult> {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 20 * 60 * 1000);
+  let claimedWebConversationId: string | null = null;
+  try {
+    const configWithSignal = { ...config, signal: abortController.signal };
+    const requestMessageId = randomUUID();
+    let continuation = lastWebConversationState(
+      params.history,
+      config.backend?.id
+    );
+    // 并发互斥:同会话被在飞请求占用则本轮改开新对话(同图像路径逻辑)。
+    if (continuation?.useNativeContinuation && continuation.conversationId) {
+      if (inflightWebContinuations.has(continuation.conversationId)) {
+        continuation = null;
+      } else {
+        inflightWebContinuations.add(continuation.conversationId);
+        claimedWebConversationId = continuation.conversationId;
+      }
+    }
+    // 网页对话:发用户原始消息(不用图像优化后的 apiPrompt),不注入 picture_v2。
+    const prompt = params.prompt;
+    // 续接同一会话时上下文已在会话内,不重复附历史参考图;新会话带最近生成图。
+    const historyReference = continuation?.useNativeContinuation
+      ? null
+      : getLatestWebHistoryImageReference(params.history);
+    const historyImage = historyReference
+      ? await downloadWebHistoryImageReference(historyReference, {
+          signal: abortController.signal,
+        })
+      : null;
+    const references = [
+      ...(await Promise.all(
+        images.map((image, index) =>
+          uploadAttachment(configWithSignal, image, index + 1, { image: true })
+        )
+      )),
+      ...(historyImage
+        ? [
+            await uploadAttachment(
+              configWithSignal,
+              historyImage,
+              images.length + 1,
+              { image: true }
+            ),
+          ]
+        : []),
+      ...(await Promise.all(
+        (params.files || []).map((file, index) =>
+          uploadAttachment(
+            configWithSignal,
+            file,
+            images.length + (historyImage ? 1 : 0) + index + 1
+          )
+        )
+      )),
+    ];
+    const requirements = await getChatRequirements(configWithSignal);
+    const options = {
+      gptModel: params.gptModel,
+      thinking: params.thinking,
+      promptOptimization: params.promptOptimization,
+      continuation,
+      requestMessageId,
+      systemHints: [] as string[],
+    };
+    const conduitToken = await prepareImageConversation(
+      configWithSignal,
+      prompt,
+      requirements,
+      options
+    );
+    const response = await startImageGeneration(
+      configWithSignal,
+      prompt,
+      requirements,
+      conduitToken,
+      options,
+      references
+    );
+    const text = await readSseText(response);
+    throwIfAborted(abortController.signal);
+    const streamError = extractWebStreamError(text);
+    if (streamError) {
+      return { error: streamError };
+    }
+    const conversationId = extractConversationId(text);
+    if (!conversationId) {
+      return { error: "ChatGPT Web chat returned no conversation" };
+    }
+    const chat = await pollWebChatResult(
+      configWithSignal,
+      conversationId,
+      requestMessageId,
+      abortController.signal
+    );
+    let parentMessageId = chat.parentMessageId || extractLastMessageId(text);
+    let imageOutputs: NonNullable<GenerateImageResult["imageOutputs"]> = [];
+    if (chat.hasImage) {
+      const resolved = await resolveImageCandidateUrls(
+        configWithSignal,
+        conversationId,
+        extractImageIds(text),
+        requestMessageId,
+        abortController.signal
+      );
+      imageOutputs = await downloadImageOutputs(
+        configWithSignal,
+        resolved.outputs,
+        abortController.signal
+      );
+      parentMessageId = resolved.parentMessageId || parentMessageId;
+    }
+    const responseText = chat.responseText?.trim() || "";
+    if (!responseText && !imageOutputs.length) {
+      return { error: "ChatGPT Web chat returned no response" };
+    }
+    if (conversationId && !parentMessageId) {
+      parentMessageId = latestConversationMessageId(
+        await getConversationText(
+          configWithSignal,
+          conversationId,
+          abortController.signal
+        )
+      );
+    }
+    return {
+      ...(responseText ? { responseText } : {}),
+      ...(imageOutputs[0]?.imageBase64
+        ? {
+            imageBase64: imageOutputs[0].imageBase64,
+            imageOutputs,
+            imageOutputCount: imageOutputs.length,
+          }
+        : {}),
+      ...(conversationId && parentMessageId
+        ? {
+            webConversation: {
+              conversationId,
+              parentMessageId,
+              accountId: config.backend?.id,
+              apiKeyId: config.backend?.apiKeyId,
+            },
+          }
+        : {}),
+    };
+  } catch (error) {
+    logError(error, {
+      source: "chatgpt-web-chat",
+      backendId: config.backend?.id,
+      requestKind: config.backend?.requestKind,
+    });
+    return {
+      error:
+        error instanceof Error ? error.message : "ChatGPT Web chat failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+    if (claimedWebConversationId) {
+      inflightWebContinuations.delete(claimedWebConversationId);
+    }
+  }
+}
+
+/**
+ * 网页对话入口(chat(web) 文字轮次)。text-capable:回文字,模型自发出图时一并返回图。
+ * 与 generateImageWithChatGptWeb 的差别:不强制出图、允许 text-only 结果。
+ */
+export async function chatWithChatGptWeb(
+  config: ApiConfig,
+  params: WebImageParams,
+  images: ImageInputFile[] = []
+) {
+  return runWebChat(config, params, images);
+}
+
 export async function selectChatGptWebImageCandidate(params: {
   config: ApiConfig;
   conversationId: string;
@@ -2542,4 +2876,5 @@ export const __testing__ = {
   scopedConversationTextAfterMessage,
   extractEditableArtifacts,
   editableFilePrompt,
+  extractAssistantAnswer,
 };

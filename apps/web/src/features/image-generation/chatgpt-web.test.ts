@@ -308,3 +308,67 @@ describe("ChatGPT Web editable file (ppt/psd)", () => {
     expect(empty).not.toContain("以下是用户补充需求");
   });
 });
+
+describe("ChatGPT Web chat (text answer extraction)", () => {
+  it("extracts the finalized assistant text and marks the turn complete", () => {
+    const conversation = {
+      current_node: "answer_1",
+      mapping: {
+        request_1: { id: "request_1", create_time: 100, children: ["think_1"] },
+        think_1: {
+          id: "think_1",
+          parent: "request_1",
+          create_time: 101,
+          children: ["answer_1"],
+          message: {
+            id: "think_1",
+            author: { role: "assistant" },
+            content: { content_type: "thoughts", parts: ["让我想想"] },
+          },
+        },
+        answer_1: {
+          id: "answer_1",
+          parent: "think_1",
+          create_time: 102,
+          message: {
+            id: "answer_1",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["这是", "一只猫。"] },
+            end_turn: true,
+          },
+        },
+      },
+    };
+    const result = __testing__.extractAssistantAnswer(
+      JSON.stringify(conversation),
+      "request_1"
+    );
+    // thoughts 节点被跳过;只取最终 text 节点,且 end_turn=true → complete。
+    expect(result).toEqual({ text: "这是一只猫。", complete: true });
+  });
+
+  it("returns text without complete while the turn is still streaming", () => {
+    const conversation = {
+      current_node: "answer_1",
+      mapping: {
+        request_1: { id: "request_1", create_time: 100, children: ["answer_1"] },
+        answer_1: {
+          id: "answer_1",
+          parent: "request_1",
+          create_time: 101,
+          message: {
+            id: "answer_1",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["部分回答"] },
+            end_turn: null,
+          },
+        },
+      },
+    };
+    const result = __testing__.extractAssistantAnswer(
+      JSON.stringify(conversation),
+      "request_1"
+    );
+    expect(result).toEqual({ text: "部分回答", complete: false });
+  });
+});

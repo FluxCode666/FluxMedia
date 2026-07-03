@@ -3854,6 +3854,8 @@ export function CreatePageClient({
         // chat(web):强制优先 web 后端(ChatGPT 网页会话);web 也能处理图引用/编辑,
         // 故不走 requires_responses_backend(那会强制 codex/responses)。
         formData.append("mix_web_first", "true");
+        // 网页对话("对话"kind):走 text-capable 路径(回文字、按需出图),而非强制出图。
+        formData.append("web_chat", "true");
       } else if (agentMode || hasPromptImageReference(prompt)) {
         formData.append("requires_responses_backend", "true");
       } else if (chatMixWebFirstActive) {

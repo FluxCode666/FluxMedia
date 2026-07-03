@@ -156,6 +156,7 @@ type RunImageGenerationInput =
       forceWebBackend?: boolean;
       forceFirefly?: boolean;
       requiresResponsesBackend?: boolean;
+      webChat?: boolean;
     } & ChatImageParams);
 
 const DEFAULT_FORCE_WEB_MIN_PIXELS = 660_000;
@@ -2266,6 +2267,7 @@ async function runQueuedImageGenerationForUser({
               rawResponsesBody: input.rawResponsesBody,
               mixWebFirst,
               requiresResponsesBackend: input.requiresResponsesBackend,
+              webChat: input.webChat,
             },
             generationCallbacks
           )
