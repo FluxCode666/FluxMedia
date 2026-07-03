@@ -2845,6 +2845,10 @@ export function CreatePageClient({
   const chatRoundCreditCost = applyBillingMultiplier(
     capabilities.billing.chatRoundCredits
   );
+  // chat(web) 选了 PPT/PSD:走可编辑文件生成(固定 gpt-5-5-thinking + 代码解释器),
+  // 图像那套控件(模型/思考/背景/透明/高清修复/生成式修复/尺寸/提示词优化)全不适用,隐藏。
+  const chatWebFileMode =
+    activeMode === "chat-web" && chatWebGenKind !== "image";
   const agentRoundCreditCost = applyBillingMultiplier(
     capabilities.billing.agentRoundCredits
   );
@@ -5470,6 +5474,8 @@ export function CreatePageClient({
           </div>
         )}
 
+        {!chatWebFileMode && (
+          <>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {renderGptModelSelect({
             id: "chat-gpt-model",
@@ -5636,15 +5642,17 @@ export function CreatePageClient({
             isChatGenerating
           )}
         </div>
+          </>
+        )}
 
         {activeMode === "chat-web" && (
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              {copy("Generate", "生成")}:
+              {copy("Mode", "模式")}:
             </span>
             {(
               [
-                { value: "image", en: "Image", zh: "图像" },
+                { value: "image", en: "Chat", zh: "对话" },
                 { value: "ppt", en: "PPT", zh: "PPT" },
                 { value: "psd", en: "PSD", zh: "PSD" },
               ] as const
@@ -8769,7 +8777,9 @@ export function CreatePageClient({
                   )}
                   {activeMode === "agent"
                     ? copy("Agent mode", "Agent 模式")
-                    : copy("Chat mode", "对话模式")}
+                    : activeMode === "chat-web"
+                      ? copy("Web chat", "网页对话")
+                      : copy("Chat mode", "对话模式")}
                 </div>
                 <p className="mt-1 max-w-xl text-xs text-muted-foreground">
                   {activeMode === "agent"
@@ -8777,10 +8787,15 @@ export function CreatePageClient({
                         "Codex-style agent mode can search, read attached files, use tools, and show the run process.",
                         "Codex 风格 Agent 模式可联网、读取附件、调用工具，并展示运行过程。"
                       )
-                    : copy(
-                        "Original chat mode keeps conversation context for text/image creation without forcing agent tools.",
-                        "原对话模式保留上下文进行文字/图片创作，不强制注入 Agent 工具。"
-                      )}
+                    : activeMode === "chat-web"
+                      ? copy(
+                          "Web conversation over ChatGPT web accounts — keeps context for text/image creation, and can generate editable PPT/PSD in the same chat.",
+                          "网页对话(基于 ChatGPT 网页账号):保留上下文进行文字/图片创作,并可在同一对话里生成可编辑 PPT/PSD。"
+                        )
+                      : copy(
+                          "Original chat mode keeps conversation context for text/image creation without forcing agent tools.",
+                          "原对话模式保留上下文进行文字/图片创作,不强制注入 Agent 工具。"
+                        )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
