@@ -6379,10 +6379,13 @@ export function CreatePageClient({
     }
 
     const attachmentPreviews = attachments.map((item) => ({
-      id: item.sourceId || item.previewUrl || item.file.name,
+      id: item.sourceId || item.file.name,
       name: item.file.name,
-      previewUrl:
-        item.kind === "image" ? URL.createObjectURL(item.file) : undefined,
+      // 复用附件已算好的持久 data URL(chatAttachments 在 readFileAsDataUrl 时生成);
+      // 不要用 URL.createObjectURL 重造 blob: URL——blob 只在当前页面存活,持久化到会话
+      // 记录后刷新即失效(参考图消失),且 getMessageImageUrls 只收 data:/http(s) 会把它
+      // 滤掉,导致后续轮次历史也拿不到用户上传的参考图。
+      previewUrl: item.kind === "image" ? item.previewUrl : undefined,
       kind: item.kind,
     }));
 
