@@ -4860,7 +4860,7 @@ function RouteDiagram({
               {flow.entries.map((entry) => (
                 <div
                   className="rounded-md border bg-background p-3"
-                  key={entry.path}
+                  key={`${entry.path}:${entry.kind}:${entry.label}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{entry.label}</span>
