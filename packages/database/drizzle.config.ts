@@ -1,5 +1,11 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
+
+// drizzle-kit 经 pnpm --filter 执行时会把 cwd 切到 packages/database；环境文件是
+// monorepo 根目录的部署配置，必须从当前配置文件的位置推导，不能依赖 cwd。
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 // 检测测试环境 (通过命令行参数或环境变量)
 const isTestEnv =
@@ -7,11 +13,11 @@ const isTestEnv =
 
 // 根据环境加载对应的环境变量文件
 if (isTestEnv) {
-  dotenv.config({ path: ".env.test" });
+  dotenv.config({ path: resolve(projectRoot, ".env.test") });
 } else {
   // 加载环境变量 (优先 .env.local，其次 .env)
-  dotenv.config({ path: ".env.local" });
-  dotenv.config({ path: ".env" });
+  dotenv.config({ path: resolve(projectRoot, ".env.local") });
+  dotenv.config({ path: resolve(projectRoot, ".env") });
 }
 
 // 确保环境变量存在 (drizzle-kit 命令运行时检查)
