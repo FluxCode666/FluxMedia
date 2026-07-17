@@ -89,11 +89,56 @@ function toOpenAIModel(id: string): OpenAIModel {
   };
 }
 
+/**
+ * 合并各模型来源并按首次出现顺序去重。
+ *
+ * @param modelGroups - 套餐内置模型、Firefly 模型和供应商配置模型等来源。
+ * @returns 可安全编码为 OpenAI List models 响应的唯一模型 ID 列表。
+ */
+export function mergeExternalModelIds(...modelGroups: string[][]): string[] {
+  const seen = new Set<string>();
+  const modelIds: string[] = [];
+  for (const modelGroup of modelGroups) {
+    for (const modelId of modelGroup) {
+      const normalized = modelId.trim();
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      modelIds.push(normalized);
+    }
+  }
+  return modelIds;
+}
+
+/**
+ * 读取管理员在 API 后端供应商上声明、可公开列出的模型 ID。
+ *
+ * 延迟加载池服务，避免模型列表的纯函数测试在未实际调用数据库时加载完整调度器。
+ *
+ * @returns 已启用供应商的去重模型 ID 列表。
+ */
+async function listConfiguredApiModelIds(): Promise<string[]> {
+  const { listEnabledImageBackendApiModelIds } = await import(
+    "@/features/image-backend-pool/service"
+  );
+  return listEnabledImageBackendApiModelIds();
+}
+
+/**
+ * 按当前用户套餐与供应商配置生成 OpenAI 兼容模型列表。
+ *
+ * @param userId - 已由外部 API Key 鉴权得到的用户 ID。
+ * @returns 仅包含当前套餐可见模型和已启用供应商模型的 OpenAI List models 响应。
+ */
 export async function getExternalModelsForUser(
   userId: string
 ): Promise<OpenAIModelList> {
   const plan = await getUserPlan(userId);
-  const capabilities = await getPlanCapabilitySnapshot(plan.plan);
+  const [capabilities, configuredApiModels] = await Promise.all([
+    getPlanCapabilitySnapshot(plan.plan),
+    listConfiguredApiModelIds(),
+  ]);
   const imageModels = [DEFAULT_IMAGE_MODEL];
   const fireflyModels = getExternalFireflyModels({
     imageGenerateAllowed: capabilities.features["externalApi.images.generate"],
@@ -107,13 +152,12 @@ export async function getExternalModelsForUser(
     responsesAllowed: capabilities.features["externalApi.responses"],
     gpt55Allowed: capabilities.features["models.gpt55"],
   });
-  const modelIds = Array.from(
-    new Set([
-      ...imageModels,
-      ...fireflyModels,
-      ...chatModels,
-      ...responsesModels,
-    ])
+  const modelIds = mergeExternalModelIds(
+    imageModels,
+    fireflyModels,
+    chatModels,
+    responsesModels,
+    configuredApiModels
   );
   return {
     object: "list",

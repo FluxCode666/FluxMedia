@@ -53,6 +53,7 @@ const schemaMock = vi.hoisted(() => {
       "baseUrl",
       "apiKey",
       "model",
+      "supportedModelIds",
       "interfaceMode",
       "chatCompletionsUpstreamMode",
       "imageUpstreamMode",
@@ -319,7 +320,9 @@ const dbMock = vi.hoisted(() => {
             }
           }
           rows = rows.map((row) =>
-            row.id === id ? { ...row, lastAcquiredAt: lockedLastAcquiredAt } : row
+            row.id === id
+              ? { ...row, lastAcquiredAt: lockedLastAcquiredAt }
+              : row
           );
         }
       }
@@ -505,6 +508,35 @@ function makeAccount(index: number) {
     lastAcquiredAt: null,
     createdAt: new Date(2026, 0, index),
     metadata: null,
+  };
+}
+
+/** 构造可被池调度器选择的 API 后端测试行。 */
+function makeApi(index: number, overrides: Row = {}) {
+  return {
+    matchedGroupId: "group-a",
+    id: `api-${index}`,
+    groupId: null,
+    name: `API ${index}`,
+    baseUrl: "https://api.example.test/v1",
+    apiKey: `api-key-${index}`,
+    model: null,
+    supportedModelIds: [],
+    interfaceMode: "mixed",
+    chatCompletionsUpstreamMode: "responses",
+    imageUpstreamMode: "images",
+    parameterMappings: [],
+    useStream: false,
+    adobeSourced: false,
+    billingMultiplier: 1,
+    contentSafetyEnabled: true,
+    priority: 10,
+    concurrency: 10,
+    lastUsedAt: null,
+    lastAcquiredAt: null,
+    createdAt: new Date(2026, 0, index),
+    metadata: null,
+    ...overrides,
   };
 }
 
@@ -1233,7 +1265,9 @@ describe("image backend pool scheduler selection", () => {
   });
 
   it.each([
-    ["Upstream Responses API returned HTTP 500: 没有可用token | invalid_request_error"],
+    [
+      "Upstream Responses API returned HTTP 500: 没有可用token | invalid_request_error",
+    ],
     ["Upstream Responses API returned HTTP 502: HTML response body. Check ..."],
   ])("marks dead-relay errors as error (sticky out): %s", async (errText) => {
     await reportImageBackendResult({
@@ -1246,7 +1280,10 @@ describe("image backend pool scheduler selection", () => {
     const update = dbMock.state.updates.find(
       (item) => item.tableName === "image_backend_api"
     );
-    expect(update?.values).toMatchObject({ status: "error", cooldownUntil: null });
+    expect(update?.values).toMatchObject({
+      status: "error",
+      cooldownUntil: null,
+    });
   });
 
   it("keeps an errored API out: a later success does not reactivate it", async () => {
@@ -1403,6 +1440,30 @@ describe("image backend pool scheduler selection", () => {
     });
   });
 
+  it("仅把已声明支持请求模型的 API 后端纳入调度", async () => {
+    dbMock.state.accounts = [];
+    dbMock.state.adobes = [];
+    dbMock.state.apis = [
+      makeApi(1, {
+        priority: 1,
+        supportedModelIds: ["nano-banana-pro"],
+      }),
+      makeApi(2, {
+        priority: 2,
+        supportedModelIds: ["grok-imagine-image"],
+      }),
+    ];
+
+    const result = await resolveImageBackendPoolConfig({
+      userId: "user-a",
+      requestKind: "image_generation",
+      requestedModel: "GROK-IMAGINE-IMAGE",
+    });
+
+    expect(result?.memberType).toBe("api");
+    expect(result?.memberId).toBe("api-2");
+  });
+
   // adobe 作为特殊 firefly account 成员参与分组调度的路由语义。
   describe("adobe firefly group-based routing", () => {
     beforeEach(() => {
@@ -1423,14 +1484,18 @@ describe("image backend pool scheduler selection", () => {
         requestKind: "image_generation",
       });
 
-      const picked = [first, second].map((r) => `${r?.memberType}:${r?.memberId}`);
+      const picked = [first, second].map(
+        (r) => `${r?.memberType}:${r?.memberId}`
+      );
       // 两个候选都被选中(并发各 1),证明 adobe 与 account 同池参与,adobe 未被排除。
       expect(picked).toContain("account:acct-1");
       expect(picked).toContain("adobe:adobe-1");
     });
 
     it("低优先级 adobe 仅作兜底:account 优先,account 饱和后才落 adobe", async () => {
-      dbMock.state.accounts = [{ ...makeAccount(1), priority: 1, concurrency: 1 }];
+      dbMock.state.accounts = [
+        { ...makeAccount(1), priority: 1, concurrency: 1 },
+      ];
       dbMock.state.adobes = [makeAdobe(1, { priority: 50 })];
 
       const first = await resolveImageBackendPoolConfig({
@@ -1476,7 +1541,7 @@ describe("image backend pool scheduler selection", () => {
       ).resolves.toBeNull();
     });
 
-    it("firefly-* 模型只有 adobe 是候选(account 被排除)", async () => {
+    it("firefly-* 模型仅保留 Adobe 语义候选(account 被排除)", async () => {
       dbMock.state.accounts = [{ ...makeAccount(1), priority: 1 }];
       dbMock.state.adobes = [makeAdobe(1, { priority: 50 })];
 
@@ -1488,6 +1553,31 @@ describe("image backend pool scheduler selection", () => {
 
       expect(result?.memberType).toBe("adobe");
       expect(result?.memberId).toBe("adobe-1");
+    });
+
+    it("firefly-* 排除普通 API，但 Adobe 来源 API 仍按优先级参与", async () => {
+      dbMock.state.accounts = [{ ...makeAccount(1), priority: 1 }];
+      dbMock.state.apis = [
+        makeApi(1, {
+          priority: 1,
+          supportedModelIds: ["firefly-nano-banana-pro"],
+        }),
+        makeApi(2, {
+          priority: 2,
+          adobeSourced: true,
+          supportedModelIds: ["firefly-nano-banana-pro"],
+        }),
+      ];
+      dbMock.state.adobes = [makeAdobe(1, { priority: 50 })];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "firefly-nano-banana-pro",
+      });
+
+      expect(result?.memberType).toBe("api");
+      expect(result?.memberId).toBe("api-2");
     });
 
     it("把 fireflyOnly 盖在解析结果 config 上(供换号重试保持只走 Adobe)", async () => {

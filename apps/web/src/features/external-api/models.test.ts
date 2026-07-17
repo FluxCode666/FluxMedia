@@ -93,3 +93,16 @@ describe("getExternalChatCompletionModels", () => {
     );
   });
 });
+
+describe("mergeExternalModelIds", () => {
+  it("adds configured supplier model IDs without case-insensitive duplicates", async () => {
+    const { mergeExternalModelIds } = await loadModels();
+    expect(
+      mergeExternalModelIds(
+        ["gpt-image-2"],
+        ["nano-banana-pro", "GROK-IMAGINE-IMAGE"],
+        ["grok-imagine-image"]
+      )
+    ).toEqual(["gpt-image-2", "nano-banana-pro", "GROK-IMAGINE-IMAGE"]);
+  });
+});

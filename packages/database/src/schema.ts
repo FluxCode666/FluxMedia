@@ -894,6 +894,12 @@ export const imageBackendApi = pgTable("image_backend_api", {
   baseUrl: text("base_url").notNull(),
   apiKey: text("api_key").notNull(),
   model: text("model"),
+  // 供应商明确支持、可对外公布的模型 ID。空数组代表旧配置未声明能力，运行时保持
+  // 不限模型兼容；一旦配置非空，调度器只向该 API 后端发送列表内模型。
+  supportedModelIds: json("supported_model_ids")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
   interfaceMode: text("interface_mode").notNull().default("images"),
   useStream: boolean("use_stream").notNull().default(false),
   chatCompletionsUpstreamMode: text("chat_completions_upstream_mode")

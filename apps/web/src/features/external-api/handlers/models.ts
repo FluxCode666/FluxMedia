@@ -1,9 +1,10 @@
 import { withApiLogging } from "@repo/shared/api-logger";
+import { invokeOperation, OperationError } from "@repo/shared/uol";
 import { type NextRequest, NextResponse } from "next/server";
 
-import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
-import { getExternalModelsForUser } from "@/features/external-api/models";
+import type { OpenAIModelList } from "@/features/external-api/models";
+import { ensureUolInitialized } from "@/server/uol-init";
 
 function openAIError(message: string, status = 400, code?: string) {
   return NextResponse.json(
@@ -24,18 +25,32 @@ export const getExternalModels = withApiLogging(
     if (!auth) {
       return openAIError("Invalid or missing API key", 401, "invalid_api_key");
     }
-    if (!(await canUsePlanCapability(auth.plan, "externalApi.models.list"))) {
-      return openAIError(
-        "External API model listing is not enabled for this plan.",
-        403,
-        "insufficient_plan"
+    try {
+      await ensureUolInitialized();
+      const models = await invokeOperation<OpenAIModelList>(
+        "externalApi.getModels",
+        {},
+        {
+          type: "apiKey",
+          userId: auth.userId,
+          apiKeyId: auth.apiKeyId,
+          plan: auth.plan,
+          relayOnly: auth.relayOnly,
+        }
       );
+      return NextResponse.json(models, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (error) {
+      if (error instanceof OperationError) {
+        if (error.code === "capability_required") {
+          return openAIError(error.message, 403, "insufficient_plan");
+        }
+        return openAIError(error.message, error.httpStatus, error.code);
+      }
+      throw error;
     }
-
-    return NextResponse.json(await getExternalModelsForUser(auth.userId), {
-      headers: {
-        "Cache-Control": "no-store",
-      },
-    });
   }
 );

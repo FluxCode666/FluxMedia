@@ -35,6 +35,7 @@
     "./generation-settlement": "./src/generation-settlement.ts",
     "./image-backend/nested-groups": "./src/image-backend/nested-groups.ts",
     "./image-backend/request-parameter-mapping": "./src/image-backend/request-parameter-mapping.ts",
+    "./image-backend/supported-models": "./src/image-backend/supported-models.ts",
     "./storage": "./src/storage/index.ts",
     "./storage/image-url": "./src/storage/image-url.ts",
     "./storage/signed-url": "./src/storage/signed-url.ts",

@@ -367,7 +367,7 @@ const sections = {
           path: "/v1/models",
           contentType: "无请求体",
           description:
-            "兼容 OpenAI List models，列出当前 API Key 所属用户可见的图片模型与 Responses 模型：默认图片模型、Adobe Firefly 图像族 id、Firefly 视频模型 id（均受 externalApi.images.generate 门控，未开启不列出），以及当前套餐可用的 Chat/Responses 模型。",
+            "兼容 OpenAI List models，列出当前 API Key 所属用户可见的图片模型与 Responses 模型：默认图片模型、Adobe Firefly 图像族 id、Firefly 视频模型 id（均受 externalApi.images.generate 门控，未开启不列出）、当前套餐可用的 Chat/Responses 模型，以及已启用 API 供应商配置的模型 ID。",
           example: `curl https://gpt2image.superapi.buzz/v1/models \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -396,7 +396,7 @@ const sections = {
             {
               name: "data[].id",
               description:
-                "模型 ID。包含默认图片模型、Adobe Firefly 图像族 id 与 Firefly 视频模型 id（受 externalApi.images.generate 门控），以及当前套餐可用的 Chat/Responses 模型。",
+                "模型 ID。包含默认图片模型、Adobe Firefly 图像族 id 与 Firefly 视频模型 id（受 externalApi.images.generate 门控）、当前套餐可用的 Chat/Responses 模型，以及已启用 API 供应商配置的模型 ID。",
             },
             {
               name: "data[].object / created / owned_by",
@@ -406,6 +406,7 @@ const sections = {
           notes: [
             "本站当前只实现模型列表，不实现 /v1/models/{model} 详情。",
             "返回模型按套餐能力过滤：Firefly 图像/视频需 externalApi.images.generate（入门版+）；Responses 模型需 externalApi.responses（专业版+，低于则不返回）；gpt-5.5 需 models.gpt55（旗舰版，同时进 chat 与 responses 列表）；free 用户仅得默认图片模型。",
+            "API 后端的「支持的模型 ID」非空时会同时约束该供应商的调度候选；留空的历史后端不受此约束，模型列表仅回退展示其默认模型。",
           ],
         },
         {
@@ -2827,7 +2828,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           path: "/v1/models",
           contentType: "No request body",
           description:
-            "Compatible with OpenAI List models. Lists the image and Responses models visible to the current API key's user: the default image model, Adobe Firefly image-family ids and Firefly video model ids (gated by externalApi.images.generate, omitted when disabled), plus the Chat/Responses models available to the plan.",
+            "Compatible with OpenAI List models. Lists the image and Responses models visible to the current API key's user: the default image model, Adobe Firefly image-family ids and Firefly video model ids (gated by externalApi.images.generate, omitted when disabled), plan-available Chat/Responses models, and model IDs configured on enabled API providers.",
           example: `curl https://gpt2image.superapi.buzz/v1/models \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -2856,7 +2857,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             {
               name: "data[].id",
               description:
-                "Model ID. Includes the default image model, Adobe Firefly image-family ids and Firefly video model ids (gated by externalApi.images.generate), plus the Chat/Responses models available to the current plan.",
+                "Model ID. Includes the default image model, Adobe Firefly image-family ids and Firefly video model ids (gated by externalApi.images.generate), plan-available Chat/Responses models, and model IDs configured on enabled API providers.",
             },
             {
               name: "data[].object / created / owned_by",
@@ -2866,6 +2867,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           notes: [
             "Only model listing is implemented; /v1/models/{model} is not implemented.",
             "Returned models are filtered by plan capability: Firefly image/video need externalApi.images.generate (Starter+); Responses models need externalApi.responses (Pro+, empty below Pro); gpt-5.5 needs models.gpt55 (Ultra, appears in both chat and responses lists); free users get only the default image model.",
+            "A non-empty API provider supported-model list also restricts that provider's scheduler eligibility. Legacy providers with an empty list stay unrestricted and only contribute their default model to the list.",
           ],
         },
         {

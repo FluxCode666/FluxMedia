@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { requestParameterMappingsSchema } from "../../image-backend/request-parameter-mapping";
+import { supportedModelIdsSchema } from "../../image-backend/supported-models";
 import { defineOperation } from "../registry";
 
 // ---------------------------------------------------------------------------
@@ -291,6 +292,7 @@ export const saveApi = defineOperation({
     baseUrl: z.string().url(),
     apiKey: z.string().optional(),
     model: z.string().optional(),
+    supportedModelIds: supportedModelIdsSchema.optional(),
     interfaceMode: z.enum(["images", "responses", "mixed"]),
     chatCompletionsUpstreamMode: z.enum(["responses", "chat_completions"]),
     imagesUpstreamMode: z.enum(["images", "responses"]),

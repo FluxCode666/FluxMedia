@@ -18,10 +18,13 @@
 // 副作用导入：触发所有操作注册到 registry
 import "@repo/shared/uol/operations";
 
-import { bindExecute } from "@repo/shared/uol";
+import { bindExecute, OperationError } from "@repo/shared/uol";
 import type { Principal, OperationContext } from "@repo/shared/uol";
+import { normalizeSubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 
+import { getExternalModelsForUser } from "@/features/external-api/models";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
@@ -106,6 +109,37 @@ bindExecute(
 );
 
 /**
+ * externalApi.getModels - 外接 API 模型列表。
+ *
+ * 源：apps/web/src/features/external-api/models.ts。
+ * WHY：套餐能力与供应商模型列表必须经过同一 UOL 网关，避免 HTTP 路由和未来 MCP
+ * 传输在可见模型集合上产生漂移。
+ */
+bindExecute(
+  "externalApi.getModels",
+  async (
+    _input: Record<string, never>,
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "apiKey") {
+      throw new OperationError(
+        "unauthenticated",
+        "API key authentication required"
+      );
+    }
+    const plan = normalizeSubscriptionPlan(principal.plan);
+    if (!(await canUsePlanCapability(plan, "externalApi.models.list"))) {
+      throw new OperationError(
+        "capability_required",
+        "External API model listing is not enabled for this plan."
+      );
+    }
+    return getExternalModelsForUser(principal.userId);
+  }
+);
+
+/**
  * pool.saveApi - 保存第三方 API 后端。
  *
  * 源：apps/web/src/features/image-backend-pool/service.ts。
@@ -123,6 +157,7 @@ bindExecute(
       baseUrl: string;
       apiKey?: string;
       model?: string;
+      supportedModelIds?: string[];
       interfaceMode: "images" | "responses" | "mixed";
       chatCompletionsUpstreamMode: "responses" | "chat_completions";
       imagesUpstreamMode: "images" | "responses";

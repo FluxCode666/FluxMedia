@@ -5,6 +5,7 @@ import {
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
+import { supportedModelIdsSchema } from "@repo/shared/image-backend/supported-models";
 
 import {
   adminAction,
@@ -557,6 +558,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       baseUrl: z.string().trim().url(),
       apiKey: z.string().trim().optional(),
       model: z.string().trim().max(120).optional(),
+      supportedModelIds: supportedModelIdsSchema.default([]),
       interfaceMode: apiInterfaceModeSchema.default("mixed"),
       chatCompletionsUpstreamMode:
         chatCompletionsUpstreamModeSchema.default("responses"),

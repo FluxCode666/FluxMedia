@@ -26,6 +26,11 @@ import {
   normalizeRequestParameterMappings,
   type RequestParameterMapping,
 } from "@repo/shared/image-backend/request-parameter-mapping";
+import {
+  collectAdvertisedModelIds,
+  normalizeSupportedModelIds,
+  supportsRequestedModel,
+} from "@repo/shared/image-backend/supported-models";
 import { logWarn } from "@repo/shared/logger";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
@@ -131,8 +136,8 @@ type ResolveBackendOptions = {
   userId: string;
   apiKeyId?: string;
   requestKind: ImageBackendRequestKind;
-  // 请求的模型 id。adobe（Firefly）按模型前缀自动路由：firefly-* 只调度 adobe 后端，
-  // 其余模型（gpt-image 等）只调度 codex/web/api，二者互不混用。
+  // 请求的模型 ID。firefly-* 会将候选收敛到 Adobe 语义的后端；普通图像模型仍可由
+  // API、账号与 Adobe 共同调度。标记 adobeSourced 的 API 后端也可参与 Firefly 请求。
   requestedModel?: string;
   preferredMemberId?: string;
   preferredMemberType?: "api" | "account" | "adobe";
@@ -180,6 +185,7 @@ type PoolMember =
       baseUrl: string;
       apiKey: string;
       model: string | null;
+      supportedModelIds: string[];
       interfaceMode: ImageBackendApiInterfaceMode;
       chatCompletionsUpstreamMode: ChatCompletionsUpstreamMode;
       imagesUpstreamMode: ImagesUpstreamMode;
@@ -429,8 +435,8 @@ function normalizeGroupBackendType(
   return value === "web" || value === "responses" ? value : "mixed";
 }
 
-// adobe（Firefly）模型按前缀识别：所有 firefly-* 模型自动路由到 adobe 后端，其余模型
-// （gpt-image 等）只走 codex/web/api。用于调度时的成员过滤，保证二者互不混用。
+// Adobe（Firefly）模型按前缀识别：firefly-* 会排除普通 API 与账号候选，仅保留
+// Adobe 后端及 adobeSourced API 后端。普通图像模型仍允许 Adobe 参与同池调度。
 function isAdobeFireflyModelId(model?: string | null): boolean {
   return (model || "").trim().toLowerCase().startsWith("firefly-");
 }
@@ -2306,8 +2312,9 @@ async function selectPoolMember(
   capacityWaitCount = 0,
   accountPlanFilter: ImageBackendAccountPlanFilter = "any"
 ): Promise<PoolMember | null> {
-  // fireflyOnly：候选收敛到仅 adobe 的两种触发——显式 force_firefly 标志，或请求模型
-  // 本身就是 firefly-* 前缀。两者语义一致：本次只调度 adobe 后端，不混入 api/account。
+  // fireflyOnly：候选收敛到 Adobe 语义后端的两种触发——显式 force_firefly 标志，或请求模型
+  // 本身就是 firefly-* 前缀。普通 API 与账号不参与，但 adobeSourced API 仍可和 Adobe
+  // 后端共同调度。
   const fireflyOnly = forceFirefly || isAdobeFireflyModelId(requestedModel);
   const apiOnlyCustomImageModel = requiresApiBackendForCustomImageModel(
     requestKind,
@@ -2492,6 +2499,7 @@ async function selectPoolMember(
           baseUrl: imageBackendApi.baseUrl,
           apiKey: imageBackendApi.apiKey,
           model: imageBackendApi.model,
+          supportedModelIds: imageBackendApi.supportedModelIds,
           interfaceMode: imageBackendApi.interfaceMode,
           chatCompletionsUpstreamMode:
             imageBackendApi.chatCompletionsUpstreamMode,
@@ -2531,6 +2539,7 @@ async function selectPoolMember(
           baseUrl: imageBackendApi.baseUrl,
           apiKey: imageBackendApi.apiKey,
           model: imageBackendApi.model,
+          supportedModelIds: imageBackendApi.supportedModelIds,
           interfaceMode: imageBackendApi.interfaceMode,
           chatCompletionsUpstreamMode:
             imageBackendApi.chatCompletionsUpstreamMode,
@@ -2654,7 +2663,7 @@ async function selectPoolMember(
       const metadata = context?.metadata ?? groupMetadata;
       const effectiveRequestKind = requestKind || "image_generation";
       return (
-        // fireflyOnly（force_firefly 或 firefly-* 模型）时通用 API 不参与、只走 adobe；
+        // fireflyOnly（force_firefly 或 firefly-* 模型）时通用 API 不参与；
         // 但「Adobe 来源」api（上游即 Adobe）参与 firefly 候选：force_firefly 直接以 gpt
         // 格式服务，显式 firefly-* 由下游反向转换成 gpt 请求后服务。
         (!fireflyOnly || row.adobeSourced) &&
@@ -2672,7 +2681,10 @@ async function selectPoolMember(
           row.interfaceMode,
           effectiveRequestKind,
           row.imageUpstreamMode
-        )
+        ) &&
+        // 配置非空时，支持模型列表是供应商能力边界；空列表保留历史"不限制"语义，
+        // 避免迁移后把所有既有 API 后端突然排除出调度。
+        supportsRequestedModel(row.supportedModelIds, requestedModel)
       );
     })
     .map((row) => {
@@ -2691,6 +2703,7 @@ async function selectPoolMember(
         baseUrl: row.baseUrl,
         apiKey: row.apiKey,
         model: row.model,
+        supportedModelIds: normalizeSupportedModelIds(row.supportedModelIds),
         interfaceMode: normalizeImageBackendApiInterfaceMode(row.interfaceMode),
         chatCompletionsUpstreamMode: normalizeChatCompletionsUpstreamMode(
           row.chatCompletionsUpstreamMode
@@ -2771,9 +2784,9 @@ async function selectPoolMember(
       metadata: row.metadata,
     }));
 
-  // adobe 成员：作为特殊 firefly account 成员，对图像生成/编辑请求始终参与候选（无论
+  // adobe 成员：作为特殊 Firefly 成员，对图像生成/编辑请求始终参与候选（无论
   // fireflyOnly 与否），按 priority 与 api/account 同池排序——管理员把 adobe 优先级调低即
-  // 天然成为兜底。fireflyOnly 时 api/account 已被排除，候选自然只剩 adobe。
+  // 天然成为兜底。fireflyOnly 时普通 API/account 已被排除；adobeSourced API 仍可竞争。
   const adobeMembers: PoolMember[] = adobeRows
     .filter((row) => {
       const matchedGroupId = row.matchedGroupId || row.groupId;
@@ -7123,6 +7136,7 @@ type UpsertApiInput = {
   baseUrl: string;
   apiKey?: string;
   model?: string | null;
+  supportedModelIds?: string[];
   interfaceMode?: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode?: ChatCompletionsUpstreamMode;
   imagesUpstreamMode?: ImagesUpstreamMode;
@@ -7183,10 +7197,17 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
     existingPrimaryGroupId = existingApi?.groupId ?? null;
   }
 
+  // undefined 表示旧调用方尚未发送该字段，更新时必须保留既有声明；空数组则是管理员
+  // 明确清空列表并恢复兼容的不限模型语义。
+  const supportedModelIds =
+    input.supportedModelIds === undefined
+      ? undefined
+      : normalizeSupportedModelIds(input.supportedModelIds);
   const updateBase = {
     name: input.name,
     baseUrl: stripTrailingSlash(input.baseUrl),
     model: input.model || null,
+    ...(supportedModelIds === undefined ? {} : { supportedModelIds }),
     interfaceMode: normalizeImageBackendApiInterfaceMode(input.interfaceMode),
     chatCompletionsUpstreamMode: normalizeChatCompletionsUpstreamMode(
       input.chatCompletionsUpstreamMode
@@ -7713,6 +7734,32 @@ export async function deleteImageBackendMembers(input: {
   return { deletedAccountCount, deletedApiCount, deletedAdobeCount };
 }
 
+/**
+ * 列出当前启用且非终态错误的 API 后端已声明模型。
+ *
+ * `/v1/models` 使用此函数公布管理员配置的供应商模型；配置为空的旧后端仅回退公布
+ * 默认模型，不会声称自己可枚举地支持任意模型。
+ *
+ * @returns 去重后的可公开模型 ID；不包含 API Key 等供应商敏感配置。
+ */
+export async function listEnabledImageBackendApiModelIds(): Promise<string[]> {
+  const apis = await db
+    .select({
+      model: imageBackendApi.model,
+      supportedModelIds: imageBackendApi.supportedModelIds,
+    })
+    .from(imageBackendApi)
+    .where(
+      and(
+        eq(imageBackendApi.isEnabled, true),
+        sql`${imageBackendApi.status} <> 'error'`
+      )
+    )
+    .orderBy(asc(imageBackendApi.priority), asc(imageBackendApi.createdAt));
+
+  return collectAdvertisedModelIds(apis);
+}
+
 export async function listAdminImageBackendPool() {
   const groups = await db
     .select()
@@ -7806,6 +7853,7 @@ export async function listAdminImageBackendPool() {
       name: imageBackendApi.name,
       baseUrl: imageBackendApi.baseUrl,
       model: imageBackendApi.model,
+      supportedModelIds: imageBackendApi.supportedModelIds,
       interfaceMode: imageBackendApi.interfaceMode,
       chatCompletionsUpstreamMode: imageBackendApi.chatCompletionsUpstreamMode,
       imagesUpstreamMode: imageBackendApi.imageUpstreamMode,
@@ -7915,6 +7963,7 @@ export async function listAdminImageBackendPool() {
     })),
     apis: apis.map((api) => ({
       ...api,
+      supportedModelIds: normalizeSupportedModelIds(api.supportedModelIds),
       parameterMappings: normalizeRequestParameterMappings(
         api.parameterMappings
       ),

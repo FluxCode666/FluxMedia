@@ -2,6 +2,7 @@
 
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+import { normalizeSupportedModelIds } from "@repo/shared/image-backend/supported-models";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
@@ -174,6 +175,7 @@ type Api = {
   name: string;
   baseUrl: string;
   model: string | null;
+  supportedModelIds: string[];
   interfaceMode: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode: ChatCompletionsUpstreamModeFormValue;
   imagesUpstreamMode: ImagesUpstreamModeFormValue;
@@ -218,6 +220,16 @@ function createApiParameterMappingFormValue(
   mapping: RequestParameterMapping
 ): ApiParameterMappingFormValue {
   return { ...mapping, formKey: crypto.randomUUID() };
+}
+
+/**
+ * 将管理端多行或逗号分隔的模型 ID 输入转换为统一列表。
+ *
+ * @param value - 管理员在 API 后端表单中输入的原始文本。
+ * @returns 去除空白和重复项后的模型 ID 列表。
+ */
+function parseSupportedModelIds(value: string): string[] {
+  return normalizeSupportedModelIds(value.split(/[\n,]/));
 }
 
 type Adobe = {
@@ -890,6 +902,7 @@ export function ImageBackendPoolAdminPanel({
     baseUrl: "",
     apiKey: "",
     model: "",
+    supportedModelIds: "",
     interfaceMode: "mixed" as ApiInterfaceModeFormValue,
     chatCompletionsUpstreamMode:
       "responses" as ChatCompletionsUpstreamModeFormValue,
@@ -1217,6 +1230,7 @@ export function ImageBackendPoolAdminPanel({
       baseUrl: "",
       apiKey: "",
       model: "",
+      supportedModelIds: "",
       interfaceMode: "mixed" as ApiInterfaceModeFormValue,
       chatCompletionsUpstreamMode:
         "responses" as ChatCompletionsUpstreamModeFormValue,
@@ -1406,6 +1420,7 @@ export function ImageBackendPoolAdminPanel({
       baseUrl: api.baseUrl,
       apiKey: "",
       model: api.model || "",
+      supportedModelIds: (api.supportedModelIds || []).join("\n"),
       interfaceMode: api.interfaceMode || "images",
       chatCompletionsUpstreamMode:
         api.chatCompletionsUpstreamMode || "responses",
@@ -3921,6 +3936,26 @@ export function ImageBackendPoolAdminPanel({
                     账号仍维持各自的模型限制。
                   </p>
                 </div>
+                <div className="space-y-1.5">
+                  <Label>支持的模型 ID</Label>
+                  <Textarea
+                    className="min-h-24"
+                    placeholder={
+                      "每行或逗号分隔，例如：\nnano-banana-pro\ngrok-imagine-image"
+                    }
+                    value={apiForm.supportedModelIds}
+                    onChange={(event) =>
+                      setApiForm((current) => ({
+                        ...current,
+                        supportedModelIds: event.target.value,
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    非空时仅调度列表内模型，并会在 /v1/models
+                    中展示；留空保留旧后端的不限模型语义，列表仅回退展示默认模型。
+                  </p>
+                </div>
                 <div className="space-y-3 rounded-md border p-3">
                   <div className="space-y-1">
                     <Label>请求参数映射</Label>
@@ -4352,6 +4387,9 @@ export function ImageBackendPoolAdminPanel({
                       ...apiForm,
                       groupId: apiForm.groupIds[0] || "default",
                       groupIds: apiForm.groupIds,
+                      supportedModelIds: parseSupportedModelIds(
+                        apiForm.supportedModelIds
+                      ),
                     })
                   }
                   disabled={
@@ -4451,6 +4489,12 @@ export function ImageBackendPoolAdminPanel({
                         : api.interfaceMode === "responses"
                           ? `仅 Responses；${api.imagesUpstreamMode === "responses" ? "可承接文生图/图生图转换" : "默认不承接文生图/图生图"}。`
                           : "仅 Images；只用于文生图/图生图，不参与 Chat/Agent/Responses 调度。"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      支持模型：
+                      {api.supportedModelIds.length
+                        ? api.supportedModelIds.join(", ")
+                        : "未声明（兼容不限模型）"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       成功 {api.successCount} · 失败 {api.failCount} · 冷却至{" "}
