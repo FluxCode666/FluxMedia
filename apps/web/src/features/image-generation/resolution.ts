@@ -65,6 +65,28 @@ export function getImageModel(model?: string | null, fallback?: string | null) {
   return DEFAULT_IMAGE_MODEL;
 }
 
+/**
+ * 解析 API 池后端的图像模型。
+ *
+ * API 池是管理员明确配置的受信任上游转发边界，不能用平台/Web/Codex 账号的
+ * `gpt-image-*` 白名单限制它。此函数仅负责模型标识透传，不代表该上游一定支持
+ * 此模型；实际兼容性由后端测活与上游响应决定。
+ *
+ * @param model - 调用方显式请求的模型。
+ * @param fallback - API 后端配置的默认模型。
+ * @returns 首个非空模型；两者都为空时回退平台默认模型。
+ */
+export function getImageBackendApiModel(
+  model?: string | null,
+  fallback?: string | null
+) {
+  return (
+    normalizeImageModel(model) ||
+    normalizeImageModel(fallback) ||
+    DEFAULT_IMAGE_MODEL
+  );
+}
+
 export const IMAGE_RESOLUTION_PRESETS = [
   { value: AUTO_IMAGE_SIZE, label: "Auto", detail: "Backend decides" },
   { value: IMAGE_1K_BASE_SIZE, label: "1K Square", detail: "1248 × 1248" },
@@ -211,7 +233,8 @@ export function getImageCreditCostBreakdown(
   // 质量和思考强度仅影响上游请求，不再影响本站积分。
   const qualityMultiplier = getQualityMultiplier(options.quality);
   const thinkingMultiplier = getThinkingMultiplier(options.thinking);
-  const effectiveBaseCredits = baseCredits * qualityMultiplier * thinkingMultiplier;
+  const effectiveBaseCredits =
+    baseCredits * qualityMultiplier * thinkingMultiplier;
 
   const textModerationCount = options.textModerationCount ?? 1;
   const imageModerationCount = options.imageModerationCount ?? 0;

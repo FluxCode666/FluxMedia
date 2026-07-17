@@ -1,6 +1,10 @@
 import { db } from "@repo/database";
 import { userApiConfig } from "@repo/database/schema";
 import {
+  applyRequestParameterMappings,
+  normalizeRequestParameterMappings,
+} from "@repo/shared/image-backend/request-parameter-mapping";
+import {
   GPT52_CHAT_MODEL,
   GPT54_CHAT_MODEL,
   GPT54_MINI_CHAT_MODEL,
@@ -76,6 +80,7 @@ import {
   AUTO_IMAGE_SIZE,
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageBackendApiModel,
   getImageModel,
   isImageModel,
   normalizeImageModel,
@@ -216,6 +221,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getModel(config: ApiConfig, model?: string) {
+  if (config.backend?.type === "pool-api") {
+    return getImageBackendApiModel(model, config.model);
+  }
   const requestedModel = normalizeImageModel(model);
   if (requestedModel && !isImageModel(requestedModel)) {
     throw new Error(
@@ -241,6 +249,106 @@ function getHeaders(
     ...(config.headers || {}),
     Authorization: `Bearer ${config.apiKey}`,
   };
+}
+
+/**
+ * 将 API 池后端保存的字段映射应用到 JSON 请求体。
+ *
+ * 只有管理员配置的 pool-api 可使用映射；平台、用户自配 API 与 OAuth 账号始终发送
+ * 原始标准请求，避免任何配置越过其既有协议与安全边界。
+ *
+ * @param config - 当前选中的上游配置。
+ * @param requestBody - 已完成标准化、即将序列化的 JSON 请求体。
+ * @returns 应用映射后的独立请求体。
+ */
+function applyApiBackendRequestMappings(
+  config: ApiConfig,
+  requestBody: unknown
+) {
+  if (config.backend?.type !== "pool-api" || !isPlainRecord(requestBody)) {
+    return requestBody;
+  }
+  return applyRequestParameterMappings(
+    requestBody,
+    config.backend.parameterMappings
+  );
+}
+
+/**
+ * 将一个 FormData 条目值追加到新表单。
+ *
+ * @param formData - 重建中的上游 multipart 表单。
+ * @param name - 上游字段名称。
+ * @param value - 字符串或 Blob；其他值仅在异常配置下转成字符串。
+ */
+function appendMappedFormDataValue(
+  formData: FormData,
+  name: string,
+  value: unknown
+) {
+  if (typeof value === "string") {
+    formData.append(name, value);
+    return;
+  }
+  if (value instanceof Blob) {
+    formData.append(name, value);
+    return;
+  }
+  formData.append(name, String(value));
+}
+
+/**
+ * 对 multipart 改图表单应用顶层字段映射。
+ *
+ * FormData 没有 JSON 嵌套语义，故仅处理无点号的字段名；`image`、`mask` 等 Blob
+ * 会连同重复条目一起保留。带点号的规则仍会在 JSON Images/Responses 请求中生效。
+ *
+ * @param config - 当前选中的上游配置。
+ * @param formData - 标准化后的 multipart 表单。
+ * @returns 上游可直接发送的新表单。
+ */
+function applyApiBackendFormDataMappings(
+  config: ApiConfig,
+  formData: FormData
+) {
+  if (config.backend?.type !== "pool-api") return formData;
+  const mappings = normalizeRequestParameterMappings(
+    config.backend.parameterMappings
+  ).filter(
+    (mapping) => !mapping.source.includes(".") && !mapping.target.includes(".")
+  );
+  if (!mappings.length) return formData;
+
+  const entries = new Map<string, FormDataEntryValue[]>();
+  for (const [name, value] of formData.entries()) {
+    const values = entries.get(name) || [];
+    values.push(value);
+    entries.set(name, values);
+  }
+  const snapshot = new Map(entries);
+  const resolved = mappings.flatMap((mapping) => {
+    const sourceName = snapshot.has(mapping.source)
+      ? mapping.source
+      : mapping.source === "image" && snapshot.has("image[]")
+        ? "image[]"
+        : mapping.source;
+    const values = snapshot.get(sourceName);
+    return values ? [{ ...mapping, sourceName, values }] : [];
+  });
+  for (const mapping of resolved) {
+    if (mapping.mode === "move" && mapping.source !== mapping.target) {
+      entries.delete(mapping.sourceName);
+    }
+  }
+  for (const mapping of resolved) {
+    entries.set(mapping.target, [...mapping.values]);
+  }
+
+  const mapped = new FormData();
+  for (const [name, values] of entries) {
+    for (const value of values) appendMappedFormDataValue(mapped, name, value);
+  }
+  return mapped;
 }
 
 function normalizeResponsesModel(
@@ -826,7 +934,7 @@ async function postResponsesImageRequest(
         "Accept-Encoding": "identity",
         "Cache-Control": "no-cache",
       }),
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(applyApiBackendRequestMappings(config, requestBody)),
     }
   );
   return await parseResponsesResponse(response, callbacks, {
@@ -1817,7 +1925,7 @@ async function generateChatImageWithChatCompletions(
                 }
               : {}),
           }),
-          body: JSON.stringify(body),
+          body: JSON.stringify(applyApiBackendRequestMappings(config, body)),
         }
       );
       return await parseChatCompletionsResponse(response, callbacks);
@@ -2072,7 +2180,7 @@ async function fetchResponses(
             }
           : {}),
       }),
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(applyApiBackendRequestMappings(config, requestBody)),
     }
   );
 
@@ -4109,36 +4217,38 @@ export async function generateImage(
       headers: getHeaders(config, {
         "Content-Type": "application/json",
       }),
-      body: JSON.stringify({
-        model,
-        // images 端点不吃 prompt_cache_key,改在 prompt 注入每请求唯一零宽 nonce,
-        // 打掉上游中转按请求体内容缓存导致的"同图同词出同图"。仅作用于上游请求体。
-        prompt: appendImagesUpstreamNonce(prompt),
-        n: params.n || 1,
-        size,
-        ...(dimensions && !isCodexDirect
-          ? { width: dimensions.width, height: dimensions.height }
-          : {}),
-        ...(normalizeQuality(params.quality)
-          ? { quality: normalizeQuality(params.quality) }
-          : {}),
-        ...(normalizeModeration(params.moderation)
-          ? { moderation: normalizeModeration(params.moderation) }
-          : {}),
-        ...(normalizeOutputFormat(params.outputFormat)
-          ? { output_format: normalizeOutputFormat(params.outputFormat) }
-          : {}),
-        ...(normalizeOutputCompression(params.outputCompression) !== undefined
-          ? {
-              output_compression: normalizeOutputCompression(
-                params.outputCompression
-              ),
-            }
-          : {}),
-        ...(background ? { background } : {}),
-        ...(config.useStream ? { stream: true, partial_images: 2 } : {}),
-        ...(isCodexDirect ? {} : { response_format: "b64_json" }),
-      }),
+      body: JSON.stringify(
+        applyApiBackendRequestMappings(config, {
+          model,
+          // images 端点不吃 prompt_cache_key,改在 prompt 注入每请求唯一零宽 nonce,
+          // 打掉上游中转按请求体内容缓存导致的"同图同词出同图"。仅作用于上游请求体。
+          prompt: appendImagesUpstreamNonce(prompt),
+          n: params.n || 1,
+          size,
+          ...(dimensions && !isCodexDirect
+            ? { width: dimensions.width, height: dimensions.height }
+            : {}),
+          ...(normalizeQuality(params.quality)
+            ? { quality: normalizeQuality(params.quality) }
+            : {}),
+          ...(normalizeModeration(params.moderation)
+            ? { moderation: normalizeModeration(params.moderation) }
+            : {}),
+          ...(normalizeOutputFormat(params.outputFormat)
+            ? { output_format: normalizeOutputFormat(params.outputFormat) }
+            : {}),
+          ...(normalizeOutputCompression(params.outputCompression) !== undefined
+            ? {
+                output_compression: normalizeOutputCompression(
+                  params.outputCompression
+                ),
+              }
+            : {}),
+          ...(background ? { background } : {}),
+          ...(config.useStream ? { stream: true, partial_images: 2 } : {}),
+          ...(isCodexDirect ? {} : { response_format: "b64_json" }),
+        })
+      ),
     });
 
     return requireImageOutput(
@@ -4394,7 +4504,7 @@ export async function editImage(
       redirect: "manual",
       signal: params.signal,
       headers: getHeaders(config, {}),
-      body: formData,
+      body: applyApiBackendFormDataMappings(config, formData),
     });
 
     return requireImageOutput(
@@ -4592,7 +4702,10 @@ export async function generateChatImage(
         partial_images: 2,
       };
 
-      const toolModel = getImageModel(params.imageModel) || DEFAULT_IMAGE_MODEL;
+      const toolModel =
+        config.backend?.type === "pool-api"
+          ? getImageBackendApiModel(params.imageModel, config.model)
+          : getImageModel(params.imageModel) || DEFAULT_IMAGE_MODEL;
       if (toolModel) {
         tool.model = toolModel;
       }

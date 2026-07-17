@@ -34,7 +34,6 @@ import {
 import { uploadTemporaryImageUrls } from "@/features/image-generation/request-utils";
 import {
   DEFAULT_IMAGE_SIZE,
-  getImageModel,
   isImageModel,
   validateImageSize,
 } from "@/features/image-generation/resolution";
@@ -204,9 +203,11 @@ async function imageUrlToInputFile(params: {
     { type }
   );
   const uploaded = params.userId
-    ? await uploadTemporaryImageUrls(params.userId, params.requestId || "chat", [
-        file,
-      ])
+    ? await uploadTemporaryImageUrls(
+        params.userId,
+        params.requestId || "chat",
+        [file]
+      )
     : undefined;
 
   return {
@@ -448,14 +449,13 @@ export const postExternalChatCompletions = withApiLogging(
     const topLevelModelIsImage = isImageModel(topLevelModel);
     const explicitImageModel =
       parsed.data.imageModel || parsed.data.image_model;
-    const imageModel = getImageModel(
-      explicitImageModel || (topLevelModelIsImage ? topLevelModel : undefined)
-    );
-    if ((parsed.data.imageModel || parsed.data.image_model) && !imageModel) {
-      return openAIImageError(
-        "Unsupported image_model. Use a gpt-image-* model."
-      );
-    }
+    // 显式 image_model 允许由 pool-api 透传任意上游模型；顶层 model 仍只把
+    // 既有 gpt-image/Firefly 前缀视为图片模型，避免普通对话模型被错误分流。
+    const imageModel = explicitImageModel?.trim()
+      ? explicitImageModel.trim()
+      : topLevelModelIsImage
+        ? topLevelModel
+        : undefined;
 
     const responseFormat = imageResponseFormat(parsed.data.response_format);
     const useStreamResponse = wantsImageStreamResponse(

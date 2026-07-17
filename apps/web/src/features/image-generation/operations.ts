@@ -60,6 +60,7 @@ import { withImageGenerationQueue } from "./queue";
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageBackendApiModel,
   getImageCreditCostBreakdown,
   getImageModel,
   getImageSizePixels,
@@ -67,6 +68,7 @@ import {
   type ImageQualityLevel,
   type ImageThinkingLevel,
   isFireflyModel,
+  isImageModel,
   isImageSizeWithinPixelRange,
   normalizeImageSize,
   parseImageSize,
@@ -239,6 +241,46 @@ function getConfigBillingMultiplier(config: ApiConfig) {
     return 1;
   }
   return normalizeBillingMultiplier(config.backend.billingMultiplier);
+}
+
+/**
+ * 按最终选中的后端解析图像模型。
+ *
+ * 自定义模型只能在管理员配置的 pool-api 中透传；其余后端继续使用既有
+ * `gpt-image-*`/Firefly 白名单，避免把未知模型误送到 OAuth 账号。
+ *
+ * @param config - 已完成池调度的上游配置。
+ * @param requestedModel - 客户端显式模型或后端默认模型。
+ * @returns 可用于当前后端的图像模型；非 API 后端的未知模型返回 null。
+ */
+function getImageModelForResolvedConfig(
+  config: ApiConfig,
+  requestedModel?: string | null
+) {
+  return config.backend?.type === "pool-api"
+    ? getImageBackendApiModel(requestedModel, config.model)
+    : getImageModel(requestedModel, config.model);
+}
+
+/**
+ * 选择后端时使用的模型标识。
+ *
+ * Chat/Responses 的顶层 `model` 通常是对话模型，真正的图像模型位于 `imageModel`。
+ * 当该图像模型不是平台白名单时，必须把它交给调度器，以便只选择 pool-api 而不把
+ * 请求错误地发到 OAuth 账号。
+ *
+ * @param input - 当前统一图像管线输入。
+ * @returns 应参与后端选择的模型标识。
+ */
+function getRequestedModelForBackendSelection(input: RunImageGenerationInput) {
+  if (
+    input.mode === "chat" &&
+    input.imageModel?.trim() &&
+    !isImageModel(input.imageModel)
+  ) {
+    return input.imageModel;
+  }
+  return input.model;
 }
 
 /** 把系统设置里的图像模型倍率 JSON 收窄成 family→正数 的 map。 */
@@ -1489,7 +1531,7 @@ export async function runImageGenerationForUser(
                 userId: input.userId,
                 apiKeyId: input.apiKeyId,
                 requestKind: backendRequestKind,
-                requestedModel: input.model,
+                requestedModel: getRequestedModelForBackendSelection(input),
                 preferredMemberId: input.preferredBackendMemberId,
                 preferredMemberType: input.preferredBackendMemberType,
                 stickyPreviousResponseId: input.stickyPreviousResponseId,
@@ -1516,7 +1558,7 @@ export async function runImageGenerationForUser(
                 userId: input.userId,
                 apiKeyId: input.apiKeyId,
                 requestKind: backendRequestKind,
-                requestedModel: input.model,
+                requestedModel: getRequestedModelForBackendSelection(input),
                 preferredMemberId: input.preferredBackendMemberId,
                 preferredMemberType: input.preferredBackendMemberType,
                 stickyPreviousResponseId: input.stickyPreviousResponseId,
@@ -1627,9 +1669,9 @@ export async function runImageGenerationForUser(
                   allowGpt55: planCapabilities.features["models.gpt55"],
                 });
               }
-              const requestedImageModel = getImageModel(
-                input.imageModel,
-                config.model
+              const requestedImageModel = getImageModelForResolvedConfig(
+                config,
+                input.imageModel
               );
               if (!requestedImageModel) {
                 throw new Error(
@@ -1639,9 +1681,9 @@ export async function runImageGenerationForUser(
               imageModel = requestedImageModel;
               recordModel = gptModel || imageModel;
             } else {
-              const requestedImageModel = getImageModel(
-                input.model,
-                config.model
+              const requestedImageModel = getImageModelForResolvedConfig(
+                config,
+                input.model
               );
               if (!requestedImageModel) {
                 throw new Error(

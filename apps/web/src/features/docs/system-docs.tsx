@@ -758,7 +758,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：图片模型，需为 gpt-image-*；命中 Web 后端时不会映射成 Web 独立图片模型。",
+                "本站扩展：默认支持 gpt-image-*；若管理员在 API 后端配置了自定义上游模型，也可传 nano-banana-*、grok-* 或其他该上游支持的模型。自定义模型只调度到 API 后端，不会映射为 Web 独立图片模型。",
             },
             {
               name: "promptOptimization / prompt_optimization",
@@ -1038,7 +1038,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               name: "model",
               requirement: "可选",
               description:
-                "图片模型。本站接受 gpt-image-* 类图片模型；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，如 firefly-nano-banana-pro-2k-16x9，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。family ∈ gpt-image-2、gpt-image-1.5、nano-banana、nano-banana2、nano-banana-pro；resolution ∈ 1k、2k、4k；ratio ∈ 1x1、16x9、9x16、4x3、3x4。Responses 对话模型请使用 /v1/responses。",
+                "图片模型。默认接受 gpt-image-*；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，如 firefly-nano-banana-pro-2k-16x9，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。管理员配置 API 后端后，还可传任意该上游支持的模型（例如 nano-banana-*、grok-*）；这类模型只调度到 API 后端。family ∈ gpt-image-2、gpt-image-1.5、nano-banana、nano-banana2、nano-banana-pro；resolution ∈ 1k、2k、4k；ratio ∈ 1x1、16x9、9x16、4x3、3x4。Responses 对话模型请使用 /v1/responses。",
             },
             {
               name: "force_firefly / forceFirefly",
@@ -1375,7 +1375,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               name: "model",
               requirement: "可选",
               description:
-                "图片模型，需为 gpt-image-* 类图片模型；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。取值范围同 /v1/images/generations。",
+                "图片模型。默认接受 gpt-image-*；也接受 Adobe Firefly 模型 id（firefly-<family>-<resolution>-<ratio>，或只写族名如 firefly-gpt-image-2），命中后路由到 Adobe（Firefly）后端。管理员配置 API 后端后，也可传任意该上游支持的模型（例如 nano-banana-*、grok-*）；取值范围与路由规则同 /v1/images/generations。",
             },
             {
               name: "force_firefly / forceFirefly",

@@ -1,3 +1,5 @@
+import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+
 export interface GenerateImageParams {
   prompt: string;
   apiPrompt?: string;
@@ -314,6 +316,8 @@ export interface ApiConfig {
     apiInterfaceMode?: "images" | "responses" | "mixed";
     chatCompletionsUpstreamMode?: "responses" | "chat_completions";
     imagesUpstreamMode?: "images" | "responses";
+    // 仅 pool-api 使用：发送前把标准请求字段复制或重命名为上游字段。
+    parameterMappings?: RequestParameterMapping[];
     apiForceResponsesEndpoint?: boolean;
     // pool-api 专属：该 api 后端上游实为 Adobe（adobe-sourced）。为真时计费吃成员倍率
     // （见 service.ts），且 firefly-* 请求经反向转换（截家族名 + 推 size）后由本后端服务。

@@ -34,6 +34,7 @@
     "./generation-timeout": "./src/generation-timeout.ts",
     "./generation-settlement": "./src/generation-settlement.ts",
     "./image-backend/nested-groups": "./src/image-backend/nested-groups.ts",
+    "./image-backend/request-parameter-mapping": "./src/image-backend/request-parameter-mapping.ts",
     "./storage": "./src/storage/index.ts",
     "./storage/image-url": "./src/storage/image-url.ts",
     "./storage/signed-url": "./src/storage/signed-url.ts",

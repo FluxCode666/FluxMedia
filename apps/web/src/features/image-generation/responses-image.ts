@@ -11,6 +11,7 @@ import {
   AUTO_IMAGE_SIZE,
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_SIZE,
+  getImageBackendApiModel,
   getImageModel,
 } from "./resolution";
 import {
@@ -135,7 +136,9 @@ function getResponsesModel(config: ApiConfig, model?: string) {
 }
 
 function getToolModel(config: ApiConfig, model?: string) {
-  return getImageModel(model, config.model) || DEFAULT_IMAGE_MODEL;
+  return config.backend?.type === "pool-api"
+    ? getImageBackendApiModel(model, config.model)
+    : getImageModel(model, config.model) || DEFAULT_IMAGE_MODEL;
 }
 
 function getPrompt(params: GenerateImageParams | EditImageParams) {

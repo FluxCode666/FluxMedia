@@ -8,6 +8,7 @@ import {
   imageBackendAdobeGroup,
   imageBackendApi,
   imageBackendApiGroup,
+  imageBackendParameterMappingTemplate,
   imageBackendGroup,
   imageBackendInflightLease,
   imageBackendSchedulerMetric,
@@ -21,6 +22,10 @@ import {
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 import { validateNestedGroupConfig } from "@repo/shared/image-backend/nested-groups";
+import {
+  normalizeRequestParameterMappings,
+  type RequestParameterMapping,
+} from "@repo/shared/image-backend/request-parameter-mapping";
 import { logWarn } from "@repo/shared/logger";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
@@ -178,6 +183,7 @@ type PoolMember =
       interfaceMode: ImageBackendApiInterfaceMode;
       chatCompletionsUpstreamMode: ChatCompletionsUpstreamMode;
       imagesUpstreamMode: ImagesUpstreamMode;
+      parameterMappings: RequestParameterMapping[];
       useStream: boolean;
       // Adobe 来源：上游实为 Adobe 的 gpt 格式 api。开启后计费套用下方 billingMultiplier
       // （与分组倍率相乘，复用 Adobe 伪账号倍率链），并参与 firefly 候选（含反向转换）。
@@ -427,6 +433,31 @@ function normalizeGroupBackendType(
 // （gpt-image 等）只走 codex/web/api。用于调度时的成员过滤，保证二者互不混用。
 function isAdobeFireflyModelId(model?: string | null): boolean {
   return (model || "").trim().toLowerCase().startsWith("firefly-");
+}
+
+/**
+ * 判断图像请求是否只能由 API 池后端承接。
+ *
+ * Web、Codex 与 Adobe 账号的图像协议只支持平台已识别的 gpt-image/Firefly 模型；
+ * 管理员配置的 API 后端才允许透传例如 nano-banana-*、grok-* 的上游模型标识。
+ *
+ * @param requestKind - 本次调用类型。
+ * @param model - 客户端请求的模型。
+ * @returns 未知图像模型需要只选择 API 池成员时返回 true。
+ */
+function requiresApiBackendForCustomImageModel(
+  requestKind: ImageBackendRequestKind | undefined,
+  model?: string | null
+): boolean {
+  if (requestKind !== "image_generation" && requestKind !== "image_edit") {
+    return false;
+  }
+  const normalized = (model || "").trim().toLowerCase();
+  return Boolean(
+    normalized &&
+      !normalized.startsWith("gpt-image-") &&
+      !normalized.startsWith("firefly-")
+  );
 }
 
 function stripTrailingSlash(value: string) {
@@ -2278,6 +2309,10 @@ async function selectPoolMember(
   // fireflyOnly：候选收敛到仅 adobe 的两种触发——显式 force_firefly 标志，或请求模型
   // 本身就是 firefly-* 前缀。两者语义一致：本次只调度 adobe 后端，不混入 api/account。
   const fireflyOnly = forceFirefly || isAdobeFireflyModelId(requestedModel);
+  const apiOnlyCustomImageModel = requiresApiBackendForCustomImageModel(
+    requestKind,
+    requestedModel
+  );
   const selectionStartedAt = Date.now();
   const contexts = groupContexts?.length
     ? groupContexts
@@ -2461,6 +2496,7 @@ async function selectPoolMember(
           chatCompletionsUpstreamMode:
             imageBackendApi.chatCompletionsUpstreamMode,
           imageUpstreamMode: imageBackendApi.imageUpstreamMode,
+          parameterMappings: imageBackendApi.parameterMappings,
           useStream: imageBackendApi.useStream,
           adobeSourced: imageBackendApi.adobeSourced,
           billingMultiplier: imageBackendApi.billingMultiplier,
@@ -2499,6 +2535,7 @@ async function selectPoolMember(
           chatCompletionsUpstreamMode:
             imageBackendApi.chatCompletionsUpstreamMode,
           imageUpstreamMode: imageBackendApi.imageUpstreamMode,
+          parameterMappings: imageBackendApi.parameterMappings,
           useStream: imageBackendApi.useStream,
           adobeSourced: imageBackendApi.adobeSourced,
           billingMultiplier: imageBackendApi.billingMultiplier,
@@ -2659,6 +2696,9 @@ async function selectPoolMember(
           row.chatCompletionsUpstreamMode
         ),
         imagesUpstreamMode: normalizeImagesUpstreamMode(row.imageUpstreamMode),
+        parameterMappings: normalizeRequestParameterMappings(
+          row.parameterMappings
+        ),
         useStream: row.useStream,
         adobeSourced: row.adobeSourced,
         billingMultiplier: Number(row.billingMultiplier) || 1,
@@ -2684,6 +2724,7 @@ async function selectPoolMember(
       return (
         // fireflyOnly（force_firefly 或 firefly-* 模型）时只走 adobe，codex/web 账号不参与。
         !fireflyOnly &&
+        !apiOnlyCustomImageModel &&
         // 账号的"车道"由其自身 implementationMode（web / responses）天然决定:web 账号属 web
         // 车道、responses 账号属 codex 车道。故按「该分组生效偏好 rowPreference == 账号
         // implementationMode」过滤即已实现 web/codex 阶段隔离——mixed 分组 web 阶段只取 web
@@ -2740,6 +2781,7 @@ async function selectPoolMember(
       const metadata = context?.metadata ?? groupMetadata;
       const effectiveRequestKind = requestKind || "image_generation";
       return (
+        !apiOnlyCustomImageModel &&
         (effectiveRequestKind === "image_generation" ||
           effectiveRequestKind === "image_edit") &&
         groupBackendAllowsRequest(metadata, effectiveRequestKind) &&
@@ -3065,6 +3107,7 @@ function toResolvedPoolConfig(
           apiInterfaceMode: member.interfaceMode,
           chatCompletionsUpstreamMode: member.chatCompletionsUpstreamMode,
           imagesUpstreamMode: member.imagesUpstreamMode,
+          parameterMappings: member.parameterMappings,
           apiForceResponsesEndpoint:
             options.accountBackendPreference === "responses",
           adobeSourced: member.adobeSourced,
@@ -7083,6 +7126,7 @@ type UpsertApiInput = {
   interfaceMode?: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode?: ChatCompletionsUpstreamMode;
   imagesUpstreamMode?: ImagesUpstreamMode;
+  parameterMappings?: RequestParameterMapping[];
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -7148,6 +7192,9 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
       input.chatCompletionsUpstreamMode
     ),
     imageUpstreamMode: normalizeImagesUpstreamMode(input.imagesUpstreamMode),
+    parameterMappings: normalizeRequestParameterMappings(
+      input.parameterMappings
+    ),
     useStream: input.useStream,
     contentSafetyEnabled: input.contentSafetyEnabled,
     isEnabled: input.isEnabled,
@@ -7202,6 +7249,81 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
     replace: true,
   });
   return id;
+}
+
+/**
+ * 列出可在管理端复用的 API 后端参数映射模板。
+ *
+ * @returns 按名称排序的模板快照；数据库 JSON 会在返回前重新校验。
+ */
+export async function listImageBackendParameterMappingTemplates() {
+  const templates = await db
+    .select({
+      id: imageBackendParameterMappingTemplate.id,
+      name: imageBackendParameterMappingTemplate.name,
+      parameterMappings: imageBackendParameterMappingTemplate.parameterMappings,
+      createdAt: imageBackendParameterMappingTemplate.createdAt,
+      updatedAt: imageBackendParameterMappingTemplate.updatedAt,
+    })
+    .from(imageBackendParameterMappingTemplate)
+    .orderBy(asc(imageBackendParameterMappingTemplate.name));
+  return templates.map((template) => ({
+    ...template,
+    parameterMappings: normalizeRequestParameterMappings(
+      template.parameterMappings
+    ),
+  }));
+}
+
+/**
+ * 新建或更新参数映射模板。
+ *
+ * @param input - 已由传输层校验过的模板名称、映射与可选 id。
+ * @returns 持久化模板的 id。
+ * @throws 模板不存在或名称冲突时由数据库错误向上传递。
+ */
+export async function upsertImageBackendParameterMappingTemplate(input: {
+  id?: string;
+  name: string;
+  parameterMappings: RequestParameterMapping[];
+}) {
+  const now = new Date();
+  const values = {
+    name: input.name.trim(),
+    parameterMappings: normalizeRequestParameterMappings(
+      input.parameterMappings
+    ),
+    updatedAt: now,
+  };
+  if (input.id) {
+    const result = await db
+      .update(imageBackendParameterMappingTemplate)
+      .set(values)
+      .where(eq(imageBackendParameterMappingTemplate.id, input.id))
+      .returning({ id: imageBackendParameterMappingTemplate.id });
+    if (!result[0]) throw new Error("参数映射模板不存在");
+    return result[0].id;
+  }
+
+  const id = nanoid();
+  await db.insert(imageBackendParameterMappingTemplate).values({
+    id,
+    ...values,
+  });
+  return id;
+}
+
+/**
+ * 删除一个参数映射模板。
+ *
+ * 模板并非 API 后端的外键，删除不会影响已保存的后端快照。
+ *
+ * @param id - 要删除的模板 id。
+ */
+export async function deleteImageBackendParameterMappingTemplate(id: string) {
+  await db
+    .delete(imageBackendParameterMappingTemplate)
+    .where(eq(imageBackendParameterMappingTemplate.id, id));
 }
 
 // Adobe 后端与分组关系写入（镜像 setImageBackendApiGroups）。
@@ -7490,6 +7612,7 @@ export async function probeImageBackendApi(id: string): Promise<{
       useStream: imageBackendApi.useStream,
       interfaceMode: imageBackendApi.interfaceMode,
       imageUpstreamMode: imageBackendApi.imageUpstreamMode,
+      parameterMappings: imageBackendApi.parameterMappings,
       chatCompletionsUpstreamMode: imageBackendApi.chatCompletionsUpstreamMode,
       alwaysActive: imageBackendApi.alwaysActive,
     })
@@ -7508,6 +7631,7 @@ export async function probeImageBackendApi(id: string): Promise<{
     useStream: api.useStream,
     apiInterfaceMode: normalizeImageBackendApiInterfaceMode(api.interfaceMode),
     imagesUpstreamMode: normalizeImagesUpstreamMode(api.imageUpstreamMode),
+    parameterMappings: normalizeRequestParameterMappings(api.parameterMappings),
     chatCompletionsUpstreamMode: normalizeChatCompletionsUpstreamMode(
       api.chatCompletionsUpstreamMode
     ),
@@ -7685,6 +7809,7 @@ export async function listAdminImageBackendPool() {
       interfaceMode: imageBackendApi.interfaceMode,
       chatCompletionsUpstreamMode: imageBackendApi.chatCompletionsUpstreamMode,
       imagesUpstreamMode: imageBackendApi.imageUpstreamMode,
+      parameterMappings: imageBackendApi.parameterMappings,
       useStream: imageBackendApi.useStream,
       contentSafetyEnabled: imageBackendApi.contentSafetyEnabled,
       isEnabled: imageBackendApi.isEnabled,
@@ -7790,6 +7915,9 @@ export async function listAdminImageBackendPool() {
     })),
     apis: apis.map((api) => ({
       ...api,
+      parameterMappings: normalizeRequestParameterMappings(
+        api.parameterMappings
+      ),
       // numeric 列回库为字符串，转成数值供前端展示/编辑。
       billingMultiplier: Number(api.billingMultiplier) || 1,
       groupIds:

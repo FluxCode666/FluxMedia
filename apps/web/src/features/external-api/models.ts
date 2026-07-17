@@ -65,19 +65,6 @@ export function getExternalChatCompletionModels(
   });
 }
 
-export async function isExternalResponsesImageModelAllowed(
-  model: string | undefined,
-  plan: SubscriptionPlan
-) {
-  const capabilities = await getPlanCapabilitySnapshot(plan);
-  if (!capabilities.features["externalApi.responses"]) return false;
-  if (!model) return true;
-  return getExternalResponsesImageModels(plan, {
-    responsesAllowed: capabilities.features["externalApi.responses"],
-    gpt55Allowed: capabilities.features["models.gpt55"],
-  }).includes(model.trim());
-}
-
 /**
  * Adobe Firefly 模型 id 列表:图像族级 id（分辨率/宽高比走 size 参数）+ 视频全量 id
  * （参数编码在 id 内）。图像与视频生成均由 externalApi.images.generate 门控,关闭时返回

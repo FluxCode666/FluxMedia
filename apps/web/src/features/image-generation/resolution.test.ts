@@ -4,6 +4,7 @@ import {
   DEFAULT_IMAGE_MODEL,
   fitImageDimensionsToValidSize,
   getImageBaseCredits,
+  getImageBackendApiModel,
   getImageCreditCostBreakdown,
   getImageModel,
   getQualityMultiplier,
@@ -240,6 +241,16 @@ describe("image model resolution", () => {
     expect(getImageModel("gpt-4o")).toBeNull();
     expect(getImageModel(undefined, "gpt-image-3")).toBe("gpt-image-3");
   });
+
+  it("仅为 API 后端保留任意上游模型标识", () => {
+    expect(getImageBackendApiModel("nano-banana-pro")).toBe("nano-banana-pro");
+    expect(getImageBackendApiModel("grok-imagine-image")).toBe(
+      "grok-imagine-image"
+    );
+    expect(getImageBackendApiModel(undefined, "custom-image-v3")).toBe(
+      "custom-image-v3"
+    );
+  });
 });
 
 describe("parseImageSize", () => {
@@ -266,7 +277,9 @@ describe("fitImageDimensionsToValidSize", () => {
       expect(fitted.height).toBeGreaterThanOrEqual(MIN_IMAGE_DIMENSION);
       expect(fitted.width).toBeLessThanOrEqual(MAX_IMAGE_DIMENSION);
       expect(fitted.height).toBeLessThanOrEqual(MAX_IMAGE_DIMENSION);
-      expect(fitted.width * fitted.height).toBeLessThanOrEqual(MAX_IMAGE_PIXELS);
+      expect(fitted.width * fitted.height).toBeLessThanOrEqual(
+        MAX_IMAGE_PIXELS
+      );
       expect(isValidImageDimension(fitted.width)).toBe(true);
       expect(isValidImageDimension(fitted.height)).toBe(true);
     }

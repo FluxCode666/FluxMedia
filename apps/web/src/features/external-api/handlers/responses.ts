@@ -26,7 +26,6 @@ import {
   toOpenAIResponseTextItem,
   wantsImageStreamResponse,
 } from "@/features/external-api/images";
-import { isExternalResponsesImageModelAllowed } from "@/features/external-api/models";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import { bindImageBackendStickyMember } from "@/features/image-backend-pool/service";
 import {
@@ -35,7 +34,6 @@ import {
 } from "@/features/image-generation/output-format";
 import {
   DEFAULT_IMAGE_SIZE,
-  getImageModel,
   validateImageSize,
 } from "@/features/image-generation/resolution";
 import {
@@ -66,7 +64,10 @@ type StoredResponsesContinuation = {
 const CONTINUATION_CACHE_LIMIT = 1000;
 const MAX_STORED_HISTORY_MESSAGES = 24;
 const MAX_STORED_HISTORY_TEXT = 4000;
-const responseContinuationCache = new Map<string, StoredResponsesContinuation>();
+const responseContinuationCache = new Map<
+  string,
+  StoredResponsesContinuation
+>();
 
 const responseInputContentSchema = z.union([
   z.object({
@@ -84,40 +85,42 @@ const responseInputMessageSchema = z.object({
   content: z.union([z.string(), z.array(responseInputContentSchema)]),
 });
 
-const responseSchema = z.object({
-  model: z.string().optional(),
-  input: z.union([z.string(), z.array(responseInputMessageSchema)]),
-  previous_response_id: z.string().optional(),
-  prompt_cache_key: z.string().optional(),
-  tools: z.array(z.object({ type: z.string() }).passthrough()).optional(),
-  tool_choice: z.unknown().optional(),
-  stream: z.boolean().optional(),
-  store: z.boolean().optional(),
-  size: z
-    .string()
-    .optional()
-    .refine((value) => !value || validateImageSize(value).valid, {
-      message: "Invalid image size",
-    }),
-  quality: z.enum(["auto", "low", "medium", "high"]).optional(),
-  moderation: z.enum(["auto", "low"]).optional(),
-  output_format: z.enum(["png", "jpeg", "webp"]).optional(),
-  output_compression: z.number().int().min(0).max(100).optional(),
-  background: z.enum(["transparent", "opaque", "auto"]).optional(),
-  transparentMatte: z.boolean().optional(),
-  transparent_matte: z.boolean().optional(),
-  // 审核改写重试开关(issue #24):传 false 时,审核拦截后不自动改写提示词重试,直接返回真实错误。
-  promptRepair: z.boolean().optional(),
-  prompt_repair: z.boolean().optional(),
-  reasoning: z
-    .object({
-      effort: z
-        .enum(["minimal", "none", "low", "medium", "high", "xhigh"])
-        .optional(),
-    })
-    .passthrough()
-    .optional(),
-}).passthrough();
+const responseSchema = z
+  .object({
+    model: z.string().optional(),
+    input: z.union([z.string(), z.array(responseInputMessageSchema)]),
+    previous_response_id: z.string().optional(),
+    prompt_cache_key: z.string().optional(),
+    tools: z.array(z.object({ type: z.string() }).passthrough()).optional(),
+    tool_choice: z.unknown().optional(),
+    stream: z.boolean().optional(),
+    store: z.boolean().optional(),
+    size: z
+      .string()
+      .optional()
+      .refine((value) => !value || validateImageSize(value).valid, {
+        message: "Invalid image size",
+      }),
+    quality: z.enum(["auto", "low", "medium", "high"]).optional(),
+    moderation: z.enum(["auto", "low"]).optional(),
+    output_format: z.enum(["png", "jpeg", "webp"]).optional(),
+    output_compression: z.number().int().min(0).max(100).optional(),
+    background: z.enum(["transparent", "opaque", "auto"]).optional(),
+    transparentMatte: z.boolean().optional(),
+    transparent_matte: z.boolean().optional(),
+    // 审核改写重试开关(issue #24):传 false 时,审核拦截后不自动改写提示词重试,直接返回真实错误。
+    promptRepair: z.boolean().optional(),
+    prompt_repair: z.boolean().optional(),
+    reasoning: z
+      .object({
+        effort: z
+          .enum(["minimal", "none", "low", "medium", "high", "xhigh"])
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 type ResponseRequest = z.infer<typeof responseSchema>;
 
@@ -137,10 +140,7 @@ function continuationCacheKey(params: {
   return `${params.userId}:${params.apiKeyId}:${params.responseId}`;
 }
 
-function setContinuationCache(
-  key: string,
-  value: StoredResponsesContinuation
-) {
+function setContinuationCache(key: string, value: StoredResponsesContinuation) {
   responseContinuationCache.set(key, value);
   if (responseContinuationCache.size <= CONTINUATION_CACHE_LIMIT) return;
   const oldestKey = responseContinuationCache.keys().next().value;
@@ -160,7 +160,8 @@ function normalizeWebConversationState(
   return {
     conversationId: value.conversationId,
     parentMessageId: value.parentMessageId,
-    accountId: typeof value.accountId === "string" ? value.accountId : undefined,
+    accountId:
+      typeof value.accountId === "string" ? value.accountId : undefined,
   };
 }
 
@@ -168,7 +169,8 @@ function normalizeBackendMemberState(
   value: unknown
 ): StickyBackendMemberState | undefined {
   if (!isRecord(value)) return undefined;
-  const type = value.type === "api" || value.type === "account" ? value.type : null;
+  const type =
+    value.type === "api" || value.type === "account" ? value.type : null;
   if (!type || typeof value.id !== "string" || !value.id.trim()) {
     return undefined;
   }
@@ -257,7 +259,9 @@ function normalizeStoredHistory(value: unknown): ChatHistoryMessage[] {
         imageUrls: Array.isArray(entry.imageUrls)
           ? entry.imageUrls
               .filter((url): url is string => typeof url === "string")
-              .filter((url) => url.startsWith("http://") || url.startsWith("https://"))
+              .filter(
+                (url) => url.startsWith("http://") || url.startsWith("https://")
+              )
               .slice(0, 16)
           : undefined,
         variants,
@@ -436,7 +440,8 @@ async function storeResponsesContinuation(params: {
   if (!params.result.generationId) return;
   const state: StoredResponsesContinuation = {
     webConversation: params.result.webConversation,
-    backendMember: params.result.responsesPreviousResponse?.backendMember ??
+    backendMember:
+      params.result.responsesPreviousResponse?.backendMember ??
       params.result.backendMember,
     fallbackHistory: params.fallbackHistory,
   };
@@ -595,9 +600,11 @@ async function imageUrlToInputFile(
   );
   const file = new File([data], `response-input-image-${index + 1}`, { type });
   const uploaded = options?.userId
-    ? await uploadTemporaryImageUrls(options.userId, options.requestId || "responses", [
-        file,
-      ])
+    ? await uploadTemporaryImageUrls(
+        options.userId,
+        options.requestId || "responses",
+        [file]
+      )
     : undefined;
 
   return {
@@ -633,7 +640,9 @@ function normalizeThinking(value: ThinkingLevel | undefined) {
 function getRequestedToolImageModel(tools: ResponseRequest["tools"]) {
   const imageTool = tools?.find((tool) => tool.type === "image_generation");
   if (!imageTool || typeof imageTool.model !== "string") return undefined;
-  return getImageModel(imageTool.model) || undefined;
+  // 工具显式模型在最终命中 pool-api 时可透传任意上游标识；实际后端边界会在
+  // runImageGenerationForUser 选中后统一校验，不能在此把 grok/nano-banana 拦掉。
+  return imageTool.model.trim() || undefined;
 }
 
 function getRequestedToolOutputFormat(tools: ResponseRequest["tools"]) {
@@ -685,11 +694,11 @@ function toResponsePayload(params: {
     ? params.result.imageOutputs
     : params.imageBase64
       ? [
-        {
-          imageBase64: params.imageBase64,
-          revisedPrompt: params.result.revisedPrompt,
-          promptRepairNotice: params.result.promptRepairNotice,
-        },
+          {
+            imageBase64: params.imageBase64,
+            revisedPrompt: params.result.revisedPrompt,
+            promptRepairNotice: params.result.promptRepairNotice,
+          },
         ]
       : [];
   for (const image of imageOutputs) {
@@ -808,14 +817,6 @@ export const postExternalResponses = withApiLogging(
       );
     }
 
-    if (
-      !(await isExternalResponsesImageModelAllowed(parsed.data.model, plan.plan))
-    ) {
-      return openAIImageError(
-        "Unsupported model for this plan. Use /v1/models to list available Responses image models."
-      );
-    }
-
     const { prompt, history, promptImageUrls } = inputToChatParams(
       parsed.data.input
     );
@@ -829,14 +830,14 @@ export const postExternalResponses = withApiLogging(
       apiKeyId: auth.apiKeyId,
       responseId: previousResponseId,
     });
-    const webConversationBackendMember =
-      previousContinuation?.webConversation?.accountId
-        ? {
-            type: "account" as const,
-            id: previousContinuation.webConversation.accountId,
-            accountBackend: "web" as const,
-          }
-        : undefined;
+    const webConversationBackendMember = previousContinuation?.webConversation
+      ?.accountId
+      ? {
+          type: "account" as const,
+          id: previousContinuation.webConversation.accountId,
+          accountBackend: "web" as const,
+        }
+      : undefined;
     const promptCacheBackendMember =
       previousContinuation?.backendMember || webConversationBackendMember
         ? undefined
@@ -893,9 +894,9 @@ export const postExternalResponses = withApiLogging(
       quality: parsed.data.quality as ImageQuality | undefined,
       moderation: (parsed.data.moderation || "auto") as ImageModeration,
       outputFormat: (normalizeOutputFormat(parsed.data.output_format) ||
-        getRequestedToolOutputFormat(
-          parsed.data.tools
-        )) as ImageOutputFormat | undefined,
+        getRequestedToolOutputFormat(parsed.data.tools)) as
+        | ImageOutputFormat
+        | undefined,
       outputCompression:
         normalizeOutputCompression(parsed.data.output_compression) ??
         getRequestedToolOutputCompression(parsed.data.tools),

@@ -292,8 +292,11 @@ export const epayOrder = pgTable("epay_order", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   businessType: text("business_type").notNull(),
-  amount: numeric("amount", { precision: 12, scale: 2, mode: "number" })
-    .notNull(),
+  amount: numeric("amount", {
+    precision: 12,
+    scale: 2,
+    mode: "number",
+  }).notNull(),
   status: text("status").notNull().default("pending"),
   metadata: json("metadata").$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -420,10 +423,16 @@ export const creditsBatch = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    amount: numeric("amount", { precision: 18, scale: 2, mode: "number" })
-      .notNull(),
-    remaining: numeric("remaining", { precision: 18, scale: 2, mode: "number" })
-      .notNull(),
+    amount: numeric("amount", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    remaining: numeric("remaining", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
     issuedAt: timestamp("issued_at").notNull().defaultNow(),
     expiresAt: timestamp("expires_at"),
     status: creditsBatchStatusEnum("status").notNull().default("active"),
@@ -469,8 +478,11 @@ export const creditsTransaction = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     type: creditsTransactionTypeEnum("type").notNull(),
-    amount: numeric("amount", { precision: 18, scale: 2, mode: "number" })
-      .notNull(),
+    amount: numeric("amount", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
     debitAccount: text("debit_account").notNull(),
     creditAccount: text("credit_account").notNull(),
     description: text("description"),
@@ -822,7 +834,9 @@ export const imageBackendAccount = pgTable(
     refreshToken: text("refresh_token"),
     implementationMode: text("interface_mode").notNull().default("web"),
     model: text("model"),
-    contentSafetyEnabled: boolean("content_safety_enabled").notNull().default(true),
+    contentSafetyEnabled: boolean("content_safety_enabled")
+      .notNull()
+      .default(true),
     isEnabled: boolean("is_enabled").notNull().default(true),
     // 遇错也始终可用：与 isEnabled 同时为真时，该账号永不进入冷却、不因失败被
     // 调度器置 error 排除（失败仍记录 lastError/failCount，但始终留在候选里）。
@@ -886,6 +900,12 @@ export const imageBackendApi = pgTable("image_backend_api", {
     .notNull()
     .default("responses"),
   imageUpstreamMode: text("image_upstream_mode").notNull().default("images"),
+  // API 后端可把本站标准请求字段映射为上游字段。配置是每个后端的快照，模板变更
+  // 不会隐式影响已上线的后端；运行时仍会在应用边界用 Zod 重新收窄此 JSON。
+  parameterMappings: json("parameter_mappings")
+    .$type<Array<{ source: string; target: string; mode: "copy" | "move" }>>()
+    .notNull()
+    .default([]),
   // Adobe 来源：此 api 后端虽是 OpenAI/gpt 格式，但上游实际来自 Adobe。开启后：
   // 计费按 Adobe 口径（套用下方 billing_multiplier，与分组倍率相乘，复用伪账号倍率链）；
   // 调度上参与 firefly 候选（含 force_firefly 与显式 firefly-* 模型，后者经反向转换成
@@ -894,7 +914,9 @@ export const imageBackendApi = pgTable("image_backend_api", {
   // 计费倍率（与 image_backend_adobe.billing_multiplier 同义）；仅当 adobeSourced 为真时
   // 生效，与分组倍率相乘汇入 config.backend.billingMultiplier，作用于图像扣费。默认 1。
   billingMultiplier: numeric("billing_multiplier").notNull().default("1"),
-  contentSafetyEnabled: boolean("content_safety_enabled").notNull().default(true),
+  contentSafetyEnabled: boolean("content_safety_enabled")
+    .notNull()
+    .default(true),
   isEnabled: boolean("is_enabled").notNull().default(true),
   // 遇错也始终可用：与 isEnabled 同时为真时，该 API 永不进入冷却、不因失败被
   // 调度器置 error 排除（失败仍记录 lastError，但始终留在候选里）。
@@ -920,6 +942,27 @@ export const imageBackendApi = pgTable("image_backend_api", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// API 后端参数映射模板。模板仅用于管理端复用，保存到具体后端时复制为独立快照，
+// 避免编辑或删除模板悄然改变正在服务的上游协议。
+export const imageBackendParameterMappingTemplate = pgTable(
+  "image_backend_parameter_mapping_template",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    parameterMappings: json("parameter_mappings")
+      .$type<Array<{ source: string; target: string; mode: "copy" | "move" }>>()
+      .notNull()
+      .default([]),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("image_backend_parameter_mapping_template_name_unique").on(
+      table.name
+    ),
+  ]
+);
 
 // 外接 API 后端与分组的多对多关系（镜像 imageBackendAccountGroup）。
 // imageBackendApi.groupId 保留为主分组/向后兼容；本表承载全部分组成员关系，
@@ -1116,9 +1159,10 @@ export const videoGeneration = pgTable(
     // pending / running / completed / failed。
     status: text("status").notNull().default("pending"),
     // 图生视频输入：引用历史生成（@ 历史图）或上传图的 storageKey / generationId。
-    inputImageRefs: json("input_image_refs").$type<
-      Array<{ generationId?: string; storageKey?: string; role?: string }>
-    >(),
+    inputImageRefs:
+      json("input_image_refs").$type<
+        Array<{ generationId?: string; storageKey?: string; role?: string }>
+      >(),
     // 完成后 re-host 到对象存储的 key；videoUrl 为上游 presigned（短期）。
     storageKey: text("storage_key"),
     videoUrl: text("video_url"),
@@ -1226,7 +1270,9 @@ export const imageBackendSchedulerMetric = pgTable(
       table.memberId,
       table.groupId
     ),
-    index("image_backend_scheduler_metric_bucket_idx").on(table.bucketStartedAt),
+    index("image_backend_scheduler_metric_bucket_idx").on(
+      table.bucketStartedAt
+    ),
   ]
 );
 
@@ -1254,11 +1300,14 @@ export type ImageBackendAccountGroup =
   typeof imageBackendAccountGroup.$inferSelect;
 export type NewImageBackendAccountGroup =
   typeof imageBackendAccountGroup.$inferInsert;
+export type ImageBackendParameterMappingTemplate =
+  typeof imageBackendParameterMappingTemplate.$inferSelect;
+export type NewImageBackendParameterMappingTemplate =
+  typeof imageBackendParameterMappingTemplate.$inferInsert;
 export type ImageBackendApi = typeof imageBackendApi.$inferSelect;
 export type NewImageBackendApi = typeof imageBackendApi.$inferInsert;
 export type ImageBackendApiGroup = typeof imageBackendApiGroup.$inferSelect;
-export type NewImageBackendApiGroup =
-  typeof imageBackendApiGroup.$inferInsert;
+export type NewImageBackendApiGroup = typeof imageBackendApiGroup.$inferInsert;
 export type ImageBackendInflightLease =
   typeof imageBackendInflightLease.$inferSelect;
 export type NewImageBackendInflightLease =
@@ -1329,39 +1378,46 @@ export const generationStatusEnum = pgEnum("generation_status", [
   "failed",
 ]);
 
-export const generation = pgTable("generation", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  prompt: text("prompt").notNull(),
-  revisedPrompt: text("revised_prompt"),
-  model: text("model").notNull(),
-  size: text("size").notNull().default("1024x1024"),
-  status: generationStatusEnum("status").notNull().default("pending"),
-  storageKey: text("storage_key"),
-  storageBucket: text("storage_bucket").default("generations"),
-  fileSize: integer("file_size"),
-  creditsConsumed: numeric("credits_consumed", {
-    precision: 18,
-    scale: 2,
-    mode: "number",
-  })
-    .notNull()
-    .default(0),
-  error: text("error"),
-  metadata: json("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  completedAt: timestamp("completed_at"),
-}, (table) => [
-  // 画廊/历史/计数与每次读触发的 pending 过期维护扫描:在 686MB 的 generation 表上,
-  // 把按 user / status 维度的查询从顺序扫转为有序索引扫描(迁移 0035)。
-  index("generation_user_id_created_at_idx").on(table.userId, table.createdAt),
-  index("generation_status_created_at_idx").on(table.status, table.createdAt),
-  // 另有 generation_metadata_gin_idx —— metadata 的 jsonb_path_ops GIN 表达式索引,
-  // 加速画廊 draft/upload 的 @? jsonpath 过滤。表达式索引以迁移 0035 的 SQL 为准
-  // (Drizzle 对 (metadata::jsonb) 这类表达式索引声明支持不稳定,故此处仅注释登记)。
-]);
+export const generation = pgTable(
+  "generation",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    prompt: text("prompt").notNull(),
+    revisedPrompt: text("revised_prompt"),
+    model: text("model").notNull(),
+    size: text("size").notNull().default("1024x1024"),
+    status: generationStatusEnum("status").notNull().default("pending"),
+    storageKey: text("storage_key"),
+    storageBucket: text("storage_bucket").default("generations"),
+    fileSize: integer("file_size"),
+    creditsConsumed: numeric("credits_consumed", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    error: text("error"),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    // 画廊/历史/计数与每次读触发的 pending 过期维护扫描:在 686MB 的 generation 表上,
+    // 把按 user / status 维度的查询从顺序扫转为有序索引扫描(迁移 0035)。
+    index("generation_user_id_created_at_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+    index("generation_status_created_at_idx").on(table.status, table.createdAt),
+    // 另有 generation_metadata_gin_idx —— metadata 的 jsonb_path_ops GIN 表达式索引,
+    // 加速画廊 draft/upload 的 @? jsonpath 过滤。表达式索引以迁移 0035 的 SQL 为准
+    // (Drizzle 对 (metadata::jsonb) 这类表达式索引声明支持不稳定,故此处仅注释登记)。
+  ]
+);
 
 export type Generation = typeof generation.$inferSelect;
 export type NewGeneration = typeof generation.$inferInsert;
@@ -1431,7 +1487,7 @@ export const mcpApiKey = pgTable(
   (table) => [
     index("mcp_api_key_key_hash_idx").on(table.keyHash),
     index("mcp_api_key_user_id_idx").on(table.userId),
-  ],
+  ]
 );
 
 export type McpApiKey = typeof mcpApiKey.$inferSelect;

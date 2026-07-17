@@ -11,6 +11,8 @@
  *
  * 使用方：image-backend-pool 的后台 API 测活；settings 的用户自配 API 测活。
  */
+import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+
 import type { ApiConfig } from "@/features/image-generation/types";
 
 import type {
@@ -52,6 +54,7 @@ export interface ImageApiHealthCheckInput {
   apiInterfaceMode?: ImageBackendApiInterfaceMode;
   imagesUpstreamMode?: ImagesUpstreamMode;
   chatCompletionsUpstreamMode?: ChatCompletionsUpstreamMode;
+  parameterMappings?: RequestParameterMapping[];
   /** 后端类型：后台池成员用 "pool-api"，用户自配 API 用 "user-api"。 */
   backendType?: "pool-api" | "user-api";
   timeoutMs?: number;
@@ -122,7 +125,13 @@ export function interpretImageHealthResult(
       (result.imageOutputs && result.imageOutputs.length > 0)
   );
   if (imageReturned) {
-    return { ok: true, status: "ok", latencyMs, imageReturned: true, message: "OK" };
+    return {
+      ok: true,
+      status: "ok",
+      latencyMs,
+      imageReturned: true,
+      message: "OK",
+    };
   }
   if (result.error) {
     return {
@@ -178,6 +187,7 @@ export async function checkImageBackendApiHealth(
       apiInterfaceMode: input.apiInterfaceMode,
       imagesUpstreamMode: input.imagesUpstreamMode,
       chatCompletionsUpstreamMode: input.chatCompletionsUpstreamMode,
+      parameterMappings: input.parameterMappings,
       // 关键：关闭上报与租约，保证纯探测、无副作用。
       reportResult: false,
       inflightLease: false,

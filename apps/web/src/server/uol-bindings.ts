@@ -20,11 +20,18 @@ import "@repo/shared/uol/operations";
 
 import { bindExecute } from "@repo/shared/uol";
 import type { Principal, OperationContext } from "@repo/shared/uol";
+import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
-import { listAdminImageBackendPool } from "@/features/image-backend-pool/service";
+import {
+  deleteImageBackendParameterMappingTemplate,
+  listAdminImageBackendPool,
+  listImageBackendParameterMappingTemplates,
+  upsertImageBackendApi,
+  upsertImageBackendParameterMappingTemplate,
+} from "@/features/image-backend-pool/service";
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -52,7 +59,7 @@ bindExecute(
       extra?: Record<string, unknown>;
     },
     _principal: Principal,
-    _ctx: OperationContext,
+    _ctx: OperationContext
   ) => {
     const result = await runImageGenerationForUser({
       mode: "generate",
@@ -95,7 +102,91 @@ bindExecute(
       creditsUsed: result.creditsConsumed,
       model: result.model,
     };
-  },
+  }
+);
+
+/**
+ * pool.saveApi - 保存第三方 API 后端。
+ *
+ * 源：apps/web/src/features/image-backend-pool/service.ts。
+ * WHY：server action 与 MCP 都通过同一 UOL 网关调用，避免参数映射等权限和校验
+ * 逻辑在不同传输层漂移。
+ */
+bindExecute(
+  "pool.saveApi",
+  async (
+    input: {
+      id?: string;
+      groupId?: string | null;
+      groupIds?: string[];
+      name: string;
+      baseUrl: string;
+      apiKey?: string;
+      model?: string;
+      interfaceMode: "images" | "responses" | "mixed";
+      chatCompletionsUpstreamMode: "responses" | "chat_completions";
+      imagesUpstreamMode: "images" | "responses";
+      parameterMappings: RequestParameterMapping[];
+      useStream: boolean;
+      contentSafetyEnabled: boolean;
+      isEnabled: boolean;
+      alwaysActive: boolean;
+      failureCooldownEnabled: boolean;
+      priority: number;
+      concurrency: number;
+      adobeSourced: boolean;
+      billingMultiplier: number;
+      status: string;
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => ({
+    id: await upsertImageBackendApi({
+      ...input,
+      model: input.model || null,
+    }),
+  })
+);
+
+/** pool.listParameterMappingTemplates - 读取可复用的参数映射模板。 */
+bindExecute(
+  "pool.listParameterMappingTemplates",
+  async (
+    _input: Record<string, never>,
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => ({
+    templates: await listImageBackendParameterMappingTemplates(),
+  })
+);
+
+/** pool.saveParameterMappingTemplate - 保存独立的参数映射模板快照。 */
+bindExecute(
+  "pool.saveParameterMappingTemplate",
+  async (
+    input: {
+      id?: string;
+      name: string;
+      parameterMappings: RequestParameterMapping[];
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => ({
+    id: await upsertImageBackendParameterMappingTemplate(input),
+  })
+);
+
+/** pool.deleteParameterMappingTemplate - 删除模板，不影响已保存的 API 配置。 */
+bindExecute(
+  "pool.deleteParameterMappingTemplate",
+  async (
+    input: { id: string },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    await deleteImageBackendParameterMappingTemplate(input.id);
+    return { success: true };
+  }
 );
 
 /**
@@ -115,7 +206,7 @@ function bindEditableFile(name: "file.generatePpt" | "file.generatePsd") {
         base64Images?: string[];
       },
       _principal: Principal,
-      _ctx: OperationContext,
+      _ctx: OperationContext
     ) => {
       const result = await runEditableFileForUser({
         userId: input.userId,
@@ -131,7 +222,7 @@ function bindEditableFile(name: "file.generatePpt" | "file.generatePsd") {
         zipUrl: result.zipUrl,
         creditsUsed: result.creditsCharged,
       };
-    },
+    }
   );
 }
 bindEditableFile("file.generatePpt");
@@ -162,11 +253,11 @@ bindExecute(
   async (
     _input: Record<string, never>,
     _principal: Principal,
-    _ctx: OperationContext,
+    _ctx: OperationContext
   ) => {
     const pool = await listAdminImageBackendPool();
     return pool;
-  },
+  }
 );
 
 // TODO: pool.getSelectableGroups - getSelectableImageBackendGroupsAction 逻辑
@@ -178,7 +269,6 @@ bindExecute(
 // TODO: pool.bulkUpdateAccounts - bulkUpdateImageBackendAccountsAction 逻辑
 // TODO: pool.bulkDeleteAccounts - bulkDeleteImageBackendAccountsAction 逻辑
 // TODO: pool.deleteMember - deleteImageBackendMemberAction 逻辑
-// TODO: pool.saveApi - saveImageBackendApiAction 逻辑
 // TODO: pool.importFromRefreshTokens - importImageBackendAccountsFromRefreshTokensAction
 // TODO: pool.importWebFromAccessTokens - importImageBackendWebAccountsFromAccessTokensAction
 // TODO: pool.refreshAccountInfo - refreshImageBackendAccountInfoAction 逻辑

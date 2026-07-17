@@ -53,7 +53,6 @@ import {
   validateImageFile,
 } from "@/features/image-generation/request-utils";
 import {
-  getImageModel,
   IMAGE_PROMPT_MAX_CHARACTERS,
   IMAGE_PROMPT_TOO_LONG_MESSAGE,
   validateImageSize,
@@ -521,12 +520,6 @@ function toPartialPayload(image: PartialImageResult, index: number) {
   };
 }
 
-function invalidImageModelError() {
-  return openAIImageError(
-    "Unsupported model for /v1/images/edits. Use a gpt-image-* model."
-  );
-}
-
 export const postExternalImageEdits = withApiLogging(
   async (request: NextRequest) => {
     const auth = await authenticateExternalApiRequest(request);
@@ -677,10 +670,9 @@ export const postExternalImageEdits = withApiLogging(
 
     const responseFormat =
       getText(formData, "response_format") === "url" ? "url" : "b64_json";
-    const model = getImageModel(getText(formData, "model") || undefined);
-    if (!model) {
-      return invalidImageModelError();
-    }
+    // 不在传输层硬编码模型前缀：最终选中 pool-api 时可透传任意管理员配置的
+    // 上游模型，其他后端仍由统一图像管线执行既有白名单校验。
+    const model = getText(formData, "model") || undefined;
     const gptModel =
       getText(formData, "gptModel") ||
       getText(formData, "gpt_model") ||

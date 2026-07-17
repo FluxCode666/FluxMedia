@@ -39,7 +39,6 @@ import {
 } from "@/features/image-generation/output-format";
 import {
   DEFAULT_IMAGE_SIZE,
-  getImageModel,
   IMAGE_PROMPT_MAX_CHARACTERS,
   IMAGE_PROMPT_TOO_LONG_MESSAGE,
   validateImageSize,
@@ -158,10 +157,6 @@ function toPartialPayload(image: PartialImageResult, index: number) {
   };
 }
 
-function resolveImageModel(model: string | undefined) {
-  return getImageModel(model);
-}
-
 export const postExternalImageGenerations = withApiLogging(
   async (request: NextRequest) => {
     const auth = await authenticateExternalApiRequest(request);
@@ -196,12 +191,10 @@ export const postExternalImageGenerations = withApiLogging(
       );
     }
 
-    const imageModel = resolveImageModel(parsed.data.model);
-    if (!imageModel) {
-      return openAIImageError(
-        "Unsupported model for /v1/images/generations. Use a gpt-image-* model, or call /v1/responses for Responses image models."
-      );
-    }
+    // 图像模型的最终校验依赖实际选中的后端：pool-api 允许管理员配置的任意
+    // 上游模型（如 nano-banana-*、grok-*），OAuth/平台后端仍会在管线内保持白名单。
+    // 此处保留 undefined，才能让 API 后端配置的默认模型生效。
+    const imageModel = parsed.data.model?.trim() || undefined;
 
     const plan = await getUserPlan(auth.userId);
     const limits = await getPlanLimits(plan.plan);

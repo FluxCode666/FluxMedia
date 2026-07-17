@@ -1,6 +1,7 @@
 "use client";
 
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
@@ -66,9 +67,11 @@ import {
   bulkDeleteImageBackendAccountsAction,
   bulkUpdateImageBackendAccountsAction,
   deleteImageBackendGroupAction,
+  deleteImageBackendParameterMappingTemplateAction,
   deleteImageBackendMemberAction,
   deleteSub2ApiAutoSyncTaskAction,
   getAdminImageBackendPoolAction,
+  getImageBackendParameterMappingTemplatesAction,
   getAdobeModelMultipliersAction,
   getSub2ApiAutoSyncTasksAction,
   getSub2ApiSourceGroupsAction,
@@ -87,6 +90,7 @@ import {
   saveImageBackendAccountAction,
   saveImageBackendAdobeAction,
   saveImageBackendApiAction,
+  saveImageBackendParameterMappingTemplateAction,
   setAdobeModelMultipliersAction,
   saveImageBackendGroupAction,
   setAdobeAccountEnabledAction,
@@ -173,6 +177,7 @@ type Api = {
   interfaceMode: ImageBackendApiInterfaceMode;
   chatCompletionsUpstreamMode: ChatCompletionsUpstreamModeFormValue;
   imagesUpstreamMode: ImagesUpstreamModeFormValue;
+  parameterMappings: RequestParameterMapping[];
   useStream: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -190,6 +195,30 @@ type Api = {
   lastError: string | null;
   lastErrorAt: Date | string | null;
 };
+
+type ParameterMappingTemplate = {
+  id: string;
+  name: string;
+  parameterMappings: RequestParameterMapping[];
+};
+
+type ApiParameterMappingFormValue = RequestParameterMapping & {
+  formKey: string;
+};
+
+/**
+ * 为可编辑映射补充仅供 React 渲染使用的稳定键。
+ *
+ * `formKey` 不会写入服务端 schema，因此模板与 API 配置持久化时只保留真实映射字段。
+ *
+ * @param mapping - 从模板、数据库或新建行得到的映射。
+ * @returns 带客户端稳定键的表单行。
+ */
+function createApiParameterMappingFormValue(
+  mapping: RequestParameterMapping
+): ApiParameterMappingFormValue {
+  return { ...mapping, formKey: crypto.randomUUID() };
+}
 
 type Adobe = {
   id: string;
@@ -865,6 +894,7 @@ export function ImageBackendPoolAdminPanel({
     chatCompletionsUpstreamMode:
       "responses" as ChatCompletionsUpstreamModeFormValue,
     imagesUpstreamMode: "images" as ImagesUpstreamModeFormValue,
+    parameterMappings: [] as ApiParameterMappingFormValue[],
     useStream: false,
     contentSafetyEnabled: true,
     isEnabled: true,
@@ -899,6 +929,15 @@ export function ImageBackendPoolAdminPanel({
     priority: 50,
     concurrency: 10,
   });
+  const [parameterMappingTemplates, setParameterMappingTemplates] = useState<
+    ParameterMappingTemplate[]
+  >([]);
+  const [parameterMappingTemplateName, setParameterMappingTemplateName] =
+    useState("");
+  const [
+    selectedParameterMappingTemplateId,
+    setSelectedParameterMappingTemplateId,
+  ] = useState("__none");
   const [bulkAccountForm, setBulkAccountForm] = useState<BulkAccountForm>({
     selectionGroupId: "all",
     selectionMode: "all" as "all" | AccountBackendFormValue,
@@ -1182,6 +1221,7 @@ export function ImageBackendPoolAdminPanel({
       chatCompletionsUpstreamMode:
         "responses" as ChatCompletionsUpstreamModeFormValue,
       imagesUpstreamMode: "images" as ImagesUpstreamModeFormValue,
+      parameterMappings: [],
       useStream: false,
       contentSafetyEnabled: true,
       isEnabled: true,
@@ -1305,6 +1345,41 @@ export function ImageBackendPoolAdminPanel({
     });
   };
 
+  const addApiParameterMapping = () => {
+    setApiForm((current) => ({
+      ...current,
+      parameterMappings: [
+        ...current.parameterMappings,
+        createApiParameterMappingFormValue({
+          source: "",
+          target: "",
+          mode: "move",
+        }),
+      ],
+    }));
+  };
+
+  const updateApiParameterMapping = (
+    index: number,
+    patch: Partial<RequestParameterMapping>
+  ) => {
+    setApiForm((current) => ({
+      ...current,
+      parameterMappings: current.parameterMappings.map((mapping, itemIndex) =>
+        itemIndex === index ? { ...mapping, ...patch } : mapping
+      ),
+    }));
+  };
+
+  const removeApiParameterMapping = (index: number) => {
+    setApiForm((current) => ({
+      ...current,
+      parameterMappings: current.parameterMappings.filter(
+        (_, itemIndex) => itemIndex !== index
+      ),
+    }));
+  };
+
   const toggleAccountSelection = (accountId: string, checked: boolean) => {
     setSelectedAccountIds((current) =>
       checked
@@ -1335,6 +1410,9 @@ export function ImageBackendPoolAdminPanel({
       chatCompletionsUpstreamMode:
         api.chatCompletionsUpstreamMode || "responses",
       imagesUpstreamMode: api.imagesUpstreamMode || "images",
+      parameterMappings: (api.parameterMappings || []).map(
+        createApiParameterMappingFormValue
+      ),
       useStream: api.useStream,
       contentSafetyEnabled: api.contentSafetyEnabled,
       isEnabled: api.isEnabled,
@@ -1437,6 +1515,45 @@ export function ImageBackendPoolAdminPanel({
   );
 
   const reload = () => loadPool();
+
+  const { execute: loadParameterMappingTemplates } = useAction(
+    getImageBackendParameterMappingTemplatesAction,
+    {
+      onSuccess: ({ data }) => {
+        setParameterMappingTemplates(
+          (data?.templates || []) as ParameterMappingTemplate[]
+        );
+      },
+      onError: ({ error }) =>
+        toast.error(error.serverError || "加载参数映射模板失败"),
+    }
+  );
+
+  const {
+    execute: saveParameterMappingTemplate,
+    isPending: isSavingParameterMappingTemplate,
+  } = useAction(saveImageBackendParameterMappingTemplateAction, {
+    onSuccess: () => {
+      toast.success("参数映射模板已保存");
+      setParameterMappingTemplateName("");
+      loadParameterMappingTemplates();
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "保存参数映射模板失败"),
+  });
+
+  const {
+    execute: deleteParameterMappingTemplate,
+    isPending: isDeletingParameterMappingTemplate,
+  } = useAction(deleteImageBackendParameterMappingTemplateAction, {
+    onSuccess: () => {
+      toast.success("参数映射模板已删除");
+      setSelectedParameterMappingTemplateId("__none");
+      loadParameterMappingTemplates();
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "删除参数映射模板失败"),
+  });
 
   const { execute: loadSub2ApiSyncStatus } = useAction(
     getSub2ApiSyncStatusAction,
@@ -1654,16 +1771,10 @@ export function ImageBackendPoolAdminPanel({
     {
       onSuccess: ({ data }) => {
         setImageMultiplierDraft(
-          multipliersToDraft(
-            ADOBE_IMAGE_MULTIPLIER_FAMILIES,
-            data?.image ?? {}
-          )
+          multipliersToDraft(ADOBE_IMAGE_MULTIPLIER_FAMILIES, data?.image ?? {})
         );
         setVideoMultiplierDraft(
-          multipliersToDraft(
-            ADOBE_VIDEO_MULTIPLIER_FAMILIES,
-            data?.video ?? {}
-          )
+          multipliersToDraft(ADOBE_VIDEO_MULTIPLIER_FAMILIES, data?.video ?? {})
         );
       },
       onError: ({ error }) =>
@@ -1689,17 +1800,19 @@ export function ImageBackendPoolAdminPanel({
       toast.error(error.serverError || "加载 Adobe 账号失败"),
   });
 
-  const { execute: importAdobeAccountExec, isPending: isImportingAdobeAccount } =
-    useAction(importAdobeAccountAction, {
-      onSuccess: () => {
-        toast.success("Adobe 账号已导入并验证");
-        setAdobeCookieInput("");
-        setAdobeAccountName("");
-        if (adobeForm.id) loadAdobeAccounts({ adobeId: adobeForm.id });
-      },
-      onError: ({ error }) =>
-        toast.error(error.serverError || "导入 Adobe 账号失败"),
-    });
+  const {
+    execute: importAdobeAccountExec,
+    isPending: isImportingAdobeAccount,
+  } = useAction(importAdobeAccountAction, {
+    onSuccess: () => {
+      toast.success("Adobe 账号已导入并验证");
+      setAdobeCookieInput("");
+      setAdobeAccountName("");
+      if (adobeForm.id) loadAdobeAccounts({ adobeId: adobeForm.id });
+    },
+    onError: ({ error }) =>
+      toast.error(error.serverError || "导入 Adobe 账号失败"),
+  });
 
   const [adobeBatchSummary, setAdobeBatchSummary] = useState("");
   const {
@@ -2300,12 +2413,14 @@ export function ImageBackendPoolAdminPanel({
       loadSub2ApiSyncStatus();
       loadSub2ApiSyncTasks();
       loadModelMultipliers();
+      loadParameterMappingTemplates();
     }
   }, [
     loadPool,
     loadSub2ApiSyncStatus,
     loadSub2ApiSyncTasks,
     loadModelMultipliers,
+    loadParameterMappingTemplates,
     readOnly,
   ]);
 
@@ -2362,7 +2477,8 @@ export function ImageBackendPoolAdminPanel({
               : readOnly
                 ? "accounts"
                 : "groups";
-          if (readOnly && (nextTab === "import" || nextTab === "register")) return;
+          if (readOnly && (nextTab === "import" || nextTab === "register"))
+            return;
           setActiveTab(nextTab);
         }}
         className="w-full"
@@ -3787,16 +3903,173 @@ export function ImageBackendPoolAdminPanel({
                     取消全部分组即为未分组；同一 API 可同时被多个分组调度。
                   </p>
                 </div>
-                <Input
-                  placeholder="默认模型，可选"
-                  value={apiForm.model}
-                  onChange={(event) =>
-                    setApiForm((current) => ({
-                      ...current,
-                      model: event.target.value,
-                    }))
-                  }
-                />
+                <div className="space-y-1.5">
+                  <Label>默认模型</Label>
+                  <Input
+                    placeholder="可选，如 nano-banana-pro 或 grok-imagine-image"
+                    value={apiForm.model}
+                    onChange={(event) =>
+                      setApiForm((current) => ({
+                        ...current,
+                        model: event.target.value,
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    API 后端可使用任意上游模型标识；未传模型的 Images
+                    请求会使用此值。Web、Codex 与 Adobe
+                    账号仍维持各自的模型限制。
+                  </p>
+                </div>
+                <div className="space-y-3 rounded-md border p-3">
+                  <div className="space-y-1">
+                    <Label>请求参数映射</Label>
+                    <p className="text-xs text-muted-foreground">
+                      从已构造的标准请求字段填充或重命名上游字段。JSON
+                      请求支持点路径，例如
+                      <code>tools.0.model</code>；multipart 改图仅支持顶层字段。
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_120px_auto]">
+                    <Select
+                      value={selectedParameterMappingTemplateId}
+                      onValueChange={(value) => {
+                        setSelectedParameterMappingTemplateId(value);
+                        const template = parameterMappingTemplates.find(
+                          (item) => item.id === value
+                        );
+                        if (template) {
+                          setApiForm((current) => ({
+                            ...current,
+                            parameterMappings: template.parameterMappings.map(
+                              createApiParameterMappingFormValue
+                            ),
+                          }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="sm:col-span-2">
+                        <SelectValue placeholder="选择模板以覆盖当前映射" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">不使用模板</SelectItem>
+                        {parameterMappingTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="sm:col-span-2"
+                      disabled={
+                        selectedParameterMappingTemplateId === "__none" ||
+                        isDeletingParameterMappingTemplate
+                      }
+                      onClick={() => {
+                        const template = parameterMappingTemplates.find(
+                          (item) =>
+                            item.id === selectedParameterMappingTemplateId
+                        );
+                        if (
+                          template &&
+                          window.confirm(`确定删除模板「${template.name}」？`)
+                        ) {
+                          deleteParameterMappingTemplate({ id: template.id });
+                        }
+                      }}
+                    >
+                      删除模板
+                    </Button>
+                  </div>
+                  {apiForm.parameterMappings.map((mapping, index) => (
+                    <div
+                      key={mapping.formKey}
+                      className="grid gap-2 sm:grid-cols-[1fr_1fr_120px_auto]"
+                    >
+                      <Input
+                        aria-label={`第 ${index + 1} 条映射来源`}
+                        placeholder="来源，如 model"
+                        value={mapping.source}
+                        onChange={(event) =>
+                          updateApiParameterMapping(index, {
+                            source: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        aria-label={`第 ${index + 1} 条映射目标`}
+                        placeholder="上游字段，如 model_id"
+                        value={mapping.target}
+                        onChange={(event) =>
+                          updateApiParameterMapping(index, {
+                            target: event.target.value,
+                          })
+                        }
+                      />
+                      <Select
+                        value={mapping.mode}
+                        onValueChange={(value) =>
+                          updateApiParameterMapping(index, {
+                            mode: value === "copy" ? "copy" : "move",
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="move">重命名</SelectItem>
+                          <SelectItem value="copy">复制保留原值</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label={`删除第 ${index + 1} 条映射`}
+                        onClick={() => removeApiParameterMapping(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addApiParameterMapping}
+                  >
+                    新增参数映射
+                  </Button>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <Input
+                      placeholder="模板名称"
+                      value={parameterMappingTemplateName}
+                      onChange={(event) =>
+                        setParameterMappingTemplateName(event.target.value)
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={
+                        isSavingParameterMappingTemplate ||
+                        !parameterMappingTemplateName.trim() ||
+                        apiForm.parameterMappings.length === 0
+                      }
+                      onClick={() =>
+                        saveParameterMappingTemplate({
+                          name: parameterMappingTemplateName,
+                          parameterMappings: apiForm.parameterMappings,
+                        })
+                      }
+                    >
+                      保存为模板
+                    </Button>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label>接口类型</Label>
                   <Select
@@ -3996,8 +4269,9 @@ export function ImageBackendPoolAdminPanel({
                     <Label>Adobe 来源（按 Adobe 计费 + 进 firefly 调度）</Label>
                     <p className="text-xs text-muted-foreground">
                       上游实为 Adobe 的 gpt 格式 api。开启后：计费吃下方成员倍率
-                      （命中组倍率 × 成员倍率，与 Adobe 伪账号同口径）；调度上参与
-                      firefly 候选，firefly-* 请求自动反向转换成 gpt 请求后由本后端处理。
+                      （命中组倍率 × 成员倍率，与 Adobe
+                      伪账号同口径）；调度上参与 firefly 候选，firefly-*
+                      请求自动反向转换成 gpt 请求后由本后端处理。
                     </p>
                   </div>
                   <Switch
@@ -4027,8 +4301,9 @@ export function ImageBackendPoolAdminPanel({
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      仅「Adobe 来源」开启时生效。最终扣费 = 向上保留两位(向上保留两位
-                      (基础价 + 审核附加) × 模型倍率 × 命中组倍率 × 本成员倍率)。
+                      仅「Adobe 来源」开启时生效。最终扣费 =
+                      向上保留两位(向上保留两位 (基础价 + 审核附加) × 模型倍率 ×
+                      命中组倍率 × 本成员倍率)。
                     </p>
                     {(() => {
                       // 实时算例：以 nano-banana-pro · 1024×1024 为例，套上方输入的成员
@@ -4049,19 +4324,21 @@ export function ImageBackendPoolAdminPanel({
                             算例：nano-banana-pro · 1024×1024
                           </div>
                           <div className="text-muted-foreground">
-                            模型 x{modelMultiplier} · 组 x{sampleGroup}（示例） ·
-                            成员 x{member}
+                            模型 x{modelMultiplier} · 组 x{sampleGroup}（示例）
+                            · 成员 x{member}
                           </div>
                           <div className="text-muted-foreground">
-                            向上保留两位(向上保留两位(6 基础价 + 0.04 审核附加) x{" "}
-                            {modelMultiplier} x {sampleGroup} x {member})
+                            向上保留两位(向上保留两位(6 基础价 + 0.04 审核附加)
+                            x {modelMultiplier} x {sampleGroup} x {member})
                           </div>
                           <div className="font-medium text-foreground">
                             = {final} 积分/张
                           </div>
                           <p className="text-muted-foreground">
-                            模型倍率（如 nano-banana-pro x1.5）按 IMAGE_MODEL_MULTIPLIERS
-                            配置、与本成员倍率叠乘；关闭「Adobe 来源」则成员 x1（同普通 api）。
+                            模型倍率（如 nano-banana-pro x1.5）按
+                            IMAGE_MODEL_MULTIPLIERS
+                            配置、与本成员倍率叠乘；关闭「Adobe 来源」则成员
+                            x1（同普通 api）。
                           </p>
                         </div>
                       );
@@ -4125,6 +4402,11 @@ export function ImageBackendPoolAdminPanel({
                           ? "Responses"
                           : "原生"}
                       </Badge>
+                      {api.parameterMappings.length > 0 && (
+                        <Badge variant="outline">
+                          映射 {api.parameterMappings.length}
+                        </Badge>
+                      )}
                       <Badge
                         variant="outline"
                         className={backendStatusBadgeClass(api.status)}
@@ -4445,7 +4727,8 @@ export function ImageBackendPoolAdminPanel({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    用户选 auto 时映射到此质量；显式选 low/medium/high 则按用户的来。
+                    用户选 auto 时映射到此质量；显式选 low/medium/high
+                    则按用户的来。
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -4471,7 +4754,9 @@ export function ImageBackendPoolAdminPanel({
                 <div className="space-y-2 rounded-md border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <Label>所属分组</Label>
-                    <span className="text-xs text-muted-foreground">可多选</span>
+                    <span className="text-xs text-muted-foreground">
+                      可多选
+                    </span>
                   </div>
                   <div className="grid max-h-40 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
                     {groups.map((group) => (
@@ -4512,7 +4797,9 @@ export function ImageBackendPoolAdminPanel({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">并发</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      并发
+                    </Label>
                     <Input
                       type="number"
                       value={adobeForm.concurrency}
@@ -4671,15 +4958,13 @@ export function ImageBackendPoolAdminPanel({
                           variant="secondary"
                           className="w-full"
                           disabled={
-                            isImportingAdobeAccounts ||
-                            !adobeCookieInput.trim()
+                            isImportingAdobeAccounts || !adobeCookieInput.trim()
                           }
                           onClick={() =>
                             importAdobeAccountsExec({
                               adobeId: adobeForm.id,
                               cookiesText: adobeCookieInput,
-                              namePrefix:
-                                adobeAccountName.trim() || undefined,
+                              namePrefix: adobeAccountName.trim() || undefined,
                             })
                           }
                         >

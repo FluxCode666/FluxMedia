@@ -4,12 +4,14 @@ import {
   isSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
 
 import {
   adminAction,
   imageBackendPoolViewerAction,
   protectedAction,
 } from "@repo/shared/safe-action";
+import { invokeOperation } from "@repo/shared/uol";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
@@ -62,9 +64,9 @@ import {
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
   upsertImageBackendAdobe,
-  upsertImageBackendApi,
   upsertImageBackendGroup,
 } from "./service";
+import { ensureUolInitialized } from "@/server/uol-init";
 
 const nullableGroupIdSchema = z
   .string()
@@ -559,6 +561,7 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       chatCompletionsUpstreamMode:
         chatCompletionsUpstreamModeSchema.default("responses"),
       imagesUpstreamMode: imagesUpstreamModeSchema.default("images"),
+      parameterMappings: requestParameterMappingsSchema.default([]),
       useStream: z.boolean().default(false),
       contentSafetyEnabled: z.boolean().default(true),
       isEnabled: z.boolean().default(true),
@@ -573,31 +576,70 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       status: z.string().trim().max(80).optional(),
     })
   )
-  .action(async ({ parsedInput }) => {
-    const id = await upsertImageBackendApi({
-      id: parsedInput.id,
-      groupId: parsedInput.groupId,
-      groupIds: parsedInput.groupIds,
-      name: parsedInput.name,
-      baseUrl: parsedInput.baseUrl,
-      apiKey: parsedInput.apiKey || undefined,
-      model: parsedInput.model || null,
-      interfaceMode: parsedInput.interfaceMode,
-      chatCompletionsUpstreamMode: parsedInput.chatCompletionsUpstreamMode,
-      imagesUpstreamMode: parsedInput.imagesUpstreamMode,
-      useStream: parsedInput.useStream,
-      contentSafetyEnabled: parsedInput.contentSafetyEnabled,
-      isEnabled: parsedInput.isEnabled,
-      alwaysActive: parsedInput.alwaysActive,
-      failureCooldownEnabled: parsedInput.failureCooldownEnabled,
-      priority: parsedInput.priority,
-      concurrency: parsedInput.concurrency,
-      adobeSourced: parsedInput.adobeSourced,
-      billingMultiplier: parsedInput.billingMultiplier,
-      status: parsedInput.status || "active",
-    });
-    return { success: true, id };
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureUolInitialized();
+    const result = await invokeOperation<{ id: string }>(
+      "pool.saveApi",
+      {
+        ...parsedInput,
+        apiKey: parsedInput.apiKey || undefined,
+        model: parsedInput.model || undefined,
+        status: parsedInput.status || "active",
+      },
+      { type: "user", userId: ctx.userId, role: ctx.role }
+    );
+    return { success: true, id: result.id };
   });
+
+export const getImageBackendParameterMappingTemplatesAction =
+  withImageBackendPoolViewerAction("listParameterMappingTemplates").action(
+    async ({ ctx }) => {
+      await ensureUolInitialized();
+      return await invokeOperation<{
+        templates: Array<{
+          id: string;
+          name: string;
+          parameterMappings: z.infer<typeof requestParameterMappingsSchema>;
+        }>;
+      }>(
+        "pool.listParameterMappingTemplates",
+        {},
+        { type: "user", userId: ctx.userId, role: ctx.role }
+      );
+    }
+  );
+
+export const saveImageBackendParameterMappingTemplateAction =
+  withImageBackendPoolAdminAction("saveParameterMappingTemplate")
+    .schema(
+      z.object({
+        id: z.string().trim().optional(),
+        name: z.string().trim().min(1).max(80),
+        parameterMappings: requestParameterMappingsSchema,
+      })
+    )
+    .action(async ({ parsedInput, ctx }) => {
+      await ensureUolInitialized();
+      const result = await invokeOperation<{ id: string }>(
+        "pool.saveParameterMappingTemplate",
+        parsedInput,
+        { type: "user", userId: ctx.userId, role: ctx.role }
+      );
+      return { success: true, id: result.id };
+    });
+
+export const deleteImageBackendParameterMappingTemplateAction =
+  withImageBackendPoolAdminAction("deleteParameterMappingTemplate")
+    .schema(z.object({ id: z.string().trim().min(1) }))
+    .action(async ({ parsedInput, ctx }) => {
+      await ensureUolInitialized();
+      await invokeOperation<{ success: boolean }>(
+        "pool.deleteParameterMappingTemplate",
+        parsedInput,
+        { type: "user", userId: ctx.userId, role: ctx.role }
+      );
+      return { success: true };
+    });
 
 export const saveImageBackendAdobeAction = withImageBackendPoolAdminAction(
   "saveAdobe"
@@ -899,194 +941,181 @@ export const getImageBackendGroupOptionsAction = protectedAction
   });
 
 // 读取 ChatGPT 注册机配置（moemail + 代理 + IP 刷新 + 号池维持）
-export const getChatgptRegisterConfigAction =
-  withImageBackendPoolAdminAction("getChatgptRegisterConfig").action(
-    async () => {
-      const [
-        apiKey,
-        baseUrl,
-        domain,
-        domains,
-        domainRotationEnabled,
-        proxy,
-        proxyDisabled,
-        refreshUrl,
-        refreshMinIntervalSeconds,
-        refreshMinAttempts,
-        maintainEnabled,
-        maintainGroupId,
-        maintainTarget,
-        maintainMaxPerRun,
-        maintainConcurrency,
-      ] = await Promise.all([
-        getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_API_KEY"),
-        getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_BASE_URL"),
-        getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_DOMAIN"),
-        getRuntimeSettingString("CHATGPT_REGISTER_DOMAINS"),
-        getRuntimeSettingBoolean(
-          "CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED",
-          false
-        ),
-        getRuntimeSettingString("CHATGPT_REGISTER_PROXY"),
-        getRuntimeSettingBoolean("CHATGPT_REGISTER_PROXY_DISABLED", false),
-        getRuntimeSettingString("CHATGPT_REGISTER_REFRESH_URL"),
-        getRuntimeSettingNumber(
-          "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS",
-          60
-        ),
-        getRuntimeSettingNumber("CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS", 100),
-        getRuntimeSettingBoolean(
-          "CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED",
-          false
-        ),
-        getRuntimeSettingString("CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID"),
-        getRuntimeSettingNumber("CHATGPT_REGISTER_POOL_MAINTAIN_TARGET", 0),
-        getRuntimeSettingNumber(
-          "CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN",
-          10
-        ),
-        getRuntimeSettingNumber(
-          "CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY",
-          5
-        ),
-      ]);
-      return {
-        apiKey,
-        baseUrl,
-        domain,
-        domains,
-        domainRotationEnabled,
-        proxy,
-        proxyDisabled,
-        refreshUrl,
-        refreshMinIntervalSeconds,
-        refreshMinAttempts,
-        maintainEnabled,
-        maintainGroupId,
-        maintainTarget,
-        maintainMaxPerRun,
-        maintainConcurrency,
-      };
-    }
-  );
+export const getChatgptRegisterConfigAction = withImageBackendPoolAdminAction(
+  "getChatgptRegisterConfig"
+).action(async () => {
+  const [
+    apiKey,
+    baseUrl,
+    domain,
+    domains,
+    domainRotationEnabled,
+    proxy,
+    proxyDisabled,
+    refreshUrl,
+    refreshMinIntervalSeconds,
+    refreshMinAttempts,
+    maintainEnabled,
+    maintainGroupId,
+    maintainTarget,
+    maintainMaxPerRun,
+    maintainConcurrency,
+  ] = await Promise.all([
+    getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_API_KEY"),
+    getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_BASE_URL"),
+    getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_DOMAIN"),
+    getRuntimeSettingString("CHATGPT_REGISTER_DOMAINS"),
+    getRuntimeSettingBoolean("CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED", false),
+    getRuntimeSettingString("CHATGPT_REGISTER_PROXY"),
+    getRuntimeSettingBoolean("CHATGPT_REGISTER_PROXY_DISABLED", false),
+    getRuntimeSettingString("CHATGPT_REGISTER_REFRESH_URL"),
+    getRuntimeSettingNumber(
+      "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS",
+      60
+    ),
+    getRuntimeSettingNumber("CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS", 100),
+    getRuntimeSettingBoolean("CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED", false),
+    getRuntimeSettingString("CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID"),
+    getRuntimeSettingNumber("CHATGPT_REGISTER_POOL_MAINTAIN_TARGET", 0),
+    getRuntimeSettingNumber("CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN", 10),
+    getRuntimeSettingNumber("CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY", 5),
+  ]);
+  return {
+    apiKey,
+    baseUrl,
+    domain,
+    domains,
+    domainRotationEnabled,
+    proxy,
+    proxyDisabled,
+    refreshUrl,
+    refreshMinIntervalSeconds,
+    refreshMinAttempts,
+    maintainEnabled,
+    maintainGroupId,
+    maintainTarget,
+    maintainMaxPerRun,
+    maintainConcurrency,
+  };
+});
 
 // 查询某分组当前可用 web 账号数（号池维持面板展示用）
-export const getGroupAvailableCountAction =
-  withImageBackendPoolAdminAction("getGroupAvailableCount")
-    .schema(z.object({ groupId: z.string().trim().min(1) }))
-    .action(async ({ parsedInput }) => {
-      const available = await countAvailableWebAccountsInGroup(
-        parsedInput.groupId
-      );
-      return { available };
-    });
+export const getGroupAvailableCountAction = withImageBackendPoolAdminAction(
+  "getGroupAvailableCount"
+)
+  .schema(z.object({ groupId: z.string().trim().min(1) }))
+  .action(async ({ parsedInput }) => {
+    const available = await countAvailableWebAccountsInGroup(
+      parsedInput.groupId
+    );
+    return { available };
+  });
 
 // 从 Moemail 服务端查询可用邮箱域名列表
-export const getMoemailDomainsAction =
-  withImageBackendPoolAdminAction("getMoemailDomains")
-    .schema(
-      z.object({
-        baseUrl: z.string().trim().min(1).optional(),
-        apiKey: z.string().trim().min(1).optional(),
-      })
-    )
-    .action(async ({ parsedInput, ctx }) => {
-      const baseUrl =
-        parsedInput.baseUrl?.replace(/\/$/, "") ??
-        (await getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_BASE_URL")) ??
-        "https://mail.52ai.org";
-      const apiKey =
-        parsedInput.apiKey ??
-        (await getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_API_KEY"));
-      if (!apiKey) {
-        throw new Error("未配置 Moemail API Key");
-      }
-      // Moemail 用 X-API-Key 头鉴权（非 Authorization: Bearer），/api/config 返回
-      // emailDomains 为逗号分隔字符串（非 domains 数组）。
-      const resp = await fetch(`${baseUrl}/api/config`, {
-        headers: { "X-API-Key": apiKey },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!resp.ok) {
-        throw new Error(`Moemail 返回 ${resp.status}`);
-      }
-      const data = (await resp.json()) as {
-        emailDomains?: string;
-      };
-      const domains = (data.emailDomains ?? "")
-        .split(",")
-        .map((d) => d.trim())
-        .filter(Boolean);
-      // 自动保存可用域名列表，供「轮换域名」使用（用户手动查询即落库）。
-      if (domains.length > 0) {
-        await setSystemSettings(
-          [{ key: "CHATGPT_REGISTER_DOMAINS", value: domains.join(",") }],
-          ctx.userId
-        );
-      }
-      return { domains };
+export const getMoemailDomainsAction = withImageBackendPoolAdminAction(
+  "getMoemailDomains"
+)
+  .schema(
+    z.object({
+      baseUrl: z.string().trim().min(1).optional(),
+      apiKey: z.string().trim().min(1).optional(),
+    })
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    const baseUrl =
+      parsedInput.baseUrl?.replace(/\/$/, "") ??
+      (await getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_BASE_URL")) ??
+      "https://mail.52ai.org";
+    const apiKey =
+      parsedInput.apiKey ??
+      (await getRuntimeSettingString("CHATGPT_REGISTER_MOEMAIL_API_KEY"));
+    if (!apiKey) {
+      throw new Error("未配置 Moemail API Key");
+    }
+    // Moemail 用 X-API-Key 头鉴权（非 Authorization: Bearer），/api/config 返回
+    // emailDomains 为逗号分隔字符串（非 domains 数组）。
+    const resp = await fetch(`${baseUrl}/api/config`, {
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(10_000),
     });
+    if (!resp.ok) {
+      throw new Error(`Moemail 返回 ${resp.status}`);
+    }
+    const data = (await resp.json()) as {
+      emailDomains?: string;
+    };
+    const domains = (data.emailDomains ?? "")
+      .split(",")
+      .map((d) => d.trim())
+      .filter(Boolean);
+    // 自动保存可用域名列表，供「轮换域名」使用（用户手动查询即落库）。
+    if (domains.length > 0) {
+      await setSystemSettings(
+        [{ key: "CHATGPT_REGISTER_DOMAINS", value: domains.join(",") }],
+        ctx.userId
+      );
+    }
+    return { domains };
+  });
 
 // 保存 ChatGPT 注册机配置（moemail + 代理 + IP 刷新 + 号池维持）
-export const saveChatgptRegisterConfigAction =
-  withImageBackendPoolAdminAction("saveChatgptRegisterConfig")
-    .schema(
-      z.object({
-        apiKey: z.string().trim().optional(),
-        baseUrl: z.string().trim().optional(),
-        domain: z.string().trim().optional(),
-        domainRotationEnabled: z.boolean().optional(),
-        proxy: z.string().trim().optional(),
-        proxyDisabled: z.boolean().optional(),
-        refreshUrl: z.string().trim().optional(),
-        refreshMinIntervalSeconds: z.coerce.number().int().min(1).optional(),
-        refreshMinAttempts: z.coerce.number().int().min(1).optional(),
-        maintainEnabled: z.boolean().optional(),
-        maintainGroupId: z.string().trim().optional(),
-        maintainTarget: z.coerce.number().int().min(0).optional(),
-        maintainMaxPerRun: z.coerce.number().int().min(1).optional(),
-        maintainConcurrency: z.coerce.number().int().min(1).optional(),
-      })
-    )
-    .action(async ({ parsedInput, ctx }) => {
-      const entries: Array<{ key: string; value: unknown }> = [];
-      const put = (key: string, value: unknown) => {
-        if (value !== undefined) entries.push({ key, value });
-      };
-      put("CHATGPT_REGISTER_MOEMAIL_API_KEY", parsedInput.apiKey);
-      put("CHATGPT_REGISTER_MOEMAIL_BASE_URL", parsedInput.baseUrl);
-      put("CHATGPT_REGISTER_MOEMAIL_DOMAIN", parsedInput.domain);
-      put(
-        "CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED",
-        parsedInput.domainRotationEnabled
-      );
-      put("CHATGPT_REGISTER_PROXY", parsedInput.proxy);
-      put("CHATGPT_REGISTER_PROXY_DISABLED", parsedInput.proxyDisabled);
-      put("CHATGPT_REGISTER_REFRESH_URL", parsedInput.refreshUrl);
-      put(
-        "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS",
-        parsedInput.refreshMinIntervalSeconds
-      );
-      put(
-        "CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS",
-        parsedInput.refreshMinAttempts
-      );
-      put("CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED", parsedInput.maintainEnabled);
-      put(
-        "CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID",
-        parsedInput.maintainGroupId
-      );
-      put("CHATGPT_REGISTER_POOL_MAINTAIN_TARGET", parsedInput.maintainTarget);
-      put(
-        "CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN",
-        parsedInput.maintainMaxPerRun
-      );
-      put(
-        "CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY",
-        parsedInput.maintainConcurrency
-      );
-      if (entries.length > 0) {
-        await setSystemSettings(entries, ctx.userId);
-      }
-      return { success: true };
-    });
+export const saveChatgptRegisterConfigAction = withImageBackendPoolAdminAction(
+  "saveChatgptRegisterConfig"
+)
+  .schema(
+    z.object({
+      apiKey: z.string().trim().optional(),
+      baseUrl: z.string().trim().optional(),
+      domain: z.string().trim().optional(),
+      domainRotationEnabled: z.boolean().optional(),
+      proxy: z.string().trim().optional(),
+      proxyDisabled: z.boolean().optional(),
+      refreshUrl: z.string().trim().optional(),
+      refreshMinIntervalSeconds: z.coerce.number().int().min(1).optional(),
+      refreshMinAttempts: z.coerce.number().int().min(1).optional(),
+      maintainEnabled: z.boolean().optional(),
+      maintainGroupId: z.string().trim().optional(),
+      maintainTarget: z.coerce.number().int().min(0).optional(),
+      maintainMaxPerRun: z.coerce.number().int().min(1).optional(),
+      maintainConcurrency: z.coerce.number().int().min(1).optional(),
+    })
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    const entries: Array<{ key: string; value: unknown }> = [];
+    const put = (key: string, value: unknown) => {
+      if (value !== undefined) entries.push({ key, value });
+    };
+    put("CHATGPT_REGISTER_MOEMAIL_API_KEY", parsedInput.apiKey);
+    put("CHATGPT_REGISTER_MOEMAIL_BASE_URL", parsedInput.baseUrl);
+    put("CHATGPT_REGISTER_MOEMAIL_DOMAIN", parsedInput.domain);
+    put(
+      "CHATGPT_REGISTER_DOMAIN_ROTATION_ENABLED",
+      parsedInput.domainRotationEnabled
+    );
+    put("CHATGPT_REGISTER_PROXY", parsedInput.proxy);
+    put("CHATGPT_REGISTER_PROXY_DISABLED", parsedInput.proxyDisabled);
+    put("CHATGPT_REGISTER_REFRESH_URL", parsedInput.refreshUrl);
+    put(
+      "CHATGPT_REGISTER_REFRESH_MIN_INTERVAL_SECONDS",
+      parsedInput.refreshMinIntervalSeconds
+    );
+    put(
+      "CHATGPT_REGISTER_REFRESH_MIN_ATTEMPTS",
+      parsedInput.refreshMinAttempts
+    );
+    put("CHATGPT_REGISTER_POOL_MAINTAIN_ENABLED", parsedInput.maintainEnabled);
+    put("CHATGPT_REGISTER_POOL_MAINTAIN_GROUP_ID", parsedInput.maintainGroupId);
+    put("CHATGPT_REGISTER_POOL_MAINTAIN_TARGET", parsedInput.maintainTarget);
+    put(
+      "CHATGPT_REGISTER_POOL_MAINTAIN_MAX_PER_RUN",
+      parsedInput.maintainMaxPerRun
+    );
+    put(
+      "CHATGPT_REGISTER_POOL_MAINTAIN_CONCURRENCY",
+      parsedInput.maintainConcurrency
+    );
+    if (entries.length > 0) {
+      await setSystemSettings(entries, ctx.userId);
+    }
+    return { success: true };
+  });
