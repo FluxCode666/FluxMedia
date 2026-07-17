@@ -6,31 +6,27 @@
  * - generations 桶：需要有效的短时签名 URL（sig + exp 查询参数）。
  *   签名验证使用 HMAC-SHA256 + 常量时间比较，防止时序攻击。
  *   v1 API 消费者通过签名 URL 参数获取授权（无 cookie）。
+ * - 桶名与写入管线统一读取运行时系统设置，支持后台配置自定义 MinIO 桶。
  */
 
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { logError } from "@repo/shared/logger";
 import { getStorageProvider } from "@repo/shared/storage/providers";
-import {
-  isPublicBucket,
-  verifySignedImageUrl,
-} from "@repo/shared/storage/signed-url";
+import { verifySignedImageUrl } from "@repo/shared/storage/signed-url";
+import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
 import { type NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import sharp from "sharp";
 
-const GENERATIONS_BUCKET =
-  process.env.NEXT_PUBLIC_GENERATIONS_BUCKET_NAME || "generations";
-
-const ALLOWED_BUCKETS = new Set([
-  process.env.NEXT_PUBLIC_AVATARS_BUCKET_NAME || "avatars",
-  GENERATIONS_BUCKET,
-]);
+type StorageBucketConfig = {
+  avatars: string;
+  generations: string;
+};
 
 const CONTENT_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -49,6 +45,26 @@ const GENERATION_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=2592000, stale-while-revalidate=604800, immutable";
 const PUBLIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const NO_STORE_CACHE_CONTROL = "no-store";
+
+/**
+ * 读取当前允许访问的存储桶配置。
+ *
+ * WHY：图像写入管线通过运行时系统设置选择 Bucket。读取路由若只使用构建期
+ * `NEXT_PUBLIC_*` 环境变量，预构建镜像会把默认桶固化进白名单，导致图片已写入
+ * 自定义 MinIO 桶、读取时却在触达 MinIO 前返回 `Bucket not allowed`。
+ *
+ * @returns 头像桶与生成图片桶；未配置时回退项目默认值。
+ * @throws 系统设置存储不可用时透传异常，避免静默使用错误的安全白名单。
+ */
+async function getStorageBucketConfig(): Promise<StorageBucketConfig> {
+  const avatars =
+    (await getRuntimeSettingString("NEXT_PUBLIC_AVATARS_BUCKET_NAME")) ||
+    "avatars";
+  const generations =
+    (await getRuntimeSettingString("NEXT_PUBLIC_GENERATIONS_BUCKET_NAME")) ||
+    "generations";
+  return { avatars, generations };
+}
 
 // ============================================
 // 缩略图按需缩放（?w=<width>）
@@ -136,7 +152,9 @@ function releaseThumbSlot(): void {
   }
 }
 
-async function readThumbFromDisk(diskPath: string): Promise<Buffer | undefined> {
+async function readThumbFromDisk(
+  diskPath: string
+): Promise<Buffer | undefined> {
   try {
     return await readFile(diskPath);
   } catch {
@@ -196,9 +214,8 @@ function isObjectNotFoundError(error: unknown): boolean {
     return true;
   }
   // AWS SDK 错误携带 HTTP 元数据，404 同样视为对象不存在。
-  const statusCode = (
-    error as { $metadata?: { httpStatusCode?: unknown } }
-  ).$metadata?.httpStatusCode;
+  const statusCode = (error as { $metadata?: { httpStatusCode?: unknown } })
+    .$metadata?.httpStatusCode;
   if (statusCode === 404) {
     return true;
   }
@@ -240,10 +257,11 @@ async function isOwnerViaSession(fileKey: string): Promise<boolean> {
 async function verifyBucketAccess(
   request: NextRequest,
   bucket: string,
-  fileKey: string
+  fileKey: string,
+  avatarsBucket: string
 ): Promise<NextResponse | null> {
   // 公开桶无需签名
-  if (isPublicBucket(bucket)) {
+  if (bucket === avatarsBucket) {
     return null;
   }
 
@@ -300,6 +318,7 @@ export async function GET(
   { params }: { params: Promise<{ bucket: string; key: string[] }> }
 ) {
   const { bucket, key } = await params;
+  const bucketConfig = await getStorageBucketConfig();
   // 缩略图宽度可经"路径段"传入:/api/storage/<bucket>/w<width>/<key>。这是为绕过
   // 线上 Cloudflare 忽略 query 的边缘缓存键(见 signed-url.buildStorageThumbnailUrl
   // 的 WHY):用查询参数 ?w= 会命中被缓存的整张原图。宽度段不参与签名,这里在验签前
@@ -313,7 +332,7 @@ export async function GET(
   }
   const fileKey = keySegments.join("/");
 
-  if (!ALLOWED_BUCKETS.has(bucket)) {
+  if (bucket !== bucketConfig.avatars && bucket !== bucketConfig.generations) {
     return NextResponse.json({ error: "Bucket not allowed" }, { status: 403 });
   }
 
@@ -327,7 +346,12 @@ export async function GET(
   }
 
   // 签名验证：generations 桶需要有效签名(或第一方会话归属),avatars 桶公开访问。
-  const accessError = await verifyBucketAccess(request, bucket, fileKey);
+  const accessError = await verifyBucketAccess(
+    request,
+    bucket,
+    fileKey,
+    bucketConfig.avatars
+  );
   if (accessError) {
     return accessError;
   }
@@ -336,7 +360,7 @@ export async function GET(
   const mappedContentType = CONTENT_TYPES[ext];
   const contentType = mappedContentType || "application/octet-stream";
   const cacheControl =
-    bucket === GENERATIONS_BUCKET
+    bucket === bucketConfig.generations
       ? GENERATION_CACHE_CONTROL
       : PUBLIC_ASSET_CACHE_CONTROL;
 

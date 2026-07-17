@@ -20,9 +20,10 @@ vi.mock("@repo/shared/logger", () => ({ logError }));
 
 // 第一方会话回退鉴权的依赖:getCurrentUser(会话)与 db(按 storage_key 查归属)。
 // 保持 DB-free:getCurrentUser/db 均被 mock;正常签名校验通过的用例不会触达它们。
-const { getCurrentUser, dbState } = vi.hoisted(() => ({
+const { getCurrentUser, dbState, runtimeSettings } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   dbState: { rows: [] as Array<{ userId: string | null }> },
+  runtimeSettings: new Map<string, string>(),
 }));
 vi.mock("@repo/shared/auth/server", () => ({ getCurrentUser }));
 vi.mock("@repo/database", () => ({
@@ -36,6 +37,11 @@ vi.mock("@repo/database", () => ({
 }));
 vi.mock("@repo/database/schema", () => ({
   generation: { userId: "userId", storageKey: "storageKey" },
+}));
+vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingString: vi.fn(async (key: string) =>
+    runtimeSettings.get(key)
+  ),
 }));
 
 import { generateSignedImageParams } from "@repo/shared/storage/signed-url";
@@ -52,9 +58,7 @@ function makeParams(bucket: string, key: string[]) {
  * 构造带 nextUrl.searchParams 的 NextRequest 模拟对象。
  * avatars 桶不需要签名；generations 桶需要 sig+exp。
  */
-function makeRequest(
-  searchParams?: Record<string, string>
-): NextRequest {
+function makeRequest(searchParams?: Record<string, string>): NextRequest {
   const params = new URLSearchParams(searchParams);
   return {
     nextUrl: {
@@ -85,6 +89,7 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
     getCurrentUser.mockReset();
     getCurrentUser.mockResolvedValue(null);
     dbState.rows = [];
+    runtimeSettings.clear();
   });
 
   afterAll(() => {
@@ -99,6 +104,26 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
     const res = await GET(makeRequest(), makeParams("secrets", ["a.png"]));
     expect(res.status).toBe(403);
     expect(getObject).not.toHaveBeenCalled();
+  });
+
+  it("允许读取运行时设置中的自定义 generations 桶", async () => {
+    runtimeSettings.set(
+      "NEXT_PUBLIC_GENERATIONS_BUCKET_NAME",
+      "minio-generations"
+    );
+    getObject.mockResolvedValue(Buffer.from("png-bytes"));
+
+    const res = await GET(
+      makeSignedRequest("minio-generations", "user-123/abc.png"),
+      makeParams("minio-generations", ["user-123", "abc.png"])
+    );
+
+    expect(res.status).toBe(200);
+    expect(getObject).toHaveBeenCalledWith(
+      "user-123/abc.png",
+      "minio-generations",
+      { signal: expect.anything() }
+    );
   });
 
   it("拒绝路径穿越的 key（400）", async () => {
@@ -294,7 +319,10 @@ describe("GET /api/storage/[bucket]/[...key]", () => {
 
   it("路径宽度段用错误 key 的签名仍 403(宽度段不能绕过鉴权)", async () => {
     // 用 "其它/key.png" 的签名去访问 "user-123/abc.png",即便带 w128 段也应 403。
-    const { sig, exp } = generateSignedImageParams("generations", "other/key.png");
+    const { sig, exp } = generateSignedImageParams(
+      "generations",
+      "other/key.png"
+    );
     const res = await GET(
       makeRequest({ sig, exp: String(exp) }),
       makeParams("generations", ["w128", "user-123", "abc.png"])
