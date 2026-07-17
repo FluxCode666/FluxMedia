@@ -35,12 +35,7 @@ import {
 import { useSidebar } from "@/features/dashboard/context";
 import { ModeToggle } from "@repo/shared/components";
 import { getMyUnreadAnnouncementCountAction } from "@repo/shared/announcements/actions";
-import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import { getMyUnreadTicketCountAction } from "@repo/shared/support/actions/ticket";
-import {
-  PlanBadge,
-  type PlanType,
-} from "@repo/shared/subscription/components/plan-badge";
 import { signOut } from "@repo/shared/auth/client";
 import { cn } from "@repo/ui/utils";
 import {
@@ -80,9 +75,6 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
   // Popover 开关状态
   const [open, setOpen] = useState(false);
 
-  // 获取用户订阅计划
-  const { execute: fetchPlan, result: planResult } = useAction(getMyPlanAction);
-  const userPlan = (planResult.data?.plan as PlanType) || "free";
   const {
     execute: fetchUnreadTickets,
     result: unreadTicketsResult,
@@ -99,13 +91,6 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
     0,
     Number(unreadAnnouncementsResult.data?.count ?? 0)
   );
-
-  // 用户登录后获取计划
-  useEffect(() => {
-    if (user) {
-      fetchPlan();
-    }
-  }, [user, fetchPlan]);
 
   useEffect(() => {
     if (user) {
@@ -410,12 +395,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">{user.name}</p>
-                      <span className="shrink-0">
-                        <PlanBadge plan={userPlan} size="xs" />
-                      </span>
-                    </div>
+                    <p className="truncate font-medium">{user.name}</p>
                     <p className="truncate text-sm text-muted-foreground">
                       {user.email}
                     </p>
