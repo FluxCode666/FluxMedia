@@ -49,6 +49,14 @@ export type SettingKey =
   | "EPAY_NOTIFY_URL"
   | "EPAY_DEFAULT_PAYMENT_TYPE"
   | "NEXT_PUBLIC_EPAY_DEFAULT_PAYMENT_TYPE"
+  | "ALIPAY_F2F_ENABLED"
+  | "ALIPAY_APP_ID"
+  | "ALIPAY_PRIVATE_KEY"
+  | "ALIPAY_PUBLIC_KEY"
+  | "ALIPAY_SELLER_ID"
+  | "ALIPAY_GATEWAY"
+  | "ALIPAY_NOTIFY_URL"
+  | "ALIPAY_F2F_TIMEOUT_MINUTES"
   | "BILLING_YEARLY_ENABLED"
   | "PLAN_CAPABILITY_MATRIX"
   | "PLAN_FREE_MAX_FILE_MB"
@@ -70,6 +78,7 @@ export type SettingKey =
   | "PLAN_ENTERPRISE_MONTHLY_AMOUNT"
   | "PLAN_ENTERPRISE_YEARLY_AMOUNT"
   | "CREDIT_PACKAGE_MATRIX"
+  | "CREDIT_TOP_UP_CONFIG"
   | "ENTERPRISE_RESOURCE_PACK_CREDITS"
   | "ENTERPRISE_RESOURCE_PACK_PRICE"
   | "CONTENT_MODERATION_ENABLED"
@@ -347,6 +356,7 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
       description: "One-time credits priced like Starter",
       credits: 5000,
       price: 20,
+      currency: "CNY",
       popular: true,
       visible: true,
       allowQuantity: false,
@@ -364,6 +374,7 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
       description: "Enterprise-only 5,000-credit resource pack",
       credits: 5000,
       price: 15,
+      currency: "CNY",
       visible: false,
       requiresPlan: "enterprise",
       allowQuantity: true,
@@ -371,6 +382,21 @@ const CREDIT_PACKAGE_MATRIX_EXAMPLE = {
       pricesByPlan: {
         enterprise: 15,
       },
+    },
+  ],
+};
+
+const CREDIT_TOP_UP_CONFIG_EXAMPLE = {
+  enabled: true,
+  defaultCurrency: "CNY",
+  currencies: [
+    {
+      currency: "CNY",
+      creditsPerMajorUnit: 10,
+      minAmountMinor: 100,
+      maxAmountMinor: 1_000_000,
+      enabled: true,
+      providers: ["alipay_f2f"],
     },
   ],
 };
@@ -518,7 +544,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "NEXT_PUBLIC_PAYMENT_PROVIDER",
     label: "前端支付通道",
-    description: "前端展示用支付通道，应与支付通道保持一致;自用模式可选「不启用」。",
+    description:
+      "前端展示用支付通道，应与支付通道保持一致;自用模式可选「不启用」。",
     category: "payment",
     valueType: "select",
     options: [
@@ -590,6 +617,71 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     valueType: "string",
     defaultValue: "alipay",
     requiresRebuild: true,
+  },
+  {
+    key: "ALIPAY_F2F_ENABLED",
+    label: "启用支付宝当面付",
+    description:
+      "开启后，已完成密钥配置的 CNY 积分充值可生成支付宝扫码支付二维码。",
+    category: "payment",
+    valueType: "boolean",
+    defaultValue: false,
+  },
+  {
+    key: "ALIPAY_APP_ID",
+    label: "支付宝 App ID",
+    description: "支付宝开放平台应用 App ID。",
+    category: "payment",
+    valueType: "string",
+  },
+  {
+    key: "ALIPAY_PRIVATE_KEY",
+    label: "支付宝应用私钥",
+    description: "RSA2 应用私钥，支持 PEM 内容；不会回显。",
+    category: "payment",
+    valueType: "string",
+    secret: true,
+  },
+  {
+    key: "ALIPAY_PUBLIC_KEY",
+    label: "支付宝公钥",
+    description: "支付宝开放平台提供的 RSA2 验签公钥；不会回显。",
+    category: "payment",
+    valueType: "string",
+    secret: true,
+  },
+  {
+    key: "ALIPAY_SELLER_ID",
+    label: "支付宝卖家 PID",
+    description: "必填。回调会严格校验 seller_id，防止错误商户的通知履约。",
+    category: "payment",
+    valueType: "string",
+  },
+  {
+    key: "ALIPAY_GATEWAY",
+    label: "支付宝网关",
+    description: "留空使用生产网关；沙箱环境请填沙箱网关地址。",
+    category: "payment",
+    valueType: "string",
+  },
+  {
+    key: "ALIPAY_NOTIFY_URL",
+    label: "支付宝异步通知地址",
+    description:
+      "留空自动使用应用地址生成 /api/webhooks/alipay；必须是公网 HTTPS 地址。",
+    category: "payment",
+    valueType: "string",
+  },
+  {
+    key: "ALIPAY_F2F_TIMEOUT_MINUTES",
+    label: "支付宝当面付超时（分钟）",
+    description:
+      "二维码订单的支付超时；超时后支付宝不再允许付款，已成功付款的延迟通知仍会履约。",
+    category: "payment",
+    valueType: "number",
+    min: 1,
+    max: 1_440,
+    defaultValue: 30,
   },
   {
     key: "BILLING_YEARLY_ENABLED",
@@ -1431,10 +1523,19 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "CREDIT_PACKAGE_MATRIX",
     label: "按量积分包配置",
     description:
-      "表格配置一次性积分包的积分数、显示状态、最低可购买套餐、数量购买、各套餐价格和 Creem 产品 ID。保存后仍写入同一 JSON 配置；Epay 会直接按站内价格收款，Creem 按套餐定价时需要配置对应预建产品 ID。",
+      "表格配置一次性积分包的积分数、结账币种、显示状态、最低可购买套餐、数量购买、各套餐价格和 Creem 产品 ID。Epay 仅支持 CNY；Creem 可按预建产品收取对应币种。",
     category: "credits",
     valueType: "json",
     exampleValue: CREDIT_PACKAGE_MATRIX_EXAMPLE,
+  },
+  {
+    key: "CREDIT_TOP_UP_CONFIG",
+    label: "按金额充值配置",
+    description:
+      "按 ISO 币种配置积分兑换比例、最小/最大金额（最小货币单位）和可用支付方式。订单创建时冻结比例与金额；支付宝当面付仅支持 CNY。",
+    category: "credits",
+    valueType: "json",
+    exampleValue: CREDIT_TOP_UP_CONFIG_EXAMPLE,
   },
   {
     key: "NEXT_PUBLIC_GA_ID",
@@ -1568,8 +1669,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
     label: "支付限流（次/分钟）",
-    description:
-      "支付相关接口的每分钟请求阈值。配置 Upstash Redis 后生效。",
+    description: "支付相关接口的每分钟请求阈值。配置 Upstash Redis 后生效。",
     category: "general",
     valueType: "number",
     defaultValue: 10,
@@ -1578,8 +1678,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
     label: "上传限流（次/分钟）",
-    description:
-      "文件上传接口的每分钟请求阈值。配置 Upstash Redis 后生效。",
+    description: "文件上传接口的每分钟请求阈值。配置 Upstash Redis 后生效。",
     category: "general",
     valueType: "number",
     defaultValue: 30,
@@ -1588,8 +1687,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
     label: "严格限流（次/分钟）",
-    description:
-      "敏感操作的严格每分钟请求阈值。配置 Upstash Redis 后生效。",
+    description: "敏感操作的严格每分钟请求阈值。配置 Upstash Redis 后生效。",
     category: "general",
     valueType: "number",
     defaultValue: 3,
@@ -1606,7 +1704,8 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "CHATGPT_REGISTER_MOEMAIL_BASE_URL",
     label: "注册机 Moemail 服务地址",
-    description: "Moemail 临时邮箱服务的 API 地址，默认 https://mail.52ai.org。",
+    description:
+      "Moemail 临时邮箱服务的 API 地址，默认 https://mail.52ai.org。",
     category: "models",
     valueType: "string",
     defaultValue: "https://mail.52ai.org",
@@ -1655,8 +1754,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "CHATGPT_REGISTER_REFRESH_URL",
     label: "注册机代理 IP 刷新地址",
-    description:
-      "动态代理 IP 刷新端点（GET 请求即换 IP）。留空则不刷新。",
+    description: "动态代理 IP 刷新端点（GET 请求即换 IP）。留空则不刷新。",
     category: "models",
     valueType: "string",
     secret: true,
@@ -1751,7 +1849,7 @@ export const SETTING_CATEGORIES: Array<{
   {
     id: "payment",
     label: "支付",
-    description: "支付通道、Creem 和易支付密钥。",
+    description: "支付通道、Creem、易支付与支付宝当面付配置。",
   },
   {
     id: "plans",

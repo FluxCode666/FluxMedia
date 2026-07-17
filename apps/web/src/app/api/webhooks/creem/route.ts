@@ -12,6 +12,7 @@ import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
 import {
   getCreditPackagePriceForPlan,
+  getCreditPackageCurrency,
   getRuntimeCreditPackageById,
 } from "@repo/shared/credits/packages";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
@@ -317,7 +318,7 @@ async function handleCreditPurchase(
   const amountMatch = evaluateCreemAmountMatch(
     {
       amount: expectedAmount,
-      currency: paymentConfig.currency,
+      currency: getCreditPackageCurrency(pkg),
     },
     {
       amount: data.order?.amount ?? Number.NaN,

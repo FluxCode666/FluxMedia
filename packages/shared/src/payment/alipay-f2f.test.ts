@@ -1,0 +1,72 @@
+/** 支付宝当面付纯逻辑测试：交易状态和金额格式是履约前的最小门槛。 */
+import { describe, expect, it, vi } from "vitest";
+
+// 当面付适配器的纯逻辑不应连接数据库；mock 运行时设置读取，避免
+// system-settings 顶层依赖 @repo/database 让 DB-free 单测要求 DATABASE_URL。
+vi.mock("../system-settings", () => ({
+  getRuntimeSettingBoolean: vi.fn(),
+  getRuntimeSettingNumber: vi.fn(),
+  getRuntimeSettingString: vi.fn(),
+}));
+vi.mock("../config/payment", () => ({
+  getBaseUrl: () => "https://example.com",
+}));
+
+import {
+  getRuntimeSettingNumber,
+  getRuntimeSettingString,
+} from "../system-settings";
+
+import {
+  formatAlipayCnyAmount,
+  getRuntimeAlipayF2FConfig,
+  isSuccessfulAlipayTradeStatus,
+  parseAlipayCnyAmountMinor,
+} from "./alipay-f2f";
+
+function mockRuntimeAlipaySettings(overrides?: Record<string, string>) {
+  const values = {
+    ALIPAY_APP_ID: "app-id",
+    ALIPAY_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----test",
+    ALIPAY_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----test",
+    ALIPAY_SELLER_ID: "seller-id",
+    ALIPAY_GATEWAY: "https://openapi.alipay.com/gateway.do",
+    ALIPAY_NOTIFY_URL: "https://example.com/api/webhooks/alipay",
+    ...overrides,
+  };
+  vi.mocked(getRuntimeSettingString).mockImplementation(async (key) =>
+    Object.hasOwn(values, key) ? values[key as keyof typeof values] : undefined
+  );
+  vi.mocked(getRuntimeSettingNumber).mockResolvedValue(30);
+}
+
+describe("支付宝当面付纯逻辑", () => {
+  it("仅允许已完成交易状态履约", () => {
+    expect(isSuccessfulAlipayTradeStatus("TRADE_SUCCESS")).toBe(true);
+    expect(isSuccessfulAlipayTradeStatus("TRADE_FINISHED")).toBe(true);
+    expect(isSuccessfulAlipayTradeStatus("WAIT_BUYER_PAY")).toBe(false);
+    expect(isSuccessfulAlipayTradeStatus(undefined)).toBe(false);
+  });
+
+  it("将 CNY 金额固定为两位小数并拒绝非正数", () => {
+    expect(formatAlipayCnyAmount(1)).toBe("1.00");
+    expect(formatAlipayCnyAmount(1.2)).toBe("1.20");
+    expect(() => formatAlipayCnyAmount(0)).toThrow("订单金额无效");
+  });
+
+  it("严格解析回调金额为分", () => {
+    expect(parseAlipayCnyAmountMinor("1")).toBe(100);
+    expect(parseAlipayCnyAmountMinor("1.2")).toBe(120);
+    expect(parseAlipayCnyAmountMinor("1.20")).toBe(120);
+    expect(parseAlipayCnyAmountMinor("1.200")).toBeNull();
+    expect(parseAlipayCnyAmountMinor("-1")).toBeNull();
+  });
+
+  it("要求卖家 PID 和 HTTPS 通知地址", async () => {
+    mockRuntimeAlipaySettings({ ALIPAY_SELLER_ID: "" });
+    await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow("配置不完整");
+
+    mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "http://example.com/hook" });
+    await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow("必须使用 HTTPS");
+  });
+});

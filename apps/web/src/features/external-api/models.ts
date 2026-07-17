@@ -72,12 +72,16 @@ export function getExternalChatCompletionModels(
  */
 export function getExternalFireflyModels(options?: {
   imageGenerateAllowed?: boolean;
+  imageModelIds?: string[];
+  videoEnabled?: boolean;
 }): string[] {
   if (!options?.imageGenerateAllowed) return [];
-  return [
-    ...FIREFLY_IMAGE_FAMILY_MODEL_IDS,
-    ...Object.keys(FIREFLY_VIDEO_MODEL_CATALOG),
-  ];
+  const imageModelIds = options.imageModelIds ?? FIREFLY_IMAGE_FAMILY_MODEL_IDS;
+  const videoModelIds =
+    options.videoEnabled === false
+      ? []
+      : Object.keys(FIREFLY_VIDEO_MODEL_CATALOG);
+  return [...imageModelIds, ...videoModelIds];
 }
 
 function toOpenAIModel(id: string): OpenAIModel {
@@ -126,6 +130,23 @@ async function listConfiguredApiModelIds(): Promise<string[]> {
 }
 
 /**
+ * 读取管理员在 Adobe 后端池中明确开放的 Firefly 模型。
+ *
+ * 延迟加载调度服务，避免纯模型列表单元测试在未实际调用数据库时加载完整后端池。
+ *
+ * @returns 可公开的图像模型族，以及是否存在可用的视频 Adobe 后端。
+ */
+async function listConfiguredAdobeModels(): Promise<{
+  imageModelIds: string[];
+  supportsVideo: boolean;
+}> {
+  const { listEnabledImageBackendAdobeModels } = await import(
+    "@/features/image-backend-pool/service"
+  );
+  return listEnabledImageBackendAdobeModels();
+}
+
+/**
  * 按当前用户套餐与供应商配置生成 OpenAI 兼容模型列表。
  *
  * @param userId - 已由外部 API Key 鉴权得到的用户 ID。
@@ -135,13 +156,17 @@ export async function getExternalModelsForUser(
   userId: string
 ): Promise<OpenAIModelList> {
   const plan = await getUserPlan(userId);
-  const [capabilities, configuredApiModels] = await Promise.all([
-    getPlanCapabilitySnapshot(plan.plan),
-    listConfiguredApiModelIds(),
-  ]);
+  const [capabilities, configuredApiModels, configuredAdobeModels] =
+    await Promise.all([
+      getPlanCapabilitySnapshot(plan.plan),
+      listConfiguredApiModelIds(),
+      listConfiguredAdobeModels(),
+    ]);
   const imageModels = [DEFAULT_IMAGE_MODEL];
   const fireflyModels = getExternalFireflyModels({
     imageGenerateAllowed: capabilities.features["externalApi.images.generate"],
+    imageModelIds: configuredAdobeModels.imageModelIds,
+    videoEnabled: configuredAdobeModels.supportsVideo,
   });
   const chatModels = getExternalChatCompletionModels(plan.plan, {
     chatCompletionsAllowed:

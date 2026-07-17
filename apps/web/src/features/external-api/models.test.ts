@@ -68,6 +68,17 @@ describe("getExternalFireflyModels", () => {
     expect(models).not.toContain("firefly-gpt-image-2-2k-1x1");
     expect(models.length).toBeGreaterThan(10);
   });
+
+  it("仅公布 Adobe 后端明确开放的图像模型，并遵从视频开关", async () => {
+    const { getExternalFireflyModels } = await loadModels();
+    const models = getExternalFireflyModels({
+      imageGenerateAllowed: true,
+      imageModelIds: ["firefly-nano-banana-pro"],
+      videoEnabled: false,
+    });
+
+    expect(models).toEqual(["firefly-nano-banana-pro"]);
+  });
 });
 
 describe("getExternalChatCompletionModels", () => {

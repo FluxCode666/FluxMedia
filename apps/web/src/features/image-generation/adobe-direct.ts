@@ -15,6 +15,7 @@ import {
   type AdobeImageFamily,
   type AdobeImageResolution,
   type AdobeRatio,
+  canAdobeBackendServeModel,
   composeAdobeImageModelId,
   mapSizeToAdobe,
 } from "@repo/shared/adobe";
@@ -460,6 +461,15 @@ export async function runAdobeDirectImageRequest(
 ): Promise<GenerateImageResult> {
   const adobeId = config.backend?.id;
   if (!adobeId) return { error: "Adobe 直连后端缺少 id" };
+  if (
+    !canAdobeBackendServeModel({
+      enabledModels: config.backend?.adobeEnabledModels,
+      supportsVideo: config.backend?.adobeSupportsVideo ?? false,
+      requestedModel: params.model,
+    })
+  ) {
+    return { error: "此 Adobe 后端未开放所请求的模型" };
+  }
 
   const sessionKey = `adobe-${adobeId}`;
   const { apiTransport, downloadTransport } =
@@ -559,6 +569,15 @@ export async function runAdobeDirectVideoRequest(
 ): Promise<AdobeVideoResult> {
   const adobeId = config.backend?.id;
   if (!adobeId) return { error: "Adobe 直连后端缺少 id" };
+  if (
+    !canAdobeBackendServeModel({
+      enabledModels: config.backend?.adobeEnabledModels,
+      supportsVideo: config.backend?.adobeSupportsVideo ?? false,
+      requestedModel: params.model,
+    })
+  ) {
+    return { error: "此 Adobe 后端未开放所请求的模型" };
+  }
 
   const conf = resolveFireflyVideoModel(params.model);
   if (!conf) {

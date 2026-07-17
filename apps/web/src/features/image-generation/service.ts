@@ -13,6 +13,7 @@ import {
 } from "@repo/shared/config/subscription-plan";
 import {
   buildAdobeImageRequestBody,
+  canAdobeBackendServeModel,
   parseAdobeMediaResult,
 } from "@repo/shared/adobe";
 import { logError, logWarn } from "@repo/shared/logger";
@@ -4063,6 +4064,15 @@ async function runAdobeImageRequest(
     signal?: AbortSignal;
   }
 ): Promise<GenerateImageResult> {
+  if (
+    !canAdobeBackendServeModel({
+      enabledModels: config.backend?.adobeEnabledModels,
+      supportsVideo: config.backend?.adobeSupportsVideo ?? false,
+      requestedModel: params.model,
+    })
+  ) {
+    return { error: "此 Adobe 后端未开放所请求的模型" };
+  }
   // direct 模式：用本仓库移植的逆向逻辑直连 Adobe Firefly（经 Go TLS 旁路），不走网关。
   if (config.backend?.adobeMode === "direct") {
     return runAdobeDirectImageRequest(config, params);

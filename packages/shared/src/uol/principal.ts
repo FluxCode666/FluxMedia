@@ -30,7 +30,7 @@ export type Principal =
     }
   | { type: "system"; reason: string }
   | { type: "cron"; job: string }
-  | { type: "webhook"; provider: "creem" | "epay" }
+  | { type: "webhook"; provider: "creem" | "epay" | "alipay" }
   | { type: "proxy"; secretKind: "proxy" | "gateway" };
 
 /**

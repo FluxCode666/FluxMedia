@@ -50,6 +50,7 @@ const schemaMock = vi.hoisted(() => {
       "id",
       "groupId",
       "name",
+      "mode",
       "baseUrl",
       "apiKey",
       "model",
@@ -1553,6 +1554,54 @@ describe("image backend pool scheduler selection", () => {
 
       expect(result?.memberType).toBe("adobe");
       expect(result?.memberId).toBe("adobe-1");
+    });
+
+    it("仅将请求模型已被开放的 Adobe 后端纳入候选", async () => {
+      dbMock.state.accounts = [];
+      dbMock.state.adobes = [
+        makeAdobe(1, {
+          priority: 1,
+          enabledModels: ["firefly-nano-banana-pro"],
+        }),
+        makeAdobe(2, {
+          priority: 2,
+          enabledModels: ["firefly-gpt-image-2"],
+        }),
+      ];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "firefly-gpt-image-2",
+      });
+
+      expect(result?.memberType).toBe("adobe");
+      expect(result?.memberId).toBe("adobe-2");
+    });
+
+    it("视频模型只会命中启用 supportsVideo 的 Adobe 直连后端", async () => {
+      dbMock.state.accounts = [];
+      dbMock.state.adobes = [
+        makeAdobe(1, {
+          priority: 1,
+          mode: "gateway",
+          supportsVideo: true,
+        }),
+        makeAdobe(2, {
+          priority: 2,
+          mode: "direct",
+          supportsVideo: true,
+        }),
+      ];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "firefly-sora2-8s-16x9",
+      });
+
+      expect(result?.memberType).toBe("adobe");
+      expect(result?.memberId).toBe("adobe-2");
     });
 
     it("firefly-* 排除普通 API，但 Adobe 来源 API 仍按优先级参与", async () => {

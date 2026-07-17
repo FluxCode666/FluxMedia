@@ -22,6 +22,7 @@ import {
 } from "@repo/shared/credits/core";
 import {
   getCreditPackagePriceForPlan,
+  getCreditPackageCurrency,
   getRuntimeCreditPackageById,
 } from "@repo/shared/credits/packages";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
@@ -179,6 +180,9 @@ async function handleCreditPurchase(
   });
   if (!pkg) {
     throw new Error(`Unknown credit package: ${packageId}`);
+  }
+  if (getCreditPackageCurrency(pkg) !== "CNY") {
+    throw new Error("Epay only supports CNY credit packages");
   }
   const normalizedQuantity =
     Number.isInteger(quantity) && quantity > 0 ? quantity : 1;

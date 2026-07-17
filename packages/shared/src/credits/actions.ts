@@ -35,6 +35,7 @@ import {
 import {
   getRuntimeCreditPackageById,
   getRuntimeCreditPackages,
+  getCreditPackageCurrency,
   getCreditPackageCreemProductIdForPlan,
   getCreditPackagePriceForPlan,
 } from "./packages";
@@ -411,6 +412,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
       throw new Error(`购买数量不能超过 ${pkg.maxQuantity}`);
     }
     const unitPrice = getCreditPackagePriceForPlan(pkg, userPlan);
+    const currency = getCreditPackageCurrency(pkg);
     const creditsAmount = pkg.credits * quantity;
     const totalPrice = unitPrice * quantity;
 
@@ -419,6 +421,9 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
     const useEpay = await isRuntimeEpayPaymentProvider();
     if (!useEpay && quantity > 1) {
       throw new Error("当前支付通道暂不支持数量购买，请分次购买");
+    }
+    if (useEpay && currency !== "CNY") {
+      throw new Error("易支付当前仅支持人民币积分包，请选择其他支付方式");
     }
 
     logEvent("payment.checkout.started", {
@@ -438,6 +443,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         outTradeNo,
         packageId: pkg.id,
         quantity,
+        currency,
         creditPlan: userPlan,
       };
       await saveEpayOrder(metadata, totalPrice);
@@ -474,6 +480,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         quantity: String(quantity),
         planId: userPlan,
         unitPrice: String(unitPrice),
+        currency,
       },
     });
 
@@ -487,20 +494,25 @@ export const getCreditPackages = withProtectedCreditsAction(
   "getCreditPackages"
 ).action(async ({ ctx }) => {
   const userPlan = await getUserPlanForCreditsAction(ctx.userId);
-  const packages = await getRuntimeCreditPackages({
-    includeHidden: isPlanAtLeast(userPlan, "enterprise"),
-    plan: userPlan,
-  });
+  const [packages, useEpay] = await Promise.all([
+    getRuntimeCreditPackages({
+      includeHidden: isPlanAtLeast(userPlan, "enterprise"),
+      plan: userPlan,
+    }),
+    isRuntimeEpayPaymentProvider(),
+  ]);
   return packages
     .filter((pkg) => {
       if (pkg.requiresPlan) return isPlanAtLeast(userPlan, pkg.requiresPlan);
       return isCreditPackageVisible(pkg);
     })
+    .filter((pkg) => !useEpay || getCreditPackageCurrency(pkg) === "CNY")
     .map((pkg) => ({
       id: pkg.id,
       name: pkg.name,
       credits: pkg.credits,
       price: getCreditPackagePriceForPlan(pkg, userPlan),
+      currency: getCreditPackageCurrency(pkg),
       description: pkg.description,
       popular: "popular" in pkg ? pkg.popular : false,
       allowQuantity: Boolean(pkg.allowQuantity),

@@ -337,6 +337,13 @@
       "when": 1780400964000,
       "tag": "0047_image_backend_api_supported_model_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784428800000,
+      "tag": "0048_payment_order",
+      "breakpoints": true
     }
   ]
 }

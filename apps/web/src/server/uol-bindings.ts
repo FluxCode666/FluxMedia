@@ -20,11 +20,20 @@ import "@repo/shared/uol/operations";
 
 import { bindExecute, OperationError } from "@repo/shared/uol";
 import type { Principal, OperationContext } from "@repo/shared/uol";
+import type { z } from "zod";
+import type { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
 import { normalizeSubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+import { checkRateLimit } from "@repo/shared/rate-limit";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 
 import { getExternalModelsForUser } from "@/features/external-api/models";
+import {
+  createCreditTopUpCheckout,
+  fulfillAlipayCreditTopUp,
+  getCreditTopUpOptions,
+  getCreditTopUpOrderStatus,
+} from "@/features/payment/credit-top-up";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
@@ -32,6 +41,7 @@ import {
   deleteImageBackendParameterMappingTemplate,
   listAdminImageBackendPool,
   listImageBackendParameterMappingTemplates,
+  upsertImageBackendAdobe,
   upsertImageBackendApi,
   upsertImageBackendParameterMappingTemplate,
 } from "@/features/image-backend-pool/service";
@@ -139,6 +149,93 @@ bindExecute(
   }
 );
 
+// ---------------------------------------------------------------------------
+// credits（按金额充值）域
+// ---------------------------------------------------------------------------
+
+/** credits.getTopUpOptions - 返回已完成支付配置的充值选项。 */
+bindExecute(
+  "credits.getTopUpOptions",
+  async (
+    _input: Record<string, never>,
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => getCreditTopUpOptions()
+);
+
+/** credits.createTopUpCheckout - 创建带 per-user clientRequestId 幂等键的充值订单。 */
+bindExecute(
+  "credits.createTopUpCheckout",
+  async (
+    input: {
+      clientRequestId: string;
+      currency: string;
+      amountMinor: number;
+      provider: "alipay_f2f";
+    },
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    // 充值下单会触发第三方预下单，按用户而非 IP 限流，避免 Server Action
+    // 绕过 API middleware 后被反复调用消耗支付宝网关配额。
+    const rateLimit = await checkRateLimit(
+      `credit-top-up:${principal.userId}`,
+      "payment"
+    );
+    if (!rateLimit.success) {
+      throw new OperationError(
+        "rate_limited",
+        "Credit top-up requests are too frequent"
+      );
+    }
+    return createCreditTopUpCheckout({ ...input, userId: principal.userId });
+  }
+);
+
+/** credits.getTopUpOrderStatus - 订单查询按当前用户 ID 过滤，避免 IDOR。 */
+bindExecute(
+  "credits.getTopUpOrderStatus",
+  async (
+    input: { orderId: string },
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    return getCreditTopUpOrderStatus({
+      userId: principal.userId,
+      orderId: input.orderId,
+    });
+  }
+);
+
+/** credits.fulfillAlipayTopUp - 支付宝路由完成 RSA2 验签后经 UOL 履约。 */
+bindExecute(
+  "credits.fulfillAlipayTopUp",
+  async (
+    input: {
+      outTradeNo: string;
+      tradeNo: string;
+      tradeStatus: string;
+      totalAmount: string;
+      appId: string;
+      sellerId: string;
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => fulfillAlipayCreditTopUp(input)
+);
+
 /**
  * pool.saveApi - 保存第三方 API 后端。
  *
@@ -180,6 +277,45 @@ bindExecute(
       ...input,
       model: input.model || null,
     }),
+  })
+);
+
+/**
+ * pool.saveAdobe - 保存 Adobe 后端及开放模型白名单。
+ *
+ * 源：apps/web/src/features/image-backend-pool/service.ts。
+ * WHY：后台表单与未来 MCP 调用必须共用同一个白名单校验与管理员权限入口，避免绕过
+ * 调度器依赖的 enabledModels 配置。
+ */
+bindExecute(
+  "pool.saveAdobe",
+  async (
+    input: {
+      id?: string;
+      groupId?: string | null;
+      groupIds?: string[];
+      name: string;
+      mode: "gateway" | "direct";
+      baseUrl: string;
+      apiKey?: string;
+      enabledModels?: z.infer<typeof adobeEnabledModelIdsSchema>;
+      defaultRatio: string;
+      defaultResolution: string;
+      gptImageQuality: "low" | "medium" | "high";
+      billingMultiplier: number;
+      supportsVideo: boolean;
+      contentSafetyEnabled: boolean;
+      isEnabled: boolean;
+      alwaysActive: boolean;
+      failureCooldownEnabled: boolean;
+      priority: number;
+      concurrency: number;
+      status: string;
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => ({
+    id: await upsertImageBackendAdobe(input),
   })
 );
 

@@ -85,7 +85,7 @@ export const getMyBalance = defineOperation({
     const bonusAmount = await getRuntimeSettingNumber(
       "REGISTRATION_BONUS_CREDITS",
       100,
-      { nonNegative: true },
+      { nonNegative: true }
     );
     await ensureRegistrationBonus(userId, bonusAmount);
 
@@ -139,9 +139,13 @@ export const grant = defineOperation({
     const params: Parameters<typeof grantCredits>[0] = {
       userId: input.userId,
       amount: input.amount,
-      sourceType: input.sourceType as Parameters<typeof grantCredits>[0]["sourceType"],
+      sourceType: input.sourceType as Parameters<
+        typeof grantCredits
+      >[0]["sourceType"],
       debitAccount: `SYSTEM:${input.sourceType}`,
-      transactionType: input.sourceType as Parameters<typeof grantCredits>[0]["transactionType"],
+      transactionType: input.sourceType as Parameters<
+        typeof grantCredits
+      >[0]["transactionType"],
       ...(input.reason != null ? { description: input.reason } : {}),
     };
     if (input.sourceRef) {
@@ -302,7 +306,7 @@ export const getMyActiveBatches = defineOperation({
         remaining: z.number(),
         expiresAt: z.string().datetime().nullable(),
         createdAt: z.string().datetime(),
-      }),
+      })
     ),
   }),
   access: { kind: "protected" },
@@ -348,7 +352,7 @@ export const getUserActiveBatches = defineOperation({
         remaining: z.number(),
         expiresAt: z.string().datetime().nullable(),
         createdAt: z.string().datetime(),
-      }),
+      })
     ),
   }),
   access: { kind: "admin" },
@@ -390,7 +394,7 @@ export const getMyTransactions = defineOperation({
         amount: z.number(),
         sourceRef: z.string().nullable(),
         createdAt: z.string().datetime(),
-      }),
+      })
     ),
     total: z.number().describe("总记录数"),
   }),
@@ -430,8 +434,7 @@ export const getUserTransactions = defineOperation({
   name: "credits.getUserTransactions",
   domain: "credits",
   title: "Get User Transactions",
-  description:
-    "获取指定用户的积分交易记录列表（管理员查询，分页）。纯读操作。",
+  description: "获取指定用户的积分交易记录列表（管理员查询，分页）。纯读操作。",
   input: z.object({
     userId: z.string().describe("目标用户 ID"),
     limit: z.number().int().positive().default(20).describe("每页条数"),
@@ -445,7 +448,7 @@ export const getUserTransactions = defineOperation({
         amount: z.number(),
         sourceRef: z.string().nullable(),
         createdAt: z.string().datetime(),
-      }),
+      })
     ),
     total: z.number().describe("总记录数"),
   }),
@@ -664,9 +667,7 @@ export const setStatus = defineOperation({
     "底层操作幂等，但审计日志每次追加。",
   input: z.object({
     userId: z.string().describe("目标用户 ID"),
-    status: z
-      .enum(["active", "frozen"])
-      .describe("目标状态"),
+    status: z.enum(["active", "frozen"]).describe("目标状态"),
   }),
   output: z.object({
     success: z.boolean(),
@@ -718,9 +719,7 @@ export const adminGrant = defineOperation({
   sideEffects: ["billing", "audit", "cache"],
   // Bound at app level - see apps/web/src/server/uol-bindings.ts
   execute: async () => {
-    throw new Error(
-      "credits.adminGrant must be bound at app level",
-    );
+    throw new Error("credits.adminGrant must be bound at app level");
   },
 });
 
@@ -758,9 +757,7 @@ export const adminAdjust = defineOperation({
   sideEffects: ["billing", "audit", "cache"],
   // Bound at app level - see apps/web/src/server/uol-bindings.ts
   execute: async () => {
-    throw new Error(
-      "credits.adminAdjust must be bound at app level",
-    );
+    throw new Error("credits.adminAdjust must be bound at app level");
   },
 });
 
@@ -851,7 +848,144 @@ export const createPurchaseCheckout = defineOperation({
   // Bound at app level - see apps/web/src/server/uol-bindings.ts
   execute: async () => {
     throw new Error(
-      "credits.createPurchaseCheckout must be bound at app level",
+      "credits.createPurchaseCheckout must be bound at app level"
     );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 22. credits.getTopUpOptions - 读取按金额充值配置
+// ---------------------------------------------------------------------------
+export const getTopUpOptions = defineOperation({
+  name: "credits.getTopUpOptions",
+  domain: "credits",
+  title: "Get Credit Top-up Options",
+  description:
+    "读取当前用户可用的按金额积分充值币种、金额区间、兑换比例与支付方式。" +
+    "仅返回已配置且实际可结账的通道，不暴露支付密钥。",
+  input: z.object({}),
+  output: z.object({
+    enabled: z.boolean(),
+    defaultCurrency: z.string(),
+    currencies: z.array(
+      z.object({
+        currency: z.string(),
+        creditsPerMajorUnit: z.number().positive(),
+        minAmountMinor: z.number().int().positive(),
+        maxAmountMinor: z.number().int().positive(),
+        providers: z.array(z.literal("alipay_f2f")),
+      })
+    ),
+  }),
+  access: { kind: "protected" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("credits.getTopUpOptions must be bound at app level");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 23. credits.createTopUpCheckout - 创建按金额充值订单
+// ---------------------------------------------------------------------------
+export const createTopUpCheckout = defineOperation({
+  name: "credits.createTopUpCheckout",
+  domain: "credits",
+  title: "Create Credit Top-up Checkout",
+  description:
+    "按服务端配置创建积分充值订单并返回支付二维码。金额、币种、比例和积分数" +
+    "会冻结到订单快照；clientRequestId 是每用户幂等键。",
+  input: z.object({
+    clientRequestId: z.string().uuid().describe("客户端生成的幂等请求 ID"),
+    currency: z.string().length(3).describe("ISO 4217 币种代码"),
+    amountMinor: z
+      .number()
+      .int()
+      .positive()
+      .describe("最小货币单位金额，例如 CNY 分"),
+    provider: z.literal("alipay_f2f").describe("支付方式"),
+  }),
+  output: z.object({
+    orderId: z.string(),
+    status: z.string(),
+    currency: z.string(),
+    amount: z.number().positive(),
+    amountMinor: z.number().int().positive(),
+    creditsAmount: z.number().positive(),
+    qrCode: z.string().url().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+  }),
+  access: { kind: "protected" },
+  readOnly: false,
+  destructive: false,
+  idempotency: {
+    kind: "required",
+    keyField: "clientRequestId",
+    scope: "per-user",
+  },
+  sideEffects: ["billing", "external-call"],
+  execute: async () => {
+    throw new Error("credits.createTopUpCheckout must be bound at app level");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 24. credits.getTopUpOrderStatus - 查询本人充值订单状态
+// ---------------------------------------------------------------------------
+export const getTopUpOrderStatus = defineOperation({
+  name: "credits.getTopUpOrderStatus",
+  domain: "credits",
+  title: "Get Credit Top-up Order Status",
+  description:
+    "查询当前用户自己的积分充值订单状态，执行实现必须复核归属以防 IDOR。",
+  input: z.object({ orderId: z.string().min(1) }),
+  output: z.object({
+    orderId: z.string(),
+    status: z.string(),
+    currency: z.string(),
+    amount: z.number().positive(),
+    creditsAmount: z.number().positive(),
+    qrCode: z.string().url().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+    fulfilledAt: z.string().datetime().nullable(),
+  }),
+  access: { kind: "owner", resource: "payment_order" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("credits.getTopUpOrderStatus must be bound at app level");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 25. credits.fulfillAlipayTopUp - 履约验签后的支付宝通知
+// ---------------------------------------------------------------------------
+export const fulfillAlipayTopUp = defineOperation({
+  name: "credits.fulfillAlipayTopUp",
+  domain: "credits",
+  title: "Fulfill Alipay Credit Top-up",
+  description:
+    "履约已通过官方 RSA2 验签的支付宝当面付异步通知。执行层按订单快照校验" +
+    "appId、sellerId、金额、状态与过期时间，并以订单 CAS 和积分批次唯一索引双重幂等。",
+  input: z.object({
+    outTradeNo: z.string().min(1),
+    tradeNo: z.string().min(1),
+    tradeStatus: z.string().min(1),
+    totalAmount: z.string().regex(/^\d+(?:\.\d{1,2})?$/),
+    appId: z.string().min(1),
+    sellerId: z.string().min(1),
+  }),
+  output: z.object({ orderId: z.string(), status: z.string() }),
+  access: { kind: "webhook", provider: "alipay" },
+  readOnly: false,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: ["billing"],
+  execute: async () => {
+    throw new Error("credits.fulfillAlipayTopUp must be bound at app level");
   },
 });

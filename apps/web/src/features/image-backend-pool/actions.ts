@@ -4,6 +4,7 @@ import {
   isSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
 import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
 import { supportedModelIdsSchema } from "@repo/shared/image-backend/supported-models";
 
@@ -64,7 +65,6 @@ import {
   syncImageBackendAccountsFromSub2Api,
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
-  upsertImageBackendAdobe,
   upsertImageBackendGroup,
 } from "./service";
 import { ensureUolInitialized } from "@/server/uol-init";
@@ -656,10 +656,7 @@ export const saveImageBackendAdobeAction = withImageBackendPoolAdminAction(
         mode: z.enum(["gateway", "direct"]).default("gateway"),
         baseUrl: z.string().trim().default(""),
         apiKey: z.string().trim().optional(),
-        enabledModels: z
-          .array(z.string().trim().min(1).max(60))
-          .max(20)
-          .optional(),
+        enabledModels: adobeEnabledModelIdsSchema.optional(),
         defaultRatio: z.string().trim().max(20).default("1x1"),
         defaultResolution: z.string().trim().max(10).default("2k"),
         gptImageQuality: z.enum(["low", "medium", "high"]).default("high"),
@@ -680,30 +677,18 @@ export const saveImageBackendAdobeAction = withImageBackendPoolAdminAction(
         { message: "baseUrl must be a valid URL", path: ["baseUrl"] }
       )
   )
-  .action(async ({ parsedInput }) => {
-    const id = await upsertImageBackendAdobe({
-      id: parsedInput.id,
-      groupId: parsedInput.groupId,
-      groupIds: parsedInput.groupIds,
-      name: parsedInput.name,
-      mode: parsedInput.mode,
-      baseUrl: parsedInput.baseUrl,
-      apiKey: parsedInput.apiKey || undefined,
-      enabledModels: parsedInput.enabledModels ?? null,
-      defaultRatio: parsedInput.defaultRatio,
-      defaultResolution: parsedInput.defaultResolution,
-      gptImageQuality: parsedInput.gptImageQuality,
-      billingMultiplier: parsedInput.billingMultiplier,
-      supportsVideo: parsedInput.supportsVideo,
-      contentSafetyEnabled: parsedInput.contentSafetyEnabled,
-      isEnabled: parsedInput.isEnabled,
-      alwaysActive: parsedInput.alwaysActive,
-      failureCooldownEnabled: parsedInput.failureCooldownEnabled,
-      priority: parsedInput.priority,
-      concurrency: parsedInput.concurrency,
-      status: parsedInput.status || "active",
-    });
-    return { success: true, id };
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureUolInitialized();
+    const result = await invokeOperation<{ id: string }>(
+      "pool.saveAdobe",
+      {
+        ...parsedInput,
+        apiKey: parsedInput.apiKey || undefined,
+        status: parsedInput.status || "active",
+      },
+      { type: "user", userId: ctx.userId, role: ctx.role }
+    );
+    return { success: true, id: result.id };
   });
 
 export const setImageBackendAdobeEnabledAction =

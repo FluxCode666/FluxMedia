@@ -17,6 +17,12 @@ import {
   userImageBackendPreference,
 } from "@repo/database/schema";
 import {
+  canAdobeBackendServeModel,
+  collectAdvertisedAdobeImageModelIds,
+  normalizeAdobeEnabledModelIds,
+} from "@repo/shared/adobe/enabled-models";
+import { isFireflyVideoModelId } from "@repo/shared/adobe/firefly-direct/video-catalog";
+import {
   isPlanAtLeast,
   normalizeSubscriptionPlan,
   type SubscriptionPlan,
@@ -2797,6 +2803,14 @@ async function selectPoolMember(
         !apiOnlyCustomImageModel &&
         (effectiveRequestKind === "image_generation" ||
           effectiveRequestKind === "image_edit") &&
+        canAdobeBackendServeModel({
+          enabledModels: row.enabledModels,
+          supportsVideo: row.supportsVideo,
+          requestedModel,
+        }) &&
+        // 视频管线目前只实现 Adobe direct。网关成员即使误开 supportsVideo 也不能被选中，
+        // 否则会先占用租约、扣费流程才报“非直连后端”。
+        (!isFireflyVideoModelId(requestedModel) || row.mode === "direct") &&
         groupBackendAllowsRequest(metadata, effectiveRequestKind) &&
         // adobe 按所在分组的 backendType 充当该车道兜底:web 偏好请求不再漏到 codex
         // 等非 web 车道的 adobe(挂在混合分组的不限车道,谁都可请求）。
@@ -7419,7 +7433,10 @@ export async function upsertImageBackendAdobe(input: UpsertAdobeInput) {
     name: input.name,
     mode,
     baseUrl: stripTrailingSlash(input.baseUrl),
-    enabledModels: input.enabledModels ?? null,
+    enabledModels:
+      input.enabledModels === undefined || input.enabledModels === null
+        ? null
+        : normalizeAdobeEnabledModelIds(input.enabledModels),
     defaultRatio: input.defaultRatio,
     defaultResolution: input.defaultResolution,
     gptImageQuality: input.gptImageQuality,
@@ -7758,6 +7775,42 @@ export async function listEnabledImageBackendApiModelIds(): Promise<string[]> {
     .orderBy(asc(imageBackendApi.priority), asc(imageBackendApi.createdAt));
 
   return collectAdvertisedModelIds(apis);
+}
+
+/**
+ * 列出当前可用 Adobe 后端明确开放的图像模型，以及是否存在可用视频后端。
+ *
+ * `/v1/models` 使用此函数避免公布没有健康后端可承接的 Firefly 模型。图像模型由
+ * enabledModels 白名单决定；视频沿用既有 supportsVideo 开关，保持历史图像白名单不影响
+ * 视频后端的兼容语义。
+ *
+ * @returns 可公开的 Adobe 图像模型与视频能力，不包含任何后端凭据。
+ */
+export async function listEnabledImageBackendAdobeModels(): Promise<{
+  imageModelIds: string[];
+  supportsVideo: boolean;
+}> {
+  const adobes = await db
+    .select({
+      enabledModels: imageBackendAdobe.enabledModels,
+      mode: imageBackendAdobe.mode,
+      supportsVideo: imageBackendAdobe.supportsVideo,
+    })
+    .from(imageBackendAdobe)
+    .where(
+      and(
+        eq(imageBackendAdobe.isEnabled, true),
+        sql`${imageBackendAdobe.status} <> 'error'`
+      )
+    )
+    .orderBy(asc(imageBackendAdobe.priority), asc(imageBackendAdobe.createdAt));
+
+  return {
+    imageModelIds: collectAdvertisedAdobeImageModelIds(adobes),
+    supportsVideo: adobes.some(
+      (adobe) => adobe.mode === "direct" && adobe.supportsVideo
+    ),
+  };
 }
 
 export async function listAdminImageBackendPool() {

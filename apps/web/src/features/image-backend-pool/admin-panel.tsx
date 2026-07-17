@@ -1,6 +1,10 @@
 "use client";
 
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import {
+  ADOBE_IMAGE_MODEL_IDS,
+  normalizeAdobeEnabledModelIds,
+} from "@repo/shared/adobe/enabled-models";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { normalizeSupportedModelIds } from "@repo/shared/image-backend/supported-models";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
@@ -928,8 +932,8 @@ export function ImageBackendPoolAdminPanel({
     mode: "gateway" as "gateway" | "direct",
     baseUrl: "",
     apiKey: "",
-    // 逗号分隔的 Firefly 模型家族（如 gpt-image,nano-banana-pro）；空=不限制。
-    enabledModels: "",
+    // 空数组代表兼容既有配置的“不限图像模型”；非空时仅调度勾选项。
+    enabledModels: [] as string[],
     defaultRatio: "1x1",
     defaultResolution: "2k",
     gptImageQuality: "high" as "low" | "medium" | "high",
@@ -1449,7 +1453,7 @@ export function ImageBackendPoolAdminPanel({
       mode: "gateway",
       baseUrl: "",
       apiKey: "",
-      enabledModels: "",
+      enabledModels: [],
       defaultRatio: "1x1",
       defaultResolution: "2k",
       gptImageQuality: "high",
@@ -1477,6 +1481,22 @@ export function ImageBackendPoolAdminPanel({
     });
   };
 
+  const toggleAdobeFormModel = (modelId: string, checked: boolean) => {
+    setAdobeForm((current) => {
+      const currentModelIds = normalizeAdobeEnabledModelIds(
+        current.enabledModels
+      );
+      return {
+        ...current,
+        enabledModels: checked
+          ? normalizeAdobeEnabledModelIds([...currentModelIds, modelId])
+          : currentModelIds.filter(
+              (currentModelId) => currentModelId !== modelId
+            ),
+      };
+    });
+  };
+
   const editAdobe = (adobe: Adobe) => {
     const selectedGroupIds = normalizeAccountGroupIds(adobe.groupIds);
     setAdobeForm({
@@ -1487,7 +1507,7 @@ export function ImageBackendPoolAdminPanel({
       mode: adobe.mode === "direct" ? "direct" : "gateway",
       baseUrl: adobe.baseUrl,
       apiKey: "",
-      enabledModels: (adobe.enabledModels || []).join(","),
+      enabledModels: normalizeAdobeEnabledModelIds(adobe.enabledModels),
       defaultRatio: adobe.defaultRatio || "1x1",
       defaultResolution: adobe.defaultResolution || "2k",
       gptImageQuality:
@@ -4685,18 +4705,27 @@ export function ImageBackendPoolAdminPanel({
                 )}
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">
-                    启用模型家族（逗号分隔，留空不限制）
+                    开放图像模型
                   </Label>
-                  <Input
-                    placeholder="gpt-image,nano-banana-pro"
-                    value={adobeForm.enabledModels}
-                    onChange={(event) =>
-                      setAdobeForm((current) => ({
-                        ...current,
-                        enabledModels: event.target.value,
-                      }))
-                    }
-                  />
+                  <p className="text-xs text-muted-foreground">
+                    勾选后该后端只承接所选模型；不勾选保持不限模型，兼容既有配置。
+                  </p>
+                  <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                    {ADOBE_IMAGE_MODEL_IDS.map((modelId) => (
+                      <Label
+                        key={modelId}
+                        className="flex min-h-9 items-center gap-2 rounded-md border px-2 text-sm"
+                      >
+                        <Checkbox
+                          checked={adobeForm.enabledModels.includes(modelId)}
+                          onCheckedChange={(checked) =>
+                            toggleAdobeFormModel(modelId, Boolean(checked))
+                          }
+                        />
+                        <span className="truncate">{modelId}</span>
+                      </Label>
+                    ))}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -4933,10 +4962,6 @@ export function ImageBackendPoolAdminPanel({
                       ...adobeForm,
                       groupId: adobeForm.groupIds[0] || "default",
                       groupIds: adobeForm.groupIds,
-                      enabledModels: adobeForm.enabledModels
-                        .split(",")
-                        .map((value) => value.trim())
-                        .filter(Boolean),
                     })
                   }
                   disabled={

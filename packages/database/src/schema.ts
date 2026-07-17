@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -305,6 +306,68 @@ export const epayOrder = pgTable("epay_order", {
 
 export type EpayOrder = typeof epayOrder.$inferSelect;
 export type NewEpayOrder = typeof epayOrder.$inferInsert;
+
+// ============================================
+// 通用支付订单表
+// ============================================
+/**
+ * 通用支付订单表。
+ *
+ * 使用方：按金额积分充值及后续支付渠道适配器。
+ * WHY：订单在创建时固化金额、币种、兑换比例和积分数量，支付回调只使用快照，
+ * 防止管理员在用户付款期间修改充值配置导致少发、多发或错误拒付。
+ */
+export const paymentOrder = pgTable(
+  "payment_order",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientRequestId: text("client_request_id").notNull(),
+    provider: text("provider").notNull(),
+    purpose: text("purpose").notNull(),
+    status: text("status").notNull().default("pending"),
+    currency: text("currency").notNull(),
+    amount: numeric("amount", {
+      precision: 18,
+      scale: 3,
+      mode: "number",
+    }).notNull(),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    creditsAmount: numeric("credits_amount", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    pricingSnapshot: json("pricing_snapshot")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    providerPayload: json("provider_payload").$type<Record<string, unknown>>(),
+    providerTradeNo: text("provider_trade_no"),
+    expiresAt: timestamp("expires_at"),
+    fulfilledAt: timestamp("fulfilled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("payment_order_user_client_request_unique").on(
+      table.userId,
+      table.clientRequestId
+    ),
+    uniqueIndex("payment_order_provider_trade_no_unique")
+      .on(table.provider, table.providerTradeNo)
+      .where(sql`${table.providerTradeNo} is not null`),
+    index("payment_order_user_id_created_at_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+    index("payment_order_status_idx").on(table.status),
+  ]
+);
+
+export type PaymentOrder = typeof paymentOrder.$inferSelect;
+export type NewPaymentOrder = typeof paymentOrder.$inferInsert;
 
 // ============================================
 // 积分系统枚举

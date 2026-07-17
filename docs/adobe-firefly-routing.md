@@ -45,7 +45,7 @@ Adobe 后端「Adobe Firefly 直连」字段：
 | concurrency | 10 | 并发租约上限 |
 | always_active | 是 | 无视临时冷却始终入选（status=error 仍踢出） |
 | supports_video | true | 参与视频（图生视频）派发 |
-| enabled_models | gpt-image-2、gpt-image-1.5、nano-banana、nano-banana2、nano-banana-pro | 该后端可用的 Firefly 图像族 |
+| enabled_models | firefly-gpt-image-2、firefly-gpt-image-1.5、firefly-nano-banana、firefly-nano-banana2、firefly-nano-banana-pro | 非空时仅调度和公开列出这些图像模型族；留空保持不限模型，兼容旧配置 |
 | 默认 ratio | 1x1 | size 缺省/auto 时回退比例 |
 | 默认 resolution | 2k | size 缺省/auto 时回退分辨率 |
 | gpt_image_quality | high | quality=auto/未选时的 detailLevel 取值依据 |

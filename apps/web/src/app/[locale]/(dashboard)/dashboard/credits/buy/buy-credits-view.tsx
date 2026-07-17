@@ -11,6 +11,7 @@ import {
   createCreditsPurchaseCheckout,
   getCreditPackages,
 } from "@repo/shared/credits/actions";
+import { getCurrencyMinorUnitExponent } from "@repo/shared/credits/top-up";
 import {
   CREDIT_PACKAGES,
   isCreditPackageVisible,
@@ -22,22 +23,32 @@ import {
   CardContent,
   CardFooter,
   CardHeader,
+  CardTitle,
 } from "@repo/ui/components/card";
 import { Input } from "@repo/ui/components/input";
 import { Separator } from "@repo/ui/components/separator";
 import { cn } from "@repo/ui/utils";
 import { ArrowLeft, Check, Loader2, Minus, Plus } from "lucide-react";
 import { useLocale } from "next-intl";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import { toast } from "sonner";
+
+import {
+  createCreditTopUpCheckoutAction,
+  getCreditTopUpOptionsAction,
+  getCreditTopUpOrderStatusAction,
+} from "@/features/payment/credit-top-up-actions";
 
 type CreditPackageCard = {
   id: string;
   name: string;
   credits: number;
   price: number;
+  currency: string;
   description: string;
   popular: boolean;
   allowQuantity?: boolean;
@@ -51,10 +62,13 @@ const FALLBACK_PACKAGES: CreditPackageCard[] = CREDIT_PACKAGES.filter(
   name: pkg.name,
   credits: pkg.credits,
   price: pkg.price,
+  currency:
+    "currency" in pkg && typeof pkg.currency === "string"
+      ? pkg.currency
+      : "CNY",
   description: pkg.description,
   popular: "popular" in pkg ? pkg.popular : false,
-  allowQuantity:
-    "allowQuantity" in pkg ? Boolean(pkg.allowQuantity) : false,
+  allowQuantity: "allowQuantity" in pkg ? Boolean(pkg.allowQuantity) : false,
   maxQuantity:
     "maxQuantity" in pkg && typeof pkg.maxQuantity === "number"
       ? pkg.maxQuantity
@@ -75,6 +89,49 @@ const PACKAGE_DESCRIPTIONS_ZH: Record<string, string> = {
 };
 
 const DEFAULT_MAX_PACKAGE_QUANTITY = 999;
+
+type CreditTopUpCurrency = {
+  currency: string;
+  creditsPerMajorUnit: number;
+  minAmountMinor: number;
+  maxAmountMinor: number;
+  providers: Array<"alipay_f2f">;
+};
+
+type CreditTopUpOrder = {
+  orderId: string;
+  status: string;
+  currency: string;
+  amount: number;
+  amountMinor: number;
+  creditsAmount: number;
+  qrCode: string | null;
+  expiresAt: string | null;
+};
+
+type CreditTopUpRequest = {
+  quoteKey: string;
+  clientRequestId: string;
+};
+
+function parseAmountMinor(value: string, currency: string): number | null {
+  const exponent = getCurrencyMinorUnitExponent(currency);
+  const expression = new RegExp(`^\\d+(?:\\.\\d{1,${exponent}})?$`);
+  const normalized = value.trim();
+  if (!expression.test(normalized)) return null;
+  const amount = Number(normalized);
+  const amountMinor = Math.round(amount * 10 ** exponent);
+  return Number.isSafeInteger(amountMinor) && amountMinor > 0
+    ? amountMinor
+    : null;
+}
+
+function formatCurrency(amount: number, currency: string, locale: string) {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+  }).format(amount);
+}
 
 function submitEpayForm(url: string, params: Record<string, string>) {
   const form = document.createElement("form");
@@ -104,13 +161,44 @@ export function BuyCreditPackagesView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const canceled = searchParams.get("canceled");
-  const copy = useCallback((en: string, zh: string) => (isZh ? zh : en), [isZh]);
+  const copy = useCallback(
+    (en: string, zh: string) => (isZh ? zh : en),
+    [isZh]
+  );
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [topUpCurrency, setTopUpCurrency] = useState("CNY");
+  const [topUpAmount, setTopUpAmount] = useState("10");
+  const [topUpOrder, setTopUpOrder] = useState<CreditTopUpOrder | null>(null);
+  const [topUpQrDataUrl, setTopUpQrDataUrl] = useState<string | null>(null);
+  const topUpRequestRef = useRef<CreditTopUpRequest | null>(null);
   const {
     execute: fetchPackages,
     result: packagesResult,
     isPending: isPackagesLoading,
   } = useAction(getCreditPackages);
+  const {
+    execute: fetchTopUpOptions,
+    result: topUpOptionsResult,
+    isPending: isTopUpOptionsLoading,
+  } = useAction(getCreditTopUpOptionsAction);
+  const { execute: createTopUpCheckout, isPending: isTopUpPending } = useAction(
+    createCreditTopUpCheckoutAction,
+    {
+      onSuccess: ({ data }) => {
+        if (data) {
+          setTopUpOrder(data);
+        }
+      },
+      onError: ({ error }) => {
+        toast.error(
+          error.serverError ??
+            copy("Failed to create top-up order", "创建充值订单失败")
+        );
+      },
+    }
+  );
+  const { execute: fetchTopUpOrderStatus, result: topUpOrderStatusResult } =
+    useAction(getCreditTopUpOrderStatusAction);
 
   // 创建 Checkout Session
   const { execute, isPending } = useAction(createCreditsPurchaseCheckout, {
@@ -133,7 +221,69 @@ export function BuyCreditPackagesView() {
 
   useEffect(() => {
     fetchPackages();
-  }, [fetchPackages]);
+    fetchTopUpOptions();
+  }, [fetchPackages, fetchTopUpOptions]);
+
+  useEffect(() => {
+    const defaultCurrency = topUpOptionsResult.data?.defaultCurrency;
+    if (defaultCurrency) setTopUpCurrency(defaultCurrency);
+  }, [topUpOptionsResult.data?.defaultCurrency]);
+
+  useEffect(() => {
+    const qrCode = topUpOrder?.qrCode;
+    if (!qrCode) {
+      setTopUpQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void QRCode.toDataURL(qrCode, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 256,
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setTopUpQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error(
+            copy("Failed to render payment QR code", "生成支付二维码失败")
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [copy, topUpOrder?.qrCode]);
+
+  useEffect(() => {
+    if (!topUpOrder || topUpOrder.status === "fulfilled") return;
+    fetchTopUpOrderStatus({ orderId: topUpOrder.orderId });
+    const timer = window.setInterval(() => {
+      fetchTopUpOrderStatus({ orderId: topUpOrder.orderId });
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [fetchTopUpOrderStatus, topUpOrder]);
+
+  useEffect(() => {
+    const status = topUpOrderStatusResult.data;
+    if (!status) return;
+    setTopUpOrder((current) => {
+      if (!current || current.orderId !== status.orderId) return current;
+      if (current.status !== "fulfilled" && status.status === "fulfilled") {
+        toast.success(copy("Credits have been added", "积分已到账"));
+      }
+      return {
+        ...current,
+        status: status.status,
+        currency: status.currency,
+        amount: status.amount,
+        creditsAmount: status.creditsAmount,
+        qrCode: status.qrCode,
+        expiresAt: status.expiresAt,
+      };
+    });
+  }, [copy, topUpOrderStatusResult.data]);
 
   // 显示取消提示
   useEffect(() => {
@@ -149,15 +299,36 @@ export function BuyCreditPackagesView() {
   const handlePurchase = (packageId: string) => {
     execute({
       packageId,
-      quantity:
-        packages.find((pkg) => pkg.id === packageId)?.allowQuantity
-          ? (quantities[packageId] ?? 1)
-          : 1,
+      quantity: packages.find((pkg) => pkg.id === packageId)?.allowQuantity
+        ? (quantities[packageId] ?? 1)
+        : 1,
     });
   };
 
   const packages = (packagesResult.data ??
     FALLBACK_PACKAGES) as CreditPackageCard[];
+  const topUpOptions = topUpOptionsResult.data;
+  const topUpCurrencies = topUpOptions?.currencies ?? [];
+  const selectedTopUpCurrency = topUpCurrencies.find(
+    (item) => item.currency === topUpCurrency
+  ) as CreditTopUpCurrency | undefined;
+  const topUpAmountMinor = selectedTopUpCurrency
+    ? parseAmountMinor(topUpAmount, selectedTopUpCurrency.currency)
+    : null;
+  const topUpCredits =
+    selectedTopUpCurrency && topUpAmountMinor
+      ? (topUpAmountMinor /
+          10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency)) *
+        selectedTopUpCurrency.creditsPerMajorUnit
+      : 0;
+  const canCreateTopUp =
+    Boolean(selectedTopUpCurrency && topUpAmountMinor) &&
+    Boolean(
+      topUpAmountMinor &&
+        selectedTopUpCurrency &&
+        topUpAmountMinor >= selectedTopUpCurrency.minAmountMinor &&
+        topUpAmountMinor <= selectedTopUpCurrency.maxAmountMinor
+    );
   const normalizedQuantities = useMemo(
     () =>
       Object.fromEntries(
@@ -181,6 +352,24 @@ export function BuyCreditPackagesView() {
       ),
     }));
   };
+  const handleTopUp = () => {
+    if (!selectedTopUpCurrency || !topUpAmountMinor) return;
+    const quoteKey = `${selectedTopUpCurrency.currency}:${topUpAmountMinor}`;
+    const currentRequest = topUpRequestRef.current;
+    const clientRequestId =
+      currentRequest?.quoteKey === quoteKey
+        ? currentRequest.clientRequestId
+        : crypto.randomUUID();
+    // 浏览器在提交后丢失响应时，用户再次点击必须复用同一幂等键；只有报价变更时
+    // 才建立新订单，避免为同一金额生成多张可付款二维码。
+    topUpRequestRef.current = { quoteKey, clientRequestId };
+    createTopUpCheckout({
+      clientRequestId,
+      currency: selectedTopUpCurrency.currency,
+      amountMinor: topUpAmountMinor,
+      provider: "alipay_f2f",
+    });
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-10 px-4 py-8">
@@ -198,6 +387,99 @@ export function BuyCreditPackagesView() {
       </div>
 
       <Separator />
+
+      {topUpOptions?.enabled && selectedTopUpCurrency && (
+        <Card className="mx-auto max-w-xl border-foreground/20 shadow-whisper">
+          <CardHeader className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-[1.2px] text-muted-foreground">
+              {copy("Pay as you go", "按金额充值")}
+            </p>
+            <CardTitle className="font-serif text-2xl font-medium">
+              {copy("Recharge exactly what you need", "按需充值所需积分")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm text-muted-foreground">
+              {copy(
+                `${selectedTopUpCurrency.creditsPerMajorUnit} credits per ${selectedTopUpCurrency.currency} 1.`,
+                `每 1 ${selectedTopUpCurrency.currency} 可兑换 ${selectedTopUpCurrency.creditsPerMajorUnit} 积分。`
+              )}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-[150px_1fr]">
+              <select
+                aria-label={copy("Top-up currency", "充值币种")}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedTopUpCurrency.currency}
+                disabled={isTopUpPending || isTopUpOptionsLoading}
+                onChange={(event) => setTopUpCurrency(event.target.value)}
+              >
+                {topUpCurrencies.map((item) => (
+                  <option key={item.currency} value={item.currency}>
+                    {item.currency}
+                  </option>
+                ))}
+              </select>
+              <Input
+                inputMode="decimal"
+                value={topUpAmount}
+                disabled={isTopUpPending || isTopUpOptionsLoading}
+                onChange={(event) => setTopUpAmount(event.target.value)}
+                aria-label={copy("Top-up amount", "充值金额")}
+                placeholder={copy("Amount", "金额")}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {topUpAmountMinor && canCreateTopUp
+                ? copy(
+                    `${formatCurrency(topUpAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)} → ${topUpCredits.toLocaleString()} credits`,
+                    `${formatCurrency(topUpAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)} 可得 ${topUpCredits.toLocaleString()} 积分`
+                  )
+                : copy(
+                    `Enter an amount between ${formatCurrency(selectedTopUpCurrency.minAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)} and ${formatCurrency(selectedTopUpCurrency.maxAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)}.`,
+                    `请输入 ${formatCurrency(selectedTopUpCurrency.minAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)} 到 ${formatCurrency(selectedTopUpCurrency.maxAmountMinor / 10 ** getCurrencyMinorUnitExponent(selectedTopUpCurrency.currency), selectedTopUpCurrency.currency, locale)} 之间的金额。`
+                  )}
+            </p>
+            {topUpOrder?.qrCode && topUpQrDataUrl && (
+              <div className="flex flex-col items-center gap-3 rounded-md border border-border bg-muted/30 p-4 text-center">
+                <Image
+                  src={topUpQrDataUrl}
+                  width={256}
+                  height={256}
+                  alt={copy("Alipay payment QR code", "支付宝支付二维码")}
+                  unoptimized
+                />
+                <p className="text-sm text-muted-foreground">
+                  {topUpOrder.status === "fulfilled"
+                    ? copy(
+                        "Payment confirmed. Credits have been added.",
+                        "支付已确认，积分已到账。"
+                      )
+                    : copy(
+                        "Scan with Alipay. Credits are issued after payment confirmation.",
+                        "请使用支付宝扫码，支付确认后积分将自动到账。"
+                      )}
+                </p>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter>
+            <Button
+              className="w-full"
+              disabled={!canCreateTopUp || isTopUpPending}
+              onClick={handleTopUp}
+            >
+              {isTopUpPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {copy("Creating order...", "正在创建订单...")}
+                </>
+              ) : (
+                copy("Pay with Alipay", "支付宝扫码充值")
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
 
       {/* 套餐列表 */}
       <div
@@ -267,10 +549,10 @@ export function BuyCreditPackagesView() {
                 {/* 价格 */}
                 <div className="text-center">
                   <span className="font-serif text-3xl font-medium">
-                    ¥{totalPrice}
+                    {formatCurrency(totalPrice, pkg.currency, locale)}
                   </span>
                   <span className="ml-1 text-sm text-muted-foreground">
-                    {copy("CNY", "元")}
+                    {pkg.currency}
                   </span>
                 </div>
 
@@ -294,9 +576,7 @@ export function BuyCreditPackagesView() {
                         disabled={
                           quantity <= 1 || isPending || isPackagesLoading
                         }
-                        onClick={() =>
-                          setPackageQuantity(pkg.id, quantity - 1)
-                        }
+                        onClick={() => setPackageQuantity(pkg.id, quantity - 1)}
                       >
                         <Minus className="h-4 w-4" />
                       </Button>
@@ -308,10 +588,7 @@ export function BuyCreditPackagesView() {
                         className="h-8 border-0 text-center shadow-none focus-visible:ring-0"
                         disabled={isPending || isPackagesLoading}
                         onChange={(event) =>
-                          setPackageQuantity(
-                            pkg.id,
-                            Number(event.target.value)
-                          )
+                          setPackageQuantity(pkg.id, Number(event.target.value))
                         }
                       />
                       <Button
@@ -325,9 +602,7 @@ export function BuyCreditPackagesView() {
                           isPending ||
                           isPackagesLoading
                         }
-                        onClick={() =>
-                          setPackageQuantity(pkg.id, quantity + 1)
-                        }
+                        onClick={() => setPackageQuantity(pkg.id, quantity + 1)}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -350,11 +625,17 @@ export function BuyCreditPackagesView() {
                   </li>
                   <li className="flex items-center gap-2 text-muted-foreground">
                     <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />
-                    {copy("Batch expiry shown in Usage", "有效期可在用量页查看")}
+                    {copy(
+                      "Batch expiry shown in Usage",
+                      "有效期可在用量页查看"
+                    )}
                   </li>
                   <li className="flex items-center gap-2 text-muted-foreground">
-                    <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />¥
-                    {copy(`${perCredit} per credit`, `每积分 ${perCredit} 元`)}
+                    <Check className="h-3.5 w-3.5 shrink-0 text-foreground" />
+                    {copy(
+                      `${perCredit} ${pkg.currency} per credit`,
+                      `每积分 ${perCredit} ${pkg.currency}`
+                    )}
                   </li>
                 </ul>
               </CardContent>

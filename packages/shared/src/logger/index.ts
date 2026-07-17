@@ -165,6 +165,8 @@ export type BusinessEvent =
   | "payment.subscription.created"
   | "payment.subscription.canceled"
   | "credits.purchased"
+  | "credits.top_up.checkout_created"
+  | "credits.top_up.fulfilled"
   | "credits.consumed"
   | "credits.expired"
   | "ticket.created"

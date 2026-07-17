@@ -50,6 +50,10 @@ const principals = {
     type: "webhook",
     provider: "epay",
   } as Principal,
+  webhookAlipay: {
+    type: "webhook",
+    provider: "alipay",
+  } as Principal,
   proxy: {
     type: "proxy",
     secretKind: "proxy",
@@ -273,6 +277,14 @@ describe("UOL Access Control (assertAccess)", () => {
       expect(() =>
         assertAccess(epay, principals.webhookEpay),
       ).not.toThrow();
+
+      const alipay: AccessRequirement = {
+        kind: "webhook",
+        provider: "alipay",
+      };
+      expect(() =>
+        assertAccess(alipay, principals.webhookAlipay),
+      ).not.toThrow();
     });
 
     it("rejects mismatched webhook provider", () => {
@@ -282,6 +294,9 @@ describe("UOL Access Control (assertAccess)", () => {
       };
       expect(() =>
         assertAccess(creem, principals.webhookEpay),
+      ).toThrow(OperationError);
+      expect(() =>
+        assertAccess(creem, principals.webhookAlipay),
       ).toThrow(OperationError);
     });
 

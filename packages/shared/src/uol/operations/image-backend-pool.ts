@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 
+import { adobeEnabledModelIdsSchema } from "../../adobe/enabled-models";
 import { requestParameterMappingsSchema } from "../../image-backend/request-parameter-mapping";
 import { supportedModelIdsSchema } from "../../image-backend/supported-models";
 import { defineOperation } from "../registry";
@@ -322,7 +323,54 @@ export const saveApi = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 12. pool.listParameterMappingTemplates - 列出 API 参数映射模板
+// 12. pool.saveAdobe - 保存 Adobe 后端及其开放图像模型白名单
+// ---------------------------------------------------------------------------
+export const saveAdobe = defineOperation({
+  name: "pool.saveAdobe",
+  domain: "image-backend-pool",
+  title: "保存 Adobe 后端",
+  description:
+    "新建或更新 Adobe Firefly 后端；保存开放图像模型白名单、视频能力与调度配置。",
+  input: z
+    .object({
+      id: z.string().optional(),
+      groupId: z.string().nullable().optional(),
+      groupIds: z.array(z.string()).max(100).optional(),
+      name: z.string().trim().min(1).max(120),
+      mode: z.enum(["gateway", "direct"]),
+      baseUrl: z.string().trim(),
+      apiKey: z.string().trim().optional(),
+      enabledModels: adobeEnabledModelIdsSchema.optional(),
+      defaultRatio: z.string().trim().min(1).max(20),
+      defaultResolution: z.string().trim().min(1).max(10),
+      gptImageQuality: z.enum(["low", "medium", "high"]),
+      billingMultiplier: z.number().positive().max(1000),
+      supportsVideo: z.boolean(),
+      contentSafetyEnabled: z.boolean(),
+      isEnabled: z.boolean(),
+      alwaysActive: z.boolean(),
+      failureCooldownEnabled: z.boolean(),
+      priority: z.number().int().min(0).max(10000),
+      concurrency: z.number().int().min(1).max(10000),
+      status: z.string().trim().min(1).max(80),
+    })
+    .refine(
+      (value) => value.mode === "direct" || /^https?:\/\//i.test(value.baseUrl),
+      { message: "baseUrl must be a valid URL", path: ["baseUrl"] }
+    ),
+  output: z.object({ id: z.string() }),
+  access: { kind: "admin" },
+  readOnly: false,
+  destructive: false,
+  idempotency: { kind: "none" },
+  sideEffects: ["audit"],
+  execute: async () => {
+    throw new Error("Not yet wired: pool.saveAdobe");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 13. pool.listParameterMappingTemplates - 列出 API 参数映射模板
 // ---------------------------------------------------------------------------
 export const listParameterMappingTemplates = defineOperation({
   name: "pool.listParameterMappingTemplates",

@@ -49,6 +49,14 @@ function parsePositiveInteger(value: unknown, fallback: number, max?: number) {
   return Math.floor(parsePositiveNumber(value, fallback, max));
 }
 
+function normalizeCurrency(value: unknown, fallback = "CNY") {
+  const currency =
+    typeof value === "string" && value.trim()
+      ? value.trim().toUpperCase()
+      : fallback;
+  return /^[A-Z]{3}$/.test(currency) ? currency : fallback;
+}
+
 function parsePlanNumberMap(
   value: unknown,
   fallback?: CreditPackagePlanMap<number>
@@ -117,6 +125,7 @@ function normalizeCreditPackage(
     id,
     name,
     description,
+    currency: normalizeCurrency(raw.currency, fallback?.currency ?? "CNY"),
     credits: parsePositiveInteger(
       raw.credits,
       fallback?.credits ?? 1,
@@ -251,9 +260,10 @@ export async function getRuntimeCreditPackages(options?: {
   }
 
   if (options?.plan) {
+    const plan = options.plan;
     packages = packages.filter(
       (pkg) =>
-        !pkg.requiresPlan || isPlanAtLeast(options.plan!, pkg.requiresPlan)
+        !pkg.requiresPlan || isPlanAtLeast(plan, pkg.requiresPlan)
     );
   }
 
@@ -278,11 +288,17 @@ export function getCreditPackagePriceForPlan(
 ) {
   for (let i = PLAN_RANK[plan]; i >= 0; i -= 1) {
     const candidate = SUBSCRIPTION_PLANS.find((item) => PLAN_RANK[item] === i);
-    if (candidate && pkg.pricesByPlan?.[candidate]) {
-      return pkg.pricesByPlan[candidate]!;
+    const price = candidate ? pkg.pricesByPlan?.[candidate] : undefined;
+    if (price) {
+      return price;
     }
   }
   return pkg.price;
+}
+
+/** 返回积分包的 ISO 4217 结账币种；历史配置未写 currency 时兼容人民币。 */
+export function getCreditPackageCurrency(pkg: RuntimeCreditPackage) {
+  return normalizeCurrency(pkg.currency, "CNY");
 }
 
 export function getCreditPackageCreemProductIdForPlan(
@@ -291,8 +307,11 @@ export function getCreditPackageCreemProductIdForPlan(
 ) {
   for (let i = PLAN_RANK[plan]; i >= 0; i -= 1) {
     const candidate = SUBSCRIPTION_PLANS.find((item) => PLAN_RANK[item] === i);
-    if (candidate && pkg.creemProductIdsByPlan?.[candidate]) {
-      return pkg.creemProductIdsByPlan[candidate]!;
+    const productId = candidate
+      ? pkg.creemProductIdsByPlan?.[candidate]
+      : undefined;
+    if (productId) {
+      return productId;
     }
   }
   return pkg.creemProductId || `credits_${pkg.id}`;

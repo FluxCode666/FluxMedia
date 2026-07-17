@@ -68,3 +68,14 @@ describe("getCreditPackageCreemProductIdForPlan", () => {
     );
   });
 });
+
+describe("getCreditPackageCurrency", () => {
+  it("uses an ISO currency configured on the package and keeps legacy packages in CNY", async () => {
+    const { getCreditPackageCurrency } = await loadPackages();
+
+    expect(getCreditPackageCurrency(makePackage({ currency: "usd" }))).toBe(
+      "USD"
+    );
+    expect(getCreditPackageCurrency(makePackage())).toBe("CNY");
+  });
+});

@@ -23,6 +23,7 @@
 ## 功能
 
 - [纯中转 API Key](plan/2026-05-30-relay-only-api-key.md) — relay_only key：不记录/不存储/仍扣费仍审核；附带修复 consumeCredits 幂等（dev: 7c6da21→e957f48）
+- [积分充值与 Adobe 模型开放范围](plan/2026-07-18-credits-top-up-and-adobe-models.md) — 按金额充值、兑换比例、多币种配置、支付宝当面付及 Adobe 后端模型限制的实施与验证约束。
 - **Issue #1/#15/#16 修复**（dev: a2dd4dc/10d0bc8/c8e9118，详见 [TODO.md](TODO.md)）— #1 管理员建号/改密改邮箱(superAdminAction+better-auth hashPassword)；#15 瀑布流 tier/参数/3警告对齐原项目；#16 数量控件改数字输入+滚轮、上限与服务端 count 校验统一挂 `imageGenerationConcurrency`（**语义变化**：单次张数上限不再用 maxBatchCount）。待 UI 实测。
 
 ## 工程 / CI

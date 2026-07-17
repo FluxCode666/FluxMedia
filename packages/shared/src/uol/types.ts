@@ -47,7 +47,7 @@ export type AccessRequirement =
   | { kind: "imageBackendPoolViewer" }
   | { kind: "apiKey"; planCapability?: string }
   | { kind: "cron" }
-  | { kind: "webhook"; provider: "creem" | "epay" }
+  | { kind: "webhook"; provider: "creem" | "epay" | "alipay" }
   | { kind: "proxySecret" }
   | { kind: "system" };
 

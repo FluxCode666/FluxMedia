@@ -435,6 +435,7 @@ export async function grantCredits(params: GrantCreditsParams) {
       debitAccount,
       creditAccount,
       description,
+      sourceRef,
       metadata: {
         ...metadata,
         batchId,

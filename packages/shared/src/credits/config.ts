@@ -42,13 +42,15 @@ export type CreditPackagePlanMap<T> = Partial<Record<SubscriptionPlan, T>>;
  *
  * price 是兜底价格；pricesByPlan 可按用户当前套餐覆盖价格。
  * Creem 一次性产品价格在 Creem 后台预建，按套餐定价时需要配置对应
- * creemProductIdsByPlan；Epay 会直接使用站内计算出的价格。
+ * creemProductIdsByPlan；currency 按 ISO 4217 指定结账币种（缺省 CNY）；
+ * Epay 仅支持 CNY，Creem 可按对应预建产品使用其他币种。
  */
 export type CreditPackageConfig = {
   id: string;
   name: string;
   credits: number;
   price: number;
+  currency?: string;
   description: string;
   popular?: boolean;
   visible?: boolean;
@@ -69,6 +71,7 @@ export const CREDIT_PACKAGES = [
     name: "Pay as you go",
     credits: 5000,
     price: 20,
+    currency: "CNY",
     popular: true,
     description: "One-time credits priced like Starter",
   },
@@ -77,6 +80,7 @@ export const CREDIT_PACKAGES = [
     name: "Enterprise Resource Pack",
     credits: ENTERPRISE_RESOURCE_PACKAGE_DEFAULT_CREDITS,
     price: ENTERPRISE_RESOURCE_PACKAGE_DEFAULT_PRICE,
+    currency: "CNY",
     description: "Enterprise-only 5,000-credit resource pack",
     requiresPlan: "enterprise",
     allowQuantity: true,
@@ -88,6 +92,7 @@ export const CREDIT_PACKAGES = [
     name: "Lite",
     credits: 100,
     price: 5,
+    currency: "CNY",
     description: "Quick top-up for a few images",
     visible: false,
   },
@@ -96,6 +101,7 @@ export const CREDIT_PACKAGES = [
     name: "Standard",
     credits: 500,
     price: 20,
+    currency: "CNY",
     description: "Best value for regular use",
     visible: false,
   },
@@ -104,6 +110,7 @@ export const CREDIT_PACKAGES = [
     name: "Pro",
     credits: 1000,
     price: 35,
+    currency: "CNY",
     description: "Maximum credits, maximum savings",
     visible: false,
   },

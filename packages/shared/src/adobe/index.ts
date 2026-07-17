@@ -3,5 +3,6 @@
  */
 export * from "./firefly-request";
 export * from "./firefly-response";
+export * from "./enabled-models";
 export * from "./image-pricing";
 export * from "./video-pricing";

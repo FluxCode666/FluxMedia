@@ -304,6 +304,7 @@ type CreditPackageDraft = {
   description: string;
   credits: number;
   price: number;
+  currency: string;
   popular: boolean;
   visible: boolean;
   requiresPlan: PlanRequirementValue;
@@ -591,6 +592,12 @@ function normalizeCreditPackageMatrixDraft(
             numberValue(fallback.credits, 1)
           ),
           price,
+          currency: stringValue(
+            rawPackage.currency,
+            stringValue(fallback.currency, "CNY")
+          )
+            .trim()
+            .toUpperCase(),
           popular: booleanValue(rawPackage.popular, Boolean(fallback.popular)),
           visible: booleanValue(
             rawPackage.visible,
@@ -648,6 +655,7 @@ function compactCreditPackageMatrixDraft(matrix: CreditPackageMatrixDraft) {
         description: pkg.description,
         credits: Number(pkg.credits) || 1,
         price: Number(pkg.price) || 1,
+        currency: pkg.currency.trim().toUpperCase() || "CNY",
         popular: pkg.popular,
         visible: pkg.visible,
         ...(pkg.requiresPlan !== "none" ? { requiresPlan: pkg.requiresPlan } : {}),
@@ -671,6 +679,9 @@ function getJsonSettingHint(key: string) {
   }
   if (key === "CREDIT_PACKAGE_MATRIX") {
     return "留空表示使用代码默认积分包。占位内容只是示例，填写 JSON 后保存才会启用自定义积分包；pricesByPlan 可按套餐配置不同价格，Creem 按套餐定价时需配置对应产品 ID。";
+  }
+  if (key === "CREDIT_TOP_UP_CONFIG") {
+    return "金额以最小货币单位填写：CNY 的 100 表示 ¥1。creditsPerMajorUnit 是每 1 主货币单位兑换的积分数，例如 CNY=10 即 ¥1=10 积分。支付宝当面付仅允许 CNY。";
   }
   return "留空表示使用代码默认值。占位内容只是示例，填写 JSON 后保存才会启用自定义配置。";
 }
@@ -1235,6 +1246,7 @@ function CreditPackageMatrixInput({
           description: "",
           credits: 1000,
           price: 10,
+          currency: "CNY",
           popular: false,
           visible: true,
           requiresPlan: "none",
@@ -1263,7 +1275,7 @@ function CreditPackageMatrixInput({
   return (
     <div className="space-y-5">
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        管理一次性购买积分包。Epay 使用站内价格；Creem 如需按套餐定价，需要在对应套餐列填写预建产品 ID。
+        管理一次性购买积分包。Epay 仅支持 CNY；Creem 可使用各币种对应的预建产品，按套餐定价时需填写对应产品 ID。
       </div>
 
       <div className="flex justify-end">
@@ -1347,6 +1359,20 @@ function CreditPackageMatrixInput({
                 disabled={disabled}
                 onChange={(event) =>
                   updatePackage(index, { price: Number(event.target.value) })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">结账币种</Label>
+              <Input
+                value={pkg.currency}
+                maxLength={3}
+                disabled={disabled}
+                placeholder="CNY"
+                onChange={(event) =>
+                  updatePackage(index, {
+                    currency: event.target.value.toUpperCase(),
+                  })
                 }
               />
             </div>
@@ -1767,7 +1793,8 @@ export function SystemSettingsPanel() {
                     key={setting.key}
                     className={
                       setting.key === "PLAN_CAPABILITY_MATRIX" ||
-                      setting.key === "CREDIT_PACKAGE_MATRIX"
+                      setting.key === "CREDIT_PACKAGE_MATRIX" ||
+                      setting.key === "CREDIT_TOP_UP_CONFIG"
                         ? "rounded-lg lg:col-span-2"
                         : "rounded-lg"
                     }
