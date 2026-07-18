@@ -1,0 +1,54 @@
+# FluxMedia 生产 Compose：仅运行 Next.js 主服务。
+# PostgreSQL 与可选上游均为外部依赖；注册机和 ChatGPT Web 代理不在此编排中。
+name: fluxmedia
+
+services:
+  web:
+    image: ${FLUXMEDIA_IMAGE:-ghcr.io/fluxcode666/fluxmedia-web}:${FLUXMEDIA_TAG:?FLUXMEDIA_TAG 必填}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 必填}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET 必填}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://media.flux-code.cc}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://media.flux-code.cc}
+      LOCAL_STORAGE_PATH: /app/storage
+      GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH: /app/.gpt2image/super-admin-credentials.txt
+      # 强制禁用注册机，即使服务器旧 .env 中仍残留配置也不会误连。
+      CHATGPT_REGISTER_URL: ""
+      CHATGPT_REGISTER_SECRET: ""
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    volumes:
+      - app-storage:/app/storage
+      - app-bootstrap:/app/.gpt2image
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then((response) => process.exit(response.status < 500 ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  app-storage:
+  app-bootstrap:

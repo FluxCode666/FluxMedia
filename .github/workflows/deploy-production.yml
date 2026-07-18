@@ -1,0 +1,323 @@
+# FluxMedia 生产部署流水线。
+#
+# 使用方式：从 main 手动触发，输入符合项目规范的版本号。流水线先执行质量门，
+# 再构建 web 镜像并推送 GHCR，最后通过 SSH 同步生产 Compose 并仅更新 web 服务。
+# 真实运行时配置只保存在目标服务器 deploy/.env，不进入仓库或 Actions 日志。
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号，例如 v0.8.1 或 v0.9.0-rc.1"
+        required: true
+        type: string
+      skip_deploy:
+        description: "只构建并推送镜像，不部署到服务器"
+        required: false
+        default: false
+        type: boolean
+
+# 同一生产环境只允许一个部署运行；保留已开始的部署，避免中途取消留下半更新状态。
+concurrency:
+  group: fluxmedia-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: fluxmedia-web
+  PUBLIC_APP_URL: https://media.flux-code.cc
+
+jobs:
+  quality:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 2
+
+      - name: Validate branch and version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::生产部署只能从 main 分支触发。"
+            exit 1
+          fi
+
+          if [[ ! "${VERSION}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::版本号必须符合 v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]。"
+            exit 1
+          fi
+
+      - uses: ./.github/actions/setup
+
+      - name: Assert documentation mirror
+        run: diff -q --strip-trailing-cr CLAUDE.md AGENTS.md
+
+      - name: Generate Fumadocs source
+        run: pnpm --filter @repo/web exec fumadocs-mdx
+
+      - name: Lint files changed by deployment commit
+        run: |
+          set -euo pipefail
+          mapfile -t changed_files < <(
+            git diff-tree --no-commit-id --diff-filter=ACMRT --name-only -r HEAD -- \
+              '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx'
+          )
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "当前部署提交没有可由 Biome 检查的代码文件。"
+          else
+            ./apps/web/node_modules/.bin/biome lint \
+              --no-errors-on-unmatched "${changed_files[@]}"
+          fi
+
+      - name: Typecheck
+        run: pnpm turbo typecheck
+
+      - name: Test
+        run: pnpm turbo test
+
+  build-and-push:
+    name: Build and push web image
+    needs: quality
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Resolve image metadata
+        id: meta
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          owner_lower="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=${REGISTRY}/${owner_lower}/${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push web image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile.web
+          target: runner
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+          build-args: |
+            NEXT_PUBLIC_APP_URL=${{ env.PUBLIC_APP_URL }}
+            NEXT_PUBLIC_APP_NAME=GPT2IMAGE
+            NEXT_PUBLIC_PAYMENT_PROVIDER=none
+            NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=generations
+            NEXT_PUBLIC_AVATARS_BUCKET_NAME=avatars
+            BETTER_AUTH_URL=${{ env.PUBLIC_APP_URL }}
+          cache-from: type=gha,scope=fluxmedia-web
+          cache-to: type=gha,mode=max,scope=fluxmedia-web
+
+  deploy:
+    name: Deploy web with Docker Compose
+    needs: build-and-push
+    if: ${{ inputs.skip_deploy == false }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      IMAGE: ${{ needs.build-and-push.outputs.image }}
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.tag }}
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          sparse-checkout: deploy
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+
+          : "${DEPLOY_HOST:?DEPLOY_HOST secret is required}"
+          : "${DEPLOY_USER:?DEPLOY_USER secret is required}"
+          : "${DEPLOY_SSH_KEY:?DEPLOY_SSH_KEY secret is required}"
+          : "${DEPLOY_KNOWN_HOSTS:?DEPLOY_KNOWN_HOSTS secret is required}"
+          : "${GHCR_PAT:?GHCR_PAT secret is required}"
+
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/opt/fluxmedia}"
+
+          if [[ ! "${DEPLOY_PORT}" =~ ^[0-9]{1,5}$ ]]; then
+            echo "::error::DEPLOY_PORT 必须是有效端口号。"
+            exit 1
+          fi
+          port_number=$((10#${DEPLOY_PORT}))
+          if (( port_number < 1 || port_number > 65535 )); then
+            echo "::error::DEPLOY_PORT 必须位于 1 到 65535。"
+            exit 1
+          fi
+          if [[ ! "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::DEPLOY_PATH 必须是不含空格的绝对路径。"
+            exit 1
+          fi
+
+          install -d -m 700 "${HOME}/.ssh"
+          printf '%s\n' "${DEPLOY_SSH_KEY}" | sed 's/\r$//' > "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${DEPLOY_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/id_ed25519" "${HOME}/.ssh/known_hosts"
+
+          {
+            echo "DEPLOY_PORT=${DEPLOY_PORT}"
+            echo "DEPLOY_PATH=${DEPLOY_PATH}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Synchronize Compose file
+        run: |
+          set -euo pipefail
+          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "install -d -m 750 '${DEPLOY_PATH}'"
+          scp -P "${DEPLOY_PORT}" deploy/docker-compose.yml \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.yml"
+
+      - name: Login target host to GHCR
+        run: |
+          set -euo pipefail
+          printf '%s' "${GHCR_PAT}" | ssh -p "${DEPLOY_PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "docker login ghcr.io -u '${{ github.repository_owner }}' --password-stdin"
+
+      - name: Deploy and verify web service
+        run: |
+          set -euo pipefail
+          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            bash -s -- "${IMAGE}" "${IMAGE_TAG}" "${DEPLOY_PATH}" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+
+          image="$1"
+          image_tag="$2"
+          deploy_path="$3"
+          cd "${deploy_path}"
+
+          if [ ! -f .env ]; then
+            echo "目标服务器缺少 ${deploy_path}/.env，请先从 deploy/.env.example 创建并填写。" >&2
+            exit 1
+          fi
+
+          read_env_value() {
+            key="$1"
+            sed -n "s/^${key}=//p" .env | tail -n 1
+          }
+
+          set_env_value() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i.bak "s|^${key}=.*|${key}=${value}|" .env
+              rm -f .env.bak
+            else
+              printf '%s=%s\n' "${key}" "${value}" >> .env
+            fi
+          }
+
+          previous_image="$(read_env_value FLUXMEDIA_IMAGE)"
+          previous_tag="$(read_env_value FLUXMEDIA_TAG)"
+
+          restore_previous_release() {
+            if [ -n "${previous_image}" ]; then
+              set_env_value FLUXMEDIA_IMAGE "${previous_image}"
+            fi
+            if [ -n "${previous_tag}" ]; then
+              set_env_value FLUXMEDIA_TAG "${previous_tag}"
+            fi
+
+            if [ -n "${previous_image}" ] && [ -n "${previous_tag}" ]; then
+              echo "正在回滚到 ${previous_image}:${previous_tag}。" >&2
+              docker compose pull web || true
+              docker compose up -d --no-deps web || true
+            fi
+          }
+
+          set_env_value FLUXMEDIA_IMAGE "${image}"
+          set_env_value FLUXMEDIA_TAG "${image_tag}"
+          docker compose config --quiet
+
+          if ! docker compose pull web; then
+            restore_previous_release
+            exit 1
+          fi
+          if ! docker compose up -d --no-deps --remove-orphans web; then
+            restore_previous_release
+            exit 1
+          fi
+
+          container_id="$(docker compose ps -q web)"
+          if [ -z "${container_id}" ]; then
+            echo "未找到 web 容器。" >&2
+            restore_previous_release
+            exit 1
+          fi
+
+          for attempt in $(seq 1 30); do
+            health_status="$(
+              docker inspect --format \
+                '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                "${container_id}"
+            )"
+            if [ "${health_status}" = "healthy" ]; then
+              echo "web 服务已通过健康检查。"
+              docker image prune -f --filter "until=168h"
+              exit 0
+            fi
+            if [ "${health_status}" = "unhealthy" ] || [ "${health_status}" = "exited" ]; then
+              break
+            fi
+            echo "等待 web 健康检查：${attempt}/30，当前状态 ${health_status}。"
+            sleep 10
+          done
+
+          docker compose logs --tail=100 web >&2
+          restore_previous_release
+          exit 1
+          REMOTE_SCRIPT
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          {
+            echo "## FluxMedia 生产部署"
+            echo ""
+            echo "- 镜像：\`${IMAGE}:${IMAGE_TAG}\`"
+            echo "- 域名：\`${PUBLIC_APP_URL}\`"
+            echo "- 提交：\`${GITHUB_SHA}\`"
+            echo "- 服务：\`web\`（未启动注册机）"
+          } >> "${GITHUB_STEP_SUMMARY}"

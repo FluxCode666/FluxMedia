@@ -7,8 +7,9 @@
 
 | 文件 | 触发 | 作用 |
 |---|---|---|
-| `.github/workflows/ci.yml` | PR / push → `dev`·`main`，手动 | 提交门禁：文档镜像、风格、类型、测试、构建、容器可构建性 |
-| `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 发布：构建并推送 3 个镜像到 GHCR + 起草 GitHub Release |
+| `.github/workflows/ci.yml` | PR / push → `main`，手动 | 提交门禁：文档镜像、风格、类型、测试、构建、容器可构建性 |
+| `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 上游发布：构建并推送 4 个镜像到 GHCR + 起草 GitHub Release |
+| `.github/workflows/deploy-production.yml` | 手动 | FluxMedia 生产部署：质量门、web 镜像、GHCR、SSH + Docker Compose |
 | `.github/actions/setup/action.yml` | 被 ci.yml 复用 | 统一 Node 22 + pnpm + frozen-lockfile 安装 |
 | `.github/dependabot.yml` | 每周 | 依赖 / Action 安全更新自动开 PR |
 
@@ -33,22 +34,32 @@
 ## docker-release.yml —— 发布（tag 触发）
 
 - 触发：推送形如 `v*.*.*` 的 tag（含预发布 `v1.0.0-rc.1`，glob `v*.*.*` 同样匹配）。
-- 构建 + 推送到 GHCR（`ghcr.io`）3 个镜像：`web`、`migrate`、`chatgpt-web-proxy`，tag 含语义 tag、`latest`、`sha-<sha>`。
+- 构建 + 推送到 GHCR（`ghcr.io`）4 个镜像：`web`、`migrate`、`chatgpt-web-proxy`、`chatgpt-register`，tag 含语义 tag、`latest`、`sha-<sha>`。
 - 起草（draft）一份 GitHub Release，附 docker-compose 部署包（`.tar.gz` / `.zip`）。
+
+## deploy-production.yml —— FluxMedia 生产部署
+
+- 仅允许从 `main` 手动触发，版本号必须符合项目版本格式；可选择只构建镜像。
+- 发布前执行文档镜像、部署提交改动文件 lint、typecheck、test，随后构建 `linux/amd64` 的
+  `fluxmedia-web` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
+- 使用专用 SSH 私钥与固定主机指纹连接目标机，同步 `deploy/docker-compose.yml`，
+  仅执行 `docker compose up -d --no-deps web`，不会启动注册机。
+- 目标机的真实 `.env` 不离开服务器；流水线只更新镜像名和版本。健康检查失败时恢复
+  前一版本并重新启动 `web`。完整初始化与 Secrets 说明见 `deploy/README.md`。
 
 ## 版本与发布流程（对齐 §0.2）
 
 版本格式：`v<MAJOR>.<MINOR>.<PATCH>-<alpha|beta|rc>.<N>`（正式版去后缀）。
 
 ```bash
-# 在 dev 验证通过、（按需）合入 main 后，在目标提交上打 tag 触发发布：
+# 在 main 验证通过后，在目标提交上打 tag 触发发布：
 git tag v0.2.0-rc.1
 git push origin v0.2.0-rc.1   # → 触发 docker-release.yml
 ```
 
 ## 分支保护（已启用）
 
-`dev` 与 `main` 已通过 gh API 启用分支保护（2026-05-30）。Required status checks（5 个）：
+`main` 已通过 gh API 启用分支保护（2026-05-30）。Required status checks（5 个）：
 `Docs mirror (CLAUDE == AGENTS)`、`Lint & format (changed files)`、`Typecheck`、`Unit tests`、`Build web`。
 另：`strict=true`（合并前须与目标分支同步）、禁 force-push、禁删除、要求会话解决；`enforce_admins=false`（管理员可应急直推）。
 `docker-build` 在 PR 上运行但未列为 required（保 PR 迭代速度），可按需提升。
@@ -61,7 +72,7 @@ gh api repos/MeowFree/GPT2Image-Pro/branches/<dev|main>/protection/required_stat
 
 ## 已知边界 / 后续
 
-- **第三方 Action 已钉 SHA**：`ci.yml` / `docker-release.yml` / `actions/setup` 中的第三方 Action 均钉到 40 位 commit SHA（行尾注释保留可读大版本），防 tag 重指向供应链攻击；由 dependabot 周更自动维护。升级大版本（如 checkout v5→v6）是单独的人工决策。
+- **第三方 Action 已钉 SHA**：`ci.yml` / `docker-release.yml` / `deploy-production.yml` / `actions/setup` 中的第三方 Action 均钉到 40 位 commit SHA（行尾注释保留可读大版本），防 tag 重指向供应链攻击；由 dependabot 周更自动维护。升级大版本（如 checkout v5→v6）是单独的人工决策。
 - **lint 仅覆盖改动文件**：若未来对全仓做一次性 `biome format` 重排，可将门禁升级为全仓 `biome ci`。
 - **build 与 docker-build 在 PR 上各构建一次**：分别校验「代码可构建」与「镜像可打包」，刻意保留以提高鲁棒性；如需省额度可二选一。
 - **测试为 DB-free 单测**：涉及真实 DB 的集成测试目前不在 CI 内（见 `docs/TODO.md` 端到端实测项）。
