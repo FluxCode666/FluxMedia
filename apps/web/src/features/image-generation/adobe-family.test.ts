@@ -33,8 +33,17 @@ describe("resolveAdobeFamilyFromModel", () => {
     expect(resolveAdobeFamilyFromModel("firefly-nano-banana2")).toBe(
       "nano-banana2"
     );
-    expect(
-      resolveAdobeFamilyFromModel("firefly-gpt-image-1.5-2k-1x1")
-    ).toBe("gpt-image-1.5");
+    expect(resolveAdobeFamilyFromModel("firefly-gpt-image-1.5-2k-1x1")).toBe(
+      "gpt-image-1.5"
+    );
+  });
+
+  it("裸 nano-banana 模型按最长前缀解析出族", () => {
+    expect(resolveAdobeFamilyFromModel("nano-banana-pro")).toBe(
+      "nano-banana-pro"
+    );
+    expect(resolveAdobeFamilyFromModel("nano-banana2-2k-1x1")).toBe(
+      "nano-banana2"
+    );
   });
 });

@@ -11,7 +11,10 @@
  * 校验，故 nano-banana 家族也能由本后端服务）。
  */
 
-import type { AdobeImageFamily } from "@repo/shared/adobe";
+import {
+  type AdobeImageFamily,
+  isAdobeImageFamilyModelId,
+} from "@repo/shared/adobe";
 import {
   gptImagePixelsFromRatio,
   resolveFireflyImageModel,
@@ -28,8 +31,8 @@ export const ADOBE_IMAGE_FAMILIES: AdobeImageFamily[] = [
 ];
 
 /**
- * 从请求 model（firefly-<family>[-<res>-<ratio>]）解析家族；解析不到返回 null。
- * 按最长前缀匹配，避免 nano-banana 误吞 nano-banana-pro / nano-banana2。
+ * 从请求 model（firefly-<family> 或裸 nano-banana 家族，均可带 res/ratio 后缀）解析家族；
+ * 解析不到返回 null。按最长前缀匹配，避免 nano-banana 误吞 nano-banana-pro / nano-banana2。
  */
 export function pickAdobeFamilyFromModel(
   model: string | null | undefined
@@ -37,8 +40,15 @@ export function pickAdobeFamilyFromModel(
   const normalized = String(model || "")
     .trim()
     .toLowerCase();
-  if (!normalized.startsWith("firefly-")) return null;
-  const rest = normalized.slice("firefly-".length);
+  const hasFireflyPrefix = normalized.startsWith("firefly-");
+  const isBareNanoBanana =
+    !hasFireflyPrefix &&
+    isAdobeImageFamilyModelId(normalized) &&
+    normalized.startsWith("nano-banana");
+  if (!hasFireflyPrefix && !isBareNanoBanana) return null;
+  const rest = hasFireflyPrefix
+    ? normalized.slice("firefly-".length)
+    : normalized;
   const byLength = [...ADOBE_IMAGE_FAMILIES].sort(
     (a, b) => b.length - a.length
   );

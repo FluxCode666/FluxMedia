@@ -19,6 +19,13 @@ describe("pickAdobeFamilyFromModel", () => {
     expect(pickAdobeFamilyFromModel("firefly-gpt-image-2")).toBe("gpt-image-2");
   });
 
+  it("裸 nano-banana 家族也能解析为 Adobe 网关模型族", () => {
+    expect(pickAdobeFamilyFromModel("nano-banana-pro")).toBe("nano-banana-pro");
+    expect(pickAdobeFamilyFromModel("nano-banana2-2k-1x1")).toBe(
+      "nano-banana2"
+    );
+  });
+
   it("非 firefly- 前缀或未知家族返回 null", () => {
     expect(pickAdobeFamilyFromModel("gpt-image")).toBeNull();
     expect(pickAdobeFamilyFromModel("firefly-unknown-2k-1x1")).toBeNull();

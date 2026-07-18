@@ -8,9 +8,9 @@ import {
   imageBackendAdobeGroup,
   imageBackendApi,
   imageBackendApiGroup,
-  imageBackendParameterMappingTemplate,
   imageBackendGroup,
   imageBackendInflightLease,
+  imageBackendParameterMappingTemplate,
   imageBackendSchedulerMetric,
   imageBackendStickyBinding,
   systemSetting,
@@ -19,7 +19,9 @@ import {
 import {
   canAdobeBackendServeModel,
   collectAdvertisedAdobeImageModelIds,
+  isAdobeImageFamilyModelId,
   normalizeAdobeEnabledModelIds,
+  resolveAdobeImageModelId,
 } from "@repo/shared/adobe/enabled-models";
 import { isFireflyVideoModelId } from "@repo/shared/adobe/firefly-direct/video-catalog";
 import {
@@ -448,10 +450,35 @@ function isAdobeFireflyModelId(model?: string | null): boolean {
 }
 
 /**
+ * 判断 API 后端是否声明支持请求模型，并兼容 Adobe 家族的裸/Firefly 别名。
+ *
+ * API 后端的模型列表仍保持大小写无关的精确匹配；只有已知 Adobe 图像家族允许在
+ * `nano-banana-pro` 与 `firefly-nano-banana-pro` 两种公开别名之间互认，避免普通自定义
+ * 模型意外扩大能力范围。
+ */
+function supportsPoolApiRequestedModel(
+  supportedModelIds: unknown,
+  requestedModel?: string
+): boolean {
+  if (supportsRequestedModel(supportedModelIds, requestedModel)) return true;
+  if (!isAdobeImageFamilyModelId(requestedModel)) return false;
+
+  const canonicalModelId = resolveAdobeImageModelId(requestedModel);
+  if (!canonicalModelId.startsWith("firefly-nano-banana")) return false;
+  const bareModelId = canonicalModelId.slice("firefly-".length);
+  return (
+    supportsRequestedModel(supportedModelIds, canonicalModelId) ||
+    supportsRequestedModel(supportedModelIds, bareModelId)
+  );
+}
+
+/**
  * 判断图像请求是否只能由 API 池后端承接。
  *
  * Web、Codex 与 Adobe 账号的图像协议只支持平台已识别的 gpt-image/Firefly 模型；
  * 管理员配置的 API 后端才允许透传例如 nano-banana-*、grok-* 的上游模型标识。
+ * 裸 nano-banana* 虽属于 API 可透传的自定义模型，但 Adobe 直连候选会单独放行，
+ * 以兼容调用方不带 firefly- 前缀的请求。
  *
  * @param requestKind - 本次调用类型。
  * @param model - 客户端请求的模型。
@@ -2690,7 +2717,7 @@ async function selectPoolMember(
         ) &&
         // 配置非空时，支持模型列表是供应商能力边界；空列表保留历史"不限制"语义，
         // 避免迁移后把所有既有 API 后端突然排除出调度。
-        supportsRequestedModel(row.supportedModelIds, requestedModel)
+        supportsPoolApiRequestedModel(row.supportedModelIds, requestedModel)
       );
     })
     .map((row) => {
@@ -2743,6 +2770,7 @@ async function selectPoolMember(
       return (
         // fireflyOnly（force_firefly 或 firefly-* 模型）时只走 adobe，codex/web 账号不参与。
         !fireflyOnly &&
+        // 裸 nano-banana* 仍保持 API-only 语义，排除普通 Web/Codex 账号。
         !apiOnlyCustomImageModel &&
         // 账号的"车道"由其自身 implementationMode（web / responses）天然决定:web 账号属 web
         // 车道、responses 账号属 codex 车道。故按「该分组生效偏好 rowPreference == 账号
@@ -2800,7 +2828,10 @@ async function selectPoolMember(
       const metadata = context?.metadata ?? groupMetadata;
       const effectiveRequestKind = requestKind || "image_generation";
       return (
-        !apiOnlyCustomImageModel &&
+        // 裸 nano-banana* 虽属于 API-only 自定义模型，但已知 Adobe 模型例外允许
+        // pool-adobe 参与，和 pool-api 按 priority 同池竞争。
+        (!apiOnlyCustomImageModel ||
+          isAdobeImageFamilyModelId(requestedModel)) &&
         (effectiveRequestKind === "image_generation" ||
           effectiveRequestKind === "image_edit") &&
         canAdobeBackendServeModel({

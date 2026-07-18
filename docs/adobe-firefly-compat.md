@@ -9,7 +9,8 @@ OpenAI 原生并非 1:1。
 转换逻辑均可在源码核对：
 
 - 模型族解析：`apps/web/src/features/image-generation/adobe-direct.ts`
-  `resolveAdobeFamilyFromModel`（约 350-367 行；非 firefly → gpt-image-2）。
+  `resolveAdobeFamilyFromModel`（支持 `firefly-<family>` 与裸 Nano Banana 家族；普通或未知
+  模型仍落 `gpt-image-2`）。
 - size → 比例/分辨率：`packages/shared/src/adobe/firefly-request.ts` `mapSizeToAdobe`
   （约 55-81 行）。
 - quality → detailLevel、图生图 referenceBlobs：
@@ -22,10 +23,10 @@ OpenAI 原生并非 1:1。
 
 | 站内参数 | Adobe 字段 / 行为 | 规则 |
 | --- | --- | --- |
-| `model` | Firefly 模型族（family） | `firefly-<family>...` 按最长前缀匹配出族；非 firefly 模型（含普通 gpt-image 经 force_firefly）一律落 `gpt-image-2`。family ∈ gpt-image-2 / gpt-image-1.5 / nano-banana / nano-banana2 / nano-banana-pro |
+| `model` | Firefly 模型族（family） | `firefly-<family>...` 或裸 Nano Banana 家族按最长前缀匹配出族；普通或未知模型（含普通 gpt-image 经 force_firefly）落 `gpt-image-2`。family ∈ gpt-image-2 / gpt-image-1.5 / nano-banana / nano-banana2 / nano-banana-pro |
 | `size`（WxH） | ratio + resolution | 见下「size 映射规则」 |
 | `quality` | gpt-image detailLevel | low/medium/high → 1/3/5；`auto` 或未选 → 回退后端 `gpt_image_quality`（当前配置 high）→ 5。nano-banana 系不消费 detailLevel，透传无害 |
-| 图生图 `images[]` | `referenceBlobs[{ id, usage:"general" }]` | 先 `uploadImage` 拿 Adobe image id，再放入 referenceBlobs（新 API 已拒收 referenceImages） |
+| 图生图 `images[]` | `referenceBlobs[{ id, usage:"general" }]` | 先 `uploadImage` 拿 Adobe image id，再放入 referenceBlobs（新 API 已拒收 referenceImages）；裸 Nano Banana 按其家族解析后使用 general |
 | 图生视频 输入图 | `referenceBlobs` / `referenceFrames` | 按视频族不同：kling 用 `{id, usage:"frame", order}`；sora2/veo31 用 `{id, usage:"general", promptReference:1}` |
 
 ### size 映射规则（mapSizeToAdobe）

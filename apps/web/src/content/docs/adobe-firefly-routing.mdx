@@ -83,8 +83,10 @@ Adobe 后端「Adobe Firefly 直连」字段：
 - 结果：adobe 只是候选之一。是否真的轮到它，取决于 adobe 是否在用户所在分组、以及它的
   priority 是否高于（数字大于）其它成员。当前配置下（priority=100）它是兜底层。
 
-对于不带 `firefly-` 前缀的自定义图像模型（如 `nano-banana-*`、`grok-*`），候选只保留
-普通 API 后端；Adobe 和账号后端不参与。
+对于不带 `firefly-` 前缀的已知 Nano Banana 图像族（`nano-banana`、`nano-banana2`、
+`nano-banana-pro`，可带尺寸/比例后缀），候选为 `pool-api` 与 `pool-adobe`，两者按
+`priority` 共同竞争；普通 Web/Codex 账号仍不参与。其他不带前缀的自定义模型（如
+`grok-*`）仍只保留普通 API 后端。
 
 ### ② 模型名以 `firefly-` 开头（fireflyOnly = true）
 

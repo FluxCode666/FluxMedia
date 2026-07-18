@@ -18,6 +18,7 @@ import {
   canAdobeBackendServeModel,
   composeAdobeImageModelId,
   mapSizeToAdobe,
+  resolveAdobeImageModelId,
 } from "@repo/shared/adobe";
 import {
   AdobeFireflyClient,
@@ -28,9 +29,9 @@ import {
   type FireflyTransport,
   fetchAccountInfo,
   fetchCreditsBalance,
+  fireflyVideoSize,
   isAdobeRotatableError,
   isTokenExpired,
-  fireflyVideoSize,
   ProxyFireflyTransport,
   QuotaExhaustedError,
   refreshAccessTokenFromCookie,
@@ -41,8 +42,8 @@ import { logError, logWarn } from "@repo/shared/logger";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { and, asc, eq, sql } from "drizzle-orm";
 
-import { parseAdobeCookieEntries } from "./adobe-cookie-parser";
 import { nanoid } from "nanoid";
+import { parseAdobeCookieEntries } from "./adobe-cookie-parser";
 import type { ApiConfig, GenerateImageResult } from "./types";
 
 // IMS access_token 距过期多久内视为需要刷新（秒）。
@@ -331,7 +332,11 @@ async function acquireToken(
         .update(adobeToken)
         .set({ lastUsedAt: new Date() })
         .where(eq(adobeToken.id, refreshed.id));
-      return { id: refreshed.id, value: refreshed.value, accountId: account.id };
+      return {
+        id: refreshed.id,
+        value: refreshed.value,
+        accountId: account.id,
+      };
     }
   }
   return null;
@@ -421,25 +426,17 @@ const ALLOWED_FAMILIES: AdobeImageFamily[] = [
   "nano-banana-pro",
 ];
 
-// 从请求 model（firefly-<family> 或 firefly-<family>-<res>-<ratio>）解析模型族；
-// 用户在创作页/接口选的具体 Firefly 模型优先，按最长前缀匹配，避免 nano-banana 误吞
-// nano-banana-pro / nano-banana2。非 firefly 模型（如普通 gpt-image 经 force_firefly 强制
-// 路由到 adobe）一律落到 gpt-image-2，而非后端 enabledModels 首项（可能是 nano-banana）。
+// 从请求 model（firefly-<family> 或裸 <family>，均可带 res/ratio 后缀）解析模型族；
+// 用户在创作页/接口选的具体 Firefly 模型优先，按共享规范化规则匹配，避免 nano-banana
+// 误吞 nano-banana-pro / nano-banana2。普通 gpt-image、未知模型仍落到 gpt-image-2。
 export function resolveAdobeFamilyFromModel(
   model: string | null | undefined,
   _enabled?: string[] | null | undefined
 ): AdobeImageFamily {
-  const normalized = String(model || "")
-    .trim()
-    .toLowerCase();
-  if (normalized.startsWith("firefly-")) {
-    const rest = normalized.slice("firefly-".length);
-    const byLength = [...ALLOWED_FAMILIES].sort((a, b) => b.length - a.length);
-    for (const family of byLength) {
-      if (rest === family || rest.startsWith(`${family}-`)) {
-        return family;
-      }
-    }
+  const normalizedModelId = resolveAdobeImageModelId(model);
+  const family = normalizedModelId.slice("firefly-".length);
+  if ((ALLOWED_FAMILIES as readonly string[]).includes(family)) {
+    return family as AdobeImageFamily;
   }
   return "gpt-image-2";
 }
@@ -476,8 +473,8 @@ export async function runAdobeDirectImageRequest(
     await buildAdobeTransports(sessionKey);
 
   // 模型族 + 宽高比/分辨率（与 token 无关，放轮换外只算一次）：family 优先取请求 model
-  // （创作页/接口选的 Firefly 模型），非 firefly 模型一律落 gpt-image-2；ratio/res 由 size
-  // 映射，缺省走后端默认。
+  // （创作页/接口选的 Firefly 或裸 Nano Banana 模型），普通/未知模型落 gpt-image-2；
+  // ratio/res 由 size 映射，缺省走后端默认。
   const family = resolveAdobeFamilyFromModel(params.model);
   const fallbackRatio = (config.backend?.adobeDefaultRatio ||
     "1x1") as AdobeRatio;
@@ -675,7 +672,12 @@ async function validateAdobeCookie(
 // 持久化一个已验证的 Adobe 账号：写 adobeAccount + 初始 auto_refresh adobeToken。
 // 额外回传 accountUserId（IMS 稳定身份），供批量导入去重使用。
 async function persistAdobeAccount(
-  input: { adobeId: string; name?: string; cookie: string; scope?: string | null },
+  input: {
+    adobeId: string;
+    name?: string;
+    cookie: string;
+    scope?: string | null;
+  },
   validated: AdobeCookieValidation
 ): Promise<{
   id: string;
@@ -731,7 +733,10 @@ export async function importAdobeAccount(input: {
     input.cookie,
     input.scope
   );
-  const { id, displayName, email } = await persistAdobeAccount(input, validated);
+  const { id, displayName, email } = await persistAdobeAccount(
+    input,
+    validated
+  );
   return { id, displayName, email };
 }
 

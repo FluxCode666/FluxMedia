@@ -1,6 +1,9 @@
 import { db } from "@repo/database";
 import { generation, user } from "@repo/database/schema";
-import { resolveImageModelMultiplier } from "@repo/shared/adobe";
+import {
+  isAdobeImageFamilyModelId,
+  resolveImageModelMultiplier,
+} from "@repo/shared/adobe";
 import { consumeCredits } from "@repo/shared/credits/core";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import {
@@ -246,8 +249,8 @@ function getConfigBillingMultiplier(config: ApiConfig) {
 /**
  * 按最终选中的后端解析图像模型。
  *
- * 自定义模型只能在管理员配置的 pool-api 中透传；其余后端继续使用既有
- * `gpt-image-*`/Firefly 白名单，避免把未知模型误送到 OAuth 账号。
+ * 未知自定义模型只能在管理员配置的 pool-api 中透传；裸 Adobe 图像家族模型也允许
+ * 在 pool-adobe 中解析后派发，其他后端继续使用既有 `gpt-image-*`/Firefly 白名单。
  *
  * @param config - 已完成池调度的上游配置。
  * @param requestedModel - 客户端显式模型或后端默认模型。
@@ -257,9 +260,23 @@ function getImageModelForResolvedConfig(
   config: ApiConfig,
   requestedModel?: string | null
 ) {
-  return config.backend?.type === "pool-api"
-    ? getImageBackendApiModel(requestedModel, config.model)
-    : getImageModel(requestedModel, config.model);
+  if (config.backend?.type === "pool-api") {
+    return getImageBackendApiModel(requestedModel, config.model);
+  }
+
+  const imageModel = getImageModel(requestedModel, config.model);
+  if (imageModel) return imageModel;
+
+  // 裸 Adobe 家族模型（如 nano-banana-pro）允许在 pool-adobe 中按普通候选参与调度；
+  // 其他非平台模型仍必须拒绝，避免把自定义模型错误发送给 OAuth 账号。
+  if (
+    config.backend?.type === "pool-adobe" &&
+    isAdobeImageFamilyModelId(requestedModel)
+  ) {
+    return requestedModel?.trim();
+  }
+
+  return null;
 }
 
 /**

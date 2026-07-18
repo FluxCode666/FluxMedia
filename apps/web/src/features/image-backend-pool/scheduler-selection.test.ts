@@ -486,12 +486,12 @@ vi.mock("@/features/image-generation/chatgpt-web", () => ({
   getChatGptWebAccountInfo: vi.fn(),
 }));
 
+import { getRuntimeSettingBoolean } from "@repo/shared/system-settings";
 import {
   reportImageBackendResult,
-  resolveImageBackendPoolConfig,
   resetImageBackendInflightForTests,
+  resolveImageBackendPoolConfig,
 } from "./service";
-import { getRuntimeSettingBoolean } from "@repo/shared/system-settings";
 
 function makeAccount(index: number) {
   return {
@@ -1627,6 +1627,57 @@ describe("image backend pool scheduler selection", () => {
 
       expect(result?.memberType).toBe("api");
       expect(result?.memberId).toBe("api-2");
+    });
+
+    it("裸 nano-banana* 让 pool-api 与 pool-adobe 按 priority 同池竞争并排除普通账号", async () => {
+      dbMock.state.accounts = [{ ...makeAccount(1), priority: 1 }];
+      dbMock.state.apis = [
+        makeApi(1, {
+          priority: 20,
+          supportedModelIds: ["firefly-nano-banana-pro"],
+        }),
+      ];
+      dbMock.state.adobes = [
+        makeAdobe(1, {
+          priority: 10,
+          enabledModels: ["firefly-nano-banana-pro"],
+        }),
+      ];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "nano-banana-pro",
+      });
+
+      // 普通账号不能透传裸自定义模型；Adobe 优先级更高，故先选 Adobe。
+      expect(result?.memberType).toBe("adobe");
+      expect(result?.memberId).toBe("adobe-1");
+    });
+
+    it("裸 nano-banana* 的 API priority 更高时优先选择 pool-api", async () => {
+      dbMock.state.accounts = [];
+      dbMock.state.apis = [
+        makeApi(1, {
+          priority: 10,
+          supportedModelIds: ["nano-banana-pro"],
+        }),
+      ];
+      dbMock.state.adobes = [
+        makeAdobe(1, {
+          priority: 20,
+          enabledModels: ["firefly-nano-banana-pro"],
+        }),
+      ];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "nano-banana-pro",
+      });
+
+      expect(result?.memberType).toBe("api");
+      expect(result?.memberId).toBe("api-1");
     });
 
     it("把 fireflyOnly 盖在解析结果 config 上(供换号重试保持只走 Adobe)", async () => {

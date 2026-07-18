@@ -59,6 +59,29 @@ export function normalizeAdobeEnabledModelIds(value: unknown): string[] {
 }
 
 /**
+ * 判断请求是否为已知 Adobe 图像模型族（允许 Firefly 前缀或历史裸族名）。
+ *
+ * @param value - 客户端请求的模型 ID。
+ * @returns 模型属于已知 Adobe 图像族时返回 true。
+ */
+export function isAdobeImageFamilyModelId(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+
+  return ADOBE_IMAGE_MODEL_IDS.some((modelId) => {
+    const bareModelId = modelId.slice("firefly-".length);
+    return (
+      normalized === modelId ||
+      normalized.startsWith(`${modelId}-`) ||
+      normalized === bareModelId ||
+      normalized.startsWith(`${bareModelId}-`)
+    );
+  });
+}
+
+/**
  * Adobe 后端保存输入 schema。
  *
  * WHY：未知模型不能落库后再由调度器静默处理，否则管理员会误以为模型已开放；同时接受
@@ -95,12 +118,26 @@ export function resolveAdobeImageModelId(
   const normalized = String(requestedModel || "")
     .trim()
     .toLowerCase();
+  // 调度层允许调用方使用历史裸 Nano Banana 模型族。仅对该自定义族补上
+  // Firefly 前缀；普通裸 gpt-image 请求仍按 force_firefly 的历史语义落到
+  // firefly-gpt-image-2，避免改变既有 Adobe 路由和白名单边界。
+  const isBareNanoBanana = [
+    "nano-banana-pro",
+    "nano-banana2",
+    "nano-banana",
+  ].some(
+    (family) => normalized === family || normalized.startsWith(`${family}-`)
+  );
+  const candidate =
+    isBareNanoBanana && !normalized.startsWith("firefly-")
+      ? `firefly-${normalized}`
+      : normalized;
   const matchingModelIds = [...ADOBE_IMAGE_MODEL_IDS].sort(
     (left, right) => right.length - left.length
   );
 
   for (const modelId of matchingModelIds) {
-    if (normalized === modelId || normalized.startsWith(`${modelId}-`)) {
+    if (candidate === modelId || candidate.startsWith(`${modelId}-`)) {
       return modelId;
     }
   }

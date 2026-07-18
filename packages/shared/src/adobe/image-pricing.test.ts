@@ -35,6 +35,14 @@ describe("resolveImageModelMultiplier", () => {
     expect(resolveImageModelMultiplier("firefly-nano-banana2", map)).toBe(6);
   });
 
+  it("裸 nano-banana 家族也按模型族取倍率", () => {
+    expect(
+      resolveImageModelMultiplier("nano-banana-pro", {
+        "nano-banana-pro": 4,
+      })
+    ).toBe(4);
+  });
+
   it("非正/非法倍率回退 1", () => {
     const map = { "gpt-image-2": -3, "nano-banana": 0 };
     expect(resolveImageModelMultiplier("firefly-gpt-image-2", map)).toBe(1);

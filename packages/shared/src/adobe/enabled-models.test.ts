@@ -57,6 +57,9 @@ describe("Adobe 后端开放模型", () => {
 
   it("普通模型实际落到 gpt-image-2，因此同样受白名单约束", () => {
     expect(resolveAdobeImageModelId("gpt-image-1")).toBe("firefly-gpt-image-2");
+    expect(resolveAdobeImageModelId("gpt-image-1.5")).toBe(
+      "firefly-gpt-image-2"
+    );
     expect(
       canAdobeBackendServeModel({
         enabledModels: ["firefly-nano-banana"],
@@ -64,6 +67,22 @@ describe("Adobe 后端开放模型", () => {
         requestedModel: "gpt-image-1",
       })
     ).toBe(false);
+  });
+
+  it("裸 nano-banana 模型族与 Firefly 别名使用同一白名单", () => {
+    expect(resolveAdobeImageModelId("nano-banana-pro")).toBe(
+      "firefly-nano-banana-pro"
+    );
+    expect(resolveAdobeImageModelId("nano-banana2-2k-1x1")).toBe(
+      "firefly-nano-banana2"
+    );
+    expect(
+      canAdobeBackendServeModel({
+        enabledModels: ["firefly-nano-banana-pro"],
+        supportsVideo: false,
+        requestedModel: "nano-banana-pro",
+      })
+    ).toBe(true);
   });
 
   it("空白名单保持历史不限图像模型语义，视频仍须显式开启", () => {

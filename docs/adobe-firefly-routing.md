@@ -69,7 +69,9 @@ Adobe 后端「Adobe Firefly 直连」字段：
 ### ① 普通请求兜底（fireflyOnly = false）
 
 - 判定条件：请求模型不是 `firefly-*` 前缀，且未带 `force_firefly`。
-- 候选集：`api` + `account` + `adobe` 一起按 priority 排序。
+- 对裸 `nano-banana`、`nano-banana2`、`nano-banana-pro`（可带尺寸/比例后缀）请求，
+  候选集为 `api` + `adobe`，普通 Web/Codex 账号仍被排除；两类后端一起按 priority 排序。
+- 其他普通图像模型的候选集仍是 `api` + `account` + `adobe`。
 - 结果：adobe 只是候选之一。是否真的轮到它，取决于 adobe 是否在用户所在分组、以及它的
   priority 是否高于（数字大于）其它成员。当前配置下（priority=100）它是兜底层。
 

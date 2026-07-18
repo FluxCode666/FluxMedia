@@ -14,6 +14,7 @@ import {
 import {
   buildAdobeImageRequestBody,
   canAdobeBackendServeModel,
+  isAdobeImageFamilyModelId,
   parseAdobeMediaResult,
 } from "@repo/shared/adobe";
 import { logError, logWarn } from "@repo/shared/logger";
@@ -227,6 +228,12 @@ function getModel(config: ApiConfig, model?: string) {
   }
   const requestedModel = normalizeImageModel(model);
   if (requestedModel && !isImageModel(requestedModel)) {
+    if (
+      config.backend?.type === "pool-adobe" &&
+      isAdobeImageFamilyModelId(requestedModel)
+    ) {
+      return requestedModel;
+    }
     throw new Error(
       "Unsupported model for image generation. Use a gpt-image-* model."
     );
@@ -4077,8 +4084,8 @@ async function runAdobeImageRequest(
   if (config.backend?.adobeMode === "direct") {
     return runAdobeDirectImageRequest(config, params);
   }
-  // 网关模式：family 优先取请求 model 的族（firefly-*）；非 firefly 模型（如普通 gpt-image
-  // 经 force_firefly 强制路由到 adobe）一律落 gpt-image-2，而非后端 enabledModels 首项。
+  // 网关模式：family 优先取请求 model 的族（支持 firefly-* 与裸 Nano Banana）；普通或未知
+  // 模型（如普通 gpt-image 经 force_firefly 强制路由到 adobe）落 gpt-image-2。
   const family = pickAdobeFamilyFromModel(params.model) ?? "gpt-image-2";
   const body = buildAdobeImageRequestBody({
     family,
