@@ -9,7 +9,7 @@
 |---|---|---|
 | `.github/workflows/ci.yml` | PR / push → `main`，手动 | 提交门禁：文档镜像、风格、类型、测试、构建、容器可构建性 |
 | `.github/workflows/docker-release.yml` | push tag `v*.*.*`，手动 | 上游发布：构建并推送 4 个镜像到 GHCR + 起草 GitHub Release |
-| `.github/workflows/deploy-production.yml` | 手动 | FluxMedia 生产部署：质量门、web 镜像、GHCR、SSH + Docker Compose |
+| `.github/workflows/deploy-production.yml` | 手动 | FluxMedia 生产部署：质量门、web/migrate 镜像、GHCR、SSH + Docker Compose |
 | `.github/actions/setup/action.yml` | 被 ci.yml 复用 | 统一 Node 22 + pnpm + frozen-lockfile 安装 |
 | `.github/dependabot.yml` | 每周 | 依赖 / Action 安全更新自动开 PR |
 
@@ -41,11 +41,13 @@
 
 - 仅允许从 `main` 手动触发，版本号必须符合项目版本格式；可选择只构建镜像。
 - 发布前执行文档镜像、部署提交改动文件 lint、typecheck、test，随后构建 `linux/amd64` 的
-  `fluxmedia-web` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
+  `fluxmedia-web` 与 `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
 - 使用专用 SSH 私钥与固定主机指纹连接目标机，同步 `deploy/docker-compose.yml`，
-  仅执行 `docker compose up -d --no-deps web`，不会启动注册机。
+  先启用 `maintenance` profile 执行一次性数据库迁移，再执行
+  `docker compose up -d --no-deps web`，不会启动注册机。
 - 目标机的真实 `.env` 不离开服务器；流水线只更新镜像名和版本。健康检查失败时恢复
-  前一版本并重新启动 `web`。完整初始化与 Secrets 说明见 `deploy/README.md`。
+  前一版本并重新启动 `web`，不会自动回退已提交的数据库迁移。完整初始化与 Secrets
+  说明见 `deploy/README.md`。
 
 ## 版本与发布流程（对齐 §0.2）
 

@@ -1,12 +1,13 @@
 # FluxMedia 生产部署
 
-本目录提供 `media.flux-code.cc` 的单服务生产部署配置。Docker Compose 只定义
-`web` 主服务；PostgreSQL 使用外部 `DATABASE_URL`，注册机与 ChatGPT Web 代理均不
-启动。宿主机 Nginx 负责 TLS 终止并反向代理到 `127.0.0.1:3000`。
+本目录提供 `media.flux-code.cc` 的生产部署配置。Docker Compose 默认只启动 `web`
+主服务；数据库迁移是显式维护 profile，不会常驻运行。PostgreSQL 使用外部
+`DATABASE_URL`，注册机与 ChatGPT Web 代理均不启动。宿主机 Nginx 负责 TLS 终止并反向
+代理到 `127.0.0.1:3000`。
 
 ## 文件
 
-- `docker-compose.yml`：仅包含 `web` 的生产编排、持久卷与健康检查。
+- `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务。
 - `.env.example`：不含真实机密的服务器环境变量模板。
 - `nginx/nginx.conf`：参考 user-service 的宿主机 Nginx 主配置。
 - `nginx/conf.d/fluxmedia.conf`：`media.flux-code.cc` 的 HTTPS 站点配置。
@@ -25,8 +26,8 @@ sudo chmod 600 /opt/fluxmedia/.env
 sudo editor /opt/fluxmedia/.env
 ```
 
-至少填写 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`。数据库必须已创建并完成与当前版本
-匹配的迁移；本 Compose 不启动 PostgreSQL 或迁移器。配置完成后先验证展开结果：
+至少填写 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`。数据库必须已创建；迁移由部署流水线
+在切换 `web` 前执行。本 Compose 不启动 PostgreSQL。配置完成后先验证默认服务：
 
 ```bash
 cd /opt/fluxmedia
@@ -34,6 +35,18 @@ docker compose config --quiet
 docker compose up -d --no-deps web
 docker compose ps web
 ```
+
+手工执行迁移时显式启用维护 profile。迁移成功后再启动主服务：
+
+```bash
+docker compose --profile maintenance pull migrate
+docker compose --profile maintenance run --rm --no-deps migrate
+docker compose up -d --no-deps web
+```
+
+迁移提交后通常不可自动降级；如果新版本健康检查失败，流水线只回滚应用镜像，不会
+尝试回退已经提交的数据库迁移。因此新增迁移应保持向后兼容，先添加字段/表，再在后续
+版本移除旧结构。
 
 ## 配置 Nginx 与证书
 
@@ -67,7 +80,8 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 
 可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/opt/fluxmedia`。服务器
 上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 并更新其中的
-`FLUXMEDIA_IMAGE`、`FLUXMEDIA_TAG`。部署命令带 `--no-deps web`，不会启动注册机。
+`FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令先通过
+`maintenance` profile 执行一次迁移，再带 `--no-deps` 启动 `web`，不会启动注册机。
 
 生产部署从 Actions 手动触发，版本号必须符合
 `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。新容器未通过健康检查时，流水线

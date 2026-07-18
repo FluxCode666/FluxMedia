@@ -3,6 +3,18 @@
 name: fluxmedia
 
 services:
+  # 数据库迁移是一次性维护任务，默认 profile 不启用，因此普通 up 只启动 web。
+  migrate:
+    profiles:
+      - maintenance
+    image: ${FLUXMEDIA_MIGRATE_IMAGE:-ghcr.io/fluxcode666/fluxmedia-migrate}:${FLUXMEDIA_TAG:?FLUXMEDIA_TAG 必填}
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 必填}
+      NODE_ENV: production
+
   web:
     image: ${FLUXMEDIA_IMAGE:-ghcr.io/fluxcode666/fluxmedia-web}:${FLUXMEDIA_TAG:?FLUXMEDIA_TAG 必填}
     restart: unless-stopped
