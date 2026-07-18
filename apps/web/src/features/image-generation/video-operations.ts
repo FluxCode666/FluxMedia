@@ -43,7 +43,7 @@ export type VideoGenerationInput = {
    * generation_id 与落库行 id 一致,便于后续按 id 持久查询;不传则内部生成。
    */
   videoGenerationId?: string;
-  /** 完整 Firefly 视频 model id（firefly-<family>-<dur>s-<ratio>[-<res>]）。 */
+  /** Firefly 或裸 Veo/Kling 视频 model id（<family>-<dur>s-<ratio>[-<res>]）。 */
   model: string;
   negativePrompt?: string | null;
   /** 图生视频输入图（首帧/尾帧/参考）。 */
@@ -142,7 +142,11 @@ export async function getVideoGenerationById(id: string) {
 async function markVideoFailed(id: string, error: string): Promise<void> {
   await db
     .update(videoGeneration)
-    .set({ status: "failed", error: error.slice(0, 1000), updatedAt: new Date() })
+    .set({
+      status: "failed",
+      error: error.slice(0, 1000),
+      updatedAt: new Date(),
+    })
     .where(eq(videoGeneration.id, id))
     .catch(() => {});
 }
@@ -196,7 +200,7 @@ export async function runAdobeVideoGenerationForUser(
     updatedAt: now,
   });
 
-  // 按模型前缀解析 Adobe 直连后端。
+  // 按 Firefly 或裸 Veo/Kling 模型 ID 解析 Adobe 直连后端。
   let config: Awaited<ReturnType<typeof getEffectiveConfig>>["config"];
   try {
     const effective = await getEffectiveConfig(null, {
@@ -281,11 +285,17 @@ export async function runAdobeVideoGenerationForUser(
 
   await db
     .update(videoGeneration)
-    .set({ status: "running", creditsConsumed: billedCost, updatedAt: new Date() })
+    .set({
+      status: "running",
+      creditsConsumed: billedCost,
+      updatedAt: new Date(),
+    })
     .where(eq(videoGeneration.id, videoId));
 
   // 失败统一退款 + 标记。退款幂等（同一 sourceRef 只退一次）。
-  const failAndRefund = async (message: string): Promise<VideoGenerationResult> => {
+  const failAndRefund = async (
+    message: string
+  ): Promise<VideoGenerationResult> => {
     await releaseInflightLease();
     await refundGenerationCredits({
       generationId: videoId,
@@ -352,5 +362,9 @@ export async function runAdobeVideoGenerationForUser(
     .where(eq(videoGeneration.id, videoId));
 
   await releaseInflightLease();
-  return { videoGenerationId: videoId, storageKey, creditsConsumed: billedCost };
+  return {
+    videoGenerationId: videoId,
+    storageKey,
+    creditsConsumed: billedCost,
+  };
 }

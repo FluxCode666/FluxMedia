@@ -29,6 +29,8 @@ OpenAI 原生并非 1:1。
 | 图生图 `images[]` | `referenceBlobs[{ id, usage:"general" }]` | 先 `uploadImage` 拿 Adobe image id，再放入 referenceBlobs（新 API 已拒收 referenceImages）；裸 Nano Banana 按其家族解析后使用 general |
 | 图生视频 输入图 | `referenceBlobs` / `referenceFrames` | 按视频族不同：kling 用 `{id, usage:"frame", order}`；sora2/veo31 用 `{id, usage:"general", promptReference:1}` |
 
+视频模型的 `veo31*` 与 `kling*` 家族允许省略 `firefly-` 前缀；`sora2*` 仍使用完整 Firefly ID。
+
 ### size 映射规则（mapSizeToAdobe）
 
 - ratio：把 WxH 的宽高比取最接近的通用比例集合 `1x1 / 16x9 / 9x16 / 4x3 / 3x4`。

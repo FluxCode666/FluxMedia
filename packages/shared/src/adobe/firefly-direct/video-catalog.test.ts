@@ -34,15 +34,15 @@ describe("firefly video catalog", () => {
   });
 
   it("veo31 拼分辨率,veo31-fast 走 fast 版本", () => {
-    expect(resolveFireflyVideoModel("firefly-veo31-6s-16x9-1080p")).toMatchObject(
-      {
-        family: "veo31",
-        upstreamModelVersion: "3.1-generate",
-        engine: "veo31-standard",
-        duration: 6,
-        outputResolution: "1080p",
-      }
-    );
+    expect(
+      resolveFireflyVideoModel("firefly-veo31-6s-16x9-1080p")
+    ).toMatchObject({
+      family: "veo31",
+      upstreamModelVersion: "3.1-generate",
+      engine: "veo31-standard",
+      duration: 6,
+      outputResolution: "1080p",
+    });
     expect(
       resolveFireflyVideoModel("firefly-veo31-fast-4s-9x16-720p")
     ).toMatchObject({
@@ -52,6 +52,18 @@ describe("firefly video catalog", () => {
     });
   });
 
+  it("裸 Veo/Kling 模型族兼容解析为同一 Firefly 目录", () => {
+    expect(resolveFireflyVideoModel("veo31-6s-16x9-1080p")).toMatchObject({
+      family: "veo31",
+      upstreamModelId: "veo",
+    });
+    expect(resolveFireflyVideoModel("kling3-10s-16x9")).toMatchObject({
+      family: "kling3",
+      upstreamModelId: "kling",
+    });
+    expect(isFireflyVideoModelId("kling-o3-15s-9x16")).toBe(true);
+  });
+
   it("veo31-ref 带 referenceMode=image", () => {
     expect(
       resolveFireflyVideoModel("firefly-veo31-ref-8s-16x9-1080p")?.referenceMode
@@ -59,9 +71,9 @@ describe("firefly video catalog", () => {
   });
 
   it("kling3 默认生成音频,kling-o3 固定 1080p", () => {
-    expect(resolveFireflyVideoModel("firefly-kling3-10s-16x9")?.generateAudio).toBe(
-      true
-    );
+    expect(
+      resolveFireflyVideoModel("firefly-kling3-10s-16x9")?.generateAudio
+    ).toBe(true);
     expect(
       resolveFireflyVideoModel("firefly-kling-o3-15s-9x16")?.outputResolution
     ).toBe("1080p");
@@ -72,10 +84,14 @@ describe("firefly video catalog", () => {
     expect(resolveFireflyVideoModel("firefly-gpt-image-2-2k-1x1")).toBeNull();
     expect(isFireflyVideoModelId("firefly-veo31-6s-16x9-1080p")).toBe(true);
     expect(isFireflyVideoModelId("nope")).toBe(false);
+    expect(isFireflyVideoModelId("sora2-8s-16x9")).toBe(false);
   });
 
   it("size 映射", () => {
-    expect(fireflyVideoSize("720p", "16:9")).toEqual({ width: 1280, height: 720 });
+    expect(fireflyVideoSize("720p", "16:9")).toEqual({
+      width: 1280,
+      height: 720,
+    });
     expect(fireflyVideoSize("1080p", "9:16")).toEqual({
       width: 1080,
       height: 1920,

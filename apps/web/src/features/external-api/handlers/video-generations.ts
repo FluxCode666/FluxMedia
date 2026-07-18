@@ -7,11 +7,11 @@
  * 状态的 OpenAI 错误响应。
  */
 
-import { withApiLogging } from "@repo/shared/api-logger";
 import { isFireflyVideoModelId } from "@repo/shared/adobe/firefly-direct/video-catalog";
+import { withApiLogging } from "@repo/shared/api-logger";
 import { logError } from "@repo/shared/logger";
-import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
+import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 import { nanoid } from "nanoid";
 import type { NextRequest } from "next/server";
@@ -48,7 +48,8 @@ const externalVideoSchema = z.object({
     .string()
     .min(1)
     .max(IMAGE_PROMPT_MAX_CHARACTERS, IMAGE_PROMPT_TOO_LONG_MESSAGE),
-  // 完整 Firefly 视频 model id：firefly-<family>-<dur>s-<ratio>[-<res>]。
+  // Firefly 或裸 Veo/Kling 视频 model id：<family>-<dur>s-<ratio>[-<res>]；Firefly
+  // 完整形式仍可从 /v1/models 查看。
   model: z.string().trim().min(1).max(120),
   negativePrompt: z.string().max(8000).optional(),
   negative_prompt: z.string().max(8000).optional(),
@@ -103,7 +104,7 @@ export const postExternalVideoGenerations = withApiLogging(
     }
     if (!isFireflyVideoModelId(parsed.data.model)) {
       return openAIImageError(
-        "Unsupported video model. Use a firefly-<family>-<dur>s-<ratio>[-<res>] id; see /v1/models."
+        "Unsupported video model. Use a firefly-* id or a supported bare veo/kling id; see /v1/models."
       );
     }
 
@@ -165,8 +166,10 @@ export const postExternalVideoGenerations = withApiLogging(
             });
           } else {
             const videoUrl =
-              buildSignedStorageImageUrl(result.storageKey, await bucketName()) ??
-              "";
+              buildSignedStorageImageUrl(
+                result.storageKey,
+                await bucketName()
+              ) ?? "";
             completed = completeAsyncImageTask(task.id, {
               result: {
                 object: "video",
@@ -218,8 +221,7 @@ export const postExternalVideoGenerations = withApiLogging(
           model: parsed.data.model,
           data: [
             {
-              url:
-                buildSignedStorageImageUrl(result.storageKey, bucket) ?? "",
+              url: buildSignedStorageImageUrl(result.storageKey, bucket) ?? "",
             },
           ],
           generation_id: result.videoGenerationId,

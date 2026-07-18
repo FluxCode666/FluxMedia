@@ -1604,6 +1604,28 @@ describe("image backend pool scheduler selection", () => {
       expect(result?.memberId).toBe("adobe-2");
     });
 
+    it("裸 Veo/Kling 模型只进入 Adobe direct，普通 API 不会抢占视频租约", async () => {
+      dbMock.state.accounts = [makeAccount(1)];
+      dbMock.state.apis = [makeApi(1, { priority: 1 })];
+      dbMock.state.adobes = [
+        makeAdobe(1, {
+          priority: 10,
+          mode: "direct",
+          supportsVideo: true,
+        }),
+      ];
+
+      const result = await resolveImageBackendPoolConfig({
+        userId: "user-a",
+        requestKind: "image_generation",
+        requestedModel: "veo31-6s-16x9-1080p",
+      });
+
+      expect(result?.memberType).toBe("adobe");
+      expect(result?.memberId).toBe("adobe-1");
+      expect(result?.config.backend?.fireflyOnly).toBe(true);
+    });
+
     it("firefly-* 排除普通 API，但 Adobe 来源 API 仍按优先级参与", async () => {
       dbMock.state.accounts = [{ ...makeAccount(1), priority: 1 }];
       dbMock.state.apis = [

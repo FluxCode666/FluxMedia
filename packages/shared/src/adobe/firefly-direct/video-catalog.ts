@@ -170,6 +170,15 @@ const VIDEO_FAMILY_SPECS: VideoFamilySpec[] = [
   },
 ];
 
+// Veo/Kling 对外兼容裸模型名；Sora 仍保持必须带 firefly- 前缀的历史接口语义。
+const BARE_VIDEO_FAMILY_NAMES = new Set([
+  "veo31",
+  "veo31-ref",
+  "veo31-fast",
+  "kling-o3",
+  "kling3",
+]);
+
 function registerVideoFamily(spec: VideoFamilySpec): void {
   for (const duration of spec.durations) {
     for (const ratio of spec.ratios) {
@@ -201,6 +210,16 @@ for (const spec of VIDEO_FAMILY_SPECS) {
   registerVideoFamily(spec);
 }
 
+/** 将裸 Veo/Kling 视频模型规范化为目录使用的 Firefly 完整 ID。 */
+function normalizeFireflyVideoModelId(modelId: string): string {
+  if (modelId.startsWith("firefly-")) return modelId;
+
+  const bareFamily = [...BARE_VIDEO_FAMILY_NAMES]
+    .sort((left, right) => right.length - left.length)
+    .find((family) => modelId === family || modelId.startsWith(`${family}-`));
+  return bareFamily ? `firefly-${modelId}` : modelId;
+}
+
 /** 视频模型族 id 列表（供前端/接口列出可选模型族）。 */
 export const FIREFLY_VIDEO_FAMILIES = VIDEO_FAMILY_SPECS.map((spec) => ({
   family: spec.family,
@@ -211,16 +230,20 @@ export const FIREFLY_VIDEO_FAMILIES = VIDEO_FAMILY_SPECS.map((spec) => ({
   resolutionInId: spec.resolutionInId,
 }));
 
-/** 解析完整 video model id → 配置；解析不到返回 null。 */
+/** 解析 Firefly 或裸 Veo/Kling video model id → 配置；解析不到返回 null。 */
 export function resolveFireflyVideoModel(
   modelId?: string | null
 ): FireflyVideoModelConf | null {
-  const id = String(modelId || "").trim();
+  const id = normalizeFireflyVideoModelId(
+    String(modelId || "")
+      .trim()
+      .toLowerCase()
+  );
   if (!id) return null;
   return FIREFLY_VIDEO_MODEL_CATALOG[id] ?? null;
 }
 
-/** 是否 Firefly 视频 model id（在视频目录中）。 */
+/** 是否为目录支持的 Firefly 或裸 Veo/Kling 视频 model id。 */
 export function isFireflyVideoModelId(modelId?: string | null): boolean {
   return resolveFireflyVideoModel(modelId) !== null;
 }

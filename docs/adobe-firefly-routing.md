@@ -75,6 +75,9 @@ Adobe 后端「Adobe Firefly 直连」字段：
 - 结果：adobe 只是候选之一。是否真的轮到它，取决于 adobe 是否在用户所在分组、以及它的
   priority 是否高于（数字大于）其它成员。当前配置下（priority=100）它是兜底层。
 
+视频的 `veo31`、`veo31-ref`、`veo31-fast`、`kling-o3`、`kling3` 同样接受裸模型 ID，
+但视频管线只选择 Adobe `direct` 后端；`sora2` 与 `sora2-pro` 仍要求 `firefly-` 前缀。
+
 ### ② 模型名以 `firefly-` 开头（fireflyOnly = true）
 
 - 判定条件：`requestedModel` 以 `firefly-` 开头（如 `firefly-nano-banana-pro-2k-16x9`，

@@ -544,7 +544,7 @@ function getGroupBackendType(
 // 阶段去卡(否则 codex 阶段会误把 images 端点的 API 挡在门外)。
 // - mixed 分组(直接挂在混合分组):不区分车道,任何偏好阶段都参与(谁都可请求);
 // - web 分组:仅当请求当前偏好为 web 时参与;responses(codex)分组:仅 codex 阶段参与;
-// - firefly 请求(fireflyOnly,必走 adobe)或请求无偏好时:不受车道限制。
+// - Adobe-only 请求(fireflyOnly,必走 Adobe)或请求无偏好时:不受车道限制。
 export function memberAllowedForPhase(
   groupBackendType: ImageBackendGroupBackendType,
   effectivePreference: ImageBackendAccountBackend | undefined,
@@ -2345,10 +2345,13 @@ async function selectPoolMember(
   capacityWaitCount = 0,
   accountPlanFilter: ImageBackendAccountPlanFilter = "any"
 ): Promise<PoolMember | null> {
-  // fireflyOnly：候选收敛到 Adobe 语义后端的两种触发——显式 force_firefly 标志，或请求模型
-  // 本身就是 firefly-* 前缀。普通 API 与账号不参与，但 adobeSourced API 仍可和 Adobe
-  // 后端共同调度。
-  const fireflyOnly = forceFirefly || isAdobeFireflyModelId(requestedModel);
+  // fireflyOnly：候选收敛到 Adobe 语义后端的触发——显式 force_firefly、Firefly 图像前缀，
+  // 或完整/裸 Veo/Kling 视频模型。普通 API 与账号不参与；图像 firefly 请求仍允许
+  // adobeSourced API 共同调度，视频则只允许 Adobe direct。
+  const fireflyOnly =
+    forceFirefly ||
+    isAdobeFireflyModelId(requestedModel) ||
+    isFireflyVideoModelId(requestedModel);
   const apiOnlyCustomImageModel = requiresApiBackendForCustomImageModel(
     requestKind,
     requestedModel
@@ -2696,10 +2699,10 @@ async function selectPoolMember(
       const metadata = context?.metadata ?? groupMetadata;
       const effectiveRequestKind = requestKind || "image_generation";
       return (
-        // fireflyOnly（force_firefly 或 firefly-* 模型）时通用 API 不参与；
-        // 但「Adobe 来源」api（上游即 Adobe）参与 firefly 候选：force_firefly 直接以 gpt
-        // 格式服务，显式 firefly-* 由下游反向转换成 gpt 请求后服务。
-        (!fireflyOnly || row.adobeSourced) &&
+        // fireflyOnly（force_firefly、firefly-* 或视频模型）时通用 API 不参与；图像的
+        // 「Adobe 来源」api 仍可参与，视频因当前 operation 只支持 direct 必须排除。
+        (!fireflyOnly ||
+          (row.adobeSourced && !isFireflyVideoModelId(requestedModel))) &&
         // 阶段参与纯按车道:web 偏好只取 web/mixed 分组的 API、codex 偏好只取 codex/mixed
         // 分组的 API（mixed 谁都可请求）。是否经 responses 端点出图属于"能否服务该
         // requestKind"的独立维度,交由下方 imageBackendApiInterfaceAllowsRequest 按请求
@@ -2768,7 +2771,7 @@ async function selectPoolMember(
         ? effectiveContextPreferences.get(matchedGroupId)
         : effectiveAccountBackendPreference;
       return (
-        // fireflyOnly（force_firefly 或 firefly-* 模型）时只走 adobe，codex/web 账号不参与。
+        // fireflyOnly（force_firefly、firefly-* 或 Veo/Kling 视频模型）时只走 Adobe，账号不参与。
         !fireflyOnly &&
         // 裸 nano-banana* 仍保持 API-only 语义，排除普通 Web/Codex 账号。
         !apiOnlyCustomImageModel &&
@@ -2818,9 +2821,9 @@ async function selectPoolMember(
       metadata: row.metadata,
     }));
 
-  // adobe 成员：作为特殊 Firefly 成员，对图像生成/编辑请求始终参与候选（无论
+  // adobe 成员：作为特殊 Firefly 成员，对图像生成/编辑及视频请求始终参与候选（无论
   // fireflyOnly 与否），按 priority 与 api/account 同池排序——管理员把 adobe 优先级调低即
-  // 天然成为兜底。fireflyOnly 时普通 API/account 已被排除；adobeSourced API 仍可竞争。
+  // 天然成为兜底。图像 fireflyOnly 时 adobeSourced API 仍可竞争；视频只允许 direct。
   const adobeMembers: PoolMember[] = adobeRows
     .filter((row) => {
       const matchedGroupId = row.matchedGroupId || row.groupId;
@@ -2831,7 +2834,8 @@ async function selectPoolMember(
         // 裸 nano-banana* 虽属于 API-only 自定义模型，但已知 Adobe 模型例外允许
         // pool-adobe 参与，和 pool-api 按 priority 同池竞争。
         (!apiOnlyCustomImageModel ||
-          isAdobeImageFamilyModelId(requestedModel)) &&
+          isAdobeImageFamilyModelId(requestedModel) ||
+          isFireflyVideoModelId(requestedModel)) &&
         (effectiveRequestKind === "image_generation" ||
           effectiveRequestKind === "image_edit") &&
         canAdobeBackendServeModel({
@@ -3485,12 +3489,13 @@ export async function resolveImageBackendPoolConfig(
       options,
       resolved.group.metadata
     );
-    // 盖 firefly 意图(与 selectPoolMember:2174 的 fireflyOnly 同口径):让换号重试能
-    // 保持「只走 Adobe」,避免 firefly 请求被重试到非 Adobe 后端。
+    // 盖 Adobe 意图(与 selectPoolMember 的 fireflyOnly 同口径):让换号重试能保持「只走
+    // Adobe」，避免 Firefly 图像或 Veo/Kling 视频请求被重试到非 Adobe 后端。
     if (result?.config.backend) {
       result.config.backend.fireflyOnly =
         options.forceFirefly === true ||
-        isAdobeFireflyModelId(options.requestedModel);
+        isAdobeFireflyModelId(options.requestedModel) ||
+        isFireflyVideoModelId(options.requestedModel);
     }
     return result;
   } catch (error) {

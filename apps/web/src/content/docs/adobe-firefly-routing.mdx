@@ -88,6 +88,9 @@ Adobe 后端「Adobe Firefly 直连」字段：
 `priority` 共同竞争；普通 Web/Codex 账号仍不参与。其他不带前缀的自定义模型（如
 `grok-*`）仍只保留普通 API 后端。
 
+视频的 `veo31`、`veo31-ref`、`veo31-fast`、`kling-o3`、`kling3` 同样接受裸模型 ID，
+但视频管线只选择 Adobe `direct` 后端；`sora2` 与 `sora2-pro` 仍要求 `firefly-` 前缀。
+
 ### ② 模型名以 `firefly-` 开头（fireflyOnly = true）
 
 - 判定条件：`requestedModel` 以 `firefly-` 开头（如 `firefly-nano-banana-pro-2k-16x9`，
