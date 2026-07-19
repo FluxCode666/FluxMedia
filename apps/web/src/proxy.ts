@@ -1,3 +1,9 @@
+/**
+ * Next.js 请求代理。
+ *
+ * 使用方：Next.js 16 在 Node.js Runtime 中自动执行。负责版本化静态资源重写、
+ * API 动态限流、国际化路由和登录态页面保护；限流配置经系统设置缓存运行时读取。
+ */
 import {
   checkRateLimit,
   createRateLimitResponse,
@@ -9,13 +15,17 @@ import createIntlMiddleware from "next-intl/middleware";
 import { routing } from "@/i18n/routing";
 import { getApiRateLimitType } from "./rate-limit-routing";
 
-/**
- * 创建国际化中间件
- */
+/** 创建国际化请求处理器，无外部副作用。 */
 const intlMiddleware = createIntlMiddleware(routing);
 const VERSIONED_ASSET_PREFIX_PATTERN =
   /^\/(?:gpt2-assets|next-assets)-[^/]+(\/_next\/.*)$/;
 
+/**
+ * 为认证相关响应设置禁止共享缓存的响应头。
+ *
+ * @param response - 待修改的 Next.js 响应。
+ * @returns 同一响应实例；副作用是覆盖缓存相关响应头，不会失败。
+ */
 function setPrivateNoStore(response: NextResponse) {
   response.headers.set(
     "Cache-Control",
@@ -27,16 +37,20 @@ function setPrivateNoStore(response: NextResponse) {
 }
 
 /**
- * 中间件配置
+ * 处理进入应用的请求。
  *
- * 功能:
+ * 功能：
  * 1. API 限流（全局 + 路由级别）
- * 2. 国际化路由处理 (next-intl)
- * 3. 认证保护 (Better Auth)
+ * 2. 国际化路由处理（next-intl）
+ * 3. 认证保护（Better Auth）
  *    - /dashboard/* 需要登录才能访问
  *    - 未登录用户将被重定向到 /sign-in
+ *
+ * @param request - Next.js 传入的请求。
+ * @returns 重写、重定向、限流拒绝或继续处理的响应。
+ * @sideEffects 限流路径可能访问 Redis/PostgreSQL；依赖故障由限流模块降级。
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (VERSIONED_ASSET_PREFIX_PATTERN.test(pathname)) {
@@ -159,11 +173,13 @@ export async function middleware(request: NextRequest) {
 
   // 执行国际化中间件
   const response = intlMiddleware(request);
-  return isProtectedRoute || isAuthRoute ? setPrivateNoStore(response) : response;
+  return isProtectedRoute || isAuthRoute
+    ? setPrivateNoStore(response)
+    : response;
 }
 
 /**
- * 中间件匹配配置
+ * 代理匹配配置
  *
  * 现在也匹配 API 路由，以便进行全局限流
  */
