@@ -49,6 +49,131 @@
   前一版本并重新启动 `web`，不会自动回退已提交的数据库迁移。完整初始化与 Secrets
   说明见 `deploy/README.md`。
 
+## 生产部署配置清单
+
+生产配置分为两处：GitHub `production` Environment 保存部署凭据和目标机信息；目标
+服务器 `/opt/fluxmedia/.env` 保存应用运行时配置。`DATABASE_URL`、认证密钥、支付密钥
+等运行时机密不得复制到 GitHub Actions，也不得提交到仓库。
+
+### GitHub production Environment
+
+在仓库 `Settings → Environments → production` 中配置下列 Secrets。建议为生产
+Environment 启用审批保护，避免误触发生产部署。
+
+| 名称 | 必填 | 用途与要求 |
+|---|---|---|
+| `DEPLOY_HOST` | 是 | 目标服务器 IP 或主机名，不含协议和端口。 |
+| `DEPLOY_USER` | 是 | SSH 部署用户，必须能写入部署目录并执行 Docker；不要复用日常管理员账号。 |
+| `DEPLOY_SSH_KEY` | 是 | 专用 SSH 私钥；对应公钥须安装到目标用户的 `authorized_keys`。 |
+| `DEPLOY_KNOWN_HOSTS` | 是 | 目标机 SSH 主机指纹；从可信终端获取并人工核对，流水线不会关闭主机校验。 |
+| `GHCR_PAT` | 是 | 目标机登录 GHCR 使用的 token，最小权限为 `read:packages`；私有仓库场景还需具备对应仓库访问权。 |
+| `DEPLOY_PORT` | 否 | SSH 端口，留空时使用 `22`，有效范围 `1` 至 `65535`。 |
+
+`DEPLOY_KNOWN_HOSTS` 可在可信网络中生成，非默认 SSH 端口也必须传给
+`ssh-keyscan`：
+
+```bash
+ssh-keyscan -H -p <SSH_PORT> <DEPLOY_HOST>
+```
+
+不要直接信任未经核对的扫描结果；应通过云控制台或另一条可信通道确认服务器指纹。
+
+在 Repository Variable 或 `production` Environment Variable 中配置：
+
+| 名称 | 必填 | 默认值 | 用途与要求 |
+|---|---|---|---|
+| `DEPLOY_PATH` | 否 | `/opt/fluxmedia` | 目标机 Compose 与 `.env` 所在目录；必须是不含空格的绝对路径。 |
+
+以下值无需人工配置：
+
+- `GITHUB_TOKEN`：GitHub Actions 自动提供，流水线使用 `packages: write` 推送 GHCR。
+- `version`：手动触发 Workflow 时输入，不是 Secret；必须符合
+  `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。
+- `PUBLIC_APP_URL`：当前在 Workflow 中固定为 `https://media.flux-code.cc`。修改域名时
+  必须同步修改该值并重新构建镜像，不能只修改服务器 `.env`。
+
+### 目标服务器必填环境变量
+
+首次部署时将 `deploy/.env.example` 复制为 `/opt/fluxmedia/.env`，权限设为 `0600`。
+以下值必须在启动前确认：
+
+| 名称 | 是否机密 | 用途与要求 |
+|---|---|---|
+| `DATABASE_URL` | 是 | 外部 PostgreSQL 连接串。迁移器需要建表、改表和索引权限，Web 需要正常读写权限；不要使用示例口令。 |
+| `BETTER_AUTH_SECRET` | 是 | 会话和 Cookie 签名密钥，使用 `openssl rand -base64 32` 生成，轮换会使现有会话失效。 |
+| `BETTER_AUTH_URL` | 否 | 站点完整 HTTPS 地址，例如 `https://media.flux-code.cc`，必须与浏览器实际访问地址一致。 |
+| `NEXT_PUBLIC_APP_URL` | 否 | 前端公开站点地址，必须与 `BETTER_AUTH_URL` 和 Workflow 的 `PUBLIC_APP_URL` 一致。 |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | 否 | 可信来源，单域部署填写与站点相同的 origin；多域名用逗号分隔。 |
+
+`NEXT_PUBLIC_APP_URL` 会写入浏览器端产物。修改域名后，即使服务器 `.env` 已更新，也
+必须重新运行生产 Workflow 构建镜像，否则客户端仍会使用旧地址。
+
+### 流水线托管的镜像变量
+
+这些变量必须存在于服务器 `.env`，但正常发布时不应手工修改。流水线会在拉取镜像前
+写入本次构建结果，并在应用回滚时恢复上一组值。
+
+| 名称 | 模板初始值 | 流水线行为 |
+|---|---|---|
+| `FLUXMEDIA_IMAGE` | `ghcr.io/fluxcode666/fluxmedia-web` | 写入当前仓库 owner 对应的 Web 镜像名。 |
+| `FLUXMEDIA_MIGRATE_IMAGE` | `ghcr.io/fluxcode666/fluxmedia-migrate` | 写入同版本数据库迁移镜像名。 |
+| `FLUXMEDIA_TAG` | `latest` | 发布时覆盖为手动输入的不可变版本，例如 `v0.8.1`；生产 Workflow 不使用 `latest` 部署。 |
+
+### 目标服务器基础运行变量
+
+以下值不是机密，模板已提供适合当前单机 Nginx 反代拓扑的默认值。修改时必须同步
+Compose、Nginx 或应用约束。
+
+| 名称 | 当前建议值 | 说明 |
+|---|---|---|
+| `BIND_HOST` | `127.0.0.1` | 只允许宿主机 Nginx 访问 Web 端口，禁止直接暴露公网。 |
+| `WEB_PORT` | `3000` | 必须与 Nginx upstream `127.0.0.1:3000` 一致。 |
+| `NEXT_PUBLIC_APP_NAME` | `FluxMedia` | 应用显示名称；生产 Workflow 当前以构建参数固定为 `GPT2IMAGE`，如需修改生产镜像中的名称，必须同步修改 Workflow 后重新构建。 |
+| `LOCAL_STORAGE_PATH` | `/app/storage` | 本地文件存储目录，对应 `app-storage` 命名卷。 |
+| `NEXT_PUBLIC_AVATARS_BUCKET_NAME` | `avatars` | 头像存储桶名称。 |
+| `NEXT_PUBLIC_GENERATIONS_BUCKET_NAME` | `generations` | 生成内容存储桶名称。 |
+| `FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH` | `/app/.fluxMedia/super-admin-credentials.txt` | 首次自用超管凭据文件，对应 `app-bootstrap` 命名卷；读取后应妥善保存并删除文件。 |
+| `SELF_USE_MODE_ENABLED` | `true` | 启用单用户自用模式和首次超管初始化。 |
+| `INTERNAL_JOB_SCHEDULER_ENABLED` | `true` | 单实例启用内部定时任务；多实例前必须先实现任务互斥。 |
+| `APP_TIME_ZONE` / `TZ` | `Asia/Shanghai` | 应用和容器时区。 |
+| `RATE_LIMIT_TRUSTED_PROXY` | `true` | 仅因请求只经过受控宿主机 Nginx 才可启用；直连公网部署必须设为 `false`。 |
+
+本部署不运行注册机。`CHATGPT_REGISTER_URL` 与 `CHATGPT_REGISTER_SECRET` 应保持为空，
+生产 Compose 还会显式覆盖为空，防止旧 `.env` 意外连接注册机。
+
+### 按功能启用的可选密钥
+
+以下配置不是最小启动条件，仅在启用相应功能时填写。真实密钥只放目标服务器 `.env`
+或专用 Secret Manager；完整非机密参数和示例见仓库根目录 `.env.example`。
+
+| 功能 | 需要保护的变量 | 配置说明 |
+|---|---|---|
+| GitHub OAuth | `GITHUB_CLIENT_SECRET` | 与 `GITHUB_CLIENT_ID` 配套；回调域名必须使用生产域名。 |
+| Google OAuth | `GOOGLE_CLIENT_SECRET` | 与 `GOOGLE_CLIENT_ID` 配套；回调域名必须使用生产域名。 |
+| Creem 支付 | `CREEM_API_KEY`、`CREEM_WEBHOOK_SECRET` | 同时配置对应 `NEXT_PUBLIC_CREEM_PRICE_*` 价格 ID。 |
+| 易支付 | `EPAY_KEY` | 同时配置 `EPAY_API_URL`、`EPAY_PID`、通知地址和默认支付方式。 |
+| 支付宝当面付 | `ALIPAY_PRIVATE_KEY`、`ALIPAY_PUBLIC_KEY` | 同时配置应用 ID、商家 PID、通知地址和充值比例。 |
+| SMTP / Resend | `SMTP_PASS` 或 `RESEND_API_KEY` | 与发件地址、SMTP 主机或 Resend provider 配套。 |
+| S3 / R2 存储 | `STORAGE_ACCESS_KEY_ID`、`STORAGE_SECRET_ACCESS_KEY` | 同时配置 endpoint、region 和桶名称；不配置时使用本地命名卷。 |
+| 阿里云审核 | `ALIYUN_MODERATION_ACCESS_KEY_ID`、`ALIYUN_MODERATION_ACCESS_KEY_SECRET` | 同时配置文本和图片审核 region、endpoint、service。 |
+| OpenAI 审核 | `OPENAI_MODERATION_API_KEY` | 与 `OPENAI_MODERATION_MODEL` 配套。 |
+| Upstash 限流 | `UPSTASH_REDIS_REST_TOKEN` | 与 `UPSTASH_REDIS_REST_URL` 配套；未配置时应用按既有降级策略运行。 |
+| Axiom 日志 | `AXIOM_TOKEN` | 与 `AXIOM_DATASET` 配套。 |
+| Sentry | `SENTRY_AUTH_TOKEN` | 构建上传 sourcemap 时使用；公开 DSN 使用 `NEXT_PUBLIC_SENTRY_DSN`。 |
+| 定时任务 / MCP | `CRON_SECRET`、`MCP_ADMIN_SECRET` | 仅启用对应入口时配置，必须使用独立随机密钥。 |
+
+### 部署前核对
+
+```bash
+cd /opt/fluxmedia
+chmod 600 .env
+docker compose --profile maintenance config --quiet
+docker compose --profile maintenance pull migrate web
+```
+
+检查展开配置时不要执行不带 `--quiet` 的 `docker compose config` 并复制输出到工单或
+日志，因为完整输出会包含 `DATABASE_URL`、认证密钥和第三方凭据。
+
 ## 版本与发布流程（对齐 §0.2）
 
 版本格式：`v<MAJOR>.<MINOR>.<PATCH>-<alpha|beta|rc>.<N>`（正式版去后缀）。
