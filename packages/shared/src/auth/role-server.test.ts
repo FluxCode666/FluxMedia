@@ -1,18 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// 守护审计 C-M25：getUserRoleById 含本地超管自动提权后门
-// （role==='admin' 且 email===LOCAL_SUPER_ADMIN_EMAIL 时升 super_admin）。
-// 该函数是 adminAction/superAdminAction/checkAdmin 取角色的唯一入口（授权链根），
-// 提权条件须严格——误改邮箱常量/去掉 role 前置/改模糊匹配都会成提权后门，
-// 故对提权分支与各非提权分支均断言，并断言提权确实落库。
+// 守护角色解析的只读语义：首次超管提权由 bootstrap 流程负责，授权链根不得
+// 因固定邮箱或可配置邮箱在读路径隐式写库。
 
 const state = vi.hoisted(() => ({
   userRows: [] as Array<{ email: string | null; role: string | null }>,
 }));
 
-const updateCalls = vi.hoisted(
-  () => [] as Array<{ values: unknown }>
-);
+const updateCalls = vi.hoisted(() => [] as Array<{ values: unknown }>);
 
 const dbMock = vi.hoisted(() => ({
   select: vi.fn(() => ({
@@ -49,44 +44,23 @@ describe("getUserRoleById", () => {
     dbMock.update.mockClear();
   });
 
-  it("把本地超管邮箱的 admin 自动提升为 super_admin 并落库", async () => {
+  it("保留 admin 角色且不在读路径写库", async () => {
     state.userRows = [{ email: "admin@gpt2image.local", role: "admin" }];
 
     const { getUserRoleById } = await import("./role-server");
     const role = await getUserRoleById("user-1");
 
-    expect(role).toBe("super_admin");
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]?.values).toMatchObject({ role: "super_admin" });
-  });
-
-  it("邮箱比较大小写无关", async () => {
-    state.userRows = [{ email: "Admin@GPT2IMAGE.Local", role: "admin" }];
-
-    const { getUserRoleById } = await import("./role-server");
-    const role = await getUserRoleById("user-1");
-
-    expect(role).toBe("super_admin");
-    expect(updateCalls).toHaveLength(1);
-  });
-
-  it("角色非 admin（user）即便邮箱命中也不提权", async () => {
-    state.userRows = [{ email: "admin@gpt2image.local", role: "user" }];
-
-    const { getUserRoleById } = await import("./role-server");
-    const role = await getUserRoleById("user-1");
-
-    expect(role).toBe("user");
+    expect(role).toBe("admin");
     expect(updateCalls).toHaveLength(0);
   });
 
-  it("邮箱非本地超管即便角色是 admin 也不提权", async () => {
-    state.userRows = [{ email: "someone@gmail.com", role: "admin" }];
+  it("保留 super_admin 角色", async () => {
+    state.userRows = [{ email: "admin@example.com", role: "super_admin" }];
 
     const { getUserRoleById } = await import("./role-server");
     const role = await getUserRoleById("user-1");
 
-    expect(role).toBe("admin");
+    expect(role).toBe("super_admin");
     expect(updateCalls).toHaveLength(0);
   });
 

@@ -50,12 +50,10 @@ services:
       # 注册机 sidecar：未设置 URL 时后台「注册机」Tab 不可用（直接报错），不影响其余功能。
       CHATGPT_REGISTER_URL: ${CHATGPT_REGISTER_URL:-http://chatgpt-register:3023}
       CHATGPT_REGISTER_SECRET: ${CHATGPT_REGISTER_SECRET:-}
-      FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH: /app/.fluxMedia/super-admin-credentials.txt
     ports:
       - "${WEB_PORT:-3000}:3000"
     volumes:
       - app-storage:/app/storage
-      - app-bootstrap:/app/.fluxMedia
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,4 +88,3 @@ services:
 volumes:
   postgres-data:
   app-storage:
-  app-bootstrap:

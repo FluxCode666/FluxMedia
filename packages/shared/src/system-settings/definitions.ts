@@ -472,7 +472,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "SELF_USE_MODE_ENABLED",
     label: "自用模式",
     description:
-      "默认开启。开启后禁止公开注册；启动时没有超管会创建本地随机密码超管；超管按 Enterprise 套餐获得全部套餐能力。",
+      "默认开启。开启后禁止公开注册；启动时没有超管会使用环境变量配置的凭据创建超管；超管按 Enterprise 套餐获得全部套餐能力。",
     category: "auth",
     valueType: "boolean",
     defaultValue: true,

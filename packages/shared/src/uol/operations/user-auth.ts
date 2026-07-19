@@ -389,11 +389,7 @@ export const bootstrapSelfUseSuperAdmin = defineOperation({
   title: "Bootstrap Self-Use Super Admin",
   description:
     "系统初始化时创建首个超级管理员。仅系统内部调用，永远不可通过任何外部传输暴露。",
-  input: z.object({
-    email: z.string().email(),
-    password: z.string().min(6),
-    name: z.string().min(1),
-  }),
+  input: z.object({}),
   output: z.object({
     userId: z.string(),
     success: z.boolean(),
@@ -401,15 +397,12 @@ export const bootstrapSelfUseSuperAdmin = defineOperation({
   access: { kind: "system" },
   readOnly: false,
   destructive: false,
-  idempotency: {
-    kind: "required",
-    keyField: "email",
-    scope: "global",
-  },
-  sideEffects: ["audit"],
-  execute: async (_input) => {
-    // 服务内部决定 email/password（忽略 input，使用 LOCAL_SUPER_ADMIN_EMAIL +
-    // 自动生成密码）。input schema 保留以描述语义，实际由 self-use-mode 驱动。
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  processLocalState: true,
+  hasMaintenanceWrite: true,
+  execute: async () => {
+    // 服务内部从环境变量读取凭据，避免任何调用方传入或记录明文密码。
     await bootstrapSelfUseSuperAdminService();
     // 服务不返回 userId（void）；此处返回占位值，
     // 调用方应通过 user.list 或 DB 查实际创建结果。

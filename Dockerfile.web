@@ -79,13 +79,12 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
-RUN mkdir -p /app/storage /app/.fluxMedia /app/apps/web/.next/cache && \
-    chown -R nextjs:nodejs /app/storage /app/.fluxMedia /app/apps/web/.next
+RUN mkdir -p /app/storage /app/apps/web/.next/cache && \
+    chown -R nextjs:nodejs /app/storage /app/apps/web/.next
 
 USER nextjs
 EXPOSE 3000
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
-ENV FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH=/app/.fluxMedia/super-admin-credentials.txt
 
 CMD ["node", "apps/web/server.js"]

@@ -124,8 +124,8 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 
 ### 目标服务器基础运行变量
 
-以下值不是机密，模板已提供适合当前单机 Nginx 反代拓扑的默认值。修改时必须同步
-Compose、Nginx 或应用约束。
+除超管密码外，以下值不是机密；模板已提供适合当前单机 Nginx 反代拓扑的默认值。修改时
+必须同步 Compose、Nginx 或应用约束。
 
 | 名称 | 当前建议值 | 说明 |
 |---|---|---|
@@ -135,8 +135,9 @@ Compose、Nginx 或应用约束。
 | `LOCAL_STORAGE_PATH` | `/app/storage` | 本地文件存储目录，对应 `app-storage` 命名卷。 |
 | `NEXT_PUBLIC_AVATARS_BUCKET_NAME` | `avatars` | 头像存储桶名称。 |
 | `NEXT_PUBLIC_GENERATIONS_BUCKET_NAME` | `generations` | 生成内容存储桶名称。 |
-| `FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH` | `/app/.fluxMedia/super-admin-credentials.txt` | 首次自用超管凭据文件，对应 `app-bootstrap` 命名卷；读取后应妥善保存并删除文件。 |
 | `SELF_USE_MODE_ENABLED` | `true` | 启用单用户自用模式和首次超管初始化。 |
+| `FLUXMEDIA_SUPER_ADMIN_EMAIL` | 无 | 首次创建超管所用邮箱；自用模式启用且尚无超管时必须设置。 |
+| `FLUXMEDIA_SUPER_ADMIN_PASSWORD` | 无 | 首次创建超管所用密码；机密，仅保存在服务器 `.env` 或 Secret Manager，绝不写入镜像、日志或凭据文件。 |
 | `INTERNAL_JOB_SCHEDULER_ENABLED` | `true` | 单实例启用内部定时任务；多实例前必须先实现任务互斥。 |
 | `APP_TIME_ZONE` / `TZ` | `Asia/Shanghai` | 应用和容器时区。 |
 | `RATE_LIMIT_TRUSTED_PROXY` | `true` | 仅因请求只经过受控宿主机 Nginx 才可启用；直连公网部署必须设为 `false`。 |

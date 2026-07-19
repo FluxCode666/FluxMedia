@@ -8,7 +8,7 @@
 ## 文件
 
 - `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务；
-  `app-bootstrap` 命名卷挂载到 `/app/.fluxMedia`。
+  超管凭据由服务器 `.env` 注入，镜像和命名卷均不保存明文密码。
 - `.env.example`：不含真实机密的服务器环境变量模板。
 - `nginx/nginx.conf`：参考 user-service 的宿主机 Nginx 主配置。
 - `nginx/conf.d/fluxmedia.conf`：`media.flux-code.cc` 的 HTTPS 站点配置。
@@ -27,8 +27,9 @@ sudo chmod 600 /root/flux-media/.env
 sudo editor /root/flux-media/.env
 ```
 
-至少填写 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`。数据库必须已创建；迁移由部署流水线
-在切换 `web` 前执行。本 Compose 不启动 PostgreSQL。配置完成后先验证默认服务：
+至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和
+`FLUXMEDIA_SUPER_ADMIN_PASSWORD`。数据库必须已创建；迁移由部署流水线在切换 `web` 前执行。
+本 Compose 不启动 PostgreSQL。配置完成后先验证默认服务：
 
 ```bash
 cd /root/flux-media

@@ -122,12 +122,12 @@
 | sendRegistrationVerificationCode | mixed | registration-verification.ts:31 | public（自用模式禁用） | 否 | 60s 冷却 + insert verification + 发信（失败回滚） | 非幂等（有冷却节流） |
 | verifyRegistrationCode | service-fn | registration-verification.ts:100 | public/internal | 否 | 状态机删码/+attempts（MAX 5 防暴破） | 非幂等（消费型） |
 | registrationGuard（注册前置守卫插件） | service-fn | registration-verification-plugin.ts:84 | framework-internal | 否 | 校验+消费验证码+账本写+封禁拦截 | 非幂等 |
-| bootstrapSelfUseSuperAdmin（启动期初始化超管） | service-fn | bootstrap-super-admin.ts:96 | system/startup | 否 | 提升/建超管 + 凭据明文落盘 + 进程闸 | 幂等（已存在即返回） |
-| getUserRoleById（角色解析，授权链根） | service-fn | role-server.ts:18 | internal | 语义只读 | 通常纯读；local admin 惰性提权写 | 幂等 |
+| bootstrapSelfUseSuperAdmin（启动期初始化超管） | service-fn | bootstrap-super-admin.ts:85 | system/startup | 否 | 提升/建超管 + 环境凭据哈希写入 + 进程闸 | 幂等（已存在即返回） |
+| getUserRoleById（角色解析，授权链根） | service-fn | role-server.ts:13 | internal | 是 | 只读角色并安全归一化 | 幂等 |
 | checkAdmin / isAdmin（路由守卫） | service-fn | admin.ts:25/49 | internal | 语义只读 | 读会话/角色；非管理员 redirect | 幂等 |
 | getServerSession / getCurrentUser / isAuthenticated | service-fn | server.ts | internal/protected | 是 | 纯读（耦合 next/headers） | 幂等 |
 
-接口化要点：admin-users 13 个 action 需把权限判定（actor{userId,role}）与业务执行拆开、剥离 revalidatePath。roles.ts / registration-verification-core / session-current-core 已是 DB-free 纯函数有单测。server.ts/admin.ts 依赖 next/headers/redirect，需改为传入已解析 session。createUser 5 步非单事务靠唯一约束兜底。grant/adjust 是最需补幂等键的操作。getUserRoleById 含隐藏写副作用（只读副本会失败）。bootstrap 含凭据明文落盘，仅内部运维，不外暴露。
+接口化要点：admin-users 13 个 action 需把权限判定（actor{userId,role}）与业务执行拆开、剥离 revalidatePath。roles.ts / registration-verification-core / session-current-core 已是 DB-free 纯函数有单测。server.ts/admin.ts 依赖 next/headers/redirect，需改为传入已解析 session。createUser 5 步非单事务靠唯一约束兜底。grant/adjust 是最需补幂等键的操作。getUserRoleById 保持纯读；bootstrap 仅从环境变量读取凭据并写入密码哈希，且不对外暴露。
 
 ---
 
