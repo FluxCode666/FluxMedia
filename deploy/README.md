@@ -1,14 +1,14 @@
 # FluxMedia 生产部署
 
-本目录提供 `media.flux-code.cc` 的生产部署配置。Docker Compose 默认只启动 `web`
-主服务；数据库迁移是显式维护 profile，不会常驻运行。PostgreSQL 使用外部
+本目录提供 `media.flux-code.cc` 的生产部署配置。Docker Compose 默认启动 `web` 与
+无持久化 Redis 缓存；数据库迁移是显式维护 profile，不会常驻运行。PostgreSQL 使用外部
 `DATABASE_URL`，注册机与 ChatGPT Web 代理均不启动。宿主机 Nginx 负责 TLS 终止并反向
 代理到 `127.0.0.1:3000`。
 
 ## 文件
 
-- `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务；
-  超管凭据由服务器 `.env` 注入，镜像和命名卷均不保存明文密码。
+- `docker-compose.yml`：`web` 主服务、Redis 缓存，以及默认关闭的 `maintenance`
+  数据库迁移服务；超管与 Redis 凭据由服务器 `.env` 注入，Redis 不持久化设置缓存。
 - `.env.example`：不含真实机密的服务器环境变量模板。
 - `nginx/nginx.conf`：参考 user-service 的宿主机 Nginx 主配置。
 - `nginx/conf.d/fluxmedia.conf`：`media.flux-code.cc` 的 HTTPS 站点配置。
@@ -27,15 +27,16 @@ sudo chmod 600 /root/flux-media/.env
 sudo editor /root/flux-media/.env
 ```
 
-至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和
-`FLUXMEDIA_SUPER_ADMIN_PASSWORD`。数据库必须已创建；迁移由部署流水线在切换 `web` 前执行。
+至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`REDIS_PASSWORD`、
+`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和 `FLUXMEDIA_SUPER_ADMIN_PASSWORD`。数据库必须已创建；
+迁移由部署流水线在切换 `web` 前执行。
 本 Compose 不启动 PostgreSQL。配置完成后先验证默认服务：
 
 ```bash
 cd /root/flux-media
 docker compose config --quiet
-docker compose up -d --no-deps web
-docker compose ps web
+docker compose up -d redis web
+docker compose ps redis web
 ```
 
 手工执行迁移时显式启用维护 profile。迁移成功后再启动主服务：
@@ -43,7 +44,7 @@ docker compose ps web
 ```bash
 docker compose --profile maintenance pull migrate
 docker compose --profile maintenance run --rm --no-deps --interactive=false migrate
-docker compose up -d --no-deps web
+docker compose up -d redis web
 ```
 
 自动部署必须关闭 migrate 容器的 stdin。远程脚本通过 SSH stdin 传入；若保留 Compose
@@ -97,7 +98,8 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/root/flux-media`。服务器
 上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 并更新其中的
 `FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令先通过
-`maintenance` profile 执行一次迁移，再带 `--no-deps` 启动 `web`，不会启动注册机。
+`maintenance` profile 执行一次迁移，再启动 Redis 与 `web`，不会启动注册机。旧服务器
+首次升级时若没有 `REDIS_PASSWORD`，流水线会静默生成 32 字节十六进制密码并写入 `.env`。
 
 生产部署从 Actions 手动触发，可选择 `main`，也可选择与输入版本完全一致的 Git tag；
 版本号必须符合 `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。tag 与输入版本不一致时

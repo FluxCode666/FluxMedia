@@ -317,16 +317,26 @@ jobs:
             if [ -n "${previous_image}" ] && [ -n "${previous_tag}" ]; then
               echo "正在回滚到 ${previous_image}:${previous_tag}。" >&2
               docker compose pull web || true
+              docker compose up -d redis || true
               docker compose up -d --no-deps web || true
             fi
           }
+
+          # 旧部署没有 Redis 密码。首次升级时静默生成并持久化到服务器 .env，
+          # 不把密钥打印到 Actions 或 SSH 日志。
+          if [ -z "$(read_env_value REDIS_PASSWORD)" ]; then
+            set_env_value REDIS_PASSWORD "$(openssl rand -hex 32)"
+          fi
+          if [ -z "$(read_env_value REDIS_DB)" ]; then
+            set_env_value REDIS_DB "4"
+          fi
 
           set_env_value FLUXMEDIA_IMAGE "${web_image}"
           set_env_value FLUXMEDIA_MIGRATE_IMAGE "${migrate_image}"
           set_env_value FLUXMEDIA_TAG "${image_tag}"
           docker compose --profile maintenance config --quiet
 
-          if ! docker compose --profile maintenance pull migrate web; then
+          if ! docker compose --profile maintenance pull redis migrate web; then
             restore_previous_release
             exit 1
           fi
@@ -341,8 +351,8 @@ jobs:
             exit 1
           fi
 
-          echo "启动 web 服务。"
-          if ! docker compose up -d --no-deps --remove-orphans web; then
+          echo "启动 Redis 与 web 服务。"
+          if ! docker compose up -d --remove-orphans redis web; then
             echo "数据库迁移已经成功，不会自动回退数据库结构。" >&2
             restore_previous_release
             exit 1
