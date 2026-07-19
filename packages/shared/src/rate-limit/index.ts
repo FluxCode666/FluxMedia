@@ -5,143 +5,344 @@
  * 未配置 Upstash 时回退到单实例内存兜底限流（不 fail-open），
  * 多实例部署应配置 Upstash 获得跨实例共享的分布式限流。
  *
- * 环境变量:
- * - UPSTASH_REDIS_REST_URL: Upstash Redis REST URL
- * - UPSTASH_REDIS_REST_TOKEN: Upstash Redis REST Token
- * - RATE_LIMIT_*_REQUESTS_PER_MINUTE: 各类限流阈值
+ * 配置通过 system-settings 运行时读取；其缓存负责避免每个请求直查数据库。
+ * Upstash 凭据或阈值变化时，本模块按配置指纹重建客户端，无需重启进程。
  */
 
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import type { NextRequest } from "next/server";
 
+import {
+  getRuntimeSettingNumber,
+  getRuntimeSettingString,
+} from "@repo/shared/system-settings";
+
 // ============================================
-// 配置检查
+// 运行时配置
 // ============================================
 
+const CONFIG_READ_TIMEOUT_MS = 2_000;
+const UPSTASH_REQUEST_TIMEOUT_MS = 2_000;
+const WARNING_THROTTLE_MS = 60_000;
+const MEMORY_WINDOW_MS = 60_000;
+
+const RATE_LIMIT_DEFINITIONS = {
+  global: {
+    settingKey: "RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE",
+    fallback: 100,
+  },
+  auth: {
+    settingKey: "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",
+    fallback: 5,
+  },
+  ai: {
+    settingKey: "RATE_LIMIT_AI_REQUESTS_PER_MINUTE",
+    fallback: 20,
+  },
+  payment: {
+    settingKey: "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
+    fallback: 10,
+  },
+  upload: {
+    settingKey: "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
+    fallback: 30,
+  },
+  strict: {
+    settingKey: "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
+    fallback: 3,
+  },
+} as const;
+
+export type RateLimitType = keyof typeof RATE_LIMIT_DEFINITIONS;
+
+type RateLimitRuntimeConfig = {
+  redisUrl: string | undefined;
+  redisToken: string | undefined;
+  requests: Record<RateLimitType, number>;
+};
+
+type CachedLimiter = {
+  fingerprint: string;
+  limiter: Ratelimit;
+};
+
+type RateLimitResources = {
+  connectionFingerprint?: string;
+  redis: Redis | null;
+  limiters: Map<RateLimitType, CachedLimiter>;
+};
+
+const resources: RateLimitResources = {
+  redis: null,
+  limiters: new Map(),
+};
+
+let lastKnownConfig: RateLimitRuntimeConfig | undefined;
+let lastWarningAt = 0;
+
 /**
- * 检查 Upstash 是否已配置
+ * 从进程环境构造安全回退配置。
+ *
+ * @returns 经正整数校验的阈值与可选 Upstash 凭据
  */
-export function isRateLimitEnabled(): boolean {
-  return !!(
-    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-  );
+function getProcessRuntimeConfig(): RateLimitRuntimeConfig {
+  return {
+    redisUrl: process.env.UPSTASH_REDIS_REST_URL?.trim() || undefined,
+    redisToken: process.env.UPSTASH_REDIS_REST_TOKEN?.trim() || undefined,
+    requests: {
+      global: getPositiveIntegerEnv(
+        "RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.global.fallback
+      ),
+      auth: getPositiveIntegerEnv(
+        "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.auth.fallback
+      ),
+      ai: getPositiveIntegerEnv(
+        "RATE_LIMIT_AI_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.ai.fallback
+      ),
+      payment: getPositiveIntegerEnv(
+        "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.payment.fallback
+      ),
+      upload: getPositiveIntegerEnv(
+        "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.upload.fallback
+      ),
+      strict: getPositiveIntegerEnv(
+        "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.strict.fallback
+      ),
+    },
+  };
 }
 
-// ============================================
-// Redis 客户端（懒加载）
-// ============================================
-
-let redis: Redis | null = null;
-
-function getRedis(): Redis | null {
-  if (!isRateLimitEnabled()) {
-    return null;
+/**
+ * 给异步配置读取设置上限，避免缓存后端故障拖住业务请求。
+ *
+ * @param promise - 配置读取任务
+ * @param timeoutMs - 最大等待毫秒数
+ * @returns 原任务结果
+ * @throws 超时后抛出错误，由调用方降级到最后一次有效配置
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`配置读取超过 ${timeoutMs}ms`));
+        }, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-
-  if (!redis) {
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
-  }
-
-  return redis;
 }
 
-// ============================================
-// 限流器配置
-// ============================================
-
 /**
- * 限流器缓存（避免重复创建）
+ * 对配置或 Upstash 故障做节流告警，避免高流量时刷屏。
+ *
+ * @param message - 不含凭据的告警上下文
+ * @param error - 原始异常
  */
-const limiters = new Map<string, Ratelimit>();
+function warnRateLimitFailure(message: string, error: unknown) {
+  const now = Date.now();
+  if (now - lastWarningAt < WARNING_THROTTLE_MS) return;
+  lastWarningAt = now;
+  console.warn(`[rate-limit] ${message}`, error);
+}
 
 /**
- * 预定义的限流配置
+ * 读取完整的运行时限流配置。
+ *
+ * @returns 当前配置；读取失败时回退到最后一次有效值或进程环境
+ */
+async function getRuntimeConfig(): Promise<RateLimitRuntimeConfig> {
+  const readConfig = async (): Promise<RateLimitRuntimeConfig> => {
+    const [redisUrl, redisToken] = await Promise.all([
+      getRuntimeSettingString("UPSTASH_REDIS_REST_URL"),
+      getRuntimeSettingString("UPSTASH_REDIS_REST_TOKEN"),
+    ]);
+    const types = Object.keys(RATE_LIMIT_DEFINITIONS) as RateLimitType[];
+    const thresholds = await Promise.all(
+      types.map((type) => {
+        const definition = RATE_LIMIT_DEFINITIONS[type];
+        return getRuntimeSettingNumber(
+          definition.settingKey,
+          definition.fallback,
+          { positive: true }
+        );
+      })
+    );
+    const requests = { ...getProcessRuntimeConfig().requests };
+    for (const [index, type] of types.entries()) {
+      const threshold = thresholds[index];
+      requests[type] = Math.max(
+        1,
+        Math.trunc(threshold ?? RATE_LIMIT_DEFINITIONS[type].fallback)
+      );
+    }
+    return { redisUrl, redisToken, requests };
+  };
+
+  try {
+    const config = await withTimeout(readConfig(), CONFIG_READ_TIMEOUT_MS);
+    lastKnownConfig = config;
+    return config;
+  } catch (error) {
+    warnRateLimitFailure("读取运行时配置失败，已使用安全回退配置", error);
+    return lastKnownConfig ?? getProcessRuntimeConfig();
+  }
+}
+
+/**
+ * 检查当前运行时配置是否包含完整 Upstash 凭据。
+ *
+ * @returns URL 与 Token 均存在时为 true
+ */
+export async function isRateLimitEnabled(): Promise<boolean> {
+  const config = await getRuntimeConfig();
+  return Boolean(config.redisUrl && config.redisToken);
+}
+
+/**
+ * 读取环境变量中的正整数，供兼容配置视图与故障回退使用。
+ *
+ * @param name - 环境变量名
+ * @param fallback - 无效值的默认值
+ * @returns 正整数阈值
  */
 function getPositiveIntegerEnv(name: string, fallback: number) {
   const value = Number(process.env[name]);
-  if (!Number.isFinite(value) || value <= 0) {
-    return fallback;
-  }
-  return Math.trunc(value);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
 }
 
+/**
+ * 兼容既有调用方的进程环境配置视图。
+ * 业务限流不使用该静态视图，而是在每次检查时读取缓存后的运行时设置。
+ */
 export const RateLimitConfig = {
-  /** 全局 API 限流 */
   global: {
-    requests: getPositiveIntegerEnv(
-      "RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE",
-      100
-    ),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.global.fallback
+      );
+    },
     window: "1m" as const,
   },
-  /** 认证 API 限流（防暴力破解）*/
   auth: {
-    requests: getPositiveIntegerEnv(
-      "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",
-      5
-    ),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.auth.fallback
+      );
+    },
     window: "1m" as const,
   },
-  /** AI / 生图 API 限流 */
   ai: {
-    requests: getPositiveIntegerEnv("RATE_LIMIT_AI_REQUESTS_PER_MINUTE", 20),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_AI_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.ai.fallback
+      );
+    },
     window: "1m" as const,
   },
-  /** 支付 API 限流 */
   payment: {
-    requests: getPositiveIntegerEnv(
-      "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
-      10
-    ),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.payment.fallback
+      );
+    },
     window: "1m" as const,
   },
-  /** 上传 API 限流 */
   upload: {
-    requests: getPositiveIntegerEnv(
-      "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
-      30
-    ),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.upload.fallback
+      );
+    },
     window: "1m" as const,
   },
-  /** 严格限流（用于敏感操作）*/
   strict: {
-    requests: getPositiveIntegerEnv(
-      "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
-      3
-    ),
+    get requests() {
+      return getPositiveIntegerEnv(
+        "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
+        RATE_LIMIT_DEFINITIONS.strict.fallback
+      );
+    },
     window: "1m" as const,
   },
 } as const;
 
-export type RateLimitType = keyof typeof RateLimitConfig;
-
 /**
- * 获取或创建限流器
+ * 按连接指纹获取 Redis 客户端；凭据变化时清空旧限流器。
+ *
+ * @param config - 当前运行时配置
+ * @returns 已配置时返回 Redis，否则返回 null 以启用内存兜底
  */
-function getLimiter(type: RateLimitType): Ratelimit | null {
-  const redisClient = getRedis();
-  if (!redisClient) {
+function getRedis(config: RateLimitRuntimeConfig): Redis | null {
+  const connectionFingerprint = `${config.redisUrl ?? ""}\u0000${
+    config.redisToken ?? ""
+  }`;
+  if (resources.connectionFingerprint === connectionFingerprint) {
+    return resources.redis;
+  }
+
+  resources.connectionFingerprint = connectionFingerprint;
+  resources.limiters.clear();
+  if (!config.redisUrl || !config.redisToken) {
+    resources.redis = null;
     return null;
   }
 
-  const cached = limiters.get(type);
-  if (cached) {
-    return cached;
-  }
+  resources.redis = new Redis({
+    url: config.redisUrl,
+    token: config.redisToken,
+    // 每条 REST 请求使用独立信号；复用一个已超时的 signal 会让后续请求全失败。
+    signal: () => AbortSignal.timeout(UPSTASH_REQUEST_TIMEOUT_MS),
+  });
+  return resources.redis;
+}
 
-  const config = RateLimitConfig[type];
+/**
+ * 按连接与阈值指纹获取限流器。
+ *
+ * @param type - 限流类别
+ * @param config - 当前运行时配置
+ * @returns 已配置 Upstash 时返回限流器，否则返回 null
+ */
+function getLimiter(
+  type: RateLimitType,
+  config: RateLimitRuntimeConfig
+): Ratelimit | null {
+  const redisClient = getRedis(config);
+  if (!redisClient) return null;
+
+  const fingerprint = `${resources.connectionFingerprint}\u0000${
+    config.requests[type]
+  }`;
+  const cached = resources.limiters.get(type);
+  if (cached?.fingerprint === fingerprint) return cached.limiter;
+
   const limiter = new Ratelimit({
     redis: redisClient,
-    limiter: Ratelimit.slidingWindow(config.requests, config.window),
+    limiter: Ratelimit.slidingWindow(config.requests[type], "1m"),
     prefix: `ratelimit:${type}`,
     analytics: true,
+    // Redis 客户端负责中止慢请求；禁用 SDK 的 fail-open timeout，异常统一走内存兜底。
+    timeout: 0,
   });
 
-  limiters.set(type, limiter);
+  resources.limiters.set(type, { fingerprint, limiter });
   return limiter;
 }
 
@@ -190,7 +391,6 @@ interface MemoryRateBucket {
 }
 
 const memoryBuckets = new Map<string, MemoryRateBucket>();
-const MEMORY_WINDOW_MS = 60_000;
 
 /**
  * 单实例内存限流。用于未配置 Upstash 时所有限流类型的兜底，
@@ -201,9 +401,9 @@ const MEMORY_WINDOW_MS = 60_000;
  */
 function checkMemoryRateLimit(
   identifier: string,
-  type: RateLimitType
+  type: RateLimitType,
+  requests: number
 ): RateLimitResult {
-  const config = RateLimitConfig[type];
   const now = Date.now();
   const key = `${type}:${identifier}`;
   const bucket = memoryBuckets.get(key);
@@ -217,19 +417,19 @@ function checkMemoryRateLimit(
     memoryBuckets.set(key, { count: 1, reset: now + MEMORY_WINDOW_MS });
     return {
       success: true,
-      remaining: config.requests - 1,
+      remaining: requests - 1,
       reset: now + MEMORY_WINDOW_MS,
-      limit: config.requests,
+      limit: requests,
       skipped: false,
     };
   }
 
   bucket.count += 1;
   return {
-    success: bucket.count <= config.requests,
-    remaining: Math.max(0, config.requests - bucket.count),
+    success: bucket.count <= requests,
+    remaining: Math.max(0, requests - bucket.count),
     reset: bucket.reset,
-    limit: config.requests,
+    limit: requests,
     skipped: false,
   };
 }
@@ -238,25 +438,32 @@ export async function checkRateLimit(
   identifier: string,
   type: RateLimitType = "global"
 ): Promise<RateLimitResult> {
-  const limiter = getLimiter(type);
+  const config = await getRuntimeConfig();
+  const limiter = getLimiter(type, config);
 
   // 未配置 Upstash：所有类型走单实例内存兜底限流，不再对成本敏感类型
   // （ai/upload/payment/global）fail-open。窗口内放行不超过阈值的请求，
   // 正常流量无感，仅拦截单 IP / 单 key 的异常高频，防止默认部署下零限流被
   // 无限刷量打满上游配额或暴力破解。生产应配置 Upstash 获得分布式限流。
   if (!limiter) {
-    return checkMemoryRateLimit(identifier, type);
+    return checkMemoryRateLimit(identifier, type, config.requests[type]);
   }
 
-  const result = await limiter.limit(identifier);
+  try {
+    const result = await limiter.limit(identifier);
 
-  return {
-    success: result.success,
-    remaining: result.remaining,
-    reset: result.reset,
-    limit: result.limit,
-    skipped: false,
-  };
+    return {
+      success: result.success,
+      remaining: result.remaining,
+      reset: result.reset,
+      limit: result.limit,
+      skipped: false,
+    };
+  } catch (error) {
+    // 分布式限流不可用时仍执行单实例限流，避免外部服务故障造成无限 fail-open。
+    warnRateLimitFailure("Upstash 请求失败，已降级到内存限流", error);
+    return checkMemoryRateLimit(identifier, type, config.requests[type]);
+  }
 }
 
 // ============================================

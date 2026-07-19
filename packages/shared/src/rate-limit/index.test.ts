@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingString: vi.fn(async (key: string) => {
+    return process.env[key]?.trim() || undefined;
+  }),
+  getRuntimeSettingNumber: vi.fn(async (key: string, fallback: number) => {
+    const value = Number(process.env[key]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }),
+}));
+
 const RATE_LIMIT_ENV_KEYS = [
   "RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE",
   "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",

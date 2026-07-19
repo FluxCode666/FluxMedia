@@ -14,6 +14,16 @@
 import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingString: vi.fn(async (key: string) => {
+    return process.env[key]?.trim() || undefined;
+  }),
+  getRuntimeSettingNumber: vi.fn(async (key: string, fallback: number) => {
+    const value = Number(process.env[key]);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }),
+}));
+
 const UPSTASH_ENV_KEYS = [
   "UPSTASH_REDIS_REST_URL",
   "UPSTASH_REDIS_REST_TOKEN",
@@ -64,7 +74,14 @@ describe("checkRateLimit fail-closed routing without Upstash", () => {
   it("falls back to memory limiting (not fail-open) for every type", async () => {
     const { checkRateLimit } = await importFreshModule();
 
-    const types = ["auth", "strict", "ai", "upload", "payment", "global"] as const;
+    const types = [
+      "auth",
+      "strict",
+      "ai",
+      "upload",
+      "payment",
+      "global",
+    ] as const;
     for (const type of types) {
       const result = await checkRateLimit(`id-${type}`, type);
       // 不再对成本敏感类型 fail-open：skipped 必须为 false，且首次放行。
