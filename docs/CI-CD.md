@@ -39,7 +39,8 @@
 
 ## deploy-production.yml —— FluxMedia 生产部署
 
-- 仅允许从 `main` 手动触发，版本号必须符合项目版本格式；可选择只构建镜像。
+- 允许从 `main` 或与输入版本完全一致的 Git tag 手动触发，版本号必须符合项目版本
+  格式；可选择只构建镜像。tag 与输入版本不一致时会在质量门阶段拒绝部署。
 - 发布前执行文档镜像、部署提交改动文件 lint、typecheck、test，随后构建 `linux/amd64` 的
   `fluxmedia-web` 与 `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
 - 使用 SSH 账号密码连接目标机，同步 `deploy/docker-compose.yml`；SSH 参数与 FluxCode

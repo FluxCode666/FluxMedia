@@ -1,6 +1,6 @@
 # FluxMedia 生产部署流水线。
 #
-# 使用方式：从 main 手动触发，输入符合项目规范的版本号。流水线先执行质量门，
+# 使用方式：从 main 或与输入版本一致的 Git tag 手动触发。流水线先执行质量门，
 # 再构建 web 与 migrate 镜像并推送 GHCR，最后通过 SSH 账号密码同步生产 Compose、迁移数据库并更新 web 服务。
 # 真实运行时配置只保存在目标服务器 deploy/.env，不进入仓库或 Actions 日志。
 name: Deploy Production
@@ -48,13 +48,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-            echo "::error::生产部署只能从 main 分支触发。"
+          if [[ ! "${VERSION}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::版本号必须符合 v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]。"
             exit 1
           fi
 
-          if [[ ! "${VERSION}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
-            echo "::error::版本号必须符合 v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]。"
+          expected_tag_ref="refs/tags/${VERSION}"
+          if [ "${GITHUB_REF}" != "refs/heads/main" ] && [ "${GITHUB_REF}" != "${expected_tag_ref}" ]; then
+            echo "::error::生产部署只能从 main 或与版本号一致的 Git tag 触发。"
             exit 1
           fi
 

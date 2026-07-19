@@ -89,6 +89,7 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 `FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令先通过
 `maintenance` profile 执行一次迁移，再带 `--no-deps` 启动 `web`，不会启动注册机。
 
-生产部署从 Actions 手动触发，版本号必须符合
-`v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。新容器未通过健康检查时，流水线
-会恢复先前镜像标签并重新启动 `web`。
+生产部署从 Actions 手动触发，可选择 `main`，也可选择与输入版本完全一致的 Git tag；
+版本号必须符合 `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。tag 与输入版本不一致时
+流水线会拒绝部署。新容器未通过健康检查时，流水线会恢复先前镜像标签并重新启动
+`web`。
