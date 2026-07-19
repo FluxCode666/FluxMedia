@@ -86,6 +86,6 @@ USER nextjs
 EXPOSE 3000
 ENV HOSTNAME="0.0.0.0"
 ENV PORT=3000
-ENV GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH=/app/.fluxMedia/super-admin-credentials.txt
+ENV FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH=/app/.fluxMedia/super-admin-credentials.txt
 
 CMD ["node", "apps/web/server.js"]

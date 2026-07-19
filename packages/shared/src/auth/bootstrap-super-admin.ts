@@ -19,7 +19,7 @@ function generatePassword() {
 
 function credentialsPath() {
   return (
-    process.env.GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH?.trim() ||
+    process.env.FLUXMEDIA_BOOTSTRAP_CREDENTIALS_PATH?.trim() ||
     path.join(process.cwd(), ".fluxMedia", "super-admin-credentials.txt")
   );
 }
