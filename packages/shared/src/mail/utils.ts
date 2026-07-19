@@ -1,11 +1,12 @@
+/**
+ * 统一邮件发送工具。
+ *
+ * 使用方包括认证、注册验证与工单通知；依赖 React Email 渲染器及动态邮件
+ * 客户端工厂。每次真实发送都使用同一份运行时配置快照。
+ */
 import { render } from "@react-email/render";
 import type { ReactElement } from "react";
-import {
-  DEFAULT_FROM_EMAIL,
-  getEmailProvider,
-  getResendClient,
-  getSmtpTransporter,
-} from "./client";
+import { getDefaultFromEmail, getEmailDeliveryClient } from "./client";
 
 /**
  * 邮件发送工具
@@ -69,7 +70,7 @@ function isDevelopment(): boolean {
 /**
  * 在控制台输出邮件预览信息 (开发环境)
  */
-function logEmailPreview(params: SendEmailParams): void {
+function logEmailPreview(params: SendEmailParams, effectiveFrom: string): void {
   const recipients = Array.isArray(params.to)
     ? params.to.join(", ")
     : params.to;
@@ -78,7 +79,7 @@ function logEmailPreview(params: SendEmailParams): void {
   console.log("EMAIL PREVIEW (Development Mode)");
   console.log("=".repeat(60));
   console.log(`To:      ${recipients}`);
-  console.log(`From:    ${params.from ?? DEFAULT_FROM_EMAIL}`);
+  console.log(`From:    ${effectiveFrom}`);
   console.log(`Subject: ${params.subject}`);
   if (params.cc) {
     console.log(
@@ -138,7 +139,8 @@ export async function sendEmail(
 
   // 开发环境且未强制发送 -> 模拟发送
   if (isDevelopment() && !force) {
-    logEmailPreview(params);
+    const effectiveFrom = from ?? (await getDefaultFromEmail());
+    logEmailPreview(params, effectiveFrom);
     return {
       success: true,
       simulated: true,
@@ -147,15 +149,16 @@ export async function sendEmail(
 
   // 真实发送邮件
   try {
-    const provider = getEmailProvider();
+    const deliveryClient = await getEmailDeliveryClient();
+    const provider = deliveryClient.provider;
+    const effectiveFrom = from ?? deliveryClient.from;
 
     if (provider === "smtp") {
-      const transporter = getSmtpTransporter();
       const html = await render(react);
       const text = await render(react, { plainText: true });
 
-      const info = await transporter.sendMail({
-        from: from ?? DEFAULT_FROM_EMAIL,
+      const info = await deliveryClient.transporter.sendMail({
+        from: effectiveFrom,
         to,
         subject,
         html,
@@ -172,10 +175,10 @@ export async function sendEmail(
       };
     }
 
-    const resend = getResendClient();
+    const resend = deliveryClient.resend;
     // 构建邮件选项 (避免传递 undefined 值以满足 exactOptionalPropertyTypes)
     const emailOptions: Parameters<typeof resend.emails.send>[0] = {
-      from: from ?? DEFAULT_FROM_EMAIL,
+      from: effectiveFrom,
       to: Array.isArray(to) ? to : [to],
       subject,
       react,

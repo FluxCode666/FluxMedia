@@ -2,7 +2,6 @@ import { db } from "@repo/database";
 import * as schema from "@repo/database/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { isEmailConfigured } from "../mail/client";
 import {
   ResetPasswordEmail,
   VerifyEmailEmail,
@@ -141,23 +140,21 @@ export const auth = betterAuth({
   /**
    * 邮箱验证配置
    */
-  ...(isEmailConfigured()
-    ? {
-        emailVerification: {
-          sendOnSignUp: false,
-          sendVerificationEmail: async ({ user, url }) => {
-            await sendEmail({
-              to: user.email,
-              subject: "Verify your email - GPT2IMAGE",
-              react: VerifyEmailEmail({
-                verifyUrl: url,
-                name: user.name || "there",
-              }),
-            });
-          },
-        },
-      }
-    : {}),
+  // WHY: 邮件配置来自异步运行时设置，不能在模块初始化阶段同步裁剪此能力；
+  // 保留回调并在实际发送时解析当前配置，后台启用或切换通道即可立即生效。
+  emailVerification: {
+    sendOnSignUp: false,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendEmail({
+        to: user.email,
+        subject: "Verify your email - GPT2IMAGE",
+        react: VerifyEmailEmail({
+          verifyUrl: url,
+          name: user.name || "there",
+        }),
+      });
+    },
+  },
 
   /**
    * OAuth 社交登录提供商配置
