@@ -9,8 +9,9 @@
  *
  * 使用方:apps/web 的 server action / UOL image.exportPsd。CPU 主要花在逐元素 ISNet 抠图 + ag-psd 写盘。
  */
-import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
+
 import { getStorageProvider } from "@repo/shared/storage/providers";
+import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { nanoid } from "nanoid";
 import { getGenerationById } from "@/features/image-generation/queries";
 import { assembleLayeredPsd, type LayerSpec } from "./assemble-layers";
@@ -67,9 +68,11 @@ export async function exportLayeredPsdForUser(
   let elementIndex = 0;
   const layers: LayerSpec[] = await Promise.all(
     stackLayers.map(async (layer) => {
-      const image = await storage.getObject(layer.storageKey, bucket);
       const opaque = layer.role === "background";
-      const name = opaque ? "背景" : `元素 ${(elementIndex += 1)}`;
+      if (!opaque) elementIndex += 1;
+      // WHY：在首次 await 前按堆叠顺序固定编号，避免并发存储读取的完成顺序改变图层名。
+      const name = opaque ? "背景" : `元素 ${elementIndex}`;
+      const image = await storage.getObject(layer.storageKey, bucket);
       // 背景层不抠图、铺满不透明;元素层(白底生成)交给组装环节抠白底转透明。
       return { name, image, opaque };
     })
