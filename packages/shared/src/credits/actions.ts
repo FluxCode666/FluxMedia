@@ -6,39 +6,27 @@
  * 提供积分系统的前端调用接口
  */
 
-import { z } from "zod";
-
-import { and, eq, inArray } from "drizzle-orm";
-
 import { db } from "@repo/database";
 import { creditsTransaction, externalApiKey } from "@repo/database/schema";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
 import { getBaseUrl } from "../config/payment";
 import {
   isPlanAtLeast,
   type SubscriptionPlan,
 } from "../config/subscription-plan";
+import { logEvent } from "../logger/index";
 import { creem } from "../payment/creem";
 import {
   createRuntimeEpayPurchase,
-  isRuntimeEpayPaymentProvider,
+  getRuntimePaymentProvider,
   saveEpayOrder,
 } from "../payment/epay";
-import { logEvent } from "../logger/index";
 import { protectedAction } from "../safe-action";
 import { getUserPlanType } from "../subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "../system-settings";
 
-import {
-  CREDIT_CONFIG_DEFAULTS,
-  isCreditPackageVisible,
-} from "./config";
-import {
-  getRuntimeCreditPackageById,
-  getRuntimeCreditPackages,
-  getCreditPackageCurrency,
-  getCreditPackageCreemProductIdForPlan,
-  getCreditPackagePriceForPlan,
-} from "./packages";
+import { CREDIT_CONFIG_DEFAULTS, isCreditPackageVisible } from "./config";
 import {
   AccountFrozenError,
   consumeCredits,
@@ -51,6 +39,13 @@ import {
   grantCredits,
   InsufficientCreditsError,
 } from "./core";
+import {
+  getCreditPackageCreemProductIdForPlan,
+  getCreditPackageCurrency,
+  getCreditPackagePriceForPlan,
+  getRuntimeCreditPackageById,
+  getRuntimeCreditPackages,
+} from "./packages";
 
 const withProtectedCreditsAction = (name: string) =>
   protectedAction.metadata({ action: `credits.${name}` });
@@ -418,7 +413,11 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
 
     const baseUrl = getBaseUrl();
 
-    const useEpay = await isRuntimeEpayPaymentProvider();
+    const paymentProvider = await getRuntimePaymentProvider();
+    if (paymentProvider === "none") {
+      throw new Error("支付功能当前未启用");
+    }
+    const useEpay = paymentProvider === "epay";
     if (!useEpay && quantity > 1) {
       throw new Error("当前支付通道暂不支持数量购买，请分次购买");
     }
@@ -431,7 +430,7 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
       packageId: pkg.id,
       credits: creditsAmount,
       quantity,
-      provider: useEpay ? "epay" : "creem",
+      provider: paymentProvider,
       checkoutType: "credits",
     });
 
@@ -494,13 +493,15 @@ export const getCreditPackages = withProtectedCreditsAction(
   "getCreditPackages"
 ).action(async ({ ctx }) => {
   const userPlan = await getUserPlanForCreditsAction(ctx.userId);
-  const [packages, useEpay] = await Promise.all([
+  const [packages, paymentProvider] = await Promise.all([
     getRuntimeCreditPackages({
       includeHidden: isPlanAtLeast(userPlan, "enterprise"),
       plan: userPlan,
     }),
-    isRuntimeEpayPaymentProvider(),
+    getRuntimePaymentProvider(),
   ]);
+  if (paymentProvider === "none") return [];
+  const useEpay = paymentProvider === "epay";
   return packages
     .filter((pkg) => {
       if (pkg.requiresPlan) return isPlanAtLeast(userPlan, pkg.requiresPlan);

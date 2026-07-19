@@ -13,9 +13,13 @@ import {
   type PricingConfig,
 } from "../payment/types";
 
-const paymentProvider =
-  process.env.PAYMENT_PROVIDER?.trim().toLowerCase() === "epay" ||
-  process.env.NEXT_PUBLIC_PAYMENT_PROVIDER?.trim().toLowerCase() === "epay"
+const configuredPaymentProviders = [
+  process.env.PAYMENT_PROVIDER,
+  process.env.NEXT_PUBLIC_PAYMENT_PROVIDER,
+].map((value) => value?.trim().toLowerCase());
+const paymentProvider = configuredPaymentProviders.includes("none")
+  ? "none"
+  : configuredPaymentProviders.includes("epay")
     ? "epay"
     : "creem";
 
@@ -37,8 +41,7 @@ export const PRICE_IDS = {
     process.env.NEXT_PUBLIC_CREEM_PRICE_STARTER_MONTHLY || "starter_monthly",
   STARTER_YEARLY:
     process.env.NEXT_PUBLIC_CREEM_PRICE_STARTER_YEARLY || "starter_yearly",
-  PRO_MONTHLY:
-    process.env.NEXT_PUBLIC_CREEM_PRICE_PRO_MONTHLY || "pro_monthly",
+  PRO_MONTHLY: process.env.NEXT_PUBLIC_CREEM_PRICE_PRO_MONTHLY || "pro_monthly",
   PRO_YEARLY: process.env.NEXT_PUBLIC_CREEM_PRICE_PRO_YEARLY || "pro_yearly",
   ULTRA_MONTHLY:
     process.env.NEXT_PUBLIC_CREEM_PRICE_ULTRA_MONTHLY || "ultra_monthly",

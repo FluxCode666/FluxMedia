@@ -187,6 +187,9 @@ function getOrCreateSmtpTransporter(
     return smtpTransporterCache.client;
   }
 
+  // WHY：配置轮换后旧连接池不再会被复用，显式关闭以释放 SMTP socket；
+  // 新 transporter 只在完整配置校验通过后创建，轮换失败不会泄露凭据。
+  smtpTransporterCache?.client.close();
   const options: SMTPTransport.Options = {
     host: config.host,
     port: config.port,

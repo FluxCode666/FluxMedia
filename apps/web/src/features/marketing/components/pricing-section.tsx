@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@repo/ui/components/card";
 import { cn } from "@repo/ui/utils";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Check,
   ChevronLeft,
@@ -30,30 +31,26 @@ import {
   Loader2,
   ShoppingCart,
 } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
 import {
-  createCheckoutSession,
-  getUserSubscription,
-} from "@/features/payment/actions";
-import {
   getImageBaseCreditPricing,
   getImageCreditCostBreakdown,
   IMAGE_MODERATION_PRICE_CNY,
+  type ImageBaseCreditPricing,
   REFERENCE_CREDIT_PRICE_CNY,
   TEXT_MODERATION_PRICE_CNY,
-  type ImageBaseCreditPricing,
 } from "@/features/image-generation/resolution";
+import {
+  createCheckoutSession,
+  getUserSubscription,
+} from "@/features/payment/actions";
 import { PlanInterval } from "@/features/payment/types";
 import { useRouter } from "@/i18n/routing";
 
 import { AnimatedPrice } from "./animated-price";
-import {
-  type PlanGalleryItem,
-  PlanGalleryStage,
-} from "./pricing-plan-gallery";
+import { type PlanGalleryItem, PlanGalleryStage } from "./pricing-plan-gallery";
 
 function submitEpayForm(url: string, params: Record<string, string>) {
   const form = document.createElement("form");
@@ -144,6 +141,7 @@ export function PricingSection({
     const config = payment ?? paymentConfig;
     return config.plans[planId as keyof typeof config.plans];
   };
+  const paymentEnabled = (payment ?? paymentConfig).provider !== "none";
 
   /**
    * 获取计划的当前价格
@@ -238,10 +236,8 @@ export function PricingSection({
   };
 
   const copy = (en: string, zh: string) => (isZh ? zh : en);
-  const formatNumber = (
-    value: number,
-    options?: Intl.NumberFormatOptions
-  ) => new Intl.NumberFormat(locale, options).format(value);
+  const formatNumber = (value: number, options?: Intl.NumberFormatOptions) =>
+    new Intl.NumberFormat(locale, options).format(value);
   const formatCredits = (value: number) =>
     formatNumber(value, { maximumFractionDigits: 0 });
   const formatCreditAmount = (value: number) =>
@@ -252,10 +248,7 @@ export function PricingSection({
     `${formatNumber(value, { maximumFractionDigits: 0 })}MB`;
   const getPlanLimits = (planId: string) =>
     capabilityMatrix.limits[planId as SubscriptionPlan];
-  const canUseCapability = (
-    planId: string,
-    capability: PlanCapabilityKey
-  ) => {
+  const canUseCapability = (planId: string, capability: PlanCapabilityKey) => {
     if (!isPricingPlanId(planId)) return false;
     return (
       PLAN_RANK[planId] >= PLAN_RANK[capabilityMatrix.features[capability]]
@@ -263,7 +256,8 @@ export function PricingSection({
   };
   const getPlanCredits = (planId: string) =>
     getPlanLimits(planId).monthlyCredits;
-  const normalizedImageBasePricing = getImageBaseCreditPricing(imageBasePricing);
+  const normalizedImageBasePricing =
+    getImageBaseCreditPricing(imageBasePricing);
   const textModerationCredits =
     TEXT_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
   const imageModerationCredits =
@@ -545,7 +539,10 @@ export function PricingSection({
     }
 
     items.push(
-      copy("Download, share, and saved gallery history", "下载、分享与画廊历史保存")
+      copy(
+        "Download, share, and saved gallery history",
+        "下载、分享与画廊历史保存"
+      )
     );
     return items;
   };
@@ -555,7 +552,9 @@ export function PricingSection({
     plan: SubscriptionPlan
   ) => {
     for (let i = PLAN_RANK[plan]; i >= 0; i -= 1) {
-      const candidate = SUBSCRIPTION_PLANS.find((item) => PLAN_RANK[item] === i);
+      const candidate = SUBSCRIPTION_PLANS.find(
+        (item) => PLAN_RANK[item] === i
+      );
       if (candidate && pkg.pricesByPlan?.[candidate]) {
         return pkg.pricesByPlan[candidate]!;
       }
@@ -599,6 +598,8 @@ export function PricingSection({
       router.push("/sign-in?redirect=/#pricing");
       return;
     }
+
+    if (!paymentEnabled) return;
 
     const price = getCheckoutPrice(planId);
     if (!price?.priceId) return;
@@ -728,9 +729,7 @@ export function PricingSection({
             {getGeneratedFeatureTexts(planId).map((feature) => (
               <li key={feature} className="flex items-center gap-2">
                 <Check className="h-4 w-4 shrink-0 text-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  {feature}
-                </span>
+                <span className="text-sm text-muted-foreground">{feature}</span>
               </li>
             ))}
           </ul>
@@ -756,12 +755,16 @@ export function PricingSection({
               className="w-full"
               variant={popular ? "default" : "outline"}
               onClick={() => handleSubscribe(planId)}
-              disabled={isLoading || isPending}
+              disabled={!paymentEnabled || isLoading || isPending}
             >
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {canUpgrade ? t("upgradePlan") : t(`plans.${planId}.cta`)}
+              {!paymentEnabled
+                ? copy("Payment unavailable", "支付未启用")
+                : canUpgrade
+                  ? t("upgradePlan")
+                  : t(`plans.${planId}.cta`)}
             </Button>
           )}
         </CardContent>
@@ -868,79 +871,81 @@ export function PricingSection({
           )}
         />
       ) : (
-      <div className="relative">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-background to-transparent md:w-24"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-background to-transparent md:w-24"
-        />
-        <button
-          type="button"
-          aria-label={copy("Previous plan", "上一个套餐")}
-          onClick={() => scrollPlans(-1)}
-          className="absolute left-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground shadow-menu backdrop-blur transition-[color,border-color,scale] duration-150 hover:border-foreground/40 hover:text-foreground active:scale-95 md:flex"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          aria-label={copy("Next plan", "下一个套餐")}
-          onClick={() => scrollPlans(1)}
-          className="absolute right-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground shadow-menu backdrop-blur transition-[color,border-color,scale] duration-150 hover:border-foreground/40 hover:text-foreground active:scale-95 md:flex"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
+        <div className="relative">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-background to-transparent md:w-24"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-background to-transparent md:w-24"
+          />
+          <button
+            type="button"
+            aria-label={copy("Previous plan", "上一个套餐")}
+            onClick={() => scrollPlans(-1)}
+            className="absolute left-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground shadow-menu backdrop-blur transition-[color,border-color,scale] duration-150 hover:border-foreground/40 hover:text-foreground active:scale-95 md:flex"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            aria-label={copy("Next plan", "下一个套餐")}
+            onClick={() => scrollPlans(1)}
+            className="absolute right-4 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background/90 text-muted-foreground shadow-menu backdrop-blur transition-[color,border-color,scale] duration-150 hover:border-foreground/40 hover:text-foreground active:scale-95 md:flex"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
 
-        <div
-          ref={plansScrollRef}
-          className="scrollbar-none flex snap-x snap-mandatory gap-6 overflow-x-auto scroll-smooth px-[max(1.5rem,calc((100vw-72rem)/2))] py-6"
-        >
-          {PLAN_IDS.map((planId) => {
-            const badge = renderPlanBadge(planId);
-            return (
-              // 润格立轴(轮播轨):每档套餐是一幅挂单的窄长立轴——
-              // 上卷杆/下地杆带轴头,入场自上方垂落展开并微摆
-              // (书画家挂润格的传统);签条(推荐/当前)挂在卷杆下。
-              // 业务交互(订阅/管理/能力清单)在共用轴身内原样保留。
-              <motion.div
-                key={planId}
-                data-plan-card={planId}
-                initial={
-                  reduceMotion ? false : { opacity: 0, scaleY: 0.08, rotate: 0.8 }
-                }
-                whileInView={{ opacity: 1, scaleY: 1, rotate: 0 }}
-                viewport={{ once: true, margin: "-40px" }}
-                transition={{ duration: 0.7, ease: [0.22, 0.8, 0.36, 1] }}
-                style={{ transformOrigin: "top center" }}
-                className="w-[300px] shrink-0 snap-center sm:w-[330px] lg:w-[350px]"
-              >
-                <div
-                  aria-hidden="true"
-                  className="-mx-2 mb-1.5 h-1.5 rounded-full bg-foreground/75"
-                />
-                <div className="relative">
-                  {badge ? (
-                    <div className="absolute -top-3 left-1/2 z-10 -translate-x-1/2">
-                      {badge}
-                    </div>
-                  ) : null}
-                  {renderPlanCard(planId)}
-                </div>
-                <div
-                  aria-hidden="true"
-                  className="relative -mx-3.5 mt-1.5 h-2 rounded-full bg-foreground/85"
+          <div
+            ref={plansScrollRef}
+            className="scrollbar-none flex snap-x snap-mandatory gap-6 overflow-x-auto scroll-smooth px-[max(1.5rem,calc((100vw-72rem)/2))] py-6"
+          >
+            {PLAN_IDS.map((planId) => {
+              const badge = renderPlanBadge(planId);
+              return (
+                // 润格立轴(轮播轨):每档套餐是一幅挂单的窄长立轴——
+                // 上卷杆/下地杆带轴头,入场自上方垂落展开并微摆
+                // (书画家挂润格的传统);签条(推荐/当前)挂在卷杆下。
+                // 业务交互(订阅/管理/能力清单)在共用轴身内原样保留。
+                <motion.div
+                  key={planId}
+                  data-plan-card={planId}
+                  initial={
+                    reduceMotion
+                      ? false
+                      : { opacity: 0, scaleY: 0.08, rotate: 0.8 }
+                  }
+                  whileInView={{ opacity: 1, scaleY: 1, rotate: 0 }}
+                  viewport={{ once: true, margin: "-40px" }}
+                  transition={{ duration: 0.7, ease: [0.22, 0.8, 0.36, 1] }}
+                  style={{ transformOrigin: "top center" }}
+                  className="w-[300px] shrink-0 snap-center sm:w-[330px] lg:w-[350px]"
                 >
-                  <span className="absolute -left-1 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-foreground" />
-                  <span className="absolute -right-1 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-foreground" />
-                </div>
-              </motion.div>
-            );
-          })}
+                  <div
+                    aria-hidden="true"
+                    className="-mx-2 mb-1.5 h-1.5 rounded-full bg-foreground/75"
+                  />
+                  <div className="relative">
+                    {badge ? (
+                      <div className="absolute -top-3 left-1/2 z-10 -translate-x-1/2">
+                        {badge}
+                      </div>
+                    ) : null}
+                    {renderPlanCard(planId)}
+                  </div>
+                  <div
+                    aria-hidden="true"
+                    className="relative -mx-3.5 mt-1.5 h-2 rounded-full bg-foreground/85"
+                  >
+                    <span className="absolute -left-1 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-foreground" />
+                    <span className="absolute -right-1 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-foreground" />
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
         </div>
-      </div>
       )}
 
       <div className="container mx-auto max-w-6xl">

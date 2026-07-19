@@ -135,7 +135,12 @@ function getRedisClient() {
 
   const database = getSystemSettingsRedisDatabase();
   const fingerprint = `${redisUrl}\u0000${database}`;
-  if (redisClient && redisClientFingerprint === fingerprint) {
+  const configurationChanged = redisClientFingerprint !== fingerprint;
+  if (
+    redisClient &&
+    redisClientFingerprint === fingerprint &&
+    redisClient.status !== "end"
+  ) {
     return redisClient;
   }
 
@@ -156,7 +161,9 @@ function getRedisClient() {
     // 命令调用处统一分类并限频记录；error 事件只负责避免未监听事件终止进程。
   });
   redisClientFingerprint = fingerprint;
-  redisUnavailableUntil = 0;
+  if (configurationChanged) {
+    redisUnavailableUntil = 0;
+  }
   return redisClient;
 }
 
@@ -260,7 +267,7 @@ async function readSettingsFromRedis() {
 /**
  * 将数据库回源结果写入 Redis。
  *
- * TTL 加入最多 10% 的稳定随机抖动，降低多实例同一时刻集中过期的风险。写缓存
+ * TTL 加入最多 10% 的随机抖动，降低多实例同一时刻集中过期的风险。写缓存
  * 失败不改变数据库读取结果，由后续请求继续回源。
  *
  * @param values - 数据库返回的完整系统设置 Map。

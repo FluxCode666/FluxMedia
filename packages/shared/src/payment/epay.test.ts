@@ -11,13 +11,20 @@
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+const runtimeSettingSelectMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@repo/database", () => ({ db: {} }));
 vi.mock("@repo/database/schema", () => ({ epayOrder: {} }));
+vi.mock("../system-settings", () => ({
+  getRuntimeSettingSelect: runtimeSettingSelectMock,
+  getRuntimeSettingString: vi.fn(),
+}));
 
 import {
   decodeEpayMetadata,
-  encodeEpayMetadata,
   type EpayMetadata,
+  encodeEpayMetadata,
+  getRuntimePaymentProvider,
   moneyToCents,
   signEpayParams,
   verifyEpayParams,
@@ -32,6 +39,19 @@ beforeAll(() => {
   process.env.EPAY_PID = "test-pid";
   process.env.EPAY_KEY = MERCHANT_KEY;
   process.env.EPAY_API_URL = "https://pay.example.com";
+});
+
+describe("runtime payment provider", () => {
+  it("preserves the none provider instead of falling back to Creem", async () => {
+    runtimeSettingSelectMock.mockResolvedValueOnce("none");
+
+    await expect(getRuntimePaymentProvider()).resolves.toBe("none");
+    expect(runtimeSettingSelectMock).toHaveBeenCalledWith(
+      "PAYMENT_PROVIDER",
+      ["creem", "epay", "none"],
+      expect.any(String)
+    );
+  });
 });
 
 describe("signEpayParams / buildSignPayload", () => {
@@ -105,8 +125,9 @@ describe("verifyEpayParams", () => {
   });
 
   it("rejects a missing signature without throwing", () => {
-    expect(verifyEpayParams({ out_trade_no: "T1", money: "10.00" }).verifyStatus)
-      .toBe(false);
+    expect(
+      verifyEpayParams({ out_trade_no: "T1", money: "10.00" }).verifyStatus
+    ).toBe(false);
   });
 
   it("maps gateway fields and forwards param only when present", () => {

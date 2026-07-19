@@ -11,6 +11,7 @@ const testState = vi.hoisted(() => ({
   smtpClients: [] as Array<{
     options: unknown;
     sendMail: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
   }>,
   resendClients: [] as Array<{
     apiKey: string;
@@ -34,6 +35,7 @@ vi.mock("nodemailer", () => ({
     const client = {
       options,
       sendMail: vi.fn(async () => ({ messageId: "smtp-message-id" })),
+      close: vi.fn(),
     };
     testState.smtpClients.push(client);
     return client;
@@ -96,6 +98,7 @@ describe("邮件客户端运行时配置", () => {
 
     expect(rotatedClient).not.toBe(firstClient);
     expect(testState.smtpClients).toHaveLength(2);
+    expect(testState.smtpClients[0]?.close).toHaveBeenCalledOnce();
   });
 
   it("Resend API Key 变化后重建客户端，且错误中不泄露凭据", async () => {

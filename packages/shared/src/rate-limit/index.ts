@@ -9,14 +9,15 @@
  * Upstash 凭据或阈值变化时，本模块按配置指纹重建客户端，无需重启进程。
  */
 
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-import type { NextRequest } from "next/server";
-
+import { createHash } from "node:crypto";
+import { logWarn } from "@repo/shared/logger";
 import {
   getRuntimeSettingNumber,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+import type { NextRequest } from "next/server";
 
 // ============================================
 // 运行时配置
@@ -154,7 +155,9 @@ function warnRateLimitFailure(message: string, error: unknown) {
   const now = Date.now();
   if (now - lastWarningAt < WARNING_THROTTLE_MS) return;
   lastWarningAt = now;
-  console.warn(`[rate-limit] ${message}`, error);
+  logWarn(`[rate-limit] ${message}`, {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
 }
 
 /**
@@ -290,9 +293,9 @@ export const RateLimitConfig = {
  * @returns 已配置时返回 Redis，否则返回 null 以启用内存兜底
  */
 function getRedis(config: RateLimitRuntimeConfig): Redis | null {
-  const connectionFingerprint = `${config.redisUrl ?? ""}\u0000${
-    config.redisToken ?? ""
-  }`;
+  const connectionFingerprint = createHash("sha256")
+    .update(JSON.stringify([config.redisUrl ?? "", config.redisToken ?? ""]))
+    .digest("hex");
   if (resources.connectionFingerprint === connectionFingerprint) {
     return resources.redis;
   }

@@ -16,6 +16,7 @@ import {
   SYSTEM_SETTING_DEFINITIONS,
 } from "./definitions";
 
+export { invalidateSystemSettingsCache } from "./cache";
 export {
   SETTING_CATEGORIES,
   SETTING_DEFINITION_BY_KEY,

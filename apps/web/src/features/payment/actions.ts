@@ -1,23 +1,20 @@
 "use server";
 
-import { eq } from "drizzle-orm";
-import { z } from "zod";
-
-import {
-  getBaseUrl,
-  paymentConfig,
-} from "@repo/shared/config/payment";
-import { findRuntimePlanByPriceId } from "@repo/shared/config/payment-runtime";
 import { db } from "@repo/database";
 import { subscription } from "@repo/database/schema";
-import { PaymentType } from "@/features/payment/types";
+
+import { getBaseUrl, paymentConfig } from "@repo/shared/config/payment";
+import { findRuntimePlanByPriceId } from "@repo/shared/config/payment-runtime";
 import { logEvent } from "@repo/shared/logger";
-import { protectedAction } from "@repo/shared/safe-action";
 import {
   createRuntimeEpayPurchase,
-  isRuntimeEpayPaymentProvider,
+  getRuntimePaymentProvider,
   saveEpayOrder,
 } from "@repo/shared/payment/epay";
+import { protectedAction } from "@repo/shared/safe-action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { PaymentType } from "@/features/payment/types";
 
 import { creem } from "./creem";
 import { createSubscriptionCheckoutQuote } from "./subscription-upgrade";
@@ -40,6 +37,10 @@ export const createCheckoutSession = protectedAction
   .action(async ({ parsedInput, ctx }) => {
     const { priceId, successUrl } = parsedInput;
     const { userId } = ctx;
+    const paymentProvider = await getRuntimePaymentProvider();
+    if (paymentProvider === "none") {
+      throw new Error("支付功能当前未启用");
+    }
 
     // 检查是否已有活跃订阅
     const [existingSub] = await db
@@ -66,13 +67,13 @@ export const createCheckoutSession = protectedAction
     const upgradeQuote = hasActiveSub
       ? await createSubscriptionCheckoutQuote(existingSub, priceId)
       : null;
-    const useEpay = await isRuntimeEpayPaymentProvider();
+    const useEpay = paymentProvider === "epay";
 
     logEvent("payment.checkout.started", {
       userId,
       priceId,
       planId: plan.id,
-      provider: useEpay ? "epay" : "creem",
+      provider: paymentProvider,
       checkoutMode: upgradeQuote ? "upgrade" : "new_subscription",
       amountDue: upgradeQuote?.amountDue ?? price.amount,
       prorationCredit: upgradeQuote?.prorationCredit,

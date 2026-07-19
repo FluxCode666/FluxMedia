@@ -27,6 +27,7 @@ vi.mock("ioredis", () => ({
 
     async connect() {
       if (redisMockState.connectFailure) {
+        this.status = "end";
         throw new Error("connection failed");
       }
       this.status = "ready";
@@ -80,6 +81,7 @@ describe("system settings cache", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetSystemSettingsCacheForTests();
     delete process.env.REDIS_DB;
     delete process.env.REDIS_URL;
@@ -164,5 +166,24 @@ describe("system settings cache", () => {
       new Map([["SELF_USE_MODE_ENABLED", true]])
     );
     expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("recreates an ended Redis client after the failure cooldown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T00:00:00.000Z"));
+    process.env.REDIS_URL = "redis://localhost:6379";
+    redisMockState.connectFailure = true;
+    const loader = vi.fn(
+      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+    );
+
+    await loadCachedSystemSettings(loader);
+    clearLocalSystemSettingsCache();
+    redisMockState.connectFailure = false;
+    vi.setSystemTime(new Date("2026-07-20T00:00:06.000Z"));
+    await loadCachedSystemSettings(loader);
+
+    expect(redisMockState.selectedDatabases).toEqual([4, 4]);
+    expect(redisMockState.store.size).toBe(1);
   });
 });

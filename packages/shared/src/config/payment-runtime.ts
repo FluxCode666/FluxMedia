@@ -1,22 +1,22 @@
 import {
-  getBaseUrl,
-  getPricingPlansFromConfig,
-  paymentConfig,
-} from "./payment";
-import {
   type PaymentConfig,
   PaymentType,
   type Plan,
   PlanInterval,
   type PriceConfig,
 } from "../payment/types";
+import { getPlanMonthlyCredits } from "../subscription/services/plan-capabilities";
 import {
   getRuntimeSettingBoolean,
   getRuntimeSettingNumber,
   getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "../system-settings";
-import { getPlanMonthlyCredits } from "../subscription/services/plan-capabilities";
+import {
+  getBaseUrl,
+  getPricingPlansFromConfig,
+  paymentConfig,
+} from "./payment";
 
 export type PaidPlanId = "starter" | "pro" | "ultra" | "enterprise";
 
@@ -58,10 +58,13 @@ const PLAN_DEFAULT_AMOUNTS = {
   enterprise: { monthly: 800, yearly: 5760 },
 } as const;
 
-type RuntimePaymentProvider = "creem" | "epay";
+export type RuntimePaymentProvider = "creem" | "epay" | "none";
 
 function getDefaultPaymentProvider(): RuntimePaymentProvider {
-  return paymentConfig.provider === "epay" ? "epay" : "creem";
+  if (paymentConfig.provider === "epay" || paymentConfig.provider === "none") {
+    return paymentConfig.provider;
+  }
+  return "creem";
 }
 
 export async function getSubscriptionMonthlyCredits() {
@@ -111,7 +114,7 @@ async function getRuntimePlanPrice(
 export async function getRuntimePaymentConfig(): Promise<RuntimePaymentConfig> {
   const provider = await getRuntimeSettingSelect(
     "PAYMENT_PROVIDER",
-    ["creem", "epay"] as const,
+    ["creem", "epay", "none"] as const,
     getDefaultPaymentProvider()
   );
   const yearlyEnabled = await getRuntimeSettingBoolean(
@@ -123,14 +126,14 @@ export async function getRuntimePaymentConfig(): Promise<RuntimePaymentConfig> {
     await getRuntimePlanPrice("starter", "monthly", provider),
   ];
   const proPrices = [await getRuntimePlanPrice("pro", "monthly", provider)];
-  const ultraPrices = [
-    await getRuntimePlanPrice("ultra", "monthly", provider),
-  ];
+  const ultraPrices = [await getRuntimePlanPrice("ultra", "monthly", provider)];
   const enterprisePrices = [
     await getRuntimePlanPrice("enterprise", "monthly", provider),
   ];
   if (yearlyEnabled) {
-    starterPrices.push(await getRuntimePlanPrice("starter", "yearly", provider));
+    starterPrices.push(
+      await getRuntimePlanPrice("starter", "yearly", provider)
+    );
     proPrices.push(await getRuntimePlanPrice("pro", "yearly", provider));
     ultraPrices.push(await getRuntimePlanPrice("ultra", "yearly", provider));
     enterprisePrices.push(

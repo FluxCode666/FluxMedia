@@ -1,5 +1,5 @@
 export const siteConfig = {
-  name: "GPT2IMAGE",
+  name: process.env.NEXT_PUBLIC_APP_NAME || "GPT2IMAGE",
 
   description:
     "AI-powered chat-to-image generation platform. Transform your words into stunning visuals through natural conversation.",

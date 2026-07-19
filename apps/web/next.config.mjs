@@ -58,6 +58,9 @@ const nextConfig = {
     "pino",
     "pino-pretty",
     "@axiomhq/pino",
+    // 系统设置共享缓存使用 Node TCP 连接与连接池；保持外置以便 standalone
+    // 完整复制 ioredis 的命令表、解析器与可选运行时依赖。
+    "ioredis",
     // 原生模块（存储路由的按需缩略图缩放）：保持外置，避免被打进 server bundle。
     "sharp",
     // PSD 导出组装库:仅被 server action 经 use server 引用,Next 默认未把它 trace 进

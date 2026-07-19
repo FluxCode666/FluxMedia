@@ -12,6 +12,11 @@ const runtime = vi.hoisted(() => ({
   limiterConfigs: [] as Array<Record<string, unknown>>,
   rejectLimit: false,
 }));
+const logWarnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@repo/shared/logger", () => ({
+  logWarn: logWarnMock,
+}));
 
 vi.mock("@repo/shared/system-settings", () => ({
   getRuntimeSettingString: vi.fn(async (key: string) => {
@@ -74,6 +79,7 @@ describe("rate limit runtime configuration", () => {
     runtime.redisConfigs.length = 0;
     runtime.limiterConfigs.length = 0;
     runtime.rejectLimit = false;
+    logWarnMock.mockClear();
   });
 
   it("rebuilds Redis and limiter clients only when their fingerprints change", async () => {
@@ -135,7 +141,6 @@ describe("rate limit runtime configuration", () => {
     runtime.settings.set("UPSTASH_REDIS_REST_TOKEN", "token-a");
     runtime.settings.set("RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE", 1);
     runtime.rejectLimit = true;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { checkRateLimit } = await importFreshModule();
 
     const first = await checkRateLimit("fallback", "strict");
@@ -143,7 +148,6 @@ describe("rate limit runtime configuration", () => {
 
     expect(first.success).toBe(true);
     expect(second.success).toBe(false);
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
+    expect(logWarnMock).toHaveBeenCalledTimes(1);
   });
 });

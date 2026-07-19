@@ -1644,7 +1644,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 100,
-    requiresRestart: true,
   },
   {
     key: "RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE",
@@ -1654,7 +1653,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 5,
-    requiresRestart: true,
   },
   {
     key: "RATE_LIMIT_AI_REQUESTS_PER_MINUTE",
@@ -1664,7 +1662,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 20,
-    requiresRestart: true,
   },
   {
     key: "RATE_LIMIT_PAYMENT_REQUESTS_PER_MINUTE",
@@ -1673,7 +1670,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 10,
-    requiresRestart: true,
   },
   {
     key: "RATE_LIMIT_UPLOAD_REQUESTS_PER_MINUTE",
@@ -1682,7 +1678,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 30,
-    requiresRestart: true,
   },
   {
     key: "RATE_LIMIT_STRICT_REQUESTS_PER_MINUTE",
@@ -1691,7 +1686,6 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "general",
     valueType: "number",
     defaultValue: 3,
-    requiresRestart: true,
   },
   {
     key: "CHATGPT_REGISTER_MOEMAIL_API_KEY",

@@ -7,18 +7,18 @@
  */
 
 import crypto from "node:crypto";
+import { db } from "@repo/database";
+import { epayOrder } from "@repo/database/schema";
+import { and, eq } from "drizzle-orm";
 import { getBaseUrl } from "../config/payment";
 import {
   getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "../system-settings";
-import { db } from "@repo/database";
-import { epayOrder } from "@repo/database/schema";
-import { and, eq } from "drizzle-orm";
 
 export const EPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
 
-export type PaymentProvider = "creem" | "epay";
+export type PaymentProvider = "creem" | "epay" | "none";
 export type EpayBusinessType = "subscription" | "credit_purchase";
 
 export interface EpayMetadata {
@@ -74,6 +74,12 @@ export function getPaymentProvider(): PaymentProvider {
     process.env.NEXT_PUBLIC_PAYMENT_PROVIDER,
   ];
 
+  if (
+    providerValues.some((provider) => provider?.trim().toLowerCase() === "none")
+  ) {
+    return "none";
+  }
+
   return providerValues.some(
     (provider) => provider?.trim().toLowerCase() === "epay"
   )
@@ -88,7 +94,7 @@ export function isEpayPaymentProvider(): boolean {
 export async function getRuntimePaymentProvider(): Promise<PaymentProvider> {
   return getRuntimeSettingSelect(
     "PAYMENT_PROVIDER",
-    ["creem", "epay"] as const,
+    ["creem", "epay", "none"] as const,
     getPaymentProvider()
   );
 }
@@ -597,22 +603,24 @@ function normalizeEpayMetadata(
     }),
     ...(typeof expectedAmount === "number" &&
       Number.isFinite(expectedAmount) && {
-      expectedAmount,
-    }),
+        expectedAmount,
+      }),
     ...(typeof originalAmount === "number" &&
       Number.isFinite(originalAmount) && {
-      originalAmount,
-    }),
+        originalAmount,
+      }),
     ...(typeof prorationCredit === "number" &&
       Number.isFinite(prorationCredit) && {
-      prorationCredit,
-    }),
-    ...(typeof remainingDays === "number" && Number.isFinite(remainingDays) && {
-      remainingDays,
-    }),
-    ...(typeof periodDays === "number" && Number.isFinite(periodDays) && {
-      periodDays,
-    }),
+        prorationCredit,
+      }),
+    ...(typeof remainingDays === "number" &&
+      Number.isFinite(remainingDays) && {
+        remainingDays,
+      }),
+    ...(typeof periodDays === "number" &&
+      Number.isFinite(periodDays) && {
+        periodDays,
+      }),
     ...(typeof upgradeFromPriceId === "string" && {
       upgradeFromPriceId,
     }),

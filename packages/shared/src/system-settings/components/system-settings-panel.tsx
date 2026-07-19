@@ -1,10 +1,5 @@
 "use client";
 
-import { Database, Download, Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { useAction } from "next-safe-action/hooks";
-import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
-
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -23,8 +18,17 @@ import {
   SelectValue,
 } from "@repo/ui/components/select";
 import { Switch } from "@repo/ui/components/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@repo/ui/components/tabs";
 import { Textarea } from "@repo/ui/components/textarea";
+import { Database, Download, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { useAction } from "next-safe-action/hooks";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { formatDateInTimeZone } from "../../time-zone";
 
 import {
@@ -33,12 +37,12 @@ import {
   initializeSystemSettingsDefaultsAction,
   updateSystemSettingsAction,
 } from "../actions";
-import { SETTING_CATEGORIES } from "../definitions";
 import type {
   SettingCategory,
   SettingDefinition,
   SettingKey,
 } from "../definitions";
+import { SETTING_CATEGORIES } from "../definitions";
 
 type SettingSnapshotItem = SettingDefinition & {
   value: string;
@@ -658,7 +662,9 @@ function compactCreditPackageMatrixDraft(matrix: CreditPackageMatrixDraft) {
         currency: pkg.currency.trim().toUpperCase() || "CNY",
         popular: pkg.popular,
         visible: pkg.visible,
-        ...(pkg.requiresPlan !== "none" ? { requiresPlan: pkg.requiresPlan } : {}),
+        ...(pkg.requiresPlan !== "none"
+          ? { requiresPlan: pkg.requiresPlan }
+          : {}),
         allowQuantity: pkg.allowQuantity,
         maxQuantity: Number(pkg.maxQuantity) || 1,
         ...(pkg.creemProductId.trim()
@@ -802,7 +808,9 @@ function SettingInput({
     <Input
       type={setting.valueType === "number" ? "number" : "text"}
       value={String(value)}
-      placeholder={setting.secret && setting.configured ? "已配置，留空不修改" : ""}
+      placeholder={
+        setting.secret && setting.configured ? "已配置，留空不修改" : ""
+      }
       disabled={disabled}
       onChange={(event) =>
         onChange(
@@ -873,11 +881,7 @@ function PlanCapabilityMatrixInput({
     });
   };
 
-  const updateLimit = (
-    plan: PlanValue,
-    key: LimitKey,
-    nextValue: string
-  ) => {
+  const updateLimit = (plan: PlanValue, key: LimitKey, nextValue: string) => {
     updateMatrix({
       ...matrix,
       limits: {
@@ -927,12 +931,16 @@ function PlanCapabilityMatrixInput({
   return (
     <div className="space-y-5">
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        按最低套餐配置功能门槛；Starter/Pro/Ultra/Enterprise 自动包含更低套餐能力。并发、上传大小、月积分、批量张数、参考图数量、审核等级和 Chat/Agent 每轮计费都在这里统一配置。
+        按最低套餐配置功能门槛；Starter/Pro/Ultra/Enterprise
+        自动包含更低套餐能力。并发、上传大小、月积分、批量张数、参考图数量、审核等级和
+        Chat/Agent 每轮计费都在这里统一配置。
       </div>
 
       <section className="space-y-2">
         <div>
-          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">功能门槛</h4>
+          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
+            功能门槛
+          </h4>
           <p className="text-xs text-muted-foreground">
             选择启用某项能力所需的最低套餐。
           </p>
@@ -974,9 +982,12 @@ function PlanCapabilityMatrixInput({
 
       <section className="space-y-2">
         <div>
-          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">对话计费</h4>
+          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
+            对话计费
+          </h4>
           <p className="text-xs text-muted-foreground">
-            配置页面 Chat/Agent 的每轮基础积分；生成图片时还会按实际成品图尺寸和数量追加图片积分。
+            配置页面 Chat/Agent
+            的每轮基础积分；生成图片时还会按实际成品图尺寸和数量追加图片积分。
           </p>
         </div>
         <div className="overflow-x-auto rounded-lg border">
@@ -1013,11 +1024,7 @@ function PlanCapabilityMatrixInput({
                         disabled={disabled}
                         className="h-9 min-w-28"
                         onChange={(event) =>
-                          updateBilling(
-                            plan.value,
-                            row.key,
-                            event.target.value
-                          )
+                          updateBilling(plan.value, row.key, event.target.value)
                         }
                       />
                     </td>
@@ -1031,7 +1038,9 @@ function PlanCapabilityMatrixInput({
 
       <section className="space-y-2">
         <div>
-          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">套餐限制</h4>
+          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
+            套餐限制
+          </h4>
           <p className="text-xs text-muted-foreground">
             管理 Ultra 等套餐的并发、上传大小、月积分和请求数量限制。
           </p>
@@ -1102,7 +1111,9 @@ function PlanCapabilityMatrixInput({
 
       <section className="space-y-2">
         <div>
-          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">审核策略</h4>
+          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
+            审核策略
+          </h4>
           <p className="text-xs text-muted-foreground">
             配置各套餐默认审核拦截等级和用户/API Key 可选择的最高等级。
           </p>
@@ -1197,10 +1208,7 @@ function CreditPackageMatrixInput({
     onChange(JSON.stringify(compactCreditPackageMatrixDraft(next), null, 2));
   };
 
-  const updatePackage = (
-    index: number,
-    patch: Partial<CreditPackageDraft>
-  ) => {
+  const updatePackage = (index: number, patch: Partial<CreditPackageDraft>) => {
     updateMatrix({
       packages: matrix.packages.map((pkg, currentIndex) =>
         currentIndex === index ? { ...pkg, ...patch } : pkg
@@ -1275,7 +1283,8 @@ function CreditPackageMatrixInput({
   return (
     <div className="space-y-5">
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        管理一次性购买积分包。Epay 仅支持 CNY；Creem 可使用各币种对应的预建产品，按套餐定价时需填写对应产品 ID。
+        管理一次性购买积分包。Epay 仅支持 CNY；Creem
+        可使用各币种对应的预建产品，按套餐定价时需填写对应产品 ID。
       </div>
 
       <div className="flex justify-end">
@@ -1293,7 +1302,9 @@ function CreditPackageMatrixInput({
 
       {matrix.packages.map((pkg, index) => (
         <section
-          key={`${pkg.id}-${index}`}
+          // 积分包 ID 是结账与履约使用的业务主键；规范化阶段已按 ID 合并，故用它
+          // 作为稳定 React key，避免排序或删除后把相邻表单状态复用到错误积分包。
+          key={pkg.id}
           className="space-y-3 rounded-md border p-3"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1317,7 +1328,9 @@ function CreditPackageMatrixInput({
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">包 ID</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                包 ID
+              </Label>
               <Input
                 value={pkg.id}
                 disabled={disabled}
@@ -1327,7 +1340,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">显示名称</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                显示名称
+              </Label>
               <Input
                 value={pkg.name}
                 disabled={disabled}
@@ -1337,7 +1352,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">积分数</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                积分数
+              </Label>
               <Input
                 type="number"
                 min="1"
@@ -1350,7 +1367,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">兜底价格</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                兜底价格
+              </Label>
               <Input
                 type="number"
                 min="0.01"
@@ -1363,7 +1382,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">结账币种</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                结账币种
+              </Label>
               <Input
                 value={pkg.currency}
                 maxLength={3}
@@ -1377,7 +1398,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">最低可购买套餐</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                最低可购买套餐
+              </Label>
               <MatrixSelect
                 value={pkg.requiresPlan}
                 options={PLAN_REQUIREMENT_OPTIONS}
@@ -1390,7 +1413,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">最大购买数量</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                最大购买数量
+              </Label>
               <Input
                 type="number"
                 min="1"
@@ -1405,7 +1430,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">Creem 兜底产品 ID</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                Creem 兜底产品 ID
+              </Label>
               <Input
                 value={pkg.creemProductId}
                 disabled={disabled}
@@ -1416,7 +1443,9 @@ function CreditPackageMatrixInput({
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">开关</Label>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                开关
+              </Label>
               {/* Radix Switch 渲染为 button,biome 不识别包裹式 label,
                   用 htmlFor/id 显式关联(按 index 唯一化) */}
               <div className="flex flex-wrap gap-4 rounded-md border px-3 py-2">
@@ -1470,7 +1499,9 @@ function CreditPackageMatrixInput({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">说明</Label>
+            <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+              说明
+            </Label>
             <Textarea
               value={pkg.description}
               rows={2}
@@ -1614,7 +1645,8 @@ export function SystemSettingsPanel() {
   }, [loadSettings]);
 
   useEffect(() => {
-    const loaded = (settingsResult.data?.settings ?? []) as SettingSnapshotItem[];
+    const loaded = (settingsResult.data?.settings ??
+      []) as SettingSnapshotItem[];
     if (!loaded.length) return;
     setSettings(loaded);
     setDrafts(
@@ -1712,7 +1744,8 @@ export function SystemSettingsPanel() {
             系统设置
           </h2>
           <p className="text-sm text-muted-foreground">
-            管理审核、登录、支付、套餐、模型、存储和邮件等全局配置。密钥不会在页面回显。
+            管理审核、登录、支付、套餐、模型、存储和邮件等全局配置。动态配置由
+            Redis 跨实例缓存，密钥不会在页面回显。
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -1742,7 +1775,10 @@ export function SystemSettingsPanel() {
             )}
             导入当前环境变量
           </Button>
-          <Button onClick={handleSave} disabled={disabled || settings.length === 0}>
+          <Button
+            onClick={handleSave}
+            disabled={disabled || settings.length === 0}
+          >
             {isSaving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -1754,10 +1790,14 @@ export function SystemSettingsPanel() {
       </div>
 
       <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        已保存配置优先于环境变量；未保存时继续使用环境变量兜底。标记为“需重启”或“需重新构建”的配置，保存后要重启服务或重新部署后才完整生效。
+        已保存配置优先于环境变量；标记为“动态生效”的配置保存后无需重启，通常在 1
+        秒内传播到各实例。标记为“需重启”或“需重新构建”的配置，保存后仍要重启服务或重新部署才完整生效。
       </div>
 
-      <Tabs defaultValue={SETTING_CATEGORIES[0]?.id ?? "general"} className="w-full">
+      <Tabs
+        defaultValue={SETTING_CATEGORIES[0]?.id ?? "general"}
+        className="w-full"
+      >
         <TabsList className="h-auto flex-wrap justify-start bg-transparent p-0">
           {SETTING_CATEGORIES.map((category) => (
             <TabsTrigger
@@ -1821,6 +1861,10 @@ export function SystemSettingsPanel() {
                           {setting.requiresRebuild && (
                             <Badge variant="outline">需重新构建</Badge>
                           )}
+                          {!setting.requiresRestart &&
+                            !setting.requiresRebuild && (
+                              <Badge variant="outline">动态生效</Badge>
+                            )}
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -1836,10 +1880,7 @@ export function SystemSettingsPanel() {
                           {setting.key}
                         </Label>
                         <div className="flex items-center gap-2">
-                          <div
-                            id={`setting-${setting.key}`}
-                            className="flex-1"
-                          >
+                          <div id={`setting-${setting.key}`} className="flex-1">
                             <SettingInput
                               setting={setting}
                               value={drafts[setting.key] ?? ""}

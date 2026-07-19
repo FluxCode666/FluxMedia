@@ -43,10 +43,10 @@ import { logWarn } from "@repo/shared/logger";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
-  clearSystemSettingsCache,
   getRuntimeSettingJson,
   getRuntimeSettingNumber,
   getRuntimeSettingString,
+  invalidateSystemSettingsCache,
 } from "@repo/shared/system-settings";
 import {
   and,
@@ -6062,7 +6062,7 @@ async function setSub2ApiAutoSyncTasks(tasks: Sub2ApiAutoSyncTask[]) {
         updatedAt: now,
       },
     });
-  clearSystemSettingsCache();
+  await invalidateSystemSettingsCache();
 }
 
 function buildSub2ApiAutoSyncTaskId(input: {
