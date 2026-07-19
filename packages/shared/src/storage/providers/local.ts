@@ -1,6 +1,13 @@
-import type { StorageProvider } from "../types";
+/**
+ * 本地文件系统存储 provider。
+ *
+ * 使用方：统一 provider 选择器与兼容直连调用方。工厂实例绑定单次运行时路径
+ * 快照；兼容导出则逐次读取路径。所有文件操作共享目录穿越防护。
+ */
+
 import { getRuntimeSettingString } from "../../system-settings";
 import { buildSignedStorageImageUrl } from "../signed-url";
+import type { StorageProvider } from "../types";
 
 /**
  * 路径模块的最小接口
@@ -8,10 +15,7 @@ import { buildSignedStorageImageUrl } from "../signed-url";
  * 仅声明 resolveSafePath 所需的方法，便于在 DB-free 单测中直接注入
  * node:path，避免依赖运行时设置（getBaseDir → getRuntimeSettingString → DB）。
  */
-type PathLike = Pick<
-  typeof import("node:path"),
-  "join" | "resolve" | "sep"
->;
+type PathLike = Pick<typeof import("node:path"), "join" | "resolve" | "sep">;
 
 /**
  * 解析并校验本地存储的最终文件路径（纯函数）
@@ -56,9 +60,13 @@ export function resolveSafePath(
   return filePath;
 }
 
-async function getBaseDir() {
-  const configured =
-    (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
+/**
+ * 展开配置中的本地存储根目录。
+ *
+ * @param configured 管理后台或环境变量提供的路径
+ * @returns 可交给 node:path 使用的路径；支持 ~/ 前缀
+ */
+async function resolveBaseDir(configured: string): Promise<string> {
   if (configured === "~" || configured.startsWith("~/")) {
     const os = await import("node:os");
     const path = await getPath();
@@ -67,17 +75,31 @@ async function getBaseDir() {
   return configured;
 }
 
-async function getFs() {
+/** 获取延迟加载的文件系统模块，避免客户端 bundle 引入 Node.js API。 */
+async function getFs(): Promise<typeof import("node:fs/promises")> {
   return await import("node:fs/promises");
 }
 
-async function getPath() {
-  return (await import("node:path")).default;
+/** 获取延迟加载的路径模块，避免客户端 bundle 引入 Node.js API。 */
+async function getPath(): Promise<typeof import("node:path")> {
+  return await import("node:path");
 }
 
-async function safePath(bucket: string, key: string): Promise<string> {
+/**
+ * 按已绑定根目录解析安全文件路径。
+ *
+ * @param configuredBaseDir provider 创建时绑定的根目录配置
+ * @param bucket 存储桶名称
+ * @param key 文件键名
+ * @returns 经过目录穿越校验的文件路径
+ */
+async function safePath(
+  configuredBaseDir: string,
+  bucket: string,
+  key: string
+): Promise<string> {
   const path = await getPath();
-  const baseDir = await getBaseDir();
+  const baseDir = await resolveBaseDir(configuredBaseDir);
   return resolveSafePath(path, baseDir, bucket, key);
 }
 
@@ -90,58 +112,111 @@ async function safePath(bucket: string, key: string): Promise<string> {
  * 后端返回真正的预签名 PUT/GET。因此依赖预签名直传的调用方在 local 后端下
  * 需要走专门的本地上传端点。
  */
+export function createLocalStorageProvider(
+  configuredBaseDir: string
+): StorageProvider {
+  return {
+    async getSignedUrl(
+      key: string,
+      bucket: string,
+      expiresIn: number
+    ): Promise<string> {
+      return buildSignedStorageImageUrl(key, bucket, expiresIn) ?? "";
+    },
+
+    async getSignedUploadUrl(
+      key: string,
+      bucket: string,
+      _contentType: string
+    ): Promise<string> {
+      return `/api/storage/${bucket}/${key}`;
+    },
+
+    async deleteObject(key: string, bucket: string): Promise<void> {
+      const filePath = await safePath(configuredBaseDir, bucket, key);
+      const fs = await getFs();
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        // 仅将“不存在”视为幂等成功；权限和 I/O 故障必须向上游显式传播。
+        if (
+          !(
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ENOENT"
+          )
+        ) {
+          throw error;
+        }
+      }
+    },
+
+    async getObject(
+      key: string,
+      bucket: string,
+      options?: { signal?: AbortSignal }
+    ): Promise<Buffer> {
+      const filePath = await safePath(configuredBaseDir, bucket, key);
+      const fs = await getFs();
+      // 透传 signal：调用方取消时中止读取（fs/promises.readFile 支持 { signal }）。
+      return fs.readFile(
+        filePath,
+        options?.signal ? { signal: options.signal } : {}
+      ) as Promise<Buffer>;
+    },
+
+    async putObject(
+      key: string,
+      bucket: string,
+      data: Buffer,
+      _contentType: string
+    ): Promise<void> {
+      const filePath = await safePath(configuredBaseDir, bucket, key);
+      const fs = await getFs();
+      const path = await getPath();
+      const dir = path.dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(filePath, data);
+    },
+  };
+}
+
+/**
+ * 兼容直接导入 localProvider 的旧调用方。
+ *
+ * 每次操作读取最新 LOCAL_STORAGE_PATH 后创建轻量 provider，确保绕过统一入口的
+ * 调用方同样不持有启动期路径快照。
+ */
 export const localProvider: StorageProvider = {
-  async getSignedUrl(
-    key: string,
-    bucket: string,
-    expiresIn: number
-  ): Promise<string> {
-    return buildSignedStorageImageUrl(key, bucket, expiresIn) ?? "";
+  async getSignedUrl(key, bucket, expiresIn) {
+    const provider = await getDynamicLocalProvider();
+    return provider.getSignedUrl(key, bucket, expiresIn);
   },
-
-  async getSignedUploadUrl(
-    key: string,
-    bucket: string,
-    _contentType: string
-  ): Promise<string> {
-    return `/api/storage/${bucket}/${key}`;
+  async getSignedUploadUrl(key, bucket, contentType, expiresIn) {
+    const provider = await getDynamicLocalProvider();
+    return provider.getSignedUploadUrl(key, bucket, contentType, expiresIn);
   },
-
-  async deleteObject(key: string, bucket: string): Promise<void> {
-    const filePath = await safePath(bucket, key);
-    const fs = await getFs();
-    try {
-      await fs.unlink(filePath);
-    } catch {
-      // File may not exist
-    }
+  async deleteObject(key, bucket) {
+    const provider = await getDynamicLocalProvider();
+    return provider.deleteObject(key, bucket);
   },
-
-  async getObject(
-    key: string,
-    bucket: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<Buffer> {
-    const filePath = await safePath(bucket, key);
-    const fs = await getFs();
-    // 透传 signal：调用方取消时中止读取（fs/promises.readFile 支持 { signal }）。
-    return fs.readFile(
-      filePath,
-      options?.signal ? { signal: options.signal } : {}
-    ) as Promise<Buffer>;
+  async getObject(key, bucket, options) {
+    const provider = await getDynamicLocalProvider();
+    return provider.getObject(key, bucket, options);
   },
-
-  async putObject(
-    key: string,
-    bucket: string,
-    data: Buffer,
-    _contentType: string
-  ): Promise<void> {
-    const filePath = await safePath(bucket, key);
-    const fs = await getFs();
-    const path = await getPath();
-    const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(filePath, data);
+  async putObject(key, bucket, data, contentType) {
+    const provider = await getDynamicLocalProvider();
+    return provider.putObject(key, bucket, data, contentType);
   },
 };
+
+/**
+ * 为兼容 provider 获取最新本地路径。
+ *
+ * @returns 绑定当前 LOCAL_STORAGE_PATH 的轻量 provider
+ */
+async function getDynamicLocalProvider(): Promise<StorageProvider> {
+  const configuredBaseDir =
+    (await getRuntimeSettingString("LOCAL_STORAGE_PATH")) || "./storage";
+  return createLocalStorageProvider(configuredBaseDir);
+}

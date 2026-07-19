@@ -14,7 +14,6 @@ import {
   initializeMissingSystemSettingsDefaults,
   setSystemSettings,
 } from "../index";
-import { syncSystemSettingsToEnvFiles } from "../env-file";
 
 const settingUpdateSchema = z.object({
   key: z.string().min(1),
@@ -45,8 +44,6 @@ export const updateSystemSettingsAction = superAdminAction
       })),
       ctx.userId
     );
-    const envSync = await syncSystemSettingsToEnvFiles();
-
     // 启用"按最大张数"清理时立即后台执行一次（需求）。判定单点在 shared 纯谓词，
     // 与 UOL 写入口共用以保证行为一致。清空（回退默认）时传 undefined，不误判为启用。
     const modeEntry = parsedInput.settings.find(
@@ -70,7 +67,6 @@ export const updateSystemSettingsAction = superAdminAction
     return {
       success: true,
       changedKeys,
-      envFiles: envSync.files,
       message: "系统设置已保存",
     };
   });
@@ -83,12 +79,9 @@ export const importSystemSettingsFromEnvAction = superAdminAction
       updatedBy: ctx.userId,
       overwrite: parsedInput?.overwrite ?? true,
     });
-    const envSync = await syncSystemSettingsToEnvFiles();
-
     return {
       success: true,
       importedKeys,
-      envFiles: envSync.files,
       message:
         importedKeys.length > 0
           ? `已导入 ${importedKeys.length} 个环境变量配置`
@@ -102,12 +95,9 @@ export const initializeSystemSettingsDefaultsAction = superAdminAction
     const initializedKeys = await initializeMissingSystemSettingsDefaults({
       updatedBy: ctx.userId,
     });
-    const envSync = await syncSystemSettingsToEnvFiles();
-
     return {
       success: true,
       initializedKeys,
-      envFiles: envSync.files,
       message:
         initializedKeys.length > 0
           ? `已初始化 ${initializedKeys.length} 个默认配置`

@@ -3,6 +3,7 @@ import { systemSetting } from "@repo/database/schema";
 import {
   importMissingSystemSettingsFromEnv,
   initializeMissingSystemSettingsDefaults,
+  setBootstrappedProcessSetting,
 } from ".";
 
 let bootstrapped = false;
@@ -31,7 +32,7 @@ export async function bootstrapSystemSettingsEnv() {
             ? JSON.stringify(row.value)
             : String(row.value);
       if (value) {
-        process.env[row.key] = value;
+        setBootstrappedProcessSetting(row.key, value);
       }
     }
   } catch {

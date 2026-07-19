@@ -8,6 +8,8 @@ import {
   getRuntimeSettingSelect,
   getRuntimeSettingString,
   importSystemSettingsFromEnv,
+  resetBootstrappedProcessSettingsForTests,
+  setBootstrappedProcessSetting,
   setSystemSettings,
 } from "./index";
 
@@ -135,6 +137,7 @@ describe("setSystemSettings", () => {
     store.clear();
     deletedKeys.value = [];
     clearSystemSettingsCache();
+    resetBootstrappedProcessSettingsForTests();
   });
 
   it("rejects unknown setting key throwing 未知配置项", async () => {
@@ -345,9 +348,11 @@ describe("importSystemSettingsFromEnv", () => {
     store.clear();
     deletedKeys.value = [];
     clearSystemSettingsCache();
+    resetBootstrappedProcessSettingsForTests();
   });
 
   afterEach(() => {
+    resetBootstrappedProcessSettingsForTests();
     delete process.env.APP_TIME_ZONE;
     delete process.env.BETTER_AUTH_SECRET;
   });
@@ -385,9 +390,11 @@ describe("getAdminSystemSettingsSnapshot", () => {
     store.clear();
     deletedKeys.value = [];
     clearSystemSettingsCache();
+    resetBootstrappedProcessSettingsForTests();
   });
 
   afterEach(() => {
+    resetBootstrappedProcessSettingsForTests();
     delete process.env.APP_TIME_ZONE;
   });
 
@@ -452,9 +459,11 @@ describe("runtime setting getters stored/env fallback (C-L29)", () => {
     store.clear();
     deletedKeys.value = [];
     clearSystemSettingsCache();
+    resetBootstrappedProcessSettingsForTests();
   });
 
   afterEach(() => {
+    resetBootstrappedProcessSettingsForTests();
     delete process.env.SELF_USE_MODE_ENABLED;
     delete process.env.APP_TIME_ZONE;
     delete process.env.PAYMENT_PROVIDER;
@@ -545,5 +554,22 @@ describe("runtime setting getters stored/env fallback (C-L29)", () => {
     await expect(
       getRuntimeSettingJson("PLAN_CAPABILITY_MATRIX")
     ).resolves.toEqual({ version: 3 });
+  });
+
+  it("clear falls back to deployment env instead of bootstrapped DB env", async () => {
+    process.env.APP_TIME_ZONE = "UTC";
+    setBootstrappedProcessSetting("APP_TIME_ZONE", "Asia/Shanghai");
+    store.set("APP_TIME_ZONE", {
+      key: "APP_TIME_ZONE",
+      value: "Asia/Shanghai",
+    });
+
+    await setSystemSettings(
+      [{ key: "APP_TIME_ZONE", clear: true, value: "" }],
+      "admin"
+    );
+
+    expect(process.env.APP_TIME_ZONE).toBe("Asia/Shanghai");
+    await expect(getRuntimeSettingString("APP_TIME_ZONE")).resolves.toBe("UTC");
   });
 });

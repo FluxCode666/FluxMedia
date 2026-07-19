@@ -3,33 +3,75 @@ import { createHash } from "node:crypto";
 import { db } from "@repo/database";
 import { systemSetting } from "@repo/database/schema";
 import { eq, inArray, sql } from "drizzle-orm";
-
 import {
+  clearLocalSystemSettingsCache,
+  invalidateSystemSettingsCache,
+  loadCachedSystemSettings,
+} from "./cache";
+import {
+  isSettingKey,
   SETTING_DEFINITION_BY_KEY,
-  SYSTEM_SETTING_DEFINITIONS,
   type SettingDefinition,
   type SettingKey,
-  isSettingKey,
+  SYSTEM_SETTING_DEFINITIONS,
 } from "./definitions";
 
 export {
   SETTING_CATEGORIES,
   SETTING_DEFINITION_BY_KEY,
-  SYSTEM_SETTING_DEFINITIONS,
   type SettingCategory,
   type SettingDefinition,
   type SettingKey,
   type SettingValueType,
+  SYSTEM_SETTING_DEFINITIONS,
 } from "./definitions";
 
-const CACHE_TTL_MS = 10_000;
+// WHY：bootstrap 会把 DB 值灌入 process.env 供 Better Auth 等启动期模块使用；
+// 运行时设置的 env fallback 必须记住覆盖前的真实部署环境，否则后台清空 DB 行后
+// 会错误回退到 bootstrap 注入的旧 DB 值。Map.has 用于区分“尚未覆盖”和“原值为空”。
+const PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP = new Map<
+  string,
+  string | undefined
+>();
 
-let settingsCache:
-  | {
-      expiresAt: number;
-      values: Map<string, unknown>;
-    }
-  | undefined;
+/**
+ * 取得运行时设置的真实部署环境回退值。
+ *
+ * @param key - 已注册的系统设置键。
+ * @returns bootstrap 覆盖前的环境变量；未被覆盖时读取当前环境变量。
+ */
+function getRuntimeEnvironmentFallback(key: SettingKey) {
+  if (PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP.has(key)) {
+    return PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP.get(key);
+  }
+  return process.env[key]?.trim() || undefined;
+}
+
+/**
+ * 在启动引导阶段把数据库值暴露给只能同步读取 env 的启动期模块。
+ *
+ * @param key - 数据库中的设置键。
+ * @param value - 已序列化的非空设置值。
+ * @sideEffects 首次覆盖前保存真实部署 env，并更新当前进程 process.env。
+ */
+export function setBootstrappedProcessSetting(key: string, value: string) {
+  if (!PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP.has(key)) {
+    PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP.set(
+      key,
+      process.env[key]?.trim() || undefined
+    );
+  }
+  process.env[key] = value;
+}
+
+/**
+ * 清理启动期 env 覆盖记录，供 DB-free 单测隔离模块状态。
+ *
+ * @sideEffects 只清空回退元数据，不改写当前 process.env。
+ */
+export function resetBootstrappedProcessSettingsForTests() {
+  PROCESS_SETTING_FALLBACKS_BEFORE_BOOTSTRAP.clear();
+}
 
 function normalizeStoredValue(value: unknown) {
   if (typeof value === "string") {
@@ -40,36 +82,27 @@ function normalizeStoredValue(value: unknown) {
 }
 
 async function loadSystemSettingsMap() {
-  const now = Date.now();
-  if (settingsCache && settingsCache.expiresAt > now) {
-    return settingsCache.values;
-  }
+  return loadCachedSystemSettings(async () => {
+    const rows = await db
+      .select({
+        key: systemSetting.key,
+        value: systemSetting.value,
+      })
+      .from(systemSetting);
 
-  const rows = await db
-    .select({
-      key: systemSetting.key,
-      value: systemSetting.value,
-    })
-    .from(systemSetting);
-
-  const values = new Map<string, unknown>();
-  for (const row of rows) {
-    const normalized = normalizeStoredValue(row.value);
-    if (normalized !== undefined) {
-      values.set(row.key, normalized);
+    const values = new Map<string, unknown>();
+    for (const row of rows) {
+      const normalized = normalizeStoredValue(row.value);
+      if (normalized !== undefined) {
+        values.set(row.key, normalized);
+      }
     }
-  }
-
-  settingsCache = {
-    expiresAt: now + CACHE_TTL_MS,
-    values,
-  };
-
-  return values;
+    return values;
+  });
 }
 
 export function clearSystemSettingsCache() {
-  settingsCache = undefined;
+  clearLocalSystemSettingsCache();
 }
 
 export async function getSystemSettingValue(
@@ -92,7 +125,7 @@ export async function getRuntimeSettingJson(key: SettingKey) {
     return value;
   }
 
-  const envValue = process.env[key];
+  const envValue = getRuntimeEnvironmentFallback(key);
   if (!envValue?.trim()) return undefined;
   return parseJsonText(envValue);
 }
@@ -108,7 +141,7 @@ export async function getSystemSettingString(key: SettingKey) {
 
 export async function getRuntimeSettingString(key: SettingKey) {
   const value = await getSystemSettingString(key);
-  return value ?? (process.env[key]?.trim() || undefined);
+  return value ?? getRuntimeEnvironmentFallback(key);
 }
 
 export async function getRuntimeSettingBoolean(
@@ -122,7 +155,7 @@ export async function getRuntimeSettingBoolean(
     return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
   }
 
-  const envValue = process.env[key];
+  const envValue = getRuntimeEnvironmentFallback(key);
   if (!envValue) return fallback;
   return ["1", "true", "yes", "on"].includes(envValue.toLowerCase());
 }
@@ -149,7 +182,7 @@ export async function getRuntimeSettingNumber(
     return numericValue;
   }
 
-  const envRawValue = process.env[key]?.trim();
+  const envRawValue = getRuntimeEnvironmentFallback(key);
   if (envRawValue) {
     const envValue = Number(envRawValue);
     if (isAllowedNumber(envValue)) {
@@ -241,7 +274,7 @@ function coerceValue(definition: SettingDefinition, value: unknown) {
 }
 
 function getProcessSettingValue(definition: SettingDefinition) {
-  const envValue = process.env[definition.key]?.trim();
+  const envValue = getRuntimeEnvironmentFallback(definition.key);
   if (!envValue) return undefined;
   return coerceValue(definition, envValue);
 }
@@ -302,24 +335,7 @@ export async function importSystemSettingsFromEnv(options?: {
       },
     });
 
-  clearSystemSettingsCache();
-
-  // 同步进 process.env:同步读取器(getProcessSettingString,如邮件 SMTP/Resend、鉴权配置)只看
-  // process.env,而 process.env 仅在启动时由 bootstrap 从 DB 灌入。若保存后不同步,后台改完邮件/
-  // 配置要重启容器才生效(否则一直读旧值、SMTP 配了仍退回 resend、发码 400)。这里写回当前进程的
-  // process.env,使改动即时生效、无需重启(单实例部署如 docker compose)。
-  for (const { key, value } of values) {
-    if (value === null || value === undefined || value === "") {
-      delete process.env[key];
-      continue;
-    }
-    process.env[key] =
-      typeof value === "string"
-        ? value.trim()
-        : typeof value === "object"
-          ? JSON.stringify(value)
-          : String(value);
-  }
+  await invalidateSystemSettingsCache();
 
   return values.map((value) => value.key);
 }
@@ -362,14 +378,11 @@ export async function initializeMissingSystemSettingsDefaults(options?: {
 
   if (values.length === 0) return [] as SettingKey[];
 
-  await db
-    .insert(systemSetting)
-    .values(values)
-    .onConflictDoNothing({
-      target: systemSetting.key,
-    });
+  await db.insert(systemSetting).values(values).onConflictDoNothing({
+    target: systemSetting.key,
+  });
 
-  clearSystemSettingsCache();
+  await invalidateSystemSettingsCache();
   return values.map((value) => value.key);
 }
 
@@ -420,7 +433,7 @@ async function migrateLegacyModerationSettings(now: Date, updatedBy?: string) {
       .where(inArray(systemSetting.key, legacyKeys));
   });
 
-  clearSystemSettingsCache();
+  await invalidateSystemSettingsCache();
 }
 
 async function migrateLegacySub2ApiAutoSyncSettings(
@@ -441,7 +454,9 @@ async function migrateLegacySub2ApiAutoSyncSettings(
       value: systemSetting.value,
     })
     .from(systemSetting)
-    .where(inArray(systemSetting.key, ["SUB2API_AUTO_SYNC_TASKS", ...legacyKeys]));
+    .where(
+      inArray(systemSetting.key, ["SUB2API_AUTO_SYNC_TASKS", ...legacyKeys])
+    );
 
   const stored = new Map(
     rows
@@ -511,10 +526,12 @@ async function migrateLegacySub2ApiAutoSyncSettings(
         });
     }
 
-    await tx.delete(systemSetting).where(inArray(systemSetting.key, legacyKeys));
+    await tx
+      .delete(systemSetting)
+      .where(inArray(systemSetting.key, legacyKeys));
   });
 
-  clearSystemSettingsCache();
+  await invalidateSystemSettingsCache();
 }
 
 function parseOptionalString(value: unknown) {
@@ -537,9 +554,7 @@ function parsePositiveInteger(value: unknown, fallback: number) {
       : typeof value === "string"
         ? Number(value)
         : Number.NaN;
-  return Number.isFinite(parsed) && parsed > 0
-    ? Math.trunc(parsed)
-    : fallback;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
 }
 
 function parseSyncMode(value: unknown) {
@@ -585,9 +600,7 @@ export async function setSystemSettings(
       }
 
       if (entry.clear) {
-        await tx
-          .delete(systemSetting)
-          .where(eq(systemSetting.key, entry.key));
+        await tx.delete(systemSetting).where(eq(systemSetting.key, entry.key));
         changedKeys.push(entry.key);
         continue;
       }
@@ -602,9 +615,7 @@ export async function setSystemSettings(
 
       const value = coerceValue(definition, entry.value);
       if (value === "") {
-        await tx
-          .delete(systemSetting)
-          .where(eq(systemSetting.key, entry.key));
+        await tx.delete(systemSetting).where(eq(systemSetting.key, entry.key));
       } else {
         await tx
           .insert(systemSetting)
@@ -629,7 +640,7 @@ export async function setSystemSettings(
     }
   });
 
-  clearSystemSettingsCache();
+  await invalidateSystemSettingsCache();
   return changedKeys;
 }
 
@@ -649,12 +660,13 @@ export async function getAdminSystemSettingsSnapshot() {
 
   return SYSTEM_SETTING_DEFINITIONS.map((definition) => {
     const row = stored.get(definition.key);
-    const envValue = process.env[definition.key];
+    const envValue = getRuntimeEnvironmentFallback(definition.key);
     const hasStoredValue =
       row?.value !== undefined &&
       row.value !== null &&
       (typeof row.value !== "string" || row.value.trim().length > 0);
-    const hasEnvValue = typeof envValue === "string" && envValue.trim().length > 0;
+    const hasEnvValue =
+      typeof envValue === "string" && envValue.trim().length > 0;
     const isSecret = "secret" in definition && Boolean(definition.secret);
     const displayValue = isSecret
       ? ""

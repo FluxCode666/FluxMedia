@@ -1,26 +1,17 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { nanoid } from "nanoid";
-import { type NextRequest, NextResponse } from "next/server";
+/**
+ * 登录用户的通用文件预签名上传路由。
+ *
+ * 鉴权与响应字段保持原契约；存储 provider、bucket 和 endpoint 来自同一份运行时
+ * 设置快照，因此后台切换 local/S3、轮换密钥或修改 bucket 后无需重启服务。
+ */
+
 import { withApiLogging } from "@repo/shared/api-logger";
 import { auth } from "@repo/shared/auth";
+import { logError } from "@repo/shared/logger";
+import { getStorageRuntimeSnapshot } from "@repo/shared/storage/providers";
+import { nanoid } from "nanoid";
+import { type NextRequest, NextResponse } from "next/server";
 import { validateUploadRequest } from "./validation";
-
-/**
- * S3/R2 客户端配置
- */
-const s3Client = new S3Client({
-  region: process.env.STORAGE_REGION || "auto",
-  ...(process.env.STORAGE_ENDPOINT && {
-    endpoint: process.env.STORAGE_ENDPOINT,
-  }),
-  credentials: {
-    accessKeyId: process.env.STORAGE_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY || "",
-  },
-});
-
-const BUCKET_NAME = process.env.STORAGE_BUCKET_NAME || "gpt2image-uploads";
 
 /**
  * 获取预签名上传 URL
@@ -54,19 +45,19 @@ export const POST = withApiLogging(async (request: NextRequest) => {
     const fileExtension = filename.match(/\.[^.]+$/)?.[0] || "";
     const fileKey = `uploads/${session.user.id}/${nanoid()}${fileExtension}`;
 
-    // 创建预签名 URL
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: fileKey,
-      ContentType: safeContentType,
-    });
-
-    const presignedUrl = await getSignedUrl(s3Client, command, {
-      expiresIn: 3600, // 1 hour
-    });
+    // provider、bucket 与 endpoint 必须来自同一快照，避免配置切换期间混用。
+    const storage = await getStorageRuntimeSnapshot();
+    const presignedUrl = await storage.provider.getSignedUploadUrl(
+      fileKey,
+      storage.bucketName,
+      safeContentType,
+      3600
+    );
 
     // 构建文件访问 URL
-    const fileUrl = `${process.env.STORAGE_ENDPOINT}/${BUCKET_NAME}/${fileKey}`;
+    const fileUrl = storage.endpoint
+      ? `${storage.endpoint}/${storage.bucketName}/${fileKey}`
+      : `/api/storage/${storage.bucketName}/${fileKey}`;
 
     return NextResponse.json({
       presignedUrl,
@@ -76,7 +67,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       expiresIn: 3600,
     });
   } catch (error) {
-    console.error("Error creating presigned URL:", error);
+    logError(error, { source: "api.upload.presigned" });
     return NextResponse.json(
       { error: "Failed to create upload URL" },
       { status: 500 }

@@ -1,32 +1,95 @@
+/**
+ * 存储 provider 的运行时选择与缓存入口。
+ *
+ * 使用方：Server Actions、UOL、后台任务和 API 路由。每次获取都会读取统一系统
+ * 设置快照，并按不含明文密钥的配置指纹复用 provider；配置变化后立即切换，
+ * 无需重启进程。
+ */
+
 import type { StorageProvider } from "../types";
+import {
+  createStorageProviderFingerprint,
+  getStorageRuntimeConfig,
+  type StorageRuntimeConfig,
+} from "./runtime-config";
+
+/** 进程内 provider 缓存，只保存安全指纹和已绑定配置的实例。 */
+let cachedProvider:
+  | {
+      fingerprint: string;
+      provider: StorageProvider;
+    }
+  | undefined;
 
 /**
- * 进程级 provider 单例缓存
+ * 一次业务调用使用的存储快照。
  *
- * 注意：缓存一旦写入即永不失效。选择依据 STORAGE_ENDPOINT 与 S3 凭证均来自
- * 运行时设置（getRuntimeSettingString，可经管理后台修改），因此在 local 与
- * S3 之间切换或轮换存储密钥后，运行进程仍会沿用旧 provider/凭证——须重启进程
- * 才会生效。多实例部署下各实例的缓存也可能不一致。
+ * provider、bucket 与 endpoint 来自同一配置读取，避免设置切换瞬间一次请求
+ * 混用新旧值。凭证只封装在 provider 内，不向调用方暴露。
  */
-let cachedProvider: StorageProvider | null = null;
+export interface StorageRuntimeSnapshot {
+  provider: StorageProvider;
+  bucketName: string;
+  endpoint: string | null;
+}
 
 /**
- * 获取存储提供者（单例）
+ * 按配置快照解析或复用 provider。
  *
- * 据 STORAGE_ENDPOINT 是否配置在 S3 与本地存储间选择，首次解析后缓存。
- * 改动存储相关运行时设置（端点/凭证）需重启进程方可生效，详见 cachedProvider 注释。
+ * @param config 当前存储配置快照
+ * @returns 与该快照绑定的 local 或 S3 provider
+ * @remarks 配置指纹改变时替换缓存；切到 local 时销毁遗留 S3 client
  */
-export async function getStorageProvider(): Promise<StorageProvider> {
-  if (cachedProvider) return cachedProvider;
-
-  const { getRuntimeSettingString } = await import("../../system-settings");
-  if (await getRuntimeSettingString("STORAGE_ENDPOINT")) {
-    const { s3Provider } = await import("./s3");
-    cachedProvider = s3Provider;
-  } else {
-    const { localProvider } = await import("./local");
-    cachedProvider = localProvider;
+async function resolveStorageProvider(
+  config: StorageRuntimeConfig
+): Promise<StorageProvider> {
+  const fingerprint = createStorageProviderFingerprint(config);
+  if (cachedProvider?.fingerprint === fingerprint) {
+    return cachedProvider.provider;
   }
 
-  return cachedProvider;
+  let provider: StorageProvider;
+  if (config.endpoint) {
+    const { createS3StorageProvider, prepareS3ClientConfig } = await import(
+      "./s3"
+    );
+    prepareS3ClientConfig(config);
+    provider = createS3StorageProvider(config);
+  } else {
+    const [{ createLocalStorageProvider }, { destroyCachedS3Client }] =
+      await Promise.all([import("./local"), import("./s3")]);
+    destroyCachedS3Client();
+    provider = createLocalStorageProvider(config.localStoragePath);
+  }
+
+  cachedProvider = { fingerprint, provider };
+  return provider;
 }
+
+/**
+ * 获取当前存储运行时快照。
+ *
+ * @returns 同一配置版本的 provider、通用上传桶和 endpoint
+ * @remarks 读取系统设置并可能重建 provider/S3 client；读取失败时原样上抛
+ */
+export async function getStorageRuntimeSnapshot(): Promise<StorageRuntimeSnapshot> {
+  const config = await getStorageRuntimeConfig();
+  const provider = await resolveStorageProvider(config);
+  return {
+    provider,
+    bucketName: config.bucketName,
+    endpoint: config.endpoint,
+  };
+}
+
+/**
+ * 获取当前存储提供者。
+ *
+ * @returns 动态配置对应的 provider
+ * @remarks 每次调用都校验配置指纹，命中时复用实例
+ */
+export async function getStorageProvider(): Promise<StorageProvider> {
+  return (await getStorageRuntimeSnapshot()).provider;
+}
+
+export { getStorageRuntimeConfig } from "./runtime-config";
