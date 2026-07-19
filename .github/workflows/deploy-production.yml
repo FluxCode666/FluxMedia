@@ -1,7 +1,7 @@
 # FluxMedia 生产部署流水线。
 #
 # 使用方式：从 main 手动触发，输入符合项目规范的版本号。流水线先执行质量门，
-# 再构建 web 与 migrate 镜像并推送 GHCR，最后通过 SSH 同步生产 Compose、迁移数据库并更新 web 服务。
+# 再构建 web 与 migrate 镜像并推送 GHCR，最后通过 SSH 账号密码同步生产 Compose、迁移数据库并更新 web 服务。
 # 真实运行时配置只保存在目标服务器 deploy/.env，不进入仓库或 Actions 日志。
 name: Deploy Production
 
@@ -172,7 +172,7 @@ jobs:
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
       WEB_IMAGE: ${{ needs.build-and-push.outputs.web_image }}
@@ -190,12 +190,12 @@ jobs:
 
           : "${DEPLOY_HOST:?DEPLOY_HOST secret is required}"
           : "${DEPLOY_USER:?DEPLOY_USER secret is required}"
-          : "${DEPLOY_SSH_KEY:?DEPLOY_SSH_KEY secret is required}"
+          : "${DEPLOY_PASSWORD:?DEPLOY_PASSWORD secret is required}"
           : "${DEPLOY_KNOWN_HOSTS:?DEPLOY_KNOWN_HOSTS secret is required}"
           : "${GHCR_PAT:?GHCR_PAT secret is required}"
 
           DEPLOY_PORT="${DEPLOY_PORT:-22}"
-          DEPLOY_PATH="${DEPLOY_PATH:-/opt/fluxmedia}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/root/flux-media}"
 
           if [[ ! "${DEPLOY_PORT}" =~ ^[0-9]{1,5}$ ]]; then
             echo "::error::DEPLOY_PORT 必须是有效端口号。"
@@ -211,10 +211,14 @@ jobs:
             exit 1
           fi
 
+          if ! command -v sshpass >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends sshpass
+          fi
+
           install -d -m 700 "${HOME}/.ssh"
-          printf '%s\n' "${DEPLOY_SSH_KEY}" | sed 's/\r$//' > "${HOME}/.ssh/id_ed25519"
           printf '%s\n' "${DEPLOY_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
-          chmod 600 "${HOME}/.ssh/id_ed25519" "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
 
           {
             echo "DEPLOY_PORT=${DEPLOY_PORT}"
@@ -224,22 +228,42 @@ jobs:
       - name: Synchronize Compose file
         run: |
           set -euo pipefail
-          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "install -d -m 750 '${DEPLOY_PATH}'"
-          scp -P "${DEPLOY_PORT}" deploy/docker-compose.yml \
+          SSHPASS="${DEPLOY_PASSWORD}" sshpass -e scp \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -P "${DEPLOY_PORT}" deploy/docker-compose.yml \
             "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.yml"
 
       - name: Login target host to GHCR
         run: |
           set -euo pipefail
-          printf '%s' "${GHCR_PAT}" | ssh -p "${DEPLOY_PORT}" \
+          printf '%s' "${GHCR_PAT}" | SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -p "${DEPLOY_PORT}" \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "docker login ghcr.io -u '${{ github.repository_owner }}' --password-stdin"
 
       - name: Deploy and verify web service
         run: |
           set -euo pipefail
-          ssh -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
+            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
             bash -s -- "${WEB_IMAGE}" "${MIGRATE_IMAGE}" "${IMAGE_TAG}" "${DEPLOY_PATH}" <<'REMOTE_SCRIPT'
           set -euo pipefail
 

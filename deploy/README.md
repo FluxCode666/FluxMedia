@@ -20,18 +20,18 @@
 真实环境变量：
 
 ```bash
-sudo install -d -m 750 /opt/fluxmedia
-sudo cp deploy/docker-compose.yml /opt/fluxmedia/docker-compose.yml
-sudo cp deploy/.env.example /opt/fluxmedia/.env
-sudo chmod 600 /opt/fluxmedia/.env
-sudo editor /opt/fluxmedia/.env
+sudo install -d -m 750 /root/flux-media
+sudo cp deploy/docker-compose.yml /root/flux-media/docker-compose.yml
+sudo cp deploy/.env.example /root/flux-media/.env
+sudo chmod 600 /root/flux-media/.env
+sudo editor /root/flux-media/.env
 ```
 
 至少填写 `DATABASE_URL` 和 `BETTER_AUTH_SECRET`。数据库必须已创建；迁移由部署流水线
 在切换 `web` 前执行。本 Compose 不启动 PostgreSQL。配置完成后先验证默认服务：
 
 ```bash
-cd /opt/fluxmedia
+cd /root/flux-media
 docker compose config --quiet
 docker compose up -d --no-deps web
 docker compose ps web
@@ -73,13 +73,18 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 
 - `DEPLOY_HOST`：目标服务器地址。
 - `DEPLOY_PORT`：SSH 端口，可留空使用 `22`。
-- `DEPLOY_USER`：具有目标目录和 Docker 权限的 SSH 用户。
-- `DEPLOY_SSH_KEY`：专用部署私钥。
+- `DEPLOY_USER`：具有目标目录和 Docker 权限的 SSH 用户；默认目录位于 `/root`，通常为
+  `root`。
+- `DEPLOY_PASSWORD`：SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。
 - `DEPLOY_KNOWN_HOSTS`：目标主机指纹，可由可信终端执行
   `ssh-keyscan -H -p <port> <host>` 获取并人工核对。
 - `GHCR_PAT`：目标机拉取私有 GHCR 镜像使用的只读 token。
 
-可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/opt/fluxmedia`。服务器
+目标机 SSH 服务必须允许密码认证；Workflow runner 会自动安装 `sshpass`，并通过固定的
+`DEPLOY_KNOWN_HOSTS` 校验主机指纹。部署账号需要具备目标目录写权限和 Docker 执行权限。
+如果部署账号不是 `root`，必须将 `DEPLOY_PATH` 改为该账号可写的绝对路径。
+
+可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/root/flux-media`。服务器
 上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 并更新其中的
 `FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令先通过
 `maintenance` profile 执行一次迁移，再带 `--no-deps` 启动 `web`，不会启动注册机。

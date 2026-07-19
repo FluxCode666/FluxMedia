@@ -42,7 +42,7 @@
 - 仅允许从 `main` 手动触发，版本号必须符合项目版本格式；可选择只构建镜像。
 - 发布前执行文档镜像、部署提交改动文件 lint、typecheck、test，随后构建 `linux/amd64` 的
   `fluxmedia-web` 与 `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
-- 使用专用 SSH 私钥与固定主机指纹连接目标机，同步 `deploy/docker-compose.yml`，
+- 使用 SSH 账号密码与固定主机指纹连接目标机，同步 `deploy/docker-compose.yml`，
   先启用 `maintenance` profile 执行一次性数据库迁移，再执行
   `docker compose up -d --no-deps web`，不会启动注册机。
 - 目标机的真实 `.env` 不离开服务器；流水线只更新镜像名和版本。健康检查失败时恢复
@@ -52,7 +52,7 @@
 ## 生产部署配置清单
 
 生产配置分为两处：GitHub `production` Environment 保存部署凭据和目标机信息；目标
-服务器 `/opt/fluxmedia/.env` 保存应用运行时配置。`DATABASE_URL`、认证密钥、支付密钥
+服务器 `/root/flux-media/.env` 保存应用运行时配置。`DATABASE_URL`、认证密钥、支付密钥
 等运行时机密不得复制到 GitHub Actions，也不得提交到仓库。
 
 ### GitHub production Environment
@@ -63,8 +63,8 @@ Environment 启用审批保护，避免误触发生产部署。
 | 名称 | 必填 | 用途与要求 |
 |---|---|---|
 | `DEPLOY_HOST` | 是 | 目标服务器 IP 或主机名，不含协议和端口。 |
-| `DEPLOY_USER` | 是 | SSH 部署用户，必须能写入部署目录并执行 Docker；不要复用日常管理员账号。 |
-| `DEPLOY_SSH_KEY` | 是 | 专用 SSH 私钥；对应公钥须安装到目标用户的 `authorized_keys`。 |
+| `DEPLOY_USER` | 是 | SSH 部署用户，必须能写入部署目录并执行 Docker；默认目录位于 `/root`，通常需要填写 `root`。 |
+| `DEPLOY_PASSWORD` | 是 | SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。 |
 | `DEPLOY_KNOWN_HOSTS` | 是 | 目标机 SSH 主机指纹；从可信终端获取并人工核对，流水线不会关闭主机校验。 |
 | `GHCR_PAT` | 是 | 目标机登录 GHCR 使用的 token，最小权限为 `read:packages`；私有仓库场景还需具备对应仓库访问权。 |
 | `DEPLOY_PORT` | 否 | SSH 端口，留空时使用 `22`，有效范围 `1` 至 `65535`。 |
@@ -77,12 +77,15 @@ ssh-keyscan -H -p <SSH_PORT> <DEPLOY_HOST>
 ```
 
 不要直接信任未经核对的扫描结果；应通过云控制台或另一条可信通道确认服务器指纹。
+目标机 SSH 服务必须允许密码认证，部署账号还必须具备目标目录写权限和 Docker 执行权限；
+Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令参数。
+如果 `DEPLOY_USER` 不是 `root`，必须把 `DEPLOY_PATH` 改为该账号可写的绝对路径。
 
 在 Repository Variable 或 `production` Environment Variable 中配置：
 
 | 名称 | 必填 | 默认值 | 用途与要求 |
 |---|---|---|---|
-| `DEPLOY_PATH` | 否 | `/opt/fluxmedia` | 目标机 Compose 与 `.env` 所在目录；必须是不含空格的绝对路径。 |
+| `DEPLOY_PATH` | 否 | `/root/flux-media` | 目标机 Compose 与 `.env` 所在目录；必须是不含空格的绝对路径。 |
 
 以下值无需人工配置：
 
@@ -94,7 +97,7 @@ ssh-keyscan -H -p <SSH_PORT> <DEPLOY_HOST>
 
 ### 目标服务器必填环境变量
 
-首次部署时将 `deploy/.env.example` 复制为 `/opt/fluxmedia/.env`，权限设为 `0600`。
+首次部署时将 `deploy/.env.example` 复制为 `/root/flux-media/.env`，权限设为 `0600`。
 以下值必须在启动前确认：
 
 | 名称 | 是否机密 | 用途与要求 |
@@ -165,7 +168,7 @@ Compose、Nginx 或应用约束。
 ### 部署前核对
 
 ```bash
-cd /opt/fluxmedia
+cd /root/flux-media
 chmod 600 .env
 docker compose --profile maintenance config --quiet
 docker compose --profile maintenance pull migrate web
