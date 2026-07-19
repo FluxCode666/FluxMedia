@@ -76,12 +76,12 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 - `DEPLOY_USER`：具有目标目录和 Docker 权限的 SSH 用户；默认目录位于 `/root`，通常为
   `root`。
 - `DEPLOY_PASSWORD`：SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。
-- `DEPLOY_KNOWN_HOSTS`：目标主机指纹，可由可信终端执行
-  `ssh-keyscan -H -p <port> <host>` 获取并人工核对。
 - `GHCR_PAT`：目标机拉取私有 GHCR 镜像使用的只读 token。
 
-目标机 SSH 服务必须允许密码认证；Workflow runner 会自动安装 `sshpass`，并通过固定的
-`DEPLOY_KNOWN_HOSTS` 校验主机指纹。部署账号需要具备目标目录写权限和 Docker 执行权限。
+目标机 SSH 服务必须允许密码认证；Workflow runner 会自动安装 `sshpass`。为与 FluxCode
+保持一致，流水线设置 `StrictHostKeyChecking=no` 和 `UserKnownHostsFile=/dev/null`，不校验
+服务器主机指纹。部署账号需要具备目标目录写权限和 Docker 执行权限。
+
 如果部署账号不是 `root`，必须将 `DEPLOY_PATH` 改为该账号可写的绝对路径。
 
 可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/root/flux-media`。服务器

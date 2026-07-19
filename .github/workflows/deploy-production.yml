@@ -173,7 +173,6 @@ jobs:
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
       DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
-      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
       GHCR_PAT: ${{ secrets.GHCR_PAT }}
       WEB_IMAGE: ${{ needs.build-and-push.outputs.web_image }}
       MIGRATE_IMAGE: ${{ needs.build-and-push.outputs.migrate_image }}
@@ -191,7 +190,6 @@ jobs:
           : "${DEPLOY_HOST:?DEPLOY_HOST secret is required}"
           : "${DEPLOY_USER:?DEPLOY_USER secret is required}"
           : "${DEPLOY_PASSWORD:?DEPLOY_PASSWORD secret is required}"
-          : "${DEPLOY_KNOWN_HOSTS:?DEPLOY_KNOWN_HOSTS secret is required}"
           : "${GHCR_PAT:?GHCR_PAT secret is required}"
 
           DEPLOY_PORT="${DEPLOY_PORT:-22}"
@@ -216,10 +214,6 @@ jobs:
             sudo apt-get install -y --no-install-recommends sshpass
           fi
 
-          install -d -m 700 "${HOME}/.ssh"
-          printf '%s\n' "${DEPLOY_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
-          chmod 600 "${HOME}/.ssh/known_hosts"
-
           {
             echo "DEPLOY_PORT=${DEPLOY_PORT}"
             echo "DEPLOY_PATH=${DEPLOY_PATH}"
@@ -229,15 +223,17 @@ jobs:
         run: |
           set -euo pipefail
           SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "install -d -m 750 '${DEPLOY_PATH}'"
           SSHPASS="${DEPLOY_PASSWORD}" sshpass -e scp \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -P "${DEPLOY_PORT}" deploy/docker-compose.yml \
@@ -247,8 +243,9 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "${GHCR_PAT}" | SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -p "${DEPLOY_PORT}" \
@@ -259,8 +256,9 @@ jobs:
         run: |
           set -euo pipefail
           SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
-            -o UserKnownHostsFile="${HOME}/.ssh/known_hosts" \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
