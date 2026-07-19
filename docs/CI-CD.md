@@ -66,7 +66,6 @@ Environment 启用审批保护，避免误触发生产部署。
 | `DEPLOY_HOST` | 是 | 目标服务器 IP 或主机名，不含协议和端口。 |
 | `DEPLOY_USER` | 是 | SSH 部署用户，必须能写入部署目录并执行 Docker；默认目录位于 `/root`，通常需要填写 `root`。 |
 | `DEPLOY_PASSWORD` | 是 | SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。 |
-| `GHCR_PAT` | 是 | 目标机登录 GHCR 使用的 token，最小权限为 `read:packages`；私有仓库场景还需具备对应仓库访问权。 |
 | `DEPLOY_PORT` | 否 | SSH 端口，留空时使用 `22`，有效范围 `1` 至 `65535`。 |
 
 目标机 SSH 服务必须允许密码认证，部署账号还必须具备目标目录写权限和 Docker 执行权限；
@@ -84,7 +83,8 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 
 以下值无需人工配置：
 
-- `GITHUB_TOKEN`：GitHub Actions 自动提供，流水线使用 `packages: write` 推送 GHCR。
+- `GITHUB_TOKEN`：GitHub Actions 自动提供，流水线使用 `packages: write` 推送镜像，并通过
+  SSH 将该临时 token 传给目标机登录 GHCR；无需配置 `GHCR_PAT`。
 - `version`：手动触发 Workflow 时输入，不是 Secret；必须符合
   `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。
 - `PUBLIC_APP_URL`：当前在 Workflow 中固定为 `https://media.flux-code.cc`。修改域名时

@@ -76,7 +76,10 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 - `DEPLOY_USER`：具有目标目录和 Docker 权限的 SSH 用户；默认目录位于 `/root`，通常为
   `root`。
 - `DEPLOY_PASSWORD`：SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。
-- `GHCR_PAT`：目标机拉取私有 GHCR 镜像使用的只读 token。
+
+目标机登录 GHCR 使用 GitHub Actions 自动提供的临时 `GITHUB_TOKEN`，无需配置
+`GHCR_PAT`。流水线使用触发者账号作为 GHCR 用户名，凭据仅通过标准输入传给远程
+`docker login`。
 
 目标机 SSH 服务必须允许密码认证；Workflow runner 会自动安装 `sshpass`。为与 FluxCode
 保持一致，流水线设置 `StrictHostKeyChecking=no` 和 `UserKnownHostsFile=/dev/null`，不校验
