@@ -43,8 +43,8 @@ MEMORY.md
 !docs/MEMORY.md
 *.har
 rollout-*.jsonl
-.gpt2image/
-**/.gpt2image/
+.fluxMedia/
+**/.fluxMedia/
 # Claude Code 子 Agent 隔离 worktree（临时，自动管理；偶有 node_modules 残留）
 .claude/worktrees/
 

@@ -7,7 +7,8 @@
 
 ## 文件
 
-- `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务。
+- `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务；
+  `app-bootstrap` 命名卷挂载到 `/app/.fluxMedia`。
 - `.env.example`：不含真实机密的服务器环境变量模板。
 - `nginx/nginx.conf`：参考 user-service 的宿主机 Nginx 主配置。
 - `nginx/conf.d/fluxmedia.conf`：`media.flux-code.cc` 的 HTTPS 站点配置。

@@ -27,7 +27,7 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://media.flux-code.cc}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://media.flux-code.cc}
       LOCAL_STORAGE_PATH: /app/storage
-      GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH: /app/.gpt2image/super-admin-credentials.txt
+      GPT2IMAGE_BOOTSTRAP_CREDENTIALS_PATH: /app/.fluxMedia/super-admin-credentials.txt
       # 强制禁用注册机，即使服务器旧 .env 中仍残留配置也不会误连。
       CHATGPT_REGISTER_URL: ""
       CHATGPT_REGISTER_SECRET: ""
@@ -35,7 +35,7 @@ services:
       - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     volumes:
       - app-storage:/app/storage
-      - app-bootstrap:/app/.gpt2image
+      - app-bootstrap:/app/.fluxMedia
     healthcheck:
       test:
         [
