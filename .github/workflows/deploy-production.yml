@@ -332,12 +332,16 @@ jobs:
           fi
 
           echo "执行数据库迁移。"
-          if ! docker compose --profile maintenance run --rm --no-deps migrate; then
+          # 远程脚本本身从 SSH stdin 读取；迁移容器不得继承 stdin，否则会吞掉后续
+          # web 启动与健康检查命令，并让未完成的部署被误判为成功。
+          if ! docker compose --profile maintenance run --rm --no-deps \
+            --interactive=false migrate </dev/null; then
             echo "数据库迁移失败，保持当前 web 版本运行。" >&2
             restore_previous_release
             exit 1
           fi
 
+          echo "启动 web 服务。"
           if ! docker compose up -d --no-deps --remove-orphans web; then
             echo "数据库迁移已经成功，不会自动回退数据库结构。" >&2
             restore_previous_release

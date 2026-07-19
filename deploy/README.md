@@ -41,9 +41,12 @@ docker compose ps web
 
 ```bash
 docker compose --profile maintenance pull migrate
-docker compose --profile maintenance run --rm --no-deps migrate
+docker compose --profile maintenance run --rm --no-deps --interactive=false migrate
 docker compose up -d --no-deps web
 ```
+
+自动部署必须关闭 migrate 容器的 stdin。远程脚本通过 SSH stdin 传入；若保留 Compose
+默认的交互输入，迁移容器会读取后续 Web 启动命令，导致只完成迁移却未启动服务。
 
 迁移提交后通常不可自动降级；如果新版本健康检查失败，流水线只回滚应用镜像，不会
 尝试回退已经提交的数据库迁移。因此新增迁移应保持向后兼容，先添加字段/表，再在后续
