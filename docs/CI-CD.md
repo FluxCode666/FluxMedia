@@ -66,6 +66,7 @@ Environment 启用审批保护，避免误触发生产部署。
 | `DEPLOY_HOST` | 是 | 目标服务器 IP 或主机名，不含协议和端口。 |
 | `DEPLOY_USER` | 是 | SSH 部署用户，必须能写入部署目录并执行 Docker；默认目录位于 `/root`，通常需要填写 `root`。 |
 | `DEPLOY_PASSWORD` | 是 | SSH 登录密码，必须使用高强度随机密码并仅保存在 GitHub Secret 中。 |
+| `GHCR_PAT` | 是 | 目标机拉取私有镜像使用；创建者必须与 `GHCR_USERNAME` 一致，至少授予 `read:packages`，并按 GitHub 要求完成 Organization SSO 授权。 |
 | `DEPLOY_PORT` | 否 | SSH 端口，留空时使用 `22`，有效范围 `1` 至 `65535`。 |
 
 目标机 SSH 服务必须允许密码认证，部署账号还必须具备目标目录写权限和 Docker 执行权限；
@@ -80,11 +81,12 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 | 名称 | 必填 | 默认值 | 用途与要求 |
 |---|---|---|---|
 | `DEPLOY_PATH` | 否 | `/root/flux-media` | 目标机 Compose 与 `.env` 所在目录；必须是不含空格的绝对路径。 |
+| `GHCR_USERNAME` | 否 | Workflow 触发者 | 创建 `GHCR_PAT` 的 GitHub 用户名；建议固定配置，避免其他用户触发时与 PAT 所属账号不一致。 |
 
 以下值无需人工配置：
 
-- `GITHUB_TOKEN`：GitHub Actions 自动提供，流水线使用 `packages: write` 推送镜像，并通过
-  SSH 将该临时 token 传给目标机登录 GHCR；无需配置 `GHCR_PAT`。
+- `GITHUB_TOKEN`：GitHub Actions 自动提供，构建端用它把镜像推送到当前仓库 owner 的
+  GHCR 命名空间；目标机拉取私有镜像则使用 `GHCR_USERNAME` 与 `GHCR_PAT`。
 - `version`：手动触发 Workflow 时输入，不是 Secret；必须符合
   `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。
 - `PUBLIC_APP_URL`：当前在 Workflow 中固定为 `https://media.flux-code.cc`。修改域名时
@@ -116,6 +118,9 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 | `FLUXMEDIA_IMAGE` | `ghcr.io/fluxcode666/fluxmedia-web` | 写入当前仓库 owner 对应的 Web 镜像名。 |
 | `FLUXMEDIA_MIGRATE_IMAGE` | `ghcr.io/fluxcode666/fluxmedia-migrate` | 写入同版本数据库迁移镜像名。 |
 | `FLUXMEDIA_TAG` | `latest` | 发布时覆盖为手动输入的不可变版本，例如 `v0.8.1`；生产 Workflow 不使用 `latest` 部署。 |
+
+`GHCR_USERNAME` 只决定登录身份，不改变镜像命名空间。镜像仍推送到当前仓库 owner 下，
+即 `ghcr.io/fluxcode666/fluxmedia-web` 和 `ghcr.io/fluxcode666/fluxmedia-migrate`。
 
 ### 目标服务器基础运行变量
 
