@@ -63,11 +63,16 @@ describe("支付宝当面付纯逻辑", () => {
     expect(parseAlipayCnyAmountMinor("-1")).toBeNull();
   });
 
-  it("允许直连当面付省略卖家 PID，并兼容 HTTP 开发通知地址", async () => {
+  it("允许直连当面付省略卖家 PID，并自动补全通知路由", async () => {
     mockRuntimeAlipaySettings({ ALIPAY_SELLER_ID: "" });
     const config = await getRuntimeAlipayF2FConfig();
     expect(config.appId).toBe("app-id");
     expect(config.sellerId).toBeUndefined();
+
+    mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "http://example.com" });
+    await expect(getRuntimeAlipayF2FConfig()).resolves.toMatchObject({
+      notifyUrl: "http://example.com/api/webhooks/alipay",
+    });
 
     mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "http://example.com/hook" });
     await expect(getRuntimeAlipayF2FConfig()).resolves.toMatchObject({

@@ -672,7 +672,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "ALIPAY_NOTIFY_URL",
     label: "支付宝异步通知地址",
     description:
-      "留空自动使用应用地址生成 /api/webhooks/alipay；支持 HTTP 或 HTTPS 公网地址。",
+      "填写协议加域名即可，例如 https://pay.example.com；系统自动追加 /api/webhooks/alipay，支持 HTTP 或 HTTPS。",
     category: "payment",
     valueType: "string",
   },

@@ -18,7 +18,7 @@
 ## 通道约定
 
 - 支付宝：购买页创建本地订单后直接进入结果页，结果页展示二维码并每 3 秒查询状态。
-- 支付宝通知地址：运行时允许 `http` 与 `https`，以兼容本地开发隧道；仍拒绝非 Web 协议。生产环境应优先使用 HTTPS。
+- 支付宝通知地址：后台只需填写协议加域名，运行时自动追加 `/api/webhooks/alipay`；已填写完整路径的旧配置保持兼容。允许 `http` 与 `https` 以兼容本地开发隧道，但生产环境应优先使用 HTTPS。
 - 易支付：`epay_order.metadata.paymentOrderId` 关联本地订单；签名 return route 验签后重定向到统一结果页。易支付订单状态改为 `pending → fulfilling → success`，避免先显示成功后发积分。
 - Creem：创建 Checkout 时将 `paymentOrderId` 放入 metadata，`success_url` 指向统一结果页。webhook 用该 ID 领取本地履约租约，随后用 `creem:<paymentOrderId>` 作为积分批次幂等键。
 

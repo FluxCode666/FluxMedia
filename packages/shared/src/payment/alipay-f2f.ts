@@ -19,6 +19,7 @@ import {
 } from "../system-settings";
 
 const ALIPAY_PRODUCTION_GATEWAY = "https://openapi.alipay.com/gateway.do";
+const ALIPAY_NOTIFY_PATH = "/api/webhooks/alipay";
 
 const alipayPrecreateResponseSchema = z
   .object({
@@ -131,6 +132,27 @@ function normalizeAlipayKey(input: {
 }
 
 /**
+ * 将后台填写的站点域名解析为支付宝异步通知完整地址。
+ *
+ * 新配置只需填写协议加域名，例如 `https://pay.example.com`，本函数会固定追加
+ * 本应用的 webhook 路由。为避免配置升级破坏，历史上已填写完整路径的地址仍原样
+ * 保留；支付通知仍在路由内按支付宝原始表单验签并完成订单幂等履约。
+ */
+function resolveAlipayNotifyUrl(notifyUrl: string | undefined) {
+  const parsedNotifyUrl = new URL(notifyUrl || getBaseUrl());
+  if (
+    parsedNotifyUrl.protocol !== "https:" &&
+    parsedNotifyUrl.protocol !== "http:"
+  ) {
+    throw new Error("支付宝通知地址必须使用 HTTP 或 HTTPS");
+  }
+  if (!notifyUrl || parsedNotifyUrl.pathname === "/") {
+    parsedNotifyUrl.pathname = ALIPAY_NOTIFY_PATH;
+  }
+  return parsedNotifyUrl.toString();
+}
+
+/**
  * 读取支付宝运行时配置。配置缺失时显式失败而非静默回退，避免用户扫描
  * 无法到账的二维码。
  */
@@ -164,15 +186,6 @@ export async function getRuntimeAlipayF2FConfig(): Promise<AlipayF2FConfig> {
   if (parsedGateway.protocol !== "https:") {
     throw new Error("支付宝网关必须使用 HTTPS");
   }
-  const resolvedNotifyUrl = notifyUrl || `${getBaseUrl()}/api/webhooks/alipay`;
-  const parsedNotifyUrl = new URL(resolvedNotifyUrl);
-  if (
-    parsedNotifyUrl.protocol !== "https:" &&
-    parsedNotifyUrl.protocol !== "http:"
-  ) {
-    throw new Error("支付宝通知地址必须使用 HTTP 或 HTTPS");
-  }
-
   return {
     appId,
     privateKey: normalizeAlipayKey({ value: privateKey, kind: "private" }),
@@ -182,7 +195,7 @@ export async function getRuntimeAlipayF2FConfig(): Promise<AlipayF2FConfig> {
     }),
     ...(sellerId ? { sellerId } : {}),
     gateway: parsedGateway.toString(),
-    notifyUrl: parsedNotifyUrl.toString(),
+    notifyUrl: resolveAlipayNotifyUrl(notifyUrl),
     timeoutMinutes: Math.min(1_440, Math.max(1, Math.floor(timeoutMinutes))),
   };
 }
