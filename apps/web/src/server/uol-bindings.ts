@@ -31,6 +31,7 @@ import { getExternalModelsForUser } from "@/features/external-api/models";
 import {
   createCreditTopUpCheckout,
   fulfillAlipayCreditTopUp,
+  getCreditPaymentStatus,
   getCreditTopUpOptions,
   getCreditTopUpOrderStatus,
 } from "@/features/payment/credit-top-up";
@@ -213,6 +214,27 @@ bindExecute(
       );
     }
     return getCreditTopUpOrderStatus({
+      userId: principal.userId,
+      orderId: input.orderId,
+    });
+  }
+);
+
+/** credits.getPaymentStatus - 统一结果页按当前用户过滤支付订单，避免 IDOR。 */
+bindExecute(
+  "credits.getPaymentStatus",
+  async (
+    input: { orderId: string },
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    return getCreditPaymentStatus({
       userId: principal.userId,
       orderId: input.orderId,
     });

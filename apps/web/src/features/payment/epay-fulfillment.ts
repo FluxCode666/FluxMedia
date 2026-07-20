@@ -21,6 +21,11 @@ import {
   voidActiveSubscriptionCreditsForUpgrade,
 } from "@repo/shared/credits/core";
 import {
+  claimCreditPackagePaymentOrderForFulfillment,
+  fulfillCreditPackagePaymentOrder,
+  releaseCreditPackagePaymentOrderFulfillment,
+} from "@repo/shared/credits/purchase-orders";
+import {
   getCreditPackagePriceForPlan,
   getCreditPackageCurrency,
   getRuntimeCreditPackageById,
@@ -46,7 +51,7 @@ type EpayFulfillmentSource = "epay-webhook" | "epay-return";
 
 // 进程内去重表：仅为单实例下的最佳努力优化，合并同一订单的并发履约，
 // 避免重复的订阅写入等副作用。跨实例的正确性不依赖此表，而由
-// claimEpayOrderForFulfillment 的原子 UPDATE（pending → success）与
+// claimEpayOrderForFulfillment 的原子 UPDATE（pending → fulfilling）与
 // credits_batch 唯一约束兜底，多实例部署下此表自然失效但不影响幂等。
 const inFlightFulfillments = new Map<
   string,
@@ -119,16 +124,35 @@ async function fulfillSuccessfulEpayPaymentInner(
     throw new Error("Invalid or mismatched Epay metadata");
   }
 
-  // 原子领取订单（pending → success）。重复异步通知 / 并发回调将领取失败，
-  // 在此安全跳过，避免重复履约。即使后续发放因 A3 唯一约束幂等，
-  // 该门闩仍可避免重复的订阅写入等副作用。
-  const claimed = await claimEpayOrderForFulfillment(verifyInfo.outTradeNo);
-  if (!claimed) {
-    logger.info(
-      { source, outTradeNo: verifyInfo.outTradeNo },
-      "Epay order already fulfilled or not pending; skipping"
-    );
-    return { metadata };
+  // 原子领取订单（pending → fulfilling）。success 只能在积分/订阅实际写入后出现，
+  // 因而统一结果页不会把“正在履约”提前显示为“积分已到账”。
+  const epayClaim = await claimEpayOrderForFulfillment(verifyInfo.outTradeNo);
+  if (epayClaim === "fulfilled") return { metadata };
+  if (epayClaim === "busy") {
+    throw new Error("Epay order is currently being fulfilled");
+  }
+  if (epayClaim === "missing") {
+    throw new Error("Epay order does not exist or cannot be fulfilled");
+  }
+
+  let paymentOrderClaimed = false;
+  if (metadata.type === "credit_purchase" && metadata.paymentOrderId) {
+    const paymentOrderClaim =
+      await claimCreditPackagePaymentOrderForFulfillment({
+        orderId: metadata.paymentOrderId,
+        userId: metadata.userId,
+        provider: "epay",
+        providerTradeNo: verifyInfo.outTradeNo,
+      });
+    if (paymentOrderClaim === "fulfilled") {
+      await updateEpayOrderStatus(verifyInfo.outTradeNo, "success");
+      return { metadata };
+    }
+    if (paymentOrderClaim === "busy") {
+      await updateEpayOrderStatus(verifyInfo.outTradeNo, "pending");
+      throw new Error("Credit payment order is currently being fulfilled");
+    }
+    paymentOrderClaimed = true;
   }
 
   try {
@@ -149,8 +173,25 @@ async function fulfillSuccessfulEpayPaymentInner(
         source
       );
     }
+    if (metadata.type === "credit_purchase" && metadata.paymentOrderId) {
+      await fulfillCreditPackagePaymentOrder({
+        orderId: metadata.paymentOrderId,
+        userId: metadata.userId,
+        provider: "epay",
+        providerTradeNo: verifyInfo.outTradeNo,
+      });
+    }
+    await updateEpayOrderStatus(verifyInfo.outTradeNo, "success");
   } catch (error) {
-    // 履约失败：释放领取（success → pending），以便后续异步通知重试。
+    // 履约失败：释放领取（fulfilling → pending），以便后续异步通知重试。
+    if (paymentOrderClaimed && metadata.paymentOrderId) {
+      await releaseCreditPackagePaymentOrderFulfillment({
+        orderId: metadata.paymentOrderId,
+        userId: metadata.userId,
+        provider: "epay",
+        providerTradeNo: verifyInfo.outTradeNo,
+      });
+    }
     await updateEpayOrderStatus(verifyInfo.outTradeNo, "pending");
     throw error;
   }

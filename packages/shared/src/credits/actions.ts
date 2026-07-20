@@ -46,6 +46,12 @@ import {
   getRuntimeCreditPackageById,
   getRuntimeCreditPackages,
 } from "./packages";
+import {
+  createCreditPackagePaymentOrder,
+  getCreditPackageCheckoutUrl,
+  saveCreditPackageCheckout,
+} from "./purchase-orders";
+import { getCurrencyMinorUnitExponent } from "./top-up";
 
 const withProtectedCreditsAction = (name: string) =>
   protectedAction.metadata({ action: `credits.${name}` });
@@ -368,18 +374,18 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
   .schema(
     z.object({
       packageId: z.string().min(1),
+      clientRequestId: z.string().uuid(),
+      locale: z.enum(["en", "zh"]),
       quantity: z
         .number()
         .int()
         .min(1)
         .max(CREDIT_PACKAGE_MAX_QUANTITY)
         .optional(),
-      successUrl: z.string().optional(),
-      cancelUrl: z.string().optional(),
     })
   )
   .action(async ({ parsedInput, ctx }) => {
-    const { packageId, successUrl } = parsedInput;
+    const { packageId, clientRequestId, locale } = parsedInput;
     const { userId } = ctx;
     const requestedQuantity = parsedInput.quantity ?? 1;
 
@@ -410,6 +416,12 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
     const currency = getCreditPackageCurrency(pkg);
     const creditsAmount = pkg.credits * quantity;
     const totalPrice = unitPrice * quantity;
+    const amountMinor = Math.round(
+      totalPrice * 10 ** getCurrencyMinorUnitExponent(currency)
+    );
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      throw new Error("积分套餐金额无效");
+    }
 
     const baseUrl = getBaseUrl();
 
@@ -448,18 +460,55 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
       checkoutType: "credits",
     });
 
+    const checkoutExpiry = new Date(Date.now() + 30 * 60 * 1000);
+    const paymentOrder = await createCreditPackagePaymentOrder({
+      userId,
+      clientRequestId,
+      provider: useEpay ? "epay" : "creem",
+      currency,
+      amount: totalPrice,
+      amountMinor,
+      creditsAmount,
+      pricingSnapshot: {
+        packageId: pkg.id,
+        quantity,
+        planId: userPlan,
+        currency,
+        amountMinor,
+        creditsAmount,
+      },
+      expiresAt: checkoutExpiry,
+    });
+    const resultUrl = `${baseUrl}/${locale}/dashboard/credits/payment/${paymentOrder.id}`;
+
+    if (paymentOrder.status === "fulfilled") {
+      return { url: resultUrl, orderId: paymentOrder.id };
+    }
+
     if (useEpay) {
-      const outTradeNo = `CR${Date.now()}${crypto.randomUUID().slice(0, 8)}`;
+      const existingOutTradeNo = paymentOrder.providerPayload?.outTradeNo;
+      const outTradeNo =
+        typeof existingOutTradeNo === "string" && existingOutTradeNo
+          ? existingOutTradeNo
+          : `CR${Date.now()}${crypto.randomUUID().slice(0, 8)}`;
       const metadata = {
         type: "credit_purchase" as const,
         userId,
         outTradeNo,
+        paymentOrderId: paymentOrder.id,
+        locale,
         packageId: pkg.id,
         quantity,
         currency,
         creditPlan: userPlan,
       };
       await saveEpayOrder(metadata, totalPrice);
+      await saveCreditPackageCheckout({
+        orderId: paymentOrder.id,
+        provider: "epay",
+        providerPayload: { outTradeNo },
+        expiresAt: checkoutExpiry,
+      });
       const checkout = await createRuntimeEpayPurchase({
         outTradeNo,
         name:
@@ -473,7 +522,15 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         url: checkout.url,
         params: checkout.params,
         method: "POST" as const,
+        orderId: paymentOrder.id,
       };
+    }
+
+    const existingCheckoutUrl = getCreditPackageCheckoutUrl(
+      paymentOrder.providerPayload
+    );
+    if (existingCheckoutUrl) {
+      return { url: existingCheckoutUrl, orderId: paymentOrder.id };
     }
 
     // 创建 Creem Checkout Session（一次性支付）
@@ -481,13 +538,12 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
     // 实际使用时需要在 Creem 后台创建对应的积分产品
     const checkout = await creem.createCheckout({
       product_id: getCreditPackageCreemProductIdForPlan(pkg, userPlan),
-      success_url:
-        successUrl ??
-        `${baseUrl}/dashboard/billing?success=true&credits=${creditsAmount}`,
-      request_id: `credit_purchase_${userId}_${Date.now()}`,
+      success_url: resultUrl,
+      request_id: `credit_purchase_${paymentOrder.id}`,
       metadata: {
         userId,
         type: "credit_purchase", // 关键: Webhook 用此判断类型
+        paymentOrderId: paymentOrder.id,
         credits: String(creditsAmount),
         packageId: pkg.id,
         quantity: String(quantity),
@@ -497,7 +553,16 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
       },
     });
 
-    return { url: checkout.checkout_url };
+    await saveCreditPackageCheckout({
+      orderId: paymentOrder.id,
+      provider: "creem",
+      providerPayload: {
+        checkoutId: checkout.id,
+        checkoutUrl: checkout.checkout_url,
+      },
+      expiresAt: checkoutExpiry,
+    });
+    return { url: checkout.checkout_url, orderId: paymentOrder.id };
   });
 
 /**

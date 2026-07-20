@@ -18,6 +18,7 @@ import {
   normalizeCreditTopUpConfig,
   quoteCreditTopUp,
 } from "@repo/shared/credits/top-up";
+import { getCreditPaymentDisplayStatus } from "@repo/shared/credits/purchase-orders";
 import { logEvent } from "@repo/shared/logger";
 import {
   createAlipayF2FPrecreate,
@@ -343,6 +344,60 @@ export async function getCreditTopUpOrderStatus(input: {
     amount: order.amount,
     creditsAmount: order.creditsAmount,
     qrCode: getProviderQrCode(order.providerPayload),
+    expiresAt: order.expiresAt?.toISOString() ?? null,
+    fulfilledAt: order.fulfilledAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * 查询当前用户自己的统一积分支付订单状态。
+ *
+ * 支付结果页通过此函数同时读取支付宝按金额充值与 Creem / 易支付积分套餐订单。
+ * 状态仅来自本地服务端记录；第三方页面回跳不参与积分发放或成功判定。
+ */
+export async function getCreditPaymentStatus(input: {
+  userId: string;
+  orderId: string;
+}) {
+  const [order] = await db
+    .select()
+    .from(paymentOrder)
+    .where(
+      and(
+        eq(paymentOrder.id, input.orderId),
+        eq(paymentOrder.userId, input.userId)
+      )
+    )
+    .limit(1);
+  if (
+    !order ||
+    (order.purpose !== "credit_top_up" && order.purpose !== "credit_package")
+  ) {
+    // 不区分不存在和无归属，避免通过订单 ID 枚举他人的支付信息。
+    throw new Error("积分支付订单不存在");
+  }
+  if (
+    order.provider !== "alipay_f2f" &&
+    order.provider !== "epay" &&
+    order.provider !== "creem"
+  ) {
+    throw new Error("积分支付订单通道无效");
+  }
+
+  return {
+    orderId: order.id,
+    provider: order.provider,
+    status: getCreditPaymentDisplayStatus({
+      status: order.status,
+      expiresAt: order.expiresAt,
+    }),
+    currency: order.currency,
+    amount: order.amount,
+    creditsAmount: order.creditsAmount,
+    qrCode:
+      order.provider === "alipay_f2f"
+        ? getProviderQrCode(order.providerPayload)
+        : null,
     expiresAt: order.expiresAt?.toISOString() ?? null,
     fulfilledAt: order.fulfilledAt?.toISOString() ?? null,
   };

@@ -962,7 +962,45 @@ export const getTopUpOrderStatus = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 25. credits.fulfillAlipayTopUp - 履约验签后的支付宝通知
+// 25. credits.getPaymentStatus - 查询本人统一积分支付状态
+// ---------------------------------------------------------------------------
+export const getPaymentStatus = defineOperation({
+  name: "credits.getPaymentStatus",
+  domain: "credits",
+  title: "Get Credit Payment Status",
+  description:
+    "查询当前用户自己的积分支付订单。统一覆盖支付宝按金额充值、易支付和 Creem " +
+    "积分套餐；返回值仅代表服务端履约状态，绝不以浏览器回跳作为到账依据。",
+  input: z.object({ orderId: z.string().min(1) }),
+  output: z.object({
+    orderId: z.string(),
+    provider: z.enum(["alipay_f2f", "epay", "creem"]),
+    status: z.enum([
+      "waiting_payment",
+      "payment_confirmed",
+      "fulfilled",
+      "failed",
+      "expired",
+    ]),
+    currency: z.string(),
+    amount: z.number().positive(),
+    creditsAmount: z.number().positive(),
+    qrCode: z.string().url().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+    fulfilledAt: z.string().datetime().nullable(),
+  }),
+  access: { kind: "owner", resource: "payment_order" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("credits.getPaymentStatus must be bound at app level");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 26. credits.fulfillAlipayTopUp - 履约验签后的支付宝通知
 // ---------------------------------------------------------------------------
 export const fulfillAlipayTopUp = defineOperation({
   name: "credits.fulfillAlipayTopUp",

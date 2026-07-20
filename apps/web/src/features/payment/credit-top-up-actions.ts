@@ -96,3 +96,32 @@ export const getCreditTopUpOrderStatusAction = protectedAction
       role,
     });
   });
+
+/** 查询当前用户自己的统一积分支付状态，供支付结果页轮询。 */
+export const getCreditPaymentStatusAction = protectedAction
+  .metadata({ action: "credits.getPaymentStatus" })
+  .schema(z.object({ orderId: z.string().min(1) }))
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureUolInitialized();
+    const role = await getUserRoleById(ctx.userId);
+    return invokeOperation<{
+      orderId: string;
+      provider: "alipay_f2f" | "epay" | "creem";
+      status:
+        | "waiting_payment"
+        | "payment_confirmed"
+        | "fulfilled"
+        | "failed"
+        | "expired";
+      currency: string;
+      amount: number;
+      creditsAmount: number;
+      qrCode: string | null;
+      expiresAt: string | null;
+      fulfilledAt: string | null;
+    }>("credits.getPaymentStatus", parsedInput, {
+      type: "user",
+      userId: ctx.userId,
+      role,
+    });
+  });

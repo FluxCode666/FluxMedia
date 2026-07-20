@@ -215,6 +215,8 @@ describe("encodeEpayMetadata / decodeEpayMetadata", () => {
       type: "credit_purchase",
       userId: "user-1",
       outTradeNo: "T1",
+      paymentOrderId: "CP1",
+      locale: "zh",
       packageId: "pack-1",
       quantity: 3,
       creditPlan: "pro",

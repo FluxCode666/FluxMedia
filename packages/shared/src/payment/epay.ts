@@ -9,7 +9,7 @@
 import crypto from "node:crypto";
 import { db } from "@repo/database";
 import { epayOrder } from "@repo/database/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt, or } from "drizzle-orm";
 import { getBaseUrl } from "../config/payment";
 import {
   getRuntimeSettingSelect,
@@ -25,6 +25,10 @@ export interface EpayMetadata {
   type: EpayBusinessType;
   userId: string;
   outTradeNo: string;
+  /** 积分套餐统一支付结果页使用的本地 payment_order ID。 */
+  paymentOrderId?: string;
+  /** 用户发起支付时的语言，用于签名回跳后恢复到正确的结果页。 */
+  locale?: "en" | "zh";
   priceId?: string;
   planId?: string;
   packageId?: string;
@@ -66,7 +70,11 @@ export interface EpayVerifyResult {
   raw: Record<string, string>;
 }
 
-export type EpayOrderStatus = "pending" | "success" | "failed";
+export type EpayOrderStatus = "pending" | "fulfilling" | "success" | "failed";
+
+export type EpayFulfillmentClaim = "claimed" | "fulfilled" | "busy" | "missing";
+
+const EPAY_FULFILLMENT_LEASE_MS = 5 * 60_000;
 
 export function getPaymentProvider(): PaymentProvider {
   const providerValues = [
@@ -374,24 +382,45 @@ export async function getEpayOrderStatus(
 }
 
 /**
- * 原子领取订单进行发放：仅当订单仍为 pending 时将其置为 success。
- * 返回 true 表示本次成功领取（可继续发放），false 表示订单不存在或已被处理。
- * 用于防止异步通知与重复回调对同一订单的重复发放。
+ * 原子领取订单进行发放。
+ *
+ * 领取时只标记为 fulfilling，发放积分和订阅成功后调用方才会写 success；这避免
+ * 浏览器或结果页把“已领取”误显示为“积分已到账”。租约到期后可由重投通知接管。
  */
 export async function claimEpayOrderForFulfillment(
   outTradeNo: string
-): Promise<boolean> {
-  if (!outTradeNo) return false;
+): Promise<EpayFulfillmentClaim> {
+  if (!outTradeNo) return "missing";
 
   const claimed = await db
     .update(epayOrder)
-    .set({ status: "success", updatedAt: new Date() })
+    .set({ status: "fulfilling", updatedAt: new Date() })
     .where(
-      and(eq(epayOrder.outTradeNo, outTradeNo), eq(epayOrder.status, "pending"))
+      and(
+        eq(epayOrder.outTradeNo, outTradeNo),
+        or(
+          eq(epayOrder.status, "pending"),
+          and(
+            eq(epayOrder.status, "fulfilling"),
+            lt(
+              epayOrder.updatedAt,
+              new Date(Date.now() - EPAY_FULFILLMENT_LEASE_MS)
+            )
+          )
+        )
+      )
     )
     .returning({ outTradeNo: epayOrder.outTradeNo });
 
-  return claimed.length > 0;
+  if (claimed.length > 0) return "claimed";
+  const [current] = await db
+    .select({ status: epayOrder.status })
+    .from(epayOrder)
+    .where(eq(epayOrder.outTradeNo, outTradeNo))
+    .limit(1);
+  if (current?.status === "success") return "fulfilled";
+  if (current?.status === "fulfilling") return "busy";
+  return "missing";
 }
 
 export function verifyEpayParams(
@@ -509,6 +538,8 @@ export function encodeEpayMetadata(metadata: EpayMetadata): string {
   if (metadata.packageId) compact.g = metadata.packageId;
   if (metadata.quantity && metadata.quantity > 1) compact.q = metadata.quantity;
   if (metadata.creditPlan) compact.x = metadata.creditPlan;
+  if (metadata.paymentOrderId) compact.i = metadata.paymentOrderId;
+  if (metadata.locale) compact.z = metadata.locale;
 
   if (metadata.checkoutMode === "upgrade") {
     compact.m = "u";
@@ -564,6 +595,8 @@ function normalizeEpayMetadata(
   const planId = metadata.planId ?? metadata.l;
   const packageId = metadata.packageId ?? metadata.g;
   const creditPlan = metadata.creditPlan ?? metadata.x;
+  const paymentOrderId = metadata.paymentOrderId ?? metadata.i;
+  const locale = metadata.locale ?? metadata.z;
   const numberValue = (value: unknown) =>
     typeof value === "number"
       ? value
@@ -601,6 +634,8 @@ function normalizeEpayMetadata(
     ...(typeof planId === "string" && { planId }),
     ...(typeof packageId === "string" && { packageId }),
     ...(typeof creditPlan === "string" && { creditPlan }),
+    ...(typeof paymentOrderId === "string" && { paymentOrderId }),
+    ...((locale === "en" || locale === "zh") && { locale }),
     ...(typeof quantity === "number" &&
       Number.isFinite(quantity) &&
       quantity > 0 && {

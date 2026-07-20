@@ -37,11 +37,16 @@ async function handleReturn(req: Request) {
   const params = await parseEpayRequestParams(req);
   const verifyInfo = await verifyRuntimeEpayParams(params);
   const metadata = verifyInfo.verifyStatus
-    ? decodeEpayMetadata(verifyInfo.param) ??
-      (await getEpayOrderMetadata(verifyInfo.outTradeNo))
+    ? (decodeEpayMetadata(verifyInfo.param) ??
+      (await getEpayOrderMetadata(verifyInfo.outTradeNo)))
     : null;
+  const creditResultPath =
+    metadata?.type === "credit_purchase" && metadata.paymentOrderId
+      ? `/${metadata.locale === "zh" ? "zh" : "en"}/dashboard/credits/payment/${encodeURIComponent(metadata.paymentOrderId)}`
+      : null;
   const redirectPath =
-    metadata?.type === "subscription" ? "/dashboard" : "/dashboard/billing";
+    creditResultPath ??
+    (metadata?.type === "subscription" ? "/dashboard" : "/dashboard/billing");
   const separator = redirectPath.includes("?") ? "&" : "?";
 
   if (!verifyInfo.verifyStatus) {
@@ -61,7 +66,10 @@ async function handleReturn(req: Request) {
     payStatus = "success";
   } else if (orderStatus === "failed") {
     payStatus = "fail";
-  } else if (verifyInfo.tradeStatus === EPAY_TRADE_SUCCESS) {
+  } else if (
+    orderStatus === "fulfilling" ||
+    verifyInfo.tradeStatus === EPAY_TRADE_SUCCESS
+  ) {
     // 网关已确认支付，但异步通知可能尚未完成履约。
     payStatus = "processing";
   }

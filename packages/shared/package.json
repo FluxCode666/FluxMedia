@@ -30,6 +30,7 @@
     "./credits/config": "./src/credits/config.ts",
     "./credits/packages": "./src/credits/packages.ts",
     "./credits/top-up": "./src/credits/top-up.ts",
+    "./credits/purchase-orders": "./src/credits/purchase-orders.ts",
     "./credits/format": "./src/credits/format.ts",
     "./credits/components": "./src/credits/components/index.ts",
     "./generation-maintenance": "./src/generation-maintenance.ts",

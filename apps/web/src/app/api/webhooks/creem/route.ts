@@ -11,6 +11,12 @@ import { creditsBatch, subscription, user } from "@repo/database/schema";
 import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
 import {
+  claimCreditPackagePaymentOrderForFulfillment,
+  failCreditPackagePaymentOrder,
+  fulfillCreditPackagePaymentOrder,
+  releaseCreditPackagePaymentOrderFulfillment,
+} from "@repo/shared/credits/purchase-orders";
+import {
   getCreditPackagePriceForPlan,
   getCreditPackageCurrency,
   getRuntimeCreditPackageById,
@@ -73,12 +79,18 @@ function shouldGrantWithLogging(
     isCreemAmountEnforced()
   );
 
-  if (decision.grant && decision.reason === "not-comparable-grant-with-warning") {
+  if (
+    decision.grant &&
+    decision.reason === "not-comparable-grant-with-warning"
+  ) {
     logger.warn(
       { ...context, source: "creem-webhook", amountMatch, decision },
       "Creem amount check skipped (not comparable); granting credits"
     );
-  } else if (decision.grant && decision.reason === "mismatch-soft-gate-grant-with-warning") {
+  } else if (
+    decision.grant &&
+    decision.reason === "mismatch-soft-gate-grant-with-warning"
+  ) {
     logger.warn(
       { ...context, source: "creem-webhook", amountMatch, decision },
       "Creem amount mismatch detected (soft gate, not enforced); granting credits"
@@ -234,7 +246,11 @@ async function handleCheckoutCompleted(data: CreemCheckoutCompletedData) {
     // handleSubscriptionActive 因找不到订阅记录而跳过积分发放。
     // 此处也调用 grantSubscriptionCredits 确保至少一条路径成功发放。
     // grantCredits 的 sourceRef 幂等机制防止重复发放。
-    await grantSubscriptionCredits(userId, data.subscription, "subscription_create");
+    await grantSubscriptionCredits(
+      userId,
+      data.subscription,
+      "subscription_create"
+    );
   }
 
   logEvent("payment.checkout.completed", {
@@ -258,7 +274,8 @@ async function handleCreditPurchase(
   data: CreemCheckoutCompletedData
 ) {
   const packageId = data.metadata?.packageId;
-  const orderId = data.order?.id ?? data.id;
+  const creemOrderId = data.order?.id ?? data.id;
+  const paymentOrderId = data.metadata?.paymentOrderId;
   const purchasePlan = isSubscriptionPlan(data.metadata?.planId)
     ? data.metadata.planId
     : isSubscriptionPlan(data.metadata?.creditPlan)
@@ -267,7 +284,7 @@ async function handleCreditPurchase(
 
   if (!packageId) {
     logger.error(
-      { source: "creem-webhook", userId, orderId },
+      { source: "creem-webhook", userId, creemOrderId },
       "Missing packageId in credit_purchase metadata"
     );
     return;
@@ -290,27 +307,6 @@ async function handleCreditPurchase(
   const creditsAmount = pkg.credits * quantity;
   const unitPrice = getCreditPackagePriceForPlan(pkg, purchasePlan);
 
-  // 幂等性检查：同一订单只发放一次积分
-  const sourceRef = `credit_purchase:${orderId}`;
-  const [existingBatch] = await db
-    .select({ id: creditsBatch.id })
-    .from(creditsBatch)
-    .where(
-      and(
-        eq(creditsBatch.sourceRef, sourceRef),
-        eq(creditsBatch.sourceType, "purchase")
-      )
-    )
-    .limit(1);
-
-  if (existingBatch) {
-    logger.info(
-      { sourceRef },
-      "Credits already granted for purchase, skipping"
-    );
-    return;
-  }
-
   // 实付金额/币种校验（软门闩）：用服务端套餐重算期望金额（unitPrice * quantity），
   // 与 Creem 实付额（order.amount，单位分）及 order.currency 比对，阻止 checkout
   // 阶段被篡改的价格/数量套取高价积分包。配置不可比或未开启硬拒时仅告警照常发放。
@@ -330,44 +326,102 @@ async function handleCreditPurchase(
       stage: "credit-purchase",
       userId,
       packageId,
-      orderId,
+      orderId: creemOrderId,
       planId: purchasePlan,
     })
   ) {
+    if (paymentOrderId) {
+      await failCreditPackagePaymentOrder({
+        orderId: paymentOrderId,
+        userId,
+        provider: "creem",
+      });
+    }
     return;
   }
 
-  // 积分包购买的积分按系统配置过期
-  const expiresAt = await getCreditPackExpiresAt();
+  if (paymentOrderId) {
+    const claim = await claimCreditPackagePaymentOrderForFulfillment({
+      orderId: paymentOrderId,
+      userId,
+      provider: "creem",
+      providerTradeNo: creemOrderId,
+    });
+    if (claim === "fulfilled") return;
+    if (claim === "busy") {
+      throw new Error("Creem 积分套餐订单正在履约，请重试通知");
+    }
+  }
+
+  // 新版 Checkout 以本地订单 ID 作为 sourceRef。payment_order 负责给用户展示状态，
+  // credits_batch 唯一索引负责在 webhook 重试或崩溃恢复时防止重复发放；旧订单保持
+  // 旧 sourceRef，以免升级后找不到历史幂等记录。
+  const sourceRef = paymentOrderId
+    ? `creem:${paymentOrderId}`
+    : `credit_purchase:${creemOrderId}`;
 
   try {
-    const result = await grantCredits({
-      userId,
-      amount: creditsAmount,
-      sourceType: "purchase",
-      debitAccount: `PAYMENT:${orderId}`,
-      transactionType: "purchase",
-      expiresAt,
-      sourceRef,
-      description: `Credit pack purchase: ${creditsAmount} credits (${packageId})`,
-      metadata: {
-        orderId,
-        packageId,
-        checkoutId: data.id,
-        paymentType: "one-time",
-        quantity,
-        unitCredits: pkg.credits,
-        unitPrice,
-        paidMoney: unitPrice * quantity,
-        planId: purchasePlan,
-      },
-    });
+    const [existingBatch] = await db
+      .select({ id: creditsBatch.id })
+      .from(creditsBatch)
+      .where(
+        and(
+          eq(creditsBatch.sourceRef, sourceRef),
+          eq(creditsBatch.sourceType, "purchase")
+        )
+      )
+      .limit(1);
 
-    logger.info(
-      { userId, creditsAmount, packageId, quantity, batchId: result.batchId },
-      "Credits granted for credit pack purchase"
-    );
+    if (!existingBatch) {
+      const result = await grantCredits({
+        userId,
+        amount: creditsAmount,
+        sourceType: "purchase",
+        debitAccount: `PAYMENT:${creemOrderId}`,
+        transactionType: "purchase",
+        expiresAt: await getCreditPackExpiresAt(),
+        sourceRef,
+        description: `Credit pack purchase: ${creditsAmount} credits (${packageId})`,
+        metadata: {
+          provider: "creem",
+          orderId: creemOrderId,
+          paymentOrderId,
+          packageId,
+          checkoutId: data.id,
+          paymentType: "one-time",
+          quantity,
+          unitCredits: pkg.credits,
+          unitPrice,
+          paidMoney: unitPrice * quantity,
+          planId: purchasePlan,
+        },
+      });
+
+      logger.info(
+        { userId, creditsAmount, packageId, quantity, batchId: result.batchId },
+        "Credits granted for credit pack purchase"
+      );
+    } else {
+      logger.info({ sourceRef }, "Credits already granted for purchase");
+    }
+
+    if (paymentOrderId) {
+      await fulfillCreditPackagePaymentOrder({
+        orderId: paymentOrderId,
+        userId,
+        provider: "creem",
+        providerTradeNo: creemOrderId,
+      });
+    }
   } catch (error) {
+    if (paymentOrderId) {
+      await releaseCreditPackagePaymentOrderFulfillment({
+        orderId: paymentOrderId,
+        userId,
+        provider: "creem",
+        providerTradeNo: creemOrderId,
+      });
+    }
     logError(error, {
       source: "creem-webhook",
       stage: "grant-credit-purchase",
