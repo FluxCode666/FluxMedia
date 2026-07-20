@@ -27,8 +27,8 @@
 
 ## 部署与安全
 
-- Compose Redis 不发布宿主机端口，启用独立密码，并关闭 RDB/AOF；缓存中可能包含系统密钥，因此不得部署无鉴权 Redis。
-- 生产首次升级时部署脚本会静默生成 `REDIS_PASSWORD`，并设置 `REDIS_DB=4`。
+- 生产 Compose 不启动 Redis；外部 Redis 必须由基础设施提供鉴权、网络访问控制和必要的 TLS。
+- 生产部署只校验服务器 `.env` 中的 `REDIS_URL`，系统设置缓存默认使用 `REDIS_DB=4`。
 - Redis 配置来自部署环境而不是系统设置，避免“读取 Redis 配置必须先连接 Redis”的循环依赖。
 - 回滚应用不需要回滚缓存数据；旧版本可忽略 Redis key，必要时直接删除缓存或重启 Redis。
 

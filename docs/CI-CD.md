@@ -141,7 +141,7 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 | `INTERNAL_JOB_SCHEDULER_ENABLED` | `true` | 单实例启用内部定时任务；多实例前必须先实现任务互斥。 |
 | `APP_TIME_ZONE` / `TZ` | `Asia/Shanghai` | 应用和容器时区。 |
 | `RATE_LIMIT_TRUSTED_PROXY` | `true` | 仅因请求只经过受控宿主机 Nginx 才可启用；直连公网部署必须设为 `false`。 |
-| `REDIS_PASSWORD` | 无 | 系统设置共享缓存 Redis 的独立强密码；首次升级旧部署时流水线自动生成。 |
+| `REDIS_URL` | 无 | 外部 Redis 连接串，认证信息包含在 URL 中；必须由服务器 `.env` 提供。 |
 | `REDIS_DB` | `4` | 系统设置共享缓存使用的逻辑库编号，默认固定为 4。 |
 
 本部署不运行注册机。`CHATGPT_REGISTER_URL` 与 `CHATGPT_REGISTER_SECRET` 应保持为空，

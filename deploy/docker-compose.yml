@@ -1,9 +1,9 @@
-# FluxMedia 生产 Compose：运行 Next.js 主服务与只承载缓存的 Redis。
-# PostgreSQL 与可选上游均为外部依赖；注册机和 ChatGPT Web 代理不在此编排中。
+# FluxMedia 生产 Compose：仅运行 Next.js 主服务。
+# PostgreSQL、Redis 与可选上游均为外部依赖；注册机和 ChatGPT Web 代理不在此编排中。
 name: fluxmedia
 
 services:
-  # 数据库迁移是一次性维护任务，默认 profile 不启用，普通 up 启动 web 与 Redis。
+  # 数据库迁移是一次性维护任务，默认 profile 不启用，普通 up 只启动 web。
   migrate:
     profiles:
       - maintenance
@@ -15,39 +15,18 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 必填}
       NODE_ENV: production
 
-  # Redis 中可能短暂缓存系统密钥，因此启用密码且禁用持久化，不对宿主机发布端口。
-  redis:
-    image: redis:7.4-alpine
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD 必填}
-    command:
-      [
-        "sh",
-        "-c",
-        'exec redis-server --save "" --appendonly no --requirepass "$$REDIS_PASSWORD"',
-      ]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG',
-        ]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-    security_opt:
-      - no-new-privileges:true
-
   web:
     image: ${FLUXMEDIA_IMAGE:-ghcr.io/fluxcode666/fluxmedia-web}:${FLUXMEDIA_TAG:?FLUXMEDIA_TAG 必填}
     restart: unless-stopped
     init: true
+    networks:
+      - flux-code
+      - infra
     env_file:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 必填}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_URL: ${REDIS_URL:?REDIS_URL 必填}
       REDIS_DB: ${REDIS_DB:-4}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET 必填}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://media.flux-code.cc}
