@@ -1,13 +1,13 @@
 import { getServerSession } from "@repo/shared/auth/server";
-import { getLocale, getTranslations } from "next-intl/server";
-import { redirect } from "next/navigation";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { redirect } from "next/navigation";
+import { getLocale, getTranslations } from "next-intl/server";
 
 import { ExternalApiKeySection } from "@/features/settings/components";
 
 export const metadata = {
-  title: "External API | GPT2IMAGE",
-  description: "Create and manage GPT2IMAGE external API keys",
+  title: "External API | FluxMedia",
+  description: "Create and manage FluxMedia external API keys",
 };
 
 export default async function ExternalApiPage() {

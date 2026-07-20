@@ -9,7 +9,7 @@
  * 函数与之无关，故 mock 掉 @repo/database / @repo/database/schema，使本测试
  * 在 DB-free vitest 下加载模块即可。
  */
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 const runtimeSettingSelectMock = vi.hoisted(() => vi.fn());
 
@@ -24,6 +24,7 @@ import {
   decodeEpayMetadata,
   type EpayMetadata,
   encodeEpayMetadata,
+  getPaymentProvider,
   getRuntimePaymentProvider,
   moneyToCents,
   signEpayParams,
@@ -41,6 +42,27 @@ beforeAll(() => {
   process.env.EPAY_API_URL = "https://pay.example.com";
 });
 
+afterEach(() => {
+  runtimeSettingSelectMock.mockReset();
+  vi.unstubAllEnvs();
+});
+
+describe("payment provider parsing", () => {
+  it("recognizes alipay_f2f instead of falling back to Creem", () => {
+    vi.stubEnv("PAYMENT_PROVIDER", "alipay_f2f");
+    vi.stubEnv("NEXT_PUBLIC_PAYMENT_PROVIDER", "creem");
+
+    expect(getPaymentProvider()).toBe("alipay_f2f");
+  });
+
+  it("disables payment for an unknown configured provider", () => {
+    vi.stubEnv("PAYMENT_PROVIDER", "unsupported-provider");
+    vi.stubEnv("NEXT_PUBLIC_PAYMENT_PROVIDER", "");
+
+    expect(getPaymentProvider()).toBe("none");
+  });
+});
+
 describe("runtime payment provider", () => {
   it("preserves the none provider instead of falling back to Creem", async () => {
     runtimeSettingSelectMock.mockResolvedValueOnce("none");
@@ -48,9 +70,15 @@ describe("runtime payment provider", () => {
     await expect(getRuntimePaymentProvider()).resolves.toBe("none");
     expect(runtimeSettingSelectMock).toHaveBeenCalledWith(
       "PAYMENT_PROVIDER",
-      ["creem", "epay", "none"],
+      ["creem", "epay", "alipay_f2f", "none"],
       expect.any(String)
     );
+  });
+
+  it("preserves alipay_f2f selected in system settings", async () => {
+    runtimeSettingSelectMock.mockResolvedValueOnce("alipay_f2f");
+
+    await expect(getRuntimePaymentProvider()).resolves.toBe("alipay_f2f");
   });
 });
 

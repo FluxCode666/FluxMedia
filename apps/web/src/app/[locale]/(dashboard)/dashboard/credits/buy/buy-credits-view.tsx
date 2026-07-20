@@ -4,18 +4,18 @@
  * 购买积分套餐视图组件
  *
  * 展示积分套餐列表，允许用户选择并购买
- * 设计风格：GPT2IMAGE 黑白简约
+ * 设计风格：FluxMedia 黑白简约
  */
 
 import {
   createCreditsPurchaseCheckout,
   getCreditPackages,
 } from "@repo/shared/credits/actions";
-import { getCurrencyMinorUnitExponent } from "@repo/shared/credits/top-up";
 import {
   CREDIT_PACKAGES,
   isCreditPackageVisible,
 } from "@repo/shared/credits/config";
+import { getCurrencyMinorUnitExponent } from "@repo/shared/credits/top-up";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import {
@@ -29,12 +29,12 @@ import { Input } from "@repo/ui/components/input";
 import { Separator } from "@repo/ui/components/separator";
 import { cn } from "@repo/ui/utils";
 import { ArrowLeft, Check, Loader2, Minus, Plus } from "lucide-react";
-import { useLocale } from "next-intl";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {

@@ -1,4 +1,4 @@
-# GPT2Image-Pro
+# FluxMedia
 
 <p align="center">
   <strong>面向生图业务的 SaaS 平台</strong><br />
@@ -13,4 +13,3 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ED?logo=docker&logoColor=white" />
 </p>
-

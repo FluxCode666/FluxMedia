@@ -16,13 +16,13 @@ import {
   type SubscriptionPlan,
 } from "../config/subscription-plan";
 import { logEvent } from "../logger/index";
-import { creem } from "../payment/creem";
+import { assertRuntimeCreemCheckoutConfigured, creem } from "../payment/creem";
 import {
   createRuntimeEpayPurchase,
   getRuntimePaymentProvider,
   saveEpayOrder,
 } from "../payment/epay";
-import { protectedAction } from "../safe-action";
+import { ActionUserError, protectedAction } from "../safe-action";
 import { getUserPlanType } from "../subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "../system-settings";
 
@@ -415,9 +415,23 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
 
     const paymentProvider = await getRuntimePaymentProvider();
     if (paymentProvider === "none") {
-      throw new Error("支付功能当前未启用");
+      throw new ActionUserError("支付功能当前未启用");
+    }
+    if (paymentProvider === "alipay_f2f") {
+      throw new ActionUserError(
+        "支付宝当面付仅支持按金额充值，请在购买积分页使用支付宝扫码充值"
+      );
     }
     const useEpay = paymentProvider === "epay";
+    if (!useEpay) {
+      try {
+        await assertRuntimeCreemCheckoutConfigured();
+      } catch {
+        throw new ActionUserError(
+          "Creem 支付通道未完整配置，请联系管理员填写 API Key 和 Webhook Secret"
+        );
+      }
+    }
     if (!useEpay && quantity > 1) {
       throw new Error("当前支付通道暂不支持数量购买，请分次购买");
     }
@@ -450,8 +464,8 @@ export const createCreditsPurchaseCheckout = withProtectedCreditsAction(
         outTradeNo,
         name:
           quantity > 1
-            ? `GPT2IMAGE Credits ${pkg.credits} x ${quantity}`
-            : `GPT2IMAGE Credits ${pkg.credits}`,
+            ? `FluxMedia Credits ${pkg.credits} x ${quantity}`
+            : `FluxMedia Credits ${pkg.credits}`,
         money: totalPrice,
       });
 
@@ -500,7 +514,9 @@ export const getCreditPackages = withProtectedCreditsAction(
     }),
     getRuntimePaymentProvider(),
   ]);
-  if (paymentProvider === "none") return [];
+  if (paymentProvider === "none" || paymentProvider === "alipay_f2f") {
+    return [];
+  }
   const useEpay = paymentProvider === "epay";
   return packages
     .filter((pkg) => {

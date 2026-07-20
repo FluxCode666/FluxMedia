@@ -5,7 +5,7 @@ import { BuyCreditPackagesView } from "./buy-credits-view";
 
 export const metadata: Metadata = {
   title: "Buy Credits",
-  description: "Purchase credit packages for GPT2IMAGE",
+  description: "Purchase credit packages for FluxMedia",
 };
 
 /**

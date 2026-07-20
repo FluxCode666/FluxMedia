@@ -219,7 +219,7 @@ const sections = {
           "无 tools 时平台补 image_generation；显式传 tools 时必须包含 image_generation。用户自接 API 可用时仍优先；否则按 responses 类型调度 Codex/Responses 分组或外接 /responses API。",
         ],
         [
-          "GPT2IMAGE Agent image run",
+          "FluxMedia Agent image run",
           "/v1/agents/images",
           "agent",
           "本站扩展接口。验证 externalApi.agent 能力后走 Codex/Responses 调度，不会选择 Web 后端；可流式返回 Agent 任务事件和多轮成图。",
@@ -231,7 +231,7 @@ const sections = {
           "只返回当前套餐/API Key 可见模型，不触发后端池调度。",
         ],
         [
-          "GPT2IMAGE credits",
+          "FluxMedia credits",
           "/v1/credits",
           "-",
           "返回当前 API Key 的限额、已用、剩余以及所属账户余额，不触发后端池调度。",
@@ -844,7 +844,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 GPT2IMAGE 结算积分（Chat 轮次加图片输出）；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分（Chat 轮次加图片输出）；批量请求返回合计值；命中用户自接 API 时为 0。",
               custom: true,
             },
             {
@@ -1199,7 +1199,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 GPT2IMAGE 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
               custom: true,
             },
             {
@@ -1538,7 +1538,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 GPT2IMAGE 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
               custom: true,
             },
             {
@@ -2487,7 +2487,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path. Default deployments enable self-use mode: public registration is closed and the first startup creates a super admin from environment credentials.",
     flow: {
       title: "Request Routing Diagram",
-      note: "For ordinary image/chat/responses requests, user custom API keeps the highest priority for now. When it wins, GPT2IMAGE does not charge account credits or external API key quota. Agent and explicitly Codex/Responses-only entries ignore user custom API. External endpoints do not call internal /api/images/* routes.",
+      note: "For ordinary image/chat/responses requests, user custom API keeps the highest priority for now. When it wins, FluxMedia does not charge account credits or external API key quota. Agent and explicitly Codex/Responses-only entries ignore user custom API. External endpoints do not call internal /api/images/* routes.",
       entryTitle: "Entry",
       resolverTitle: "Unified Handler",
       groupTitle: "Group Selection",
@@ -2570,7 +2570,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         {
           title: "User Custom API",
           description:
-            "If the user configured an OpenAI-compatible API, ordinary image/chat/responses requests use it first. When it wins, useCredits=false, so GPT2IMAGE account balance and API key quota are not charged.",
+            "If the user configured an OpenAI-compatible API, ordinary image/chat/responses requests use it first. When it wins, useCredits=false, so FluxMedia account balance and API key quota are not charged.",
         },
         {
           title: "Web Account Pool",
@@ -2653,7 +2653,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Adobe Firefly video",
           "/v1/videos/generations",
           "video",
-          "GPT2IMAGE extension. A long-running job that always routes to the Adobe (Firefly) backend; by default it holds the connection with keep-alive until the video is ready, or pass async:true to return a task_... immediately and poll GET /v1/videos/{id} (or use callback_url) — strongly recommended for long videos.",
+          "FluxMedia extension. A long-running job that always routes to the Adobe (Firefly) backend; by default it holds the connection with keep-alive until the video is ready, or pass async:true to return a task_... immediately and poll GET /v1/videos/{id} (or use callback_url) — strongly recommended for long videos.",
         ],
         [
           "Async image task",
@@ -2680,10 +2680,10 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Adds the image_generation tool when tools are omitted; explicit tools must include image_generation. User custom API still wins when available; otherwise responses routing selects Codex/Responses groups or external /responses API backends.",
         ],
         [
-          "GPT2IMAGE Agent image run",
+          "FluxMedia Agent image run",
           "/v1/agents/images",
           "agent",
-          "GPT2IMAGE extension. Requires externalApi.agent, routes to Codex/Responses only, and can stream Agent task events plus multi-round image outputs.",
+          "FluxMedia extension. Requires externalApi.agent, routes to Codex/Responses only, and can stream Agent task events plus multi-round image outputs.",
         ],
         [
           "OpenAI models",
@@ -2692,7 +2692,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "Only lists models visible to the current plan/API key and does not trigger backend pool routing.",
         ],
         [
-          "GPT2IMAGE credits",
+          "FluxMedia credits",
           "/v1/credits",
           "-",
           "Returns the current API key quota, usage, remaining quota, and the owning account credit balance without backend routing.",
@@ -2767,22 +2767,22 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
     externalDocs: {
       title: "External API Reference",
       subtitle:
-        "This documents the currently supported OpenAI-compatible surface. Bold fields are GPT2IMAGE extensions or compatibility additions, not standard OpenAI fields.",
+        "This documents the currently supported OpenAI-compatible surface. Bold fields are FluxMedia extensions or compatibility additions, not standard OpenAI fields.",
       commonTitle: "Common Rules",
       baseUrlTitle: "Base URL",
       baseUrl: "https://gpt2image.superapi.buzz",
       examplesTitle: "Request Example",
       responseExampleTitle: "Response Example",
       common: [
-        "All external endpoints require Authorization: Bearer <GPT2IMAGE API key>.",
+        "All external endpoints require Authorization: Bearer <FluxMedia API key>.",
         "Chat Completions, image generation, and image edits require Starter or higher; Responses requires Pro or higher; Agent image runs require Ultra by default. The exact gates can be changed with externalApi.* in the Plan Capability Matrix.",
         "/api/v1/* and /v1/* use the same handlers; they are path aliases.",
         "response_format controls URL vs base64; output_format controls the image file format. They are different fields.",
-        "Error responses use an OpenAI-style error object. GPT2IMAGE may also return generation_id, generationId, and credits_consumed for debugging and reconciliation.",
+        "Error responses use an OpenAI-style error object. FluxMedia may also return generation_id, generationId, and credits_consumed for debugging and reconciliation.",
         "A backend group bound to the external API key wins first. Otherwise the platform default group is used, then the enabled fallback group. Page creation still uses the user's selected default group.",
         "Backend group billing multipliers are applied to pre-charge, settlement, refunds, and usage records. When a mixed parent group dispatches to a child group member, the parent and child multipliers are multiplied.",
         "External API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
-        "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and GPT2IMAGE does not charge account credits or API key quota.",
+        "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and FluxMedia does not charge account credits or API key quota.",
         "/v1/agents/images and page features that require Codex/Responses capability ignore user custom API and are billed through the platform or external backend pool.",
         "Image endpoint web_first / webFirst / force_web / forceWeb (chat: mix_web_first) is a Web-first preference route, not hard Web-only, and is on by default. When on (omitted or explicit true) it uses the Web-first pixel range (IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS, default 0.66MP-2MP): only sizes inside the range prefer Web (fall back to Codex/Responses on failure), sizes outside (e.g. 4K) use normal scheduling, auto or unparseable sizes may prefer Web; explicit false disables it. It only applies to mixed backend groups (no effect for Web-only / Codex-Responses-only groups) and never overrides user custom API; agent always uses Codex/Responses and is unaffected.",
         "Adobe (Firefly) backend: it joins the group as a special pool member ranked by priority. A firefly-* model or force_firefly=true narrows candidates to Adobe only; ordinary requests only fall back to Adobe once the group's web/codex/api members are rate-limited, exhausted, or fail with a switchable error (and only if Adobe is in that group — the larger its priority, the later it is tried). Whether a request reaches Adobe and its billing multiplier follow the admin 'Adobe backend' tab config. Image billing = size base credits × model-family multiplier × Adobe backend multiplier × group multiplier; see /v1/videos/generations for video billing. Routing/fallback: /docs/adobe-firefly-routing; compatibility conversion (in-app params → Adobe fields, ignored params, worked example): /docs/adobe-firefly-compat.",
@@ -2846,7 +2846,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             {
               name: "Authorization",
               requirement: "Required header",
-              description: "Bearer <GPT2IMAGE API key>.",
+              description: "Bearer <FluxMedia API key>.",
             },
           ],
           responses: [
@@ -2898,7 +2898,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             {
               name: "Authorization",
               requirement: "Required header",
-              description: "Bearer <GPT2IMAGE API key>.",
+              description: "Bearer <FluxMedia API key>.",
             },
           ],
           responses: [
@@ -2923,8 +2923,8 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             },
           ],
           notes: [
-            "The API key quota only limits this key. Calls through the GPT2IMAGE-billed platform path still require enough account credits.",
-            "When a user custom upstream API wins, GPT2IMAGE does not charge account credits or key quota.",
+            "The API key quota only limits this key. Calls through the FluxMedia-billed platform path still require enough account credits.",
+            "When a user custom upstream API wins, FluxMedia does not charge account credits or key quota.",
             "Failed-generation refunds, moderation settlement, and actual-size corrections also update key usage.",
             "The api_key object also includes id / name / key_prefix / last_four / is_active / last_used_at / created_at (omitted from the example).",
           ],
@@ -2935,7 +2935,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           path: "/v1/chat/completions",
           contentType: "application/json",
           description:
-            "OpenAI-compatible Chat Completions adapter for GPT2IMAGE page Chat non-Agent mode. It does not enable the Agent tool loop.",
+            "OpenAI-compatible Chat Completions adapter for FluxMedia page Chat non-Agent mode. It does not enable the Agent tool loop.",
           example: `# 1. Chat-to-image. URL is the default to keep response bodies small.
 curl https://gpt2image.superapi.buzz/v1/chat/completions \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -2972,7 +2972,7 @@ curl https://gpt2image.superapi.buzz/v1/chat/completions \\
     "response_format": "url"
   }'
 
-# 3. Streaming. Text uses chat.completion.chunk; partial images use a GPT2IMAGE extension event.
+# 3. Streaming. Text uses chat.completion.chunk; partial images use a FluxMedia extension event.
 curl -N https://gpt2image.superapi.buzz/v1/chat/completions \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Accept: text/event-stream" \\
@@ -3080,27 +3080,27 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension: url or b64_json. Defaults to url to avoid oversized Chat Completions payloads.",
+                "FluxMedia extension: url or b64_json. Defaults to url to avoid oversized Chat Completions payloads.",
             },
             {
               name: "image_model / imageModel",
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension. Image model, must be gpt-image-*; Web backends do not map it to a separate Web image model.",
+                "FluxMedia extension. Image model, must be gpt-image-*; Web backends do not map it to a separate Web image model.",
             },
             {
               name: "promptOptimization / prompt_optimization",
               requirement: "Optional",
               custom: true,
-              description: "Controls GPT2IMAGE prompt optimization.",
+              description: "Controls FluxMedia prompt optimization.",
             },
             {
               name: "promptRepair / prompt_repair",
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension: safety prompt-repair retry toggle. When false, a moderation failure returns the real error directly instead of rewriting the prompt and retrying. Same meaning as /v1/images/generations.",
+                "FluxMedia extension: safety prompt-repair retry toggle. When false, a moderation failure returns the real error directly instead of rewriting the prompt and retrying. Same meaning as /v1/images/generations.",
             },
             {
               name: "background",
@@ -3127,14 +3127,14 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension. In mixed groups, sizes inside the Web-first pixel range try Web first and fall back to Codex/Responses. The range is configured by IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS and defaults to 0.66MP-2MP.",
+                "FluxMedia extension. In mixed groups, sizes inside the Web-first pixel range try Web first and fall back to Codex/Responses. The range is configured by IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS and defaults to 0.66MP-2MP.",
             },
             {
               name: "requiresResponsesBackend / requires_responses_backend",
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension. Forces this Chat request to Codex/Responses capability instead of Web; when enabled it also bypasses the user's own connected API (like agent behavior) and settles GPT2IMAGE credits via the platform / external backend pool.",
+                "FluxMedia extension. Forces this Chat request to Codex/Responses capability instead of Web; when enabled it also bypasses the user's own connected API (like agent behavior) and settles FluxMedia credits via the platform / external backend pool.",
             },
           ],
           responses: [
@@ -3146,19 +3146,19 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "choices[].message.images / images",
               description:
-                "GPT2IMAGE extension. Structured image results with url or b64_json, generation_id, and revised_prompt.",
+                "FluxMedia extension. Structured image results with url or b64_json, generation_id, and revised_prompt.",
               custom: true,
             },
             {
               name: "generation_id / generationId",
               description:
-                "GPT2IMAGE extension. Non-stream success responses return this Chat round's generation record ID at the top level; batch requests return generation_ids / generationIds.",
+                "FluxMedia extension. Non-stream success responses return this Chat round's generation record ID at the top level; batch requests return generation_ids / generationIds.",
               custom: true,
             },
             {
               name: "credits_consumed",
               description:
-                "GPT2IMAGE extension. GPT2IMAGE-billed credits for this request (Chat round plus image output); batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request (Chat round plus image output); batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
               custom: true,
             },
             {
@@ -3168,14 +3168,14 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "SSE chat.completion.partial_image",
               description:
-                "GPT2IMAGE extension. Streaming image preview emitted during generation.",
+                "FluxMedia extension. Streaming image preview emitted during generation.",
               custom: true,
             },
           ],
           notes: [
             "Upstream API configs have two independent switches: Images upstream controls whether /v1/images/generations and /v1/images/edits call upstream /images/* or are converted to /responses + the image_generation tool; Chat Completions upstream only controls whether /v1/chat/completions calls upstream /chat/completions or /responses.",
-            "Selecting chat_completions makes GPT2IMAGE /v1/chat/completions call the selected upstream's /chat/completions. This is better for pure chat compatibility, but image output depends on the upstream implementation. Agent and /v1/responses are not affected.",
-            "OpenAI official Chat Completions does not define a standard generated-image response field. GPT2IMAGE extends the Chat Completions shape with choices[].message.images, top-level images, and Markdown image links in content. For strict official image-generation semantics, use /v1/images/generations, /v1/images/edits, or /v1/responses.",
+            "Selecting chat_completions makes FluxMedia /v1/chat/completions call the selected upstream's /chat/completions. This is better for pure chat compatibility, but image output depends on the upstream implementation. Agent and /v1/responses are not affected.",
+            "OpenAI official Chat Completions does not define a standard generated-image response field. FluxMedia extends the Chat Completions shape with choices[].message.images, top-level images, and Markdown image links in content. For strict official image-generation semantics, use /v1/images/generations, /v1/images/edits, or /v1/responses.",
             "This endpoint uses page Chat non-Agent mode. It does not inject web_search or continue_generation and does not return Agent task cards.",
             "The request kind is chat, so routing can select Web accounts, Codex/Responses accounts, or external API backends that support /responses. User custom upstream APIs still keep highest priority when available.",
             "Billing matches page Chat: a base Chat round charge first, then actual completed image output credits, moderation credits, and group multipliers.",
@@ -3202,7 +3202,7 @@ curl https://gpt2image.superapi.buzz/v1/images/generations \\
     "background": "auto"
   }'
 
-# 2. Return a URL and disable GPT2IMAGE prompt optimization.
+# 2. Return a URL and disable FluxMedia prompt optimization.
 curl https://gpt2image.superapi.buzz/v1/images/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -3276,7 +3276,7 @@ curl https://gpt2image.superapi.buzz/v1/images/generations \\
     "callback_url": "https://your-server.example/callback"
   }'
 
-# 7. GPT2IMAGE extensions: transparent background + ISNet matte fallback, with safety prompt-repair retry disabled.
+# 7. FluxMedia extensions: transparent background + ISNet matte fallback, with safety prompt-repair retry disabled.
 curl https://gpt2image.superapi.buzz/v1/images/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -3353,14 +3353,14 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               name: "model",
               requirement: "Optional",
               description:
-                "Image model. GPT2IMAGE accepts gpt-image-* style image models here. It also accepts Adobe Firefly model ids (firefly-<family>-<resolution>-<ratio>, e.g. firefly-nano-banana-pro-2k-16x9, or just a family such as firefly-gpt-image-2), which route to the Adobe (Firefly) backend. family ∈ gpt-image-2, gpt-image-1.5, nano-banana, nano-banana2, nano-banana-pro; resolution ∈ 1k, 2k, 4k; ratio ∈ 1x1, 16x9, 9x16, 4x3, 3x4. Use /v1/responses for Responses chat models.",
+                "Image model. FluxMedia accepts gpt-image-* style image models here. It also accepts Adobe Firefly model ids (firefly-<family>-<resolution>-<ratio>, e.g. firefly-nano-banana-pro-2k-16x9, or just a family such as firefly-gpt-image-2), which route to the Adobe (Firefly) backend. family ∈ gpt-image-2, gpt-image-1.5, nano-banana, nano-banana2, nano-banana-pro; resolution ∈ 1k, 2k, 4k; ratio ∈ 1x1, 16x9, 9x16, 4x3, 3x4. Use /v1/responses for Responses chat models.",
             },
             {
               name: "force_firefly / forceFirefly",
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension: when true, narrows candidates to the Adobe (Firefly) backend only, using standard parameters (your prompt/size/quality/model). When no firefly-* model is given, the default family is gpt-image-2; size maps to the firefly ratio/resolution (longest edge ≤1024→1k, ≤2048→2k, else 4k); quality low/medium/high → detailLevel 1/3/5, auto → backend gpt_image_quality; unsupported parameters (output_format, background, thinking, moderation level, output_compression) are silently ignored. Full mapping table and worked example: /docs/adobe-firefly-compat.",
+                "FluxMedia extension: when true, narrows candidates to the Adobe (Firefly) backend only, using standard parameters (your prompt/size/quality/model). When no firefly-* model is given, the default family is gpt-image-2; size maps to the firefly ratio/resolution (longest edge ≤1024→1k, ≤2048→2k, else 4k); quality low/medium/high → detailLevel 1/3/5, auto → backend gpt_image_quality; unsupported parameters (output_format, background, thinking, moderation level, output_compression) are silently ignored. Full mapping table and worked example: /docs/adobe-firefly-compat.",
             },
             {
               name: "n",
@@ -3372,7 +3372,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               name: "size",
               requirement: "Optional",
               description:
-                "Target size. GPT2IMAGE validates the size and rejects invalid values.",
+                "Target size. FluxMedia validates the size and rejects invalid values.",
             },
             {
               name: "quality",
@@ -3388,7 +3388,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               name: "response_format",
               requirement: "Optional",
               description:
-                "url or b64_json. Defaults to b64_json. url returns a GPT2IMAGE storage URL.",
+                "url or b64_json. Defaults to b64_json. url returns a FluxMedia storage URL.",
             },
             {
               name: "output_format",
@@ -3439,7 +3439,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               requirement: "Optional",
               custom: true,
               description:
-                "Controls whether GPT2IMAGE may further optimize prompt. If prompt is already the final optimized prompt, pass false.",
+                "Controls whether FluxMedia may further optimize prompt. If prompt is already the final optimized prompt, pass false.",
             },
             {
               name: "promptRepair / prompt_repair",
@@ -3487,13 +3487,13 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "generation_id / generationId",
               description:
-                "GPT2IMAGE extension. Non-stream success responses return the generation record ID at the top level; batch requests return generation_ids / generationIds.",
+                "FluxMedia extension. Non-stream success responses return the generation record ID at the top level; batch requests return generation_ids / generationIds.",
               custom: true,
             },
             {
               name: "credits_consumed",
               description:
-                "GPT2IMAGE extension. GPT2IMAGE-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
               custom: true,
             },
             {
@@ -3510,14 +3510,14 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
           notes: [
             "This endpoint does not call page /api/images/generate; it directly enters the shared service layer.",
             "When routed to a Responses account, the image request is converted into a Responses image_generation tool request.",
-            "n/count is one HTTP request. A 10-image request creates 10 generation records and bills 10 outputs. GPT2IMAGE runs batch items with bounded parallelism based on the plan image-generation concurrency; items beyond that concurrency wait inside the same batch.",
+            "n/count is one HTTP request. A 10-image request creates 10 generation records and bills 10 outputs. FluxMedia runs batch items with bounded parallelism based on the plan image-generation concurrency; items beyond that concurrency wait inside the same batch.",
             "Concurrency and queueing: the runtime uses one in-process image queue. Tasks are sorted by plan queue priority, then FIFO within the same priority, and are started only when both the global concurrency and per-user image-generation concurrency allow it. Global concurrency is configurable in Admin System Settings > Models > Global image generation concurrency; IMAGE_GENERATION_GLOBAL_CONCURRENCY is only the fallback default. Batch requests add a request-local bounded runner, so only the allowed number of batch items are started and the rest wait inside that batch instead of flooding the shared queue.",
             "Waiting in a queue does not create a generation record or charge image credits. If the shared queue wait exceeds IMAGE_GENERATION_QUEUE_TIMEOUT_MS, the API returns a 429-style error. The 20-minute runtime timeout starts only after an individual image task begins execution, and timeout settlement follows the failed-generation credit rules.",
-            "Web backends cannot strictly control output dimensions or output format. GPT2IMAGE labels stored files by the detected image header and MIME.",
+            "Web backends cannot strictly control output dimensions or output format. FluxMedia labels stored files by the detected image header and MIME.",
             "background=transparent is not universally supported. OpenAI's official docs currently list gpt-image-1.5, gpt-image-1, and gpt-image-1-mini as supporting transparent backgrounds, and png or webp output is usually required. Unsupported upstream models may reject the request with HTTP 400 instead of silently falling back.",
             "async tasks are process-local and expire after 30 minutes. A restart or multi-instance switch can make unfinished tasks unavailable for polling; already-sent callbacks are unaffected.",
-            "If the actual generated dimensions differ from the requested size, GPT2IMAGE records and bills using the detected actual size.",
-            "The official Images API may return usage. GPT2IMAGE usually returns usage: null, but GPT2IMAGE-billed credits are returned through top-level credits_consumed, error payloads, or streaming completion events. When a user custom upstream API wins, GPT2IMAGE does not charge credits.",
+            "If the actual generated dimensions differ from the requested size, FluxMedia records and bills using the detected actual size.",
+            "The official Images API may return usage. FluxMedia usually returns usage: null, but FluxMedia-billed credits are returned through top-level credits_consumed, error payloads, or streaming completion events. When a user custom upstream API wins, FluxMedia does not charge credits.",
           ],
         },
         {
@@ -3659,7 +3659,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               name: "images",
               requirement: "Optional for JSON",
               description:
-                "Image reference array. GPT2IMAGE accepts string URLs or { image_url/url }. file_id is not supported.",
+                "Image reference array. FluxMedia accepts string URLs or { image_url/url }. file_id is not supported.",
             },
             {
               name: "mask",
@@ -3678,7 +3678,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension: when true, narrows candidates to the Adobe (Firefly) backend only, using standard parameters. When no firefly-* model is given, the default family is gpt-image-2; size maps to the firefly ratio/resolution; quality low/medium/high → detailLevel 1/3/5; unsupported parameters are silently ignored. See /v1/images/generations and /docs/adobe-firefly-compat.",
+                "FluxMedia extension: when true, narrows candidates to the Adobe (Firefly) backend only, using standard parameters. When no firefly-* model is given, the default family is gpt-image-2; size maps to the firefly ratio/resolution; quality low/medium/high → detailLevel 1/3/5; unsupported parameters are silently ignored. See /v1/images/generations and /docs/adobe-firefly-compat.",
             },
             {
               name: "n",
@@ -3755,7 +3755,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "Optional JSON or form field",
               custom: true,
               description:
-                "Compatibility shortcut fields. Prefer images; when both are provided, GPT2IMAGE merges them into one reference list and deduplicates by URL.",
+                "Compatibility shortcut fields. Prefer images; when both are provided, FluxMedia merges them into one reference list and deduplicates by URL.",
             },
             {
               name: "mask_url / mask_image_url",
@@ -3768,7 +3768,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "Optional",
               custom: true,
               description:
-                "Controls whether GPT2IMAGE may further optimize prompt. If prompt is already the final optimized prompt, pass false.",
+                "Controls whether FluxMedia may further optimize prompt. If prompt is already the final optimized prompt, pass false.",
             },
             {
               name: "promptRepair / prompt_repair",
@@ -3806,13 +3806,13 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "generation_id / generationId",
               description:
-                "GPT2IMAGE extension. Non-stream success responses return the generation record ID at the top level; batch requests return generation_ids / generationIds.",
+                "FluxMedia extension. Non-stream success responses return the generation record ID at the top level; batch requests return generation_ids / generationIds.",
               custom: true,
             },
             {
               name: "credits_consumed",
               description:
-                "GPT2IMAGE extension. GPT2IMAGE-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
               custom: true,
             },
             {
@@ -3873,7 +3873,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "Authorization",
               requirement: "Required header",
-              description: "Bearer <GPT2Image API Key>.",
+              description: "Bearer <FluxMedia API Key>.",
             },
             {
               name: "task_id",
@@ -3932,7 +3932,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
           path: "/v1/videos/generations",
           contentType: "application/json",
           description:
-            "GPT2IMAGE extension: Adobe Firefly video generation. It always routes to the Adobe (Firefly) backend, is a long-running job, and returns an OpenAI Images-style shape where data[].url is the produced video URL. Auth matches other v1 endpoints (external API key). Video is long-running, so async is strongly recommended: pass async:true (or ?async=true) to return a task_... object immediately and generate in the background, then poll GET /v1/videos/{id} or use callback_url; otherwise it runs synchronously, holding the connection with keep-alive until the video is ready.",
+            "FluxMedia extension: Adobe Firefly video generation. It always routes to the Adobe (Firefly) backend, is a long-running job, and returns an OpenAI Images-style shape where data[].url is the produced video URL. Auth matches other v1 endpoints (external API key). Video is long-running, so async is strongly recommended: pass async:true (or ?async=true) to return a task_... object immediately and generate in the background, then poll GET /v1/videos/{id} or use callback_url; otherwise it runs synchronously, holding the connection with keep-alive until the video is ready.",
           example: `# 1. Text-to-video. model is a full Firefly video id.
 curl https://gpt2image.superapi.buzz/v1/videos/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -4025,7 +4025,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             },
             {
               name: "data[].url",
-              description: "GPT2IMAGE storage URL of the produced video.",
+              description: "FluxMedia storage URL of the produced video.",
             },
             {
               name: "credits_consumed",
@@ -4034,8 +4034,8 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             },
           ],
           notes: [
-            "This endpoint is a GPT2IMAGE extension, not an official OpenAI endpoint. /api/v1/videos/generations is an alias.",
-            "Video generation is long-running: in sync mode GPT2IMAGE holds the connection with keep-alive until the video is ready or fails (set a generous client read timeout); for long videos prefer async (async:true) — get a task_... immediately and poll GET /v1/videos/{id} (task_... is in-memory and expires after 30 minutes, or use the generation_id from the response for persistent lookups) or rely on callback_url, to avoid the connection being cut mid-way and losing the output.",
+            "This endpoint is a FluxMedia extension, not an official OpenAI endpoint. /api/v1/videos/generations is an alias.",
+            "Video generation is long-running: in sync mode FluxMedia holds the connection with keep-alive until the video is ready or fails (set a generous client read timeout); for long videos prefer async (async:true) — get a task_... immediately and poll GET /v1/videos/{id} (task_... is in-memory and expires after 30 minutes, or use the generation_id from the response for persistent lookups) or rely on callback_url, to avoid the connection being cut mid-way and losing the output.",
             "Billing = base credits per second (default 30) × duration in seconds × model-family multiplier × Adobe backend multiplier (group multiplier folded into billingMultiplier), with the final amount rounded up to an integer. The duration comes from <dur> in the model id; multipliers follow the admin Adobe-backend tab.",
             "Requires externalApi.images.generate by default (Starter or higher); admins can change it in the Plan Capability Matrix.",
           ],
@@ -4046,7 +4046,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
           path: "/v1/videos/{id}",
           contentType: "No request body",
           description:
-            "GPT2IMAGE extension: look up a single video generation by ID. The path parameter accepts two kinds of ID: (1) the task_... returned with async=true (an in-process in-memory task object that expires after 30 minutes and becomes unavailable after a restart or multi-instance switch); (2) the generation_id (gen_...) from any sync/async response, read persistently from the DB and available across restarts / multi-instance switches. It checks the in-memory task first, then looks up by generation_id. Only the caller's own records are returned; only a valid API key is required, with no plan gate.",
+            "FluxMedia extension: look up a single video generation by ID. The path parameter accepts two kinds of ID: (1) the task_... returned with async=true (an in-process in-memory task object that expires after 30 minutes and becomes unavailable after a restart or multi-instance switch); (2) the generation_id (gen_...) from any sync/async response, read persistently from the DB and available across restarts / multi-instance switches. It checks the in-memory task first, then looks up by generation_id. Only the caller's own records are returned; only a valid API key is required, with no plan gate.",
           example: `curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -4078,7 +4078,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             {
               name: "Authorization",
               requirement: "Required header",
-              description: "Bearer <GPT2IMAGE API key>.",
+              description: "Bearer <FluxMedia API key>.",
             },
             {
               name: "id",
@@ -4113,7 +4113,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             {
               name: "data[].url / video_url",
               description:
-                "When status=completed, the signed GPT2IMAGE storage URL of the produced video (data[].url equals the top-level video_url); absent while running.",
+                "When status=completed, the signed FluxMedia storage URL of the produced video (data[].url equals the top-level video_url); absent while running.",
             },
             {
               name: "created / created_at / completed_at",
@@ -4132,7 +4132,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             },
           ],
           notes: [
-            "This endpoint is a GPT2IMAGE extension, not an official OpenAI endpoint; /api/v1/videos/{id} is an alias.",
+            "This endpoint is a FluxMedia extension, not an official OpenAI endpoint; /api/v1/videos/{id} is an alias.",
             'In-memory tasks expire after 30 minutes; a restart or multi-instance switch makes an unfinished task return 404 "Video task not found or expired.", but an already-sent callback_url callback is unaffected. Use the generation_id for persistent lookups.',
             "Only tasks created by the user that owns the current API key are queryable; the response is Cache-Control: no-store.",
             "The shape is identical to the task object POSTed to callback_url.",
@@ -4144,7 +4144,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
           path: "/v1/agents/images",
           contentType: "application/json or multipart/form-data",
           description:
-            "GPT2IMAGE extension that exposes the page Agent run style to external API clients. It uses Codex/Responses scheduling, web search, tool loop continuation, attachment context, and multi-round image iteration.",
+            "FluxMedia extension that exposes the page Agent run style to external API clients. It uses Codex/Responses scheduling, web search, tool loop continuation, attachment context, and multi-round image iteration.",
           example: `# 1. JSON Agent image run. Ultra is required by default; admins can change externalApi.agent.
 curl https://gpt2image.superapi.buzz/v1/agents/images \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -4246,7 +4246,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               name: "model / gptModel / gpt_model",
               requirement: "Optional",
               description:
-                "Top-level GPT/Responses model. If model is gpt-image-*, GPT2IMAGE treats it as image_model for compatibility.",
+                "Top-level GPT/Responses model. If model is gpt-image-*, FluxMedia treats it as image_model for compatibility.",
             },
             {
               name: "image_model / imageModel",
@@ -4345,7 +4345,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               requirement: "Optional",
               custom: true,
               description:
-                "GPT2IMAGE extension: safety prompt-repair retry toggle. When false, a moderation failure returns the real error directly instead of rewriting the prompt and retrying.",
+                "FluxMedia extension: safety prompt-repair retry toggle. When false, a moderation failure returns the real error directly instead of rewriting the prompt and retrying.",
             },
             {
               name: "thinking",
@@ -4386,7 +4386,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               name: "credits_consumed",
               custom: true,
               description:
-                "GPT2IMAGE-billed credits. Agent always requires Codex/Responses capability and does not use user custom API. Billing = Agent base round credits + final image output credits + moderation credits, with backend group multipliers applied.",
+                "FluxMedia-billed credits. Agent always requires Codex/Responses capability and does not use user custom API. Billing = Agent base round credits + final image output credits + moderation credits, with backend group multipliers applied.",
             },
             {
               name: "agent_round_count",
@@ -4400,7 +4400,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
             },
           ],
           notes: [
-            "This endpoint is a GPT2IMAGE extension, not an official OpenAI endpoint. /api/v1/agents/images is an alias.",
+            "This endpoint is a FluxMedia extension, not an official OpenAI endpoint. /api/v1/agents/images is an alias.",
             "Ultra is required by default; admins can change externalApi.agent in the Plan Capability Matrix.",
             "It forces requiresResponsesBackend and never schedules Web accounts; it can use Codex/Responses accounts or external API backends that support /responses.",
             "It does not call page /api/images/chat; it shares the runImageGenerationForUser service layer with page Agent.",
@@ -4413,7 +4413,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
           path: "/v1/responses",
           contentType: "application/json",
           description:
-            "A GPT2IMAGE image-generation adapter based on the OpenAI Responses API. It routes as responses and selects Codex/Responses groups or external /responses API backends.",
+            "A FluxMedia image-generation adapter based on the OpenAI Responses API. It routes as responses and selects Codex/Responses groups or external /responses API backends.",
           example: `# 1. Minimal Responses image request. Requires Pro plan.
 curl https://gpt2image.superapi.buzz/v1/responses \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -4521,13 +4521,13 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
               name: "previous_response_id",
               requirement: "Optional",
               description:
-                "Continues a previous response. GPT2IMAGE loads stored webConversation/fallbackHistory continuation state.",
+                "Continues a previous response. FluxMedia loads stored webConversation/fallbackHistory continuation state.",
             },
             {
               name: "tools",
               requirement: "Optional",
               description:
-                'If provided, must include { type: "image_generation" }. If omitted, GPT2IMAGE adds image_generation automatically. Put the image model in the image_generation tool\'s model field.',
+                'If provided, must include { type: "image_generation" }. If omitted, FluxMedia adds image_generation automatically. Put the image model in the image_generation tool\'s model field.',
             },
             {
               name: "tool_choice",
@@ -4544,7 +4544,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
               name: "store",
               requirement: "Optional",
               description:
-                "Accepted for compatibility. GPT2IMAGE stores continuation state internally and does not guarantee official store semantics.",
+                "Accepted for compatibility. FluxMedia stores continuation state internally and does not guarantee official store semantics.",
             },
             {
               name: "reasoning.effort",
@@ -4626,7 +4626,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             {
               name: "metadata.generation_id / credits_consumed / size",
               description:
-                "GPT2IMAGE generation record, billed credits, and size metadata. credits_consumed is 0 when a user custom upstream API wins.",
+                "FluxMedia generation record, billed credits, and size metadata. credits_consumed is 0 when a user custom upstream API wins.",
               custom: true,
             },
             {
@@ -4642,7 +4642,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             "This endpoint requires Pro plan or higher.",
             "This is not Chat Completions. Use /v1/chat/completions for normal chat-to-image, and this endpoint for Responses tool semantics.",
             "input_image supports image_url/data URLs. file_id/file inputs are not used as references today.",
-            "If tools is provided without image_generation, GPT2IMAGE returns an error to avoid text-only responses.",
+            "If tools is provided without image_generation, FluxMedia returns an error to avoid text-only responses.",
             "Page Chat mode uses normal multimodal chat/image semantics. Agent mode provides image_generation, web_search, and the linear continuation tool continue_generation by default without forcing tool_choice.",
             "Page Chat/Agent can read uploaded local text/code files as request context. Prompted server filesystem paths are not read.",
             "Page Chat/Agent base round credits are configured per plan in the admin Plan Capability Matrix. Defaults are 1 credit per Chat round and 3 credits per Agent round; completed images are additionally billed by detected output size and output count.",
@@ -4660,11 +4660,11 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "**Resolution is not strictly controllable; size is only a hint/record value and output may differ.**",
         "**4K output is not guaranteed; high-resolution output depends on current ChatGPT Web capability and account state.**",
         "The main GPT conversation model and Web thinking level can be controlled; image model is not mapped to a separate Web image model.",
-        "When prompt optimization is off, GPT2IMAGE sends the original prompt and forces Web thinking to instant to reduce platform-side rewriting.",
+        "When prompt optimization is off, FluxMedia sends the original prompt and forces Web thinking to instant to reduce platform-side rewriting.",
       ],
       invalid: [
         "External /v1/responses is adapted into the shared chat generation path, but its scheduling type remains responses; it only selects Codex/Responses groups or external Responses API backends, not Web account pools.",
-        "For external /v1/responses, an empty model uses the backend default; explicit models must be listed by /v1/models or GPT2IMAGE rejects them.",
+        "For external /v1/responses, an empty model uses the backend default; explicit models must be listed by /v1/models or FluxMedia rejects them.",
         "Cannot guarantee prompt text is never interpreted, expanded, or revised by ChatGPT Web upstream.",
       ],
     },
@@ -4679,7 +4679,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "Page Chat mode uses normal multimodal chat/image semantics. Page Agent mode provides image_generation, web_search, and continue_generation by default without forcing tool_choice, and can continue across linear automatic rounds so the model can search, read uploaded text-file context, generate drafts, and refine like Codex.",
         "Uploaded local text/code files in Chat/Agent are read as request context. Server filesystem paths written in prompts are not read.",
         "Supports external /v1/responses and can also handle converted /v1/images/generations and /v1/images/edits requests.",
-        "When prompt optimization is off, GPT2IMAGE instructs the model not to modify the prompt; this is best effort and upstream may still deviate.",
+        "When prompt optimization is off, FluxMedia instructs the model not to modify the prompt; this is best effort and upstream may still deviate.",
         "Page Chat/Agent base round credits are configured per plan in the admin Plan Capability Matrix. Defaults are 1 credit per Chat round and 3 credits per Agent round; completed image outputs are billed additionally by detected size and count.",
       ],
       invalid: [
@@ -4712,8 +4712,8 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "Model, size, quality, streaming events, and usage fields depend on the external API implementation.",
       ],
       invalid: [
-        "Does not consume GPT2IMAGE Web or Codex account pool quota.",
-        "If the external service rewrites prompts or limits resolution, GPT2IMAGE cannot override it.",
+        "Does not consume FluxMedia Web or Codex account pool quota.",
+        "If the external service rewrites prompts or limits resolution, FluxMedia cannot override it.",
       ],
     },
     prompt: {
@@ -4729,7 +4729,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         ],
         [
           "Codex/Responses",
-          "When prompt optimization is off, GPT2IMAGE instructs the model not to modify the prompt, but final behavior still depends on the upstream model/tool.",
+          "When prompt optimization is off, FluxMedia instructs the model not to modify the prompt, but final behavior still depends on the upstream model/tool.",
         ],
         [
           "External API",

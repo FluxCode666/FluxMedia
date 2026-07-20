@@ -1,5 +1,5 @@
 /**
- * 影片素材生成:经 GPT2IMAGE Pro 自身 v1 API 生成 16 张水墨作品原图
+ * 影片素材生成:经 FluxMedia Pro 自身 v1 API 生成 16 张水墨作品原图
  * (hero 一笔圆 2048 + 15 幅万象 1024)。产品自己生成影片主角,叙事自证。
  * 走 /v1/images/generations(gpt-image-2, b64_json):该端点带 JSON
  * keep-alive 保活,长生成不被 CDN 100s 超时掐断;/v1/responses 在该

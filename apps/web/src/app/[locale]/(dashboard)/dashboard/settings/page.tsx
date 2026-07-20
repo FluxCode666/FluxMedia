@@ -1,15 +1,15 @@
+import { db, user } from "@repo/database";
+import { getServerSession } from "@repo/shared/auth/server";
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
 import { SettingsProfileView } from "@/features/settings/components";
-import { getServerSession } from "@repo/shared/auth/server";
-import { db, user } from "@repo/database";
-import { eq } from "drizzle-orm";
 
 /**
  * 设置页面元数据
  */
 export const metadata = {
-  title: "Settings | GPT2IMAGE",
+  title: "Settings | FluxMedia",
   description: "Manage your account settings and preferences",
 };
 

@@ -30,7 +30,7 @@ function getHostname(url: string | undefined): string {
  *
  * 功能:
  * - 显示站点名称和描述
- * - 品牌单色配色(GPT2IMAGE 黑白体系,暖调深底 + Georgia 衬线标题)
+ * - 品牌单色配色(FluxMedia 黑白体系,暖调深底 + Georgia 衬线标题)
  * - 动态显示站点 URL
  */
 export function createOgImageResponse(): ImageResponse {

@@ -5027,7 +5027,7 @@ export function CreatePageClient({
     const imageUrl = variant?.imageUrl || result?.imageUrl;
     const id = variant?.generationId || result?.generationId;
     if (!imageUrl || !id) return;
-    await attachImageUrlToChat(imageUrl, `gpt2image-${id}`, id);
+    await attachImageUrlToChat(imageUrl, `fluxmedia-${id}`, id);
   };
 
   const findPrecedingUserMessage = (assistantIndex: number) => {
@@ -7377,7 +7377,7 @@ export function CreatePageClient({
     try {
       const item = await urlToEditImageFile(
         sourceResult.imageUrl,
-        `gpt2image-${sourceResult.generationId}`,
+        `fluxmedia-${sourceResult.generationId}`,
         sourceResult.generationId
       );
       clearEditImages();
@@ -7428,7 +7428,7 @@ export function CreatePageClient({
     try {
       const item = await urlToEditImageFile(
         generation.imageUrl,
-        `gpt2image-${generation.id}`,
+        `fluxmedia-${generation.id}`,
         generation.id
       );
       setEditImages((prev) => [...prev, item]);
@@ -7464,7 +7464,7 @@ export function CreatePageClient({
       }
       void attachImageUrlToChat(
         generation.imageUrl,
-        `gpt2image-${generation.id}`,
+        `fluxmedia-${generation.id}`,
         generation.id
       );
       return;

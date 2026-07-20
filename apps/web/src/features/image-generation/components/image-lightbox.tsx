@@ -241,7 +241,7 @@ export function ImageLightbox({
       mode,
       ref: previewImageUrl,
       sourceId: generation.id,
-      sourceName: activeReference?.name || `gpt2image-${generation.id}`,
+      sourceName: activeReference?.name || `fluxmedia-${generation.id}`,
       intent,
       sendRef: intent,
     });
@@ -263,7 +263,7 @@ export function ImageLightbox({
       mode,
       imageUrl: previewImageUrl,
       sourceId: generation.id,
-      sourceName: activeReference?.name || `gpt2image-${generation.id}`,
+      sourceName: activeReference?.name || `fluxmedia-${generation.id}`,
     });
     router.push(createReferenceHref(mode, intent));
     onClose();

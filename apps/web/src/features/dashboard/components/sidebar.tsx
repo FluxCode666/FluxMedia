@@ -1,24 +1,17 @@
 "use client";
 
+import { getMyUnreadAnnouncementCountAction } from "@repo/shared/announcements/actions";
+import { signOut } from "@repo/shared/auth/client";
+import { isAdminRole, isObserverAdminRole } from "@repo/shared/auth/roles";
+import { ModeToggle } from "@repo/shared/components";
+import { dashboardConfig } from "@repo/shared/config";
+import { CreditBalanceBadge } from "@repo/shared/credits/components";
+import { getMyUnreadTicketCountAction } from "@repo/shared/support/actions/ticket";
 import {
-  Activity,
-  ChevronsUpDown,
-  LogOut,
-  Megaphone,
-  Server,
-  Shield,
-  Settings,
-  Users,
-} from "lucide-react";
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useLocale } from "next-intl";
-import { useTranslations } from "next-intl";
-import { useAction } from "next-safe-action/hooks";
-import { useEffect, useState } from "react";
-
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@repo/ui/components/avatar";
 import {
   Popover,
   PopoverContent,
@@ -26,22 +19,28 @@ import {
 } from "@repo/ui/components/popover";
 import { Separator } from "@repo/ui/components/separator";
 import { Sheet, SheetContent, SheetTitle } from "@repo/ui/components/sheet";
-import { dashboardConfig } from "@repo/shared/config";
-import { CreditBalanceBadge } from "@repo/shared/credits/components";
-import {
-  isAdminRole,
-  isObserverAdminRole,
-} from "@repo/shared/auth/roles";
-import { useSidebar } from "@/features/dashboard/context";
-import { ModeToggle } from "@repo/shared/components";
-import { getMyUnreadAnnouncementCountAction } from "@repo/shared/announcements/actions";
-import { getMyUnreadTicketCountAction } from "@repo/shared/support/actions/ticket";
-import { signOut } from "@repo/shared/auth/client";
 import { cn } from "@repo/ui/utils";
 import {
-  useCurrentSession,
+  Activity,
+  ChevronsUpDown,
+  LogOut,
+  Megaphone,
+  Server,
+  Settings,
+  Shield,
+  Users,
+} from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { useAction } from "next-safe-action/hooks";
+import { useEffect, useState } from "react";
+import {
   type CurrentSession,
+  useCurrentSession,
 } from "@/features/auth/hooks/use-current-session";
+import { useSidebar } from "@/features/dashboard/context";
 
 /**
  * Dashboard 侧边栏组件
@@ -75,10 +74,8 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
   // Popover 开关状态
   const [open, setOpen] = useState(false);
 
-  const {
-    execute: fetchUnreadTickets,
-    result: unreadTicketsResult,
-  } = useAction(getMyUnreadTicketCountAction);
+  const { execute: fetchUnreadTickets, result: unreadTicketsResult } =
+    useAction(getMyUnreadTicketCountAction);
   const {
     execute: fetchUnreadAnnouncements,
     result: unreadAnnouncementsResult,
@@ -188,7 +185,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
           >
             <Image
               src="/assets/icon.png"
-              alt="GPT2IMAGE"
+              alt="FluxMedia"
               width={24}
               height={24}
               className="shrink-0"
@@ -199,7 +196,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
                 collapsed && "opacity-0"
               )}
             >
-              GPT2IMAGE
+              FluxMedia
             </span>
           </Link>
         </div>
@@ -264,8 +261,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
                   const Icon = item.icon;
                   const translatedTitle = getNavTitle(item.title);
                   const showSupportUnread =
-                    item.href === "/dashboard/support" &&
-                    unreadTicketCount > 0;
+                    item.href === "/dashboard/support" && unreadTicketCount > 0;
                   const unreadCount =
                     item.href === "/dashboard/announcements"
                       ? unreadAnnouncementCount

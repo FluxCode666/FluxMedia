@@ -323,6 +323,14 @@ type CreditPackageMatrixDraft = {
   packages: CreditPackageDraft[];
 };
 
+type CreditTopUpConfigDraft = {
+  enabled: boolean;
+  creditsPerYuan: number;
+  minAmountYuan: number;
+  maxAmountYuan: number;
+  extraCurrencies: unknown[];
+};
+
 function formatJsonExample(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
@@ -394,6 +402,97 @@ function stringValue(value: unknown, fallback = "") {
 
 function booleanValue(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+/**
+ * 找到配置中的指定币种项，并忽略格式不正确的历史配置。
+ *
+ * 支付配置由管理员手填或环境变量导入，不能假定 currencies 中每项都是对象；
+ * 在表单渲染阶段先收窄，避免一条坏配置让整个系统设置页面无法打开。
+ */
+function findTopUpCurrencyConfig(value: unknown, currency: string) {
+  if (!isRecord(value) || !Array.isArray(value.currencies)) return undefined;
+  return value.currencies.find(
+    (item): item is Record<string, unknown> =>
+      isRecord(item) &&
+      stringValue(item.currency).trim().toUpperCase() === currency
+  );
+}
+
+/**
+ * 将当前保存值或示例值转换为后台的 CNY 充值表单草稿。
+ *
+ * 支付宝当面付只能收人民币，故把最常用且实际可用的 CNY 比例单独暴露为表单。
+ * 其他币种原样保留，避免未来新增支付渠道后因编辑 CNY 比例而丢失已有配置。
+ */
+function normalizeCreditTopUpConfigDraft(
+  rawValue: DraftValue,
+  fallbackValue: unknown
+): CreditTopUpConfigDraft {
+  const parsedRaw = parseJsonDraft(rawValue);
+  const raw = isRecord(parsedRaw) ? parsedRaw : {};
+  const fallback = isRecord(fallbackValue) ? fallbackValue : {};
+  const rawCny = findTopUpCurrencyConfig(raw, "CNY");
+  const fallbackCny = findTopUpCurrencyConfig(fallback, "CNY");
+  const cny = rawCny ?? fallbackCny ?? {};
+  const currencies = Array.isArray(raw.currencies)
+    ? raw.currencies
+    : Array.isArray(fallback.currencies)
+      ? fallback.currencies
+      : [];
+
+  return {
+    enabled: booleanValue(raw.enabled, booleanValue(fallback.enabled, true)),
+    creditsPerYuan: numberValue(
+      cny.creditsPerMajorUnit,
+      numberValue(fallbackCny?.creditsPerMajorUnit, 10)
+    ),
+    minAmountYuan:
+      numberValue(
+        cny.minAmountMinor,
+        numberValue(fallbackCny?.minAmountMinor, 100)
+      ) / 100,
+    maxAmountYuan:
+      numberValue(
+        cny.maxAmountMinor,
+        numberValue(fallbackCny?.maxAmountMinor, 1_000_000)
+      ) / 100,
+    extraCurrencies: currencies.filter(
+      (item) =>
+        !isRecord(item) ||
+        stringValue(item.currency).trim().toUpperCase() !== "CNY"
+    ),
+  };
+}
+
+/**
+ * 将可见表单字段写回充值配置 JSON。
+ *
+ * 金额在运行时使用分，表单用元避免管理员把 ¥1 误填为 100；保存时再精确转换回
+ * 最小货币单位，并仅保留两位小数，匹配支付宝 CNY 的金额语义。
+ */
+function compactCreditTopUpConfigDraft(draft: CreditTopUpConfigDraft) {
+  const minAmountMinor = Math.max(1, Math.round(draft.minAmountYuan * 100));
+  const maxAmountMinor = Math.max(
+    minAmountMinor,
+    Math.round(draft.maxAmountYuan * 100)
+  );
+
+  return {
+    enabled: draft.enabled,
+    defaultCurrency: "CNY",
+    currencies: [
+      {
+        currency: "CNY",
+        creditsPerMajorUnit: Math.max(0.01, draft.creditsPerYuan),
+        minAmountMinor,
+        maxAmountMinor,
+        enabled: true,
+        providers: ["alipay_f2f"],
+      },
+      ...draft.extraCurrencies,
+    ],
+  };
 }
 
 function normalizePlanNumberMap(
@@ -748,6 +847,17 @@ function SettingInput({
   if (setting.key === "CREDIT_PACKAGE_MATRIX") {
     return (
       <CreditPackageMatrixInput
+        value={value}
+        fallbackValue={setting.exampleValue}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (setting.key === "CREDIT_TOP_UP_CONFIG") {
+    return (
+      <CreditTopUpConfigInput
         value={value}
         fallbackValue={setting.exampleValue}
         disabled={disabled}
@@ -1168,6 +1278,133 @@ function PlanCapabilityMatrixInput({
       <details className="rounded-md border bg-muted/20 p-3">
         <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
           查看当前 JSON 预览
+        </summary>
+        <Textarea
+          value={preview}
+          rows={12}
+          readOnly
+          className="mt-3 resize-y font-mono text-xs"
+        />
+      </details>
+    </div>
+  );
+}
+
+/**
+ * 按金额充值的可视化后台表单。
+ *
+ * 使用方：系统设置“积分”标签页。所有修改仍序列化到既有 CREDIT_TOP_UP_CONFIG，
+ * 因此不改变订单快照、报价和支付宝履约的服务端契约。
+ */
+function CreditTopUpConfigInput({
+  value,
+  fallbackValue,
+  disabled,
+  onChange,
+}: {
+  value: DraftValue;
+  fallbackValue: unknown;
+  disabled: boolean;
+  onChange: (value: DraftValue) => void;
+}) {
+  const config = useMemo(
+    () => normalizeCreditTopUpConfigDraft(value, fallbackValue),
+    [value, fallbackValue]
+  );
+  const preview = useMemo(
+    () => JSON.stringify(compactCreditTopUpConfigDraft(config), null, 2),
+    [config]
+  );
+
+  const updateConfig = (patch: Partial<CreditTopUpConfigDraft>) => {
+    onChange(
+      JSON.stringify(
+        compactCreditTopUpConfigDraft({ ...config, ...patch }),
+        null,
+        2
+      )
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        支付宝当面付仅支持人民币。订单创建时会冻结充值比例和金额，之后修改比例不会影响已创建订单。
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="space-y-2 rounded-md border px-3 py-2">
+          <Label
+            htmlFor="credit-top-up-enabled"
+            className="text-[11px] uppercase tracking-widest text-muted-foreground"
+          >
+            开启按金额充值
+          </Label>
+          <div className="flex h-10 items-center">
+            <Switch
+              id="credit-top-up-enabled"
+              checked={config.enabled}
+              disabled={disabled}
+              onCheckedChange={(enabled) => updateConfig({ enabled })}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            充值比例（每 ¥1 积分）
+          </Label>
+          <Input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={String(config.creditsPerYuan)}
+            disabled={disabled}
+            onChange={(event) =>
+              updateConfig({ creditsPerYuan: Number(event.target.value) })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            当前：¥1 = {config.creditsPerYuan} Credits
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            最低充值金额（¥）
+          </Label>
+          <Input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={String(config.minAmountYuan)}
+            disabled={disabled}
+            onChange={(event) =>
+              updateConfig({ minAmountYuan: Number(event.target.value) })
+            }
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">
+            最高充值金额（¥）
+          </Label>
+          <Input
+            type="number"
+            min={String(config.minAmountYuan)}
+            step="0.01"
+            value={String(config.maxAmountYuan)}
+            disabled={disabled}
+            onChange={(event) =>
+              updateConfig({ maxAmountYuan: Number(event.target.value) })
+            }
+          />
+        </div>
+      </div>
+
+      <details className="rounded-md border bg-muted/20 p-3">
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          查看保存的 JSON
         </summary>
         <Textarea
           value={preview}

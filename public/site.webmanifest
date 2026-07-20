@@ -1,6 +1,6 @@
 {
-  "name": "GPT2IMAGE",
-  "short_name": "GPT2IMAGE",
+  "name": "FluxMedia",
+  "short_name": "FluxMedia",
   "icons": [
     { "src": "/assets/icon.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/assets/icon.png", "sizes": "512x512", "type": "image/png" }

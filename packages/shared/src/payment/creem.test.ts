@@ -1,22 +1,67 @@
 import crypto from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // creem.ts 仅从 system-settings 引入 getRuntimeSettingString，
 // 而 system-settings 会拉起 @repo/database。被测纯逻辑不读取运行时设置，
 // 故在此 mock 掉该依赖，使本文件保持 DB-free（CLAUDE.md 要求纯函数可在不 import
 // @repo/database 下单测）。
+const getRuntimeSettingStringMock = vi.hoisted(() => vi.fn());
+
 vi.mock("../system-settings", () => ({
-  getRuntimeSettingString: vi.fn(async () => ""),
+  getRuntimeSettingString: getRuntimeSettingStringMock,
 }));
 
 import {
+  assertRuntimeCreemCheckoutConfigured,
   buildSubscriptionPeriodKey,
   computeSubscriptionCreditsToGrant,
+  creem,
   getCreemPeriodDays,
   isYearlyCreemPeriod,
   parseCreemWebhookEvent,
   verifyCreemWebhookSignature,
 } from "./creem";
+
+afterEach(() => {
+  getRuntimeSettingStringMock.mockReset();
+  vi.unstubAllGlobals();
+});
+
+describe("Creem 配置门槛", () => {
+  it("缺少结账配置时在本地拒绝，绝不发起 HTTP 请求", async () => {
+    getRuntimeSettingStringMock.mockResolvedValue("");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      creem.createCheckout({
+        product_id: "product_1",
+        success_url: "https://example.com/success",
+      })
+    ).rejects.toThrow("Creem API Key 未配置");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("要求 API Key 与 Webhook Secret 同时存在", async () => {
+    getRuntimeSettingStringMock.mockImplementation(async (key: string) => {
+      return key === "CREEM_API_KEY" ? "creem_test_key" : "";
+    });
+
+    await expect(assertRuntimeCreemCheckoutConfigured()).rejects.toThrow(
+      "Creem 支付通道未完整配置"
+    );
+  });
+
+  it("完整配置允许创建结账前校验通过", async () => {
+    getRuntimeSettingStringMock.mockImplementation(async (key: string) => {
+      return key === "CREEM_API_KEY" ? "creem_test_key" : "webhook_secret";
+    });
+
+    await expect(
+      assertRuntimeCreemCheckoutConfigured()
+    ).resolves.toBeUndefined();
+  });
+});
 
 describe("buildSubscriptionPeriodKey", () => {
   it("拼接订阅 ID 与周期开始时间作为幂等键", () => {
@@ -93,9 +138,7 @@ describe("parseCreemWebhookEvent", () => {
   });
 
   it("拒绝非法 JSON", () => {
-    expect(() => parseCreemWebhookEvent("{not json")).toThrow(
-      /not valid JSON/
-    );
+    expect(() => parseCreemWebhookEvent("{not json")).toThrow(/not valid JSON/);
   });
 
   it("拒绝未知 eventType", () => {

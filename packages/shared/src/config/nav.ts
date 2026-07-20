@@ -128,7 +128,7 @@ export const footerNav = {
   product: [
     { title: "Pricing", href: "/#pricing" },
     { title: "Docs", href: "/docs" },
-    { title: "Contact Us", href: "mailto:hello@gpt2image.com" },
+    { title: "Contact Us", href: "mailto:support@media.flux-code.cc" },
   ] as NavItem[],
 
   /** 法律 (Legal) */

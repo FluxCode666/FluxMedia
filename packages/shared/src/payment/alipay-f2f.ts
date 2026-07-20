@@ -34,7 +34,7 @@ export type AlipayF2FConfig = {
   appId: string;
   privateKey: string;
   alipayPublicKey: string;
-  sellerId: string;
+  sellerId?: string;
   gateway: string;
   notifyUrl: string;
   timeoutMinutes: number;
@@ -109,7 +109,7 @@ export async function getRuntimeAlipayF2FConfig(): Promise<AlipayF2FConfig> {
     }),
   ]);
 
-  if (!appId || !privateKey || !alipayPublicKey || !sellerId) {
+  if (!appId || !privateKey || !alipayPublicKey) {
     throw new Error("支付宝当面付配置不完整");
   }
 
@@ -128,7 +128,7 @@ export async function getRuntimeAlipayF2FConfig(): Promise<AlipayF2FConfig> {
     appId,
     privateKey,
     alipayPublicKey,
-    sellerId,
+    ...(sellerId ? { sellerId } : {}),
     gateway: parsedGateway.toString(),
     notifyUrl: parsedNotifyUrl.toString(),
     timeoutMinutes: Math.min(1_440, Math.max(1, Math.floor(timeoutMinutes))),
@@ -180,7 +180,7 @@ export async function createAlipayF2FPrecreate(
         totalAmount: formatAlipayCnyAmount(input.amount),
         subject: input.subject,
         timeoutExpress: `${config.timeoutMinutes}m`,
-        sellerId: config.sellerId,
+        ...(config.sellerId ? { sellerId: config.sellerId } : {}),
       },
     },
     { validateSign: true }

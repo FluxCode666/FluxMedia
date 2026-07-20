@@ -80,7 +80,7 @@ export async function sendRegistrationVerificationCode(email: string) {
 
   const result = await sendEmail({
     to: normalizedEmail,
-    subject: "Your GPT2IMAGE verification code",
+    subject: "Your FluxMedia verification code",
     react: RegistrationVerificationCodeEmail({
       code,
       expiresIn: `${EXPIRES_IN_MINUTES} minutes`,

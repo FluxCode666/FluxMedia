@@ -141,7 +141,10 @@ export function PricingSection({
     const config = payment ?? paymentConfig;
     return config.plans[planId as keyof typeof config.plans];
   };
-  const paymentEnabled = (payment ?? paymentConfig).provider !== "none";
+  // 支付宝当面付当前只履约一次性按金额充值，不能展示为订阅支付能力。
+  const paymentProvider = (payment ?? paymentConfig).provider;
+  const paymentEnabled =
+    paymentProvider === "creem" || paymentProvider === "epay";
 
   /**
    * 获取计划的当前价格

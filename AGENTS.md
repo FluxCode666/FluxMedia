@@ -5,7 +5,7 @@
 
 ## 项目
 
-GPT2Image-Pro：AI 图像生成平台。Turborepo monorepo（pnpm + Next.js 16 App Router + React 19 + TypeScript strict）。
+FluxMedia：AI 图像生成平台。Turborepo monorepo（pnpm + Next.js 16 App Router + React 19 + TypeScript strict）。
 
 ```
 apps/web/          主应用与管理后台（src/app 路由组、src/features 业务模块）

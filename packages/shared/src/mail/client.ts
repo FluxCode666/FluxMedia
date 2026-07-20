@@ -52,7 +52,7 @@ export type EmailDeliveryClient =
     };
 
 /** 未配置发件人时使用的安全默认值。 */
-export const DEFAULT_FROM_EMAIL = "GPT2IMAGE <noreply@gpt2image.com>";
+export const DEFAULT_FROM_EMAIL = "FluxMedia <support@media.flux-code.cc>";
 
 let resendClientCache: FingerprintedClient<Resend> | undefined;
 let smtpTransporterCache:

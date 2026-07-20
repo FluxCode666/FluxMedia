@@ -133,7 +133,7 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_APP_URL: http://localhost:3000
-      NEXT_PUBLIC_APP_NAME: GPT2IMAGE
+      NEXT_PUBLIC_APP_NAME: FluxMedia
       NEXT_PUBLIC_PAYMENT_PROVIDER: none
       NEXT_PUBLIC_GENERATIONS_BUCKET_NAME: generations
       NEXT_PUBLIC_AVATARS_BUCKET_NAME: avatars
@@ -169,7 +169,7 @@ jobs:
           push: false # 仅校验可构建性；推送由 tag 触发的 docker-release.yml 负责
           build-args: |
             NEXT_PUBLIC_APP_URL=http://localhost:3000
-            NEXT_PUBLIC_APP_NAME=GPT2IMAGE
+            NEXT_PUBLIC_APP_NAME=FluxMedia
             NEXT_PUBLIC_PAYMENT_PROVIDER=none
             NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=generations
             NEXT_PUBLIC_AVATARS_BUCKET_NAME=avatars

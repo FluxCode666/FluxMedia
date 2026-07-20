@@ -1,8 +1,6 @@
-import { Github, Twitter } from "lucide-react";
+import { footerNav, siteConfig } from "@repo/shared/config";
 import Link from "next/link";
 import { getLocale } from "next-intl/server";
-
-import { footerNav, siteConfig } from "@repo/shared/config";
 
 const footerTitleMap = {
   product: {
@@ -23,9 +21,11 @@ function getFooterLinkTitle(
   isZh: boolean
 ) {
   if (!isZh) return title;
-  return footerTitleMap[group][
-    title as keyof (typeof footerTitleMap)[typeof group]
-  ] || title;
+  return (
+    footerTitleMap[group][
+      title as keyof (typeof footerTitleMap)[typeof group]
+    ] || title
+  );
 }
 
 /**
@@ -34,7 +34,6 @@ function getFooterLinkTitle(
  * 功能:
  * - 品牌信息 + 产品描述
  * - 产品、法律链接
- * - 社交媒体链接
  * - 版权信息
  */
 export async function Footer() {
@@ -47,7 +46,7 @@ export async function Footer() {
           {/* 品牌区 */}
           <div>
             <Link href="/" className="mb-4 inline-block">
-              <span className="font-serif text-xl font-medium">GPT2IMAGE</span>
+              <span className="font-serif text-xl font-medium">FluxMedia</span>
             </Link>
             <p className="text-sm text-muted-foreground">
               {isZh
@@ -103,34 +102,12 @@ export async function Footer() {
         </div>
 
         {/* 底部栏 */}
-        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-border/60 pt-8 sm:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-center gap-4 border-t border-border/60 pt-8 sm:flex-row sm:justify-start">
           <p className="text-sm text-muted-foreground">
             {isZh
               ? `© ${new Date().getFullYear()} ${siteConfig.name}。保留所有权利。`
               : `© ${new Date().getFullYear()} ${siteConfig.name}. All rights reserved.`}
           </p>
-
-          {/* 社交链接 */}
-          <div className="flex items-center gap-4">
-            <Link
-              href={siteConfig.links.twitter}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Twitter className="h-5 w-5" />
-              <span className="sr-only">Twitter</span>
-            </Link>
-            <Link
-              href={siteConfig.links.github}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Github className="h-5 w-5" />
-              <span className="sr-only">GitHub</span>
-            </Link>
-          </div>
         </div>
       </div>
     </footer>

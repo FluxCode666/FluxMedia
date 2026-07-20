@@ -12,13 +12,13 @@ export function AuthLogo() {
     <div className="flex items-center gap-2">
       <Image
         src="/assets/icon.png"
-        alt="GPT2IMAGE"
+        alt="FluxMedia"
         width={28}
         height={28}
         className="shrink-0"
       />
       <span className="font-serif text-xl font-medium tracking-tight">
-        GPT2IMAGE
+        FluxMedia
       </span>
     </div>
   );

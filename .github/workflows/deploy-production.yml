@@ -137,7 +137,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
           build-args: |
             NEXT_PUBLIC_APP_URL=${{ env.PUBLIC_APP_URL }}
-            NEXT_PUBLIC_APP_NAME=GPT2IMAGE
+            NEXT_PUBLIC_APP_NAME=FluxMedia
             NEXT_PUBLIC_PAYMENT_PROVIDER=none
             NEXT_PUBLIC_GENERATIONS_BUCKET_NAME=generations
             NEXT_PUBLIC_AVATARS_BUCKET_NAME=avatars

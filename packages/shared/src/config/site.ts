@@ -1,22 +1,22 @@
 export const siteConfig = {
-  name: process.env.NEXT_PUBLIC_APP_NAME || "GPT2IMAGE",
+  name: process.env.NEXT_PUBLIC_APP_NAME || "FluxMedia",
 
   description:
     "AI-powered chat-to-image generation platform. Transform your words into stunning visuals through natural conversation.",
 
-  url: process.env.NEXT_PUBLIC_APP_URL || "https://gpt2image.com",
+  url: process.env.NEXT_PUBLIC_APP_URL || "https://media.flux-code.cc",
 
   ogImage: "/og-image.png",
 
   author: {
-    name: "GPT2IMAGE Team",
-    url: "https://gpt2image.com",
-    email: "hello@gpt2image.com",
+    name: "FluxMedia Team",
+    url: "https://media.flux-code.cc",
+    email: "support@media.flux-code.cc",
   },
 
   links: {
-    twitter: "https://twitter.com/gpt2image",
-    github: "https://github.com/MoYeRanqianzhi/GPT2Image",
+    twitter: "",
+    github: "",
     discord: "",
   },
 
@@ -25,7 +25,7 @@ export const siteConfig = {
     "Chat to Image",
     "Text to Image",
     "AI Art",
-    "GPT2IMAGE",
+    "FluxMedia",
     "Image Generation API",
     "Creative AI",
   ],

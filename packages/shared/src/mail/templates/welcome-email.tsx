@@ -33,14 +33,14 @@ export function WelcomeEmail({ name, dashboardUrl }: WelcomeEmailProps) {
   return (
     <Html>
       <Head />
-      <Preview>Welcome to GPT2IMAGE - Welcome aboard!</Preview>
+      <Preview>Welcome to FluxMedia - Welcome aboard!</Preview>
       <Tailwind>
         <Body className="mx-auto my-auto bg-white font-sans">
           <Container className="mx-auto my-10 max-w-xl rounded-lg border border-solid border-gray-200 p-8">
             {/* Logo / 品牌区域 */}
             <Section className="mb-8 text-center">
               <Heading className="m-0 text-2xl font-bold text-gray-900">
-                GPT2IMAGE
+                FluxMedia
               </Heading>
             </Section>
 
@@ -51,7 +51,7 @@ export function WelcomeEmail({ name, dashboardUrl }: WelcomeEmailProps) {
 
             {/* 正文内容 */}
             <Text className="mb-4 text-base leading-relaxed text-gray-600">
-              We&apos;re thrilled to have you join GPT2IMAGE! Your account has
+              We&apos;re thrilled to have you join FluxMedia! Your account has
               been successfully created and you&apos;re ready to start creating
               stunning images.
             </Text>
@@ -98,7 +98,7 @@ export function WelcomeEmail({ name, dashboardUrl }: WelcomeEmailProps) {
               .
             </Text>
             <Text className="m-0 mt-2 text-center text-xs text-gray-400">
-              &copy; {new Date().getFullYear()} GPT2IMAGE. All rights reserved.
+              &copy; {new Date().getFullYear()} FluxMedia. All rights reserved.
             </Text>
           </Container>
         </Body>

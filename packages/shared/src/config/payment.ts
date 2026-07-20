@@ -16,12 +16,19 @@ import {
 const configuredPaymentProviders = [
   process.env.PAYMENT_PROVIDER,
   process.env.NEXT_PUBLIC_PAYMENT_PROVIDER,
-].map((value) => value?.trim().toLowerCase());
+]
+  .map((value) => value?.trim().toLowerCase())
+  .filter((value): value is string => Boolean(value));
 const paymentProvider = configuredPaymentProviders.includes("none")
   ? "none"
-  : configuredPaymentProviders.includes("epay")
-    ? "epay"
-    : "creem";
+  : configuredPaymentProviders.includes("alipay_f2f")
+    ? "alipay_f2f"
+    : configuredPaymentProviders.includes("epay")
+      ? "epay"
+      : configuredPaymentProviders.includes("creem") ||
+          configuredPaymentProviders.length === 0
+        ? "creem"
+        : "none";
 
 // ============================================
 // 环境变量中的价格 ID

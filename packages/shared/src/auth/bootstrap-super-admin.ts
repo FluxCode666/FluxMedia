@@ -101,7 +101,7 @@ export async function bootstrapSelfUseSuperAdmin() {
     const credentials = getBootstrapSuperAdminCredentials();
     if (!credentials) {
       console.warn(
-        "[GPT2IMAGE] Self-use super admin bootstrap skipped: FLUXMEDIA_SUPER_ADMIN_EMAIL and FLUXMEDIA_SUPER_ADMIN_PASSWORD must be configured."
+        "[FluxMedia] Self-use super admin bootstrap skipped: FLUXMEDIA_SUPER_ADMIN_EMAIL and FLUXMEDIA_SUPER_ADMIN_PASSWORD must be configured."
       );
       return;
     }
@@ -131,7 +131,7 @@ export async function bootstrapSelfUseSuperAdmin() {
     const userId = randomUUID();
     await db.insert(user).values({
       id: userId,
-      name: "GPT2IMAGE Super Admin",
+      name: "FluxMedia Super Admin",
       email: credentials.email,
       emailVerified: true,
       role: "super_admin",
@@ -141,7 +141,7 @@ export async function bootstrapSelfUseSuperAdmin() {
     await createCredentialAccount(userId, credentials.password);
   } catch (error) {
     console.warn(
-      `[GPT2IMAGE] Self-use super admin bootstrap skipped: ${
+      `[FluxMedia] Self-use super admin bootstrap skipped: ${
         error instanceof Error ? error.name : "unknown error"
       }`
     );

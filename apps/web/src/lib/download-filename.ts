@@ -1,8 +1,8 @@
 /**
  * 下载文件名生成工具（纯函数，确定性输出）。
  *
- * 格式: gpt2image_<prompt 哈希 8 位>_<ISO8601 文件名安全时间戳>.<扩展名>
- * 示例: gpt2image_a3f2b1c0_2026-06-19T14-30-52d123Z.png
+ * 格式: fluxmedia_<prompt 哈希 8 位>_<ISO8601 文件名安全时间戳>.<扩展名>
+ * 示例: fluxmedia_a3f2b1c0_2026-06-19T14-30-52d123Z.png
  *
  * 哈希用于区分不同 prompt，方便用户在本地按 prompt 整理文件；
  * 时间戳精确到毫秒（UTC），避免同一秒内多次生成的文件名冲突。
@@ -42,12 +42,12 @@ function formatTimestamp(isoString: string): string {
 }
 
 /**
- * 生成 GPT2Image 标准下载文件名。
+ * 生成 FluxMedia 标准下载文件名。
  *
  * @param prompt    - 生成时使用的提示词
  * @param createdAt - 生成时间 ISO 字符串
  * @param extension - 文件扩展名（不带点），默认 "png"
- * @returns 格式化文件名，如 gpt2image_a3f2b1c0_2026-06-19T14-30-52d123Z.png
+ * @returns 格式化文件名，如 fluxmedia_a3f2b1c0_2026-06-19T14-30-52d123Z.png
  */
 export function generateDownloadFilename(
   prompt: string,
@@ -56,5 +56,5 @@ export function generateDownloadFilename(
 ): string {
   const hash = promptHash(prompt, 8);
   const time = formatTimestamp(createdAt);
-  return `gpt2image_${hash}_${time}.${extension}`;
+  return `fluxmedia_${hash}_${time}.${extension}`;
 }

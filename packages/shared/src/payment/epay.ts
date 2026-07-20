@@ -18,7 +18,7 @@ import {
 
 export const EPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
 
-export type PaymentProvider = "creem" | "epay" | "none";
+export type PaymentProvider = "creem" | "epay" | "alipay_f2f" | "none";
 export type EpayBusinessType = "subscription" | "credit_purchase";
 
 export interface EpayMetadata {
@@ -72,19 +72,27 @@ export function getPaymentProvider(): PaymentProvider {
   const providerValues = [
     process.env.PAYMENT_PROVIDER,
     process.env.NEXT_PUBLIC_PAYMENT_PROVIDER,
-  ];
+  ]
+    .map((provider) => provider?.trim().toLowerCase())
+    .filter((provider): provider is string => Boolean(provider));
 
-  if (
-    providerValues.some((provider) => provider?.trim().toLowerCase() === "none")
-  ) {
+  if (providerValues.includes("none")) {
     return "none";
   }
 
-  return providerValues.some(
-    (provider) => provider?.trim().toLowerCase() === "epay"
-  )
-    ? "epay"
-    : "creem";
+  if (providerValues.includes("alipay_f2f")) {
+    return "alipay_f2f";
+  }
+  if (providerValues.includes("epay")) {
+    return "epay";
+  }
+  if (providerValues.includes("creem") || providerValues.length === 0) {
+    return "creem";
+  }
+
+  // 未知通道绝不能静默回退至 Creem，否则错误的后台配置会在无 API Key 时
+  // 触发远程请求。关闭支付比误路由资金操作更安全。
+  return "none";
 }
 
 export function isEpayPaymentProvider(): boolean {
@@ -94,7 +102,7 @@ export function isEpayPaymentProvider(): boolean {
 export async function getRuntimePaymentProvider(): Promise<PaymentProvider> {
   return getRuntimeSettingSelect(
     "PAYMENT_PROVIDER",
-    ["creem", "epay", "none"] as const,
+    ["creem", "epay", "alipay_f2f", "none"] as const,
     getPaymentProvider()
   );
 }

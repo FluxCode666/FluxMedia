@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 rem === Config ===
-set "APP_NAME=GPT2Image-Pro"
+set "APP_NAME=FluxMedia"
 set "REMOTE_USER=ubuntu"
 set "REMOTE_HOST=<your-server>"
 set "REMOTE_PORT=22"

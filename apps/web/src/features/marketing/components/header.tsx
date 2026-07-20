@@ -82,12 +82,12 @@ export function Header() {
           <Link href="/" className="flex items-center gap-2">
             <Image
               src="/assets/icon.png"
-              alt="GPT2IMAGE"
+              alt="FluxMedia"
               width={28}
               height={28}
             />
             <span className="font-serif text-xl font-medium tracking-tight">
-              GPT2IMAGE
+              FluxMedia
             </span>
           </Link>
 

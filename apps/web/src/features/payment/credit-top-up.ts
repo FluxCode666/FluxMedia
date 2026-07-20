@@ -9,18 +9,16 @@
  * 作为跨进程、跨重试的最终兜底；不包裹 grantCredits，以免嵌套事务。
  */
 import crypto from "node:crypto";
-
-import { and, eq, isNull, lt, or } from "drizzle-orm";
-
 import { db } from "@repo/database";
 import { paymentOrder } from "@repo/database/schema";
 import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
+import { grantCredits } from "@repo/shared/credits/core";
 import {
+  type CreditTopUpPaymentProvider,
   normalizeCreditTopUpConfig,
   quoteCreditTopUp,
-  type CreditTopUpPaymentProvider,
 } from "@repo/shared/credits/top-up";
-import { grantCredits } from "@repo/shared/credits/core";
+import { logEvent } from "@repo/shared/logger";
 import {
   createAlipayF2FPrecreate,
   getRuntimeAlipayF2FConfig,
@@ -28,11 +26,11 @@ import {
   isSuccessfulAlipayTradeStatus,
   parseAlipayCnyAmountMinor,
 } from "@repo/shared/payment/alipay-f2f";
-import { logEvent } from "@repo/shared/logger";
 import {
   getRuntimeSettingJson,
   getRuntimeSettingNumber,
 } from "@repo/shared/system-settings";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 
 const PROCESSING_LEASE_MS = 5 * 60_000;
 const CHECKOUT_CREATION_LEASE_MS = 30_000;
@@ -286,7 +284,7 @@ export async function createCreditTopUpCheckout(input: {
     const precreate = await createAlipayF2FPrecreate({
       outTradeNo: order.id,
       amount: order.amount,
-      subject: `GPT2IMAGE 充值 ${order.creditsAmount} Credits`,
+      subject: `FluxMedia 充值 ${order.creditsAmount} Credits`,
     });
     const [updated] = await db
       .update(paymentOrder)
@@ -366,7 +364,10 @@ export async function fulfillAlipayCreditTopUp(
   if (notification.appId !== config.appId) {
     throw new Error("支付宝回调 App ID 不匹配");
   }
-  if (notification.sellerId !== config.sellerId) {
+  // 当面付的直连商户可不传 seller_id，支付宝会使用应用签约账户。仍要求
+  // 通知携带 seller_id；若管理员配置了 PID，则额外锁定为该商户，覆盖 ISV/
+  // 多商户等需要显式隔离的场景。
+  if (config.sellerId && notification.sellerId !== config.sellerId) {
     throw new Error("支付宝回调卖家 PID 不匹配");
   }
 

@@ -1,6 +1,6 @@
 # Adobe Cookie Exporter
 
-Chrome / Edge 浏览器扩展，用于导出 Adobe / Firefly 登录 cookie，供 GPT2Image Pro **Adobe 直连模式**导入账号。
+Chrome / Edge 浏览器扩展，用于导出 Adobe / Firefly 登录 cookie，供 FluxMedia **Adobe 直连模式**导入账号。
 
 导出格式与 admin 导入框兼容：
 

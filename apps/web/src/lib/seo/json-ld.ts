@@ -34,13 +34,17 @@ export function generateWebSiteSchema(locale: LocaleType) {
  * Organization Schema - for brand identity
  */
 export function generateOrganizationSchema() {
+  const sameAs = [siteConfig.links.twitter, siteConfig.links.github].filter(
+    Boolean
+  );
+
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: siteConfig.name,
     url: getBaseUrl(),
     logo: `${getBaseUrl()}/logo.png`,
-    sameAs: [siteConfig.links.twitter, siteConfig.links.github].filter(Boolean),
+    ...(sameAs.length > 0 ? { sameAs } : {}),
     contactPoint: {
       "@type": "ContactPoint",
       contactType: "customer support",

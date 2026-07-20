@@ -1,14 +1,19 @@
 import { getServerSession } from "@repo/shared/auth/server";
 import { CreditUsageSection } from "@repo/shared/credits/components";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
-import { getLocale, getTranslations } from "next-intl/server";
-import { redirect } from "next/navigation";
 import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@repo/ui/components/tabs";
+import { redirect } from "next/navigation";
+import { getLocale, getTranslations } from "next-intl/server";
 
 import { BillingSection } from "@/features/settings/components/billing-section";
 
 export const metadata = {
-  title: "Billing & Usage | GPT2IMAGE",
+  title: "Billing & Usage | FluxMedia",
   description: "Manage subscriptions, billing history, and credit usage",
 };
 

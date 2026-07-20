@@ -62,9 +62,11 @@ describe("支付宝当面付纯逻辑", () => {
     expect(parseAlipayCnyAmountMinor("-1")).toBeNull();
   });
 
-  it("要求卖家 PID 和 HTTPS 通知地址", async () => {
+  it("允许直连当面付省略卖家 PID，但仍要求 HTTPS 通知地址", async () => {
     mockRuntimeAlipaySettings({ ALIPAY_SELLER_ID: "" });
-    await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow("配置不完整");
+    const config = await getRuntimeAlipayF2FConfig();
+    expect(config.appId).toBe("app-id");
+    expect(config.sellerId).toBeUndefined();
 
     mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "http://example.com/hook" });
     await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow("必须使用 HTTPS");

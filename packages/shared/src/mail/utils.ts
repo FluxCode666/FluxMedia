@@ -119,7 +119,7 @@ function logEmailPreview(params: SendEmailParams, effectiveFrom: string): void {
  * // 发送欢迎邮件
  * await sendEmail({
  *   to: "user@example.com",
- *   subject: "Welcome to GPT2IMAGE!",
+ *   subject: "Welcome to FluxMedia!",
  *   react: <WelcomeEmail name="John" dashboardUrl="..." />,
  * });
  *

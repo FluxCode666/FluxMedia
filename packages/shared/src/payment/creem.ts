@@ -5,7 +5,7 @@
  * 文档: https://docs.creem.io/api-reference
  */
 
-import crypto from "crypto";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { getRuntimeSettingString } from "../system-settings";
 
@@ -13,10 +13,36 @@ async function getRuntimeCreemApiKey() {
   return (await getRuntimeSettingString("CREEM_API_KEY")) ?? "";
 }
 
-async function getRuntimeCreemApiBase(): Promise<string> {
-  return (await getRuntimeCreemApiKey()).startsWith("creem_test_")
+async function requireRuntimeCreemApiKey(): Promise<string> {
+  const apiKey = (await getRuntimeCreemApiKey()).trim();
+  if (!apiKey) {
+    throw new Error("Creem API Key 未配置，请在系统设置中填写后再发起支付");
+  }
+  return apiKey;
+}
+
+function getCreemApiBase(apiKey: string): string {
+  return apiKey.startsWith("creem_test_")
     ? "https://test-api.creem.io/v1"
     : "https://api.creem.io/v1";
+}
+
+/**
+ * 校验 Creem 结账和 webhook 履约所需的完整服务端配置。
+ *
+ * 支付按钮若只校验 API Key，会产生用户可以付款、服务端却不能验签发放权益的
+ * 半配置状态。因此在创建结账前同时要求 API Key 与 Webhook Secret。
+ */
+export async function assertRuntimeCreemCheckoutConfigured(): Promise<void> {
+  const [apiKey, webhookSecret] = await Promise.all([
+    getRuntimeCreemApiKey(),
+    getRuntimeSettingString("CREEM_WEBHOOK_SECRET"),
+  ]);
+  if (!apiKey.trim() || !webhookSecret?.trim()) {
+    throw new Error(
+      "Creem 支付通道未完整配置，请在系统设置中填写 API Key 和 Webhook Secret"
+    );
+  }
 }
 
 // ============================================
@@ -297,11 +323,12 @@ export const creem = {
   async createCheckout(
     params: CreemCheckoutParams
   ): Promise<CreemCheckoutResponse> {
-    const res = await fetch(`${await getRuntimeCreemApiBase()}/checkouts`, {
+    const apiKey = await requireRuntimeCreemApiKey();
+    const res = await fetch(`${getCreemApiBase(apiKey)}/checkouts`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": await getRuntimeCreemApiKey(),
+        "x-api-key": apiKey,
       },
       body: JSON.stringify(params),
     });
@@ -321,11 +348,12 @@ export const creem = {
    * @returns 订阅信息
    */
   async getSubscription(subscriptionId: string): Promise<CreemSubscription> {
+    const apiKey = await requireRuntimeCreemApiKey();
     const res = await fetch(
-      `${await getRuntimeCreemApiBase()}/subscriptions/${subscriptionId}`,
+      `${getCreemApiBase(apiKey)}/subscriptions/${subscriptionId}`,
       {
         headers: {
-          "x-api-key": await getRuntimeCreemApiKey(),
+          "x-api-key": apiKey,
         },
       }
     );
@@ -345,12 +373,13 @@ export const creem = {
    * @returns 更新后的订阅信息
    */
   async cancelSubscription(subscriptionId: string): Promise<CreemSubscription> {
+    const apiKey = await requireRuntimeCreemApiKey();
     const res = await fetch(
-      `${await getRuntimeCreemApiBase()}/subscriptions/${subscriptionId}/cancel`,
+      `${getCreemApiBase(apiKey)}/subscriptions/${subscriptionId}/cancel`,
       {
         method: "POST",
         headers: {
-          "x-api-key": await getRuntimeCreemApiKey(),
+          "x-api-key": apiKey,
         },
       }
     );
@@ -370,11 +399,15 @@ export const creem = {
    * @returns 客户信息
    */
   async getCustomer(customerId: string): Promise<CreemCustomer> {
-    const res = await fetch(`${await getRuntimeCreemApiBase()}/customers/${customerId}`, {
-      headers: {
-        "x-api-key": await getRuntimeCreemApiKey(),
-      },
-    });
+    const apiKey = await requireRuntimeCreemApiKey();
+    const res = await fetch(
+      `${getCreemApiBase(apiKey)}/customers/${customerId}`,
+      {
+        headers: {
+          "x-api-key": apiKey,
+        },
+      }
+    );
 
     if (!res.ok) {
       const error = await res.text();

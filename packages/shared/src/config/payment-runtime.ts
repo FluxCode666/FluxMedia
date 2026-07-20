@@ -58,10 +58,14 @@ const PLAN_DEFAULT_AMOUNTS = {
   enterprise: { monthly: 800, yearly: 5760 },
 } as const;
 
-export type RuntimePaymentProvider = "creem" | "epay" | "none";
+export type RuntimePaymentProvider = "creem" | "epay" | "alipay_f2f" | "none";
 
 function getDefaultPaymentProvider(): RuntimePaymentProvider {
-  if (paymentConfig.provider === "epay" || paymentConfig.provider === "none") {
+  if (
+    paymentConfig.provider === "epay" ||
+    paymentConfig.provider === "alipay_f2f" ||
+    paymentConfig.provider === "none"
+  ) {
     return paymentConfig.provider;
   }
   return "creem";
@@ -114,7 +118,7 @@ async function getRuntimePlanPrice(
 export async function getRuntimePaymentConfig(): Promise<RuntimePaymentConfig> {
   const provider = await getRuntimeSettingSelect(
     "PAYMENT_PROVIDER",
-    ["creem", "epay", "none"] as const,
+    ["creem", "epay", "alipay_f2f", "none"] as const,
     getDefaultPaymentProvider()
   );
   const yearlyEnabled = await getRuntimeSettingBoolean(

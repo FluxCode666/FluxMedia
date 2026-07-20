@@ -60,7 +60,7 @@ export async function sendTicketAdminNotification(
   try {
     const result = await sendEmail({
       to: recipients,
-      subject: `[GPT2IMAGE] ${title}: ${input.subject}`,
+      subject: `[FluxMedia] ${title}: ${input.subject}`,
       react: SupportTicketNotificationEmail({
         title,
         subject: input.subject,

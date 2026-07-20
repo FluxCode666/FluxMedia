@@ -11,12 +11,12 @@ import {
   getRuntimePaymentProvider,
   saveEpayOrder,
 } from "@repo/shared/payment/epay";
-import { protectedAction } from "@repo/shared/safe-action";
+import { ActionUserError, protectedAction } from "@repo/shared/safe-action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { PaymentType } from "@/features/payment/types";
 
-import { creem } from "./creem";
+import { assertRuntimeCreemCheckoutConfigured, creem } from "./creem";
 import { createSubscriptionCheckoutQuote } from "./subscription-upgrade";
 
 /**
@@ -39,7 +39,12 @@ export const createCheckoutSession = protectedAction
     const { userId } = ctx;
     const paymentProvider = await getRuntimePaymentProvider();
     if (paymentProvider === "none") {
-      throw new Error("支付功能当前未启用");
+      throw new ActionUserError("支付功能当前未启用");
+    }
+    if (paymentProvider === "alipay_f2f") {
+      throw new ActionUserError(
+        "支付宝当面付仅支持按金额充值，暂不支持订阅套餐支付"
+      );
     }
 
     // 检查是否已有活跃订阅
@@ -68,6 +73,15 @@ export const createCheckoutSession = protectedAction
       ? await createSubscriptionCheckoutQuote(existingSub, priceId)
       : null;
     const useEpay = paymentProvider === "epay";
+    if (!useEpay) {
+      try {
+        await assertRuntimeCreemCheckoutConfigured();
+      } catch {
+        throw new ActionUserError(
+          "Creem 支付通道未完整配置，请联系管理员填写 API Key 和 Webhook Secret"
+        );
+      }
+    }
 
     logEvent("payment.checkout.started", {
       userId,
@@ -102,8 +116,8 @@ export const createCheckoutSession = protectedAction
       const checkout = await createRuntimeEpayPurchase({
         outTradeNo,
         name: upgradeQuote
-          ? `GPT2IMAGE upgrade to ${plan.name} ${price.interval ?? "subscription"}`
-          : `GPT2IMAGE ${plan.name} ${price.interval ?? "subscription"}`,
+          ? `FluxMedia upgrade to ${plan.name} ${price.interval ?? "subscription"}`
+          : `FluxMedia ${plan.name} ${price.interval ?? "subscription"}`,
         money: amountDue,
       });
 

@@ -42,7 +42,7 @@ export function SupportTicketNotificationEmail({
           <Container className="mx-auto my-10 max-w-xl rounded-lg border border-solid border-gray-200 p-8">
             <Section className="mb-8 text-center">
               <Heading className="m-0 text-2xl font-bold text-gray-900">
-                GPT2IMAGE
+                FluxMedia
               </Heading>
             </Section>
 
@@ -95,7 +95,7 @@ export function SupportTicketNotificationEmail({
 
             <Hr className="my-6 border-gray-200" />
             <Text className="m-0 text-center text-xs text-gray-400">
-              &copy; {new Date().getFullYear()} GPT2IMAGE. All rights reserved.
+              &copy; {new Date().getFullYear()} FluxMedia. All rights reserved.
             </Text>
           </Container>
         </Body>

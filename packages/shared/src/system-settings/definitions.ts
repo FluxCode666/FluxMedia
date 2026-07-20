@@ -417,7 +417,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     description: "公开展示的应用名称，用于邮件、页面和通知。",
     category: "general",
     valueType: "string",
-    defaultValue: "GPT2IMAGE",
+    defaultValue: "FluxMedia",
     requiresRebuild: true,
   },
   {
@@ -531,13 +531,15 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "PAYMENT_PROVIDER",
     label: "支付通道",
-    description: "选择 Creem 或易支付;自用模式可选「不启用」。",
+    description:
+      "选择订阅与固定积分包的支付通道；支付宝当面付仅支持 CNY 按金额充值。",
     category: "payment",
     valueType: "select",
     options: [
       { label: "不启用(自用)", value: "none" },
       { label: "Creem", value: "creem" },
       { label: "易支付", value: "epay" },
+      { label: "支付宝当面付(仅按金额充值)", value: "alipay_f2f" },
     ],
     defaultValue: "creem",
   },
@@ -545,13 +547,14 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "NEXT_PUBLIC_PAYMENT_PROVIDER",
     label: "前端支付通道",
     description:
-      "前端展示用支付通道，应与支付通道保持一致;自用模式可选「不启用」。",
+      "前端展示用支付通道，应与支付通道保持一致；支付宝当面付仅支持 CNY 按金额充值。",
     category: "payment",
     valueType: "select",
     options: [
       { label: "不启用(自用)", value: "none" },
       { label: "Creem", value: "creem" },
       { label: "易支付", value: "epay" },
+      { label: "支付宝当面付(仅按金额充值)", value: "alipay_f2f" },
     ],
     defaultValue: "creem",
     requiresRebuild: true,
@@ -652,8 +655,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "ALIPAY_SELLER_ID",
-    label: "支付宝卖家 PID",
-    description: "必填。回调会严格校验 seller_id，防止错误商户的通知履约。",
+    label: "支付宝卖家 PID（可选）",
+    description:
+      "直连当面付可留空，支付宝会使用应用签约账户；多商户或可查到 PID 时填写，回调会额外严格校验 seller_id。",
     category: "payment",
     valueType: "string",
   },
@@ -1319,7 +1323,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   {
     key: "EMAIL_FROM",
     label: "发件人",
-    description: "如 GPT2IMAGE <noreply@example.com>。",
+    description: "如 FluxMedia <support@media.flux-code.cc>。",
     category: "mail",
     valueType: "string",
   },
@@ -1530,7 +1534,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "CREDIT_TOP_UP_CONFIG",
-    label: "按金额充值配置",
+    label: "按金额充值与兑换比例",
     description:
       "按 ISO 币种配置积分兑换比例、最小/最大金额（最小货币单位）和可用支付方式。订单创建时冻结比例与金额；支付宝当面付仅支持 CNY。",
     category: "credits",
@@ -1873,7 +1877,7 @@ export const SETTING_CATEGORIES: Array<{
   {
     id: "credits",
     label: "积分",
-    description: "注册奖励和积分有效期规则。",
+    description: "注册奖励、积分有效期、按金额充值比例和积分包规则。",
   },
   {
     id: "analytics",

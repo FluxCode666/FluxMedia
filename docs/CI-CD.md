@@ -131,7 +131,7 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 |---|---|---|
 | `BIND_HOST` | `127.0.0.1` | 只允许宿主机 Nginx 访问 Web 端口，禁止直接暴露公网。 |
 | `WEB_PORT` | `3000` | 必须与 Nginx upstream `127.0.0.1:3000` 一致。 |
-| `NEXT_PUBLIC_APP_NAME` | `FluxMedia` | 应用显示名称；生产 Workflow 当前以构建参数固定为 `GPT2IMAGE`，如需修改生产镜像中的名称，必须同步修改 Workflow 后重新构建。 |
+| `NEXT_PUBLIC_APP_NAME` | `FluxMedia` | 应用显示名称；生产 Workflow 以构建参数固定为 `FluxMedia`，如需修改生产镜像中的名称，必须同步修改 Workflow 后重新构建。 |
 | `LOCAL_STORAGE_PATH` | `/app/storage` | 本地文件存储目录，对应 `app-storage` 命名卷。 |
 | `NEXT_PUBLIC_AVATARS_BUCKET_NAME` | `avatars` | 头像存储桶名称。 |
 | `NEXT_PUBLIC_GENERATIONS_BUCKET_NAME` | `generations` | 生成内容存储桶名称。 |

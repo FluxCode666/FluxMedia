@@ -42,8 +42,8 @@ export async function generateMetadata({
   const isZh = locale === "zh";
 
   const title = isZh
-    ? "GPT2IMAGE - AI 对话生图平台"
-    : "GPT2IMAGE - AI Chat-to-Image Generation Platform";
+    ? "FluxMedia - AI 对话生图平台"
+    : "FluxMedia - AI Chat-to-Image Generation Platform";
 
   const description = isZh
     ? "通过自然对话将你的想法转化为精美视觉图片。由最先进的 AI 模型驱动，支持批量生成、画廊管理与灵活积分系统。"
@@ -57,7 +57,7 @@ export async function generateMetadata({
       "chat to image",
       "text to image",
       "AI art",
-      "GPT2IMAGE",
+      "FluxMedia",
       "image generation API",
       "creative AI",
       ...(isZh ? ["AI图像生成", "对话生图", "文字转图片", "AI艺术"] : []),
