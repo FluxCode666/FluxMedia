@@ -8,6 +8,7 @@
  * 由订单服务校验。私钥、公钥及支付宝响应中的二维码不得写入日志。
  */
 import { AlipaySdk } from "alipay-sdk";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import { z } from "zod";
 
 import { getBaseUrl } from "../config/payment";
@@ -85,6 +86,51 @@ function resolvePrivateKeyType(privateKey: string): "PKCS1" | "PKCS8" {
 }
 
 /**
+ * 将单行 Base64 的支付宝密钥恢复为 PEM，并保留已带 PEM 头的输入。
+ *
+ * 支付宝开放平台经常以无头尾、无换行的 Base64 形式展示公钥或私钥；直接交给
+ * Node crypto / alipay-sdk 会被视为无效密钥。这里仅在内存中规范化，绝不记录
+ * 原始密钥内容，并通过 Node crypto 验证密钥类型，避免把任意文本传给支付 SDK。
+ */
+function normalizeAlipayKey(input: {
+  value: string;
+  kind: "private" | "public";
+}) {
+  const value = input.value.trim().replaceAll("\\n", "\n");
+  if (value.includes("-----BEGIN")) return value;
+
+  const body = value.replaceAll(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) {
+    throw new Error(
+      `支付宝${input.kind === "private" ? "私钥" : "公钥"}格式无效`
+    );
+  }
+
+  const candidates =
+    input.kind === "private"
+      ? ["RSA PRIVATE KEY", "PRIVATE KEY"]
+      : ["PUBLIC KEY", "RSA PUBLIC KEY"];
+  for (const label of candidates) {
+    const lines = body.match(/.{1,64}/g)?.join("\n") ?? body;
+    const pem = `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`;
+    try {
+      if (input.kind === "private") {
+        createPrivateKey(pem);
+      } else {
+        createPublicKey(pem);
+      }
+      return pem;
+    } catch {
+      // 同一 Base64 可能是 PKCS#1 或 PKCS#8/SPKI，依次尝试而不泄露密钥内容。
+    }
+  }
+
+  throw new Error(
+    `支付宝${input.kind === "private" ? "私钥" : "公钥"}格式无效`
+  );
+}
+
+/**
  * 读取支付宝运行时配置。配置缺失时显式失败而非静默回退，避免用户扫描
  * 无法到账的二维码。
  */
@@ -120,14 +166,20 @@ export async function getRuntimeAlipayF2FConfig(): Promise<AlipayF2FConfig> {
   }
   const resolvedNotifyUrl = notifyUrl || `${getBaseUrl()}/api/webhooks/alipay`;
   const parsedNotifyUrl = new URL(resolvedNotifyUrl);
-  if (parsedNotifyUrl.protocol !== "https:") {
-    throw new Error("支付宝通知地址必须使用 HTTPS");
+  if (
+    parsedNotifyUrl.protocol !== "https:" &&
+    parsedNotifyUrl.protocol !== "http:"
+  ) {
+    throw new Error("支付宝通知地址必须使用 HTTP 或 HTTPS");
   }
 
   return {
     appId,
-    privateKey,
-    alipayPublicKey,
+    privateKey: normalizeAlipayKey({ value: privateKey, kind: "private" }),
+    alipayPublicKey: normalizeAlipayKey({
+      value: alipayPublicKey,
+      kind: "public",
+    }),
     ...(sellerId ? { sellerId } : {}),
     gateway: parsedGateway.toString(),
     notifyUrl: parsedNotifyUrl.toString(),

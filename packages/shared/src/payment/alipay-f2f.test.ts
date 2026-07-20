@@ -1,4 +1,5 @@
 /** 支付宝当面付纯逻辑测试：交易状态和金额格式是履约前的最小门槛。 */
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 // 当面付适配器的纯逻辑不应连接数据库；mock 运行时设置读取，避免
@@ -62,13 +63,42 @@ describe("支付宝当面付纯逻辑", () => {
     expect(parseAlipayCnyAmountMinor("-1")).toBeNull();
   });
 
-  it("允许直连当面付省略卖家 PID，但仍要求 HTTPS 通知地址", async () => {
+  it("允许直连当面付省略卖家 PID，并兼容 HTTP 开发通知地址", async () => {
     mockRuntimeAlipaySettings({ ALIPAY_SELLER_ID: "" });
     const config = await getRuntimeAlipayF2FConfig();
     expect(config.appId).toBe("app-id");
     expect(config.sellerId).toBeUndefined();
 
     mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "http://example.com/hook" });
-    await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow("必须使用 HTTPS");
+    await expect(getRuntimeAlipayF2FConfig()).resolves.toMatchObject({
+      notifyUrl: "http://example.com/hook",
+    });
+
+    mockRuntimeAlipaySettings({ ALIPAY_NOTIFY_URL: "ftp://example.com/hook" });
+    await expect(getRuntimeAlipayF2FConfig()).rejects.toThrow(
+      "必须使用 HTTP 或 HTTPS"
+    );
+  });
+
+  it("兼容支付宝后台粘贴的单行 Base64 密钥", async () => {
+    const keys = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs1", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" },
+    });
+    const compactPrivateKey = keys.privateKey.replace(
+      /-----[^-]+-----|\s/g,
+      ""
+    );
+    const compactPublicKey = keys.publicKey.replace(/-----[^-]+-----|\s/g, "");
+
+    mockRuntimeAlipaySettings({
+      ALIPAY_PRIVATE_KEY: compactPrivateKey,
+      ALIPAY_PUBLIC_KEY: compactPublicKey,
+    });
+    const config = await getRuntimeAlipayF2FConfig();
+
+    expect(config.privateKey).toContain("BEGIN RSA PRIVATE KEY");
+    expect(config.alipayPublicKey).toContain("BEGIN PUBLIC KEY");
   });
 });

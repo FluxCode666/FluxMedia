@@ -19,7 +19,7 @@ import {
   quoteCreditTopUp,
 } from "@repo/shared/credits/top-up";
 import { getCreditPaymentDisplayStatus } from "@repo/shared/credits/purchase-orders";
-import { logEvent } from "@repo/shared/logger";
+import { logError, logEvent } from "@repo/shared/logger";
 import {
   createAlipayF2FPrecreate,
   getRuntimeAlipayF2FConfig,
@@ -317,6 +317,12 @@ export async function createCreditTopUpCheckout(input: {
       .where(
         and(eq(paymentOrder.id, order.id), eq(paymentOrder.status, "creating"))
       );
+    logError(error, {
+      source: "credits-top-up-checkout",
+      orderId: order.id,
+      userId: input.userId,
+      provider: input.provider,
+    });
     throw error;
   }
 }
