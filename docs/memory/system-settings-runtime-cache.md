@@ -5,7 +5,8 @@
 - PostgreSQL `system_setting` 始终是真相来源。
 - 业务运行时通过 `getRuntimeSetting*` 读取配置，不直接访问 `process.env`。
 - L1 是每进程 1 秒缓存；L2 是 Redis 全量设置缓存；Redis miss 才查询 PostgreSQL。
-- Redis 使用 `REDIS_URL`，逻辑库由 `REDIS_DB` 指定，默认 `4`。
+- Redis 使用 `REDIS_HOST`、`REDIS_PORT`、可选的 `REDIS_USERNAME` 与 `REDIS_PASSWORD`，
+  逻辑库由 `REDIS_DB` 指定，默认 `4`。
 - Redis 属于可选加速层：连接或命令超时后回退 PostgreSQL，不能阻断启动、保存或业务读取。
 - Better Auth 密钥、OAuth 凭据等启动期对象仍需重启；`NEXT_PUBLIC_*` 仍需重新构建。
 
@@ -28,7 +29,8 @@
 ## 部署与安全
 
 - 生产 Compose 不启动 Redis；外部 Redis 必须由基础设施提供鉴权、网络访问控制和必要的 TLS。
-- 生产部署只校验服务器 `.env` 中的 `REDIS_URL`，系统设置缓存默认使用 `REDIS_DB=4`。
+- 生产部署只读取服务器 `.env` 中的 `REDIS_HOST`、`REDIS_PORT`、可选
+  `REDIS_USERNAME`、`REDIS_PASSWORD`，系统设置缓存默认使用 `REDIS_DB=4`。
 - Redis 配置来自部署环境而不是系统设置，避免“读取 Redis 配置必须先连接 Redis”的循环依赖。
 - 回滚应用不需要回滚缓存数据；旧版本可忽略 Redis key，必要时直接删除缓存或重启 Redis。
 

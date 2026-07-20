@@ -27,10 +27,11 @@ sudo chmod 600 /root/flux-media/.env
 sudo editor /root/flux-media/.env
 ```
 
-至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`REDIS_URL`、
-`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和 `FLUXMEDIA_SUPER_ADMIN_PASSWORD`。数据库必须已创建；
-外部 Redis 必须可从 Web 容器访问，并在 URL 中包含正确的鉴权信息；系统设置缓存默认使用
-逻辑库 4。迁移由部署流水线在切换 `web` 前执行。本 Compose 不启动 PostgreSQL 或 Redis。
+至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`REDIS_HOST`、`REDIS_PORT`、
+`REDIS_PASSWORD`、`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和 `FLUXMEDIA_SUPER_ADMIN_PASSWORD`；
+`REDIS_USERNAME` 可选。数据库必须已创建；外部 Redis 必须可从 Web 容器访问。Redis 连接
+参数通过独立变量传递，密码不需要 URL 编码；系统设置缓存默认使用逻辑库 4。迁移由部署
+流水线在切换 `web` 前执行。本 Compose 不启动 PostgreSQL 或 Redis。
 配置完成后先验证默认服务：
 
 ```bash

@@ -12,6 +12,7 @@ import { logWarn } from "../logger";
 
 const SYSTEM_SETTINGS_CACHE_KEY = "fluxmedia:v1:system-settings";
 const DEFAULT_REDIS_DATABASE = 4;
+const DEFAULT_REDIS_PORT = 6379;
 const DEFAULT_REDIS_CACHE_TTL_SECONDS = 60;
 const DEFAULT_LOCAL_CACHE_TTL_MS = 1_000;
 const DEFAULT_DATABASE_FALLBACK_CACHE_TTL_MS = 10_000;
@@ -24,6 +25,32 @@ const cachedSettingsSchema = z.object({
 
 type CachedSettingsPayload = z.infer<typeof cachedSettingsSchema>;
 type SettingsLoader = () => Promise<Map<string, unknown>>;
+type RedisConnectionConfiguration = {
+  host: string;
+  port: number;
+  username: string | undefined;
+  password: string;
+  database: number;
+};
+
+const redisConnectionEnvironmentSchema = z.object({
+  host: z
+    .string()
+    .trim()
+    .min(1)
+    .max(253)
+    .refine((value) => !/[\s/?#@]/.test(value), {
+      message: "Redis 主机地址不能包含 URL 分隔符或空白字符",
+    }),
+  port: z
+    .string()
+    .trim()
+    .regex(/^\d+$/)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65_535)),
+  username: z.string().trim().min(1).max(128).optional(),
+  password: z.string().min(1).max(1_024),
+});
 
 let localCache:
   | {
@@ -71,6 +98,39 @@ export function getSystemSettingsRedisDatabase() {
 }
 
 /**
+ * 读取并校验标准 Redis 的拆分连接配置。
+ *
+ * @returns 未配置主机时返回 undefined；配置不完整或非法时记录脱敏告警并回退。
+ * @remarks 密码作为 ioredis 独立选项传递，不会拼接为 URL，因此无需进行 URL 编码。
+ */
+function getRedisConnectionConfiguration():
+  | RedisConnectionConfiguration
+  | undefined {
+  const host = process.env.REDIS_HOST?.trim();
+  if (!host) return undefined;
+
+  const username = process.env.REDIS_USERNAME?.trim() || undefined;
+  const parsed = redisConnectionEnvironmentSchema.safeParse({
+    host,
+    port: process.env.REDIS_PORT ?? String(DEFAULT_REDIS_PORT),
+    username,
+    password: process.env.REDIS_PASSWORD,
+  });
+  if (!parsed.success) {
+    warnRedisFallback("configuration", parsed.error);
+    return undefined;
+  }
+
+  return {
+    host: parsed.data.host,
+    port: parsed.data.port,
+    username: parsed.data.username,
+    password: parsed.data.password,
+    database: getSystemSettingsRedisDatabase(),
+  };
+}
+
+/**
  * 读取共享缓存 TTL，并限制极端配置避免雪崩或长期脏缓存。
  *
  * @returns Redis 缓存秒数，默认 60 秒。
@@ -99,10 +159,10 @@ function getLocalCacheTtlMs() {
 /**
  * 判断系统设置 Redis 是否已配置。
  *
- * @returns REDIS_URL 非空时为 true。
+ * @returns Redis 主机、端口和密码均合法时为 true。
  */
 function isRedisConfigured() {
-  return Boolean(process.env.REDIS_URL?.trim());
+  return getRedisConnectionConfiguration() !== undefined;
 }
 
 /**
@@ -130,11 +190,16 @@ function warnRedisFallback(operation: string, error: unknown) {
  * @returns 已配置时返回进程级客户端，否则返回 undefined。
  */
 function getRedisClient() {
-  const redisUrl = process.env.REDIS_URL?.trim();
-  if (!redisUrl) return undefined;
+  const configuration = getRedisConnectionConfiguration();
+  if (!configuration) return undefined;
 
-  const database = getSystemSettingsRedisDatabase();
-  const fingerprint = `${redisUrl}\u0000${database}`;
+  const fingerprint = JSON.stringify([
+    configuration.host,
+    configuration.port,
+    configuration.username,
+    configuration.password,
+    configuration.database,
+  ]);
   const configurationChanged = redisClientFingerprint !== fingerprint;
   if (
     redisClient &&
@@ -148,8 +213,12 @@ function getRedisClient() {
     redisClient.disconnect();
   }
 
-  redisClient = new Redis(redisUrl, {
-    db: database,
+  redisClient = new Redis({
+    host: configuration.host,
+    port: configuration.port,
+    ...(configuration.username ? { username: configuration.username } : {}),
+    password: configuration.password,
+    db: configuration.database,
     lazyConnect: true,
     connectTimeout: 750,
     commandTimeout: 750,
@@ -196,11 +265,10 @@ async function runRedisOperation<T>(
   run: (client: Redis) => Promise<T>,
   options?: { force?: boolean }
 ): Promise<T | undefined> {
-  const client = getRedisClient();
-  if (!client) return undefined;
-  if (!options?.force && redisUnavailableUntil > Date.now()) return undefined;
-
   try {
+    const client = getRedisClient();
+    if (!client) return undefined;
+    if (!options?.force && redisUnavailableUntil > Date.now()) return undefined;
     await ensureRedisConnected(client);
     const result = await run(client);
     redisUnavailableUntil = 0;

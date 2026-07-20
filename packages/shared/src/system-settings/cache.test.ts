@@ -9,7 +9,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const redisMockState = vi.hoisted(() => ({
   connectFailure: false,
   store: new Map<string, string>(),
-  selectedDatabases: [] as number[],
+  connectionOptions: [] as Array<{
+    db: number;
+    host: string;
+    password: string;
+    port: number;
+    username: string | undefined;
+  }>,
   deletedKeys: [] as string[],
 }));
 
@@ -17,8 +23,20 @@ vi.mock("ioredis", () => ({
   default: class RedisMock {
     status = "wait";
 
-    constructor(_url: string, options: { db: number }) {
-      redisMockState.selectedDatabases.push(options.db);
+    constructor(options: {
+      db: number;
+      host: string;
+      password: string;
+      port: number;
+      username?: string;
+    }) {
+      redisMockState.connectionOptions.push({
+        db: options.db,
+        host: options.host,
+        password: options.password,
+        port: options.port,
+        username: options.username,
+      });
     }
 
     on() {
@@ -53,6 +71,39 @@ vi.mock("ioredis", () => ({
   },
 }));
 
+/**
+ * 写入标准 Redis 的拆分环境变量。
+ *
+ * @param values - 覆盖默认本地 Redis 配置的字段。
+ * @returns 无返回值。
+ */
+function configureRedisEnvironment(
+  values: Partial<{
+    host: string;
+    password: string;
+    port: string;
+    username: string;
+  }> = {}
+) {
+  process.env.REDIS_HOST = values.host ?? "127.0.0.1";
+  process.env.REDIS_PORT = values.port ?? "6379";
+  process.env.REDIS_USERNAME = values.username ?? "";
+  process.env.REDIS_PASSWORD = values.password ?? "test-password";
+}
+
+/**
+ * 清理标准 Redis 的拆分环境变量，避免不同测试相互污染。
+ *
+ * @returns 无返回值。
+ */
+function clearRedisEnvironment() {
+  delete process.env.REDIS_DB;
+  delete process.env.REDIS_HOST;
+  delete process.env.REDIS_PORT;
+  delete process.env.REDIS_USERNAME;
+  delete process.env.REDIS_PASSWORD;
+}
+
 vi.mock("../logger", () => ({
   logWarn: vi.fn(),
 }));
@@ -71,10 +122,9 @@ describe("system settings cache", () => {
   beforeEach(() => {
     redisMockState.connectFailure = false;
     redisMockState.store.clear();
-    redisMockState.selectedDatabases = [];
+    redisMockState.connectionOptions = [];
     redisMockState.deletedKeys = [];
-    delete process.env.REDIS_DB;
-    delete process.env.REDIS_URL;
+    clearRedisEnvironment();
     delete process.env.SYSTEM_SETTINGS_LOCAL_CACHE_TTL_MS;
     delete process.env.SYSTEM_SETTINGS_CACHE_TTL_SECONDS;
     resetSystemSettingsCacheForTests();
@@ -83,8 +133,7 @@ describe("system settings cache", () => {
   afterEach(() => {
     vi.useRealTimers();
     resetSystemSettingsCacheForTests();
-    delete process.env.REDIS_DB;
-    delete process.env.REDIS_URL;
+    clearRedisEnvironment();
     delete process.env.SYSTEM_SETTINGS_LOCAL_CACHE_TTL_MS;
     delete process.env.SYSTEM_SETTINGS_CACHE_TTL_SECONDS;
   });
@@ -119,7 +168,12 @@ describe("system settings cache", () => {
   });
 
   it("reads through Redis after the first database load", async () => {
-    process.env.REDIS_URL = "redis://localhost:6379";
+    configureRedisEnvironment({
+      host: "172.17.0.1",
+      password: "raw/password-with-special-characters",
+      port: "6380",
+      username: "cache-user",
+    });
     const loader = vi.fn(
       async () => new Map<string, unknown>([["APP_TIME_ZONE", "Asia/Shanghai"]])
     );
@@ -133,12 +187,20 @@ describe("system settings cache", () => {
     );
 
     expect(loader).toHaveBeenCalledTimes(1);
-    expect(redisMockState.selectedDatabases).toEqual([4]);
+    expect(redisMockState.connectionOptions).toEqual([
+      {
+        db: 4,
+        host: "172.17.0.1",
+        password: "raw/password-with-special-characters",
+        port: 6380,
+        username: "cache-user",
+      },
+    ]);
     expect(redisMockState.store.size).toBe(1);
   });
 
   it("invalidates Redis and reloads the database on the next read", async () => {
-    process.env.REDIS_URL = "redis://localhost:6379";
+    configureRedisEnvironment();
     let currentValue = "UTC";
     const loader = vi.fn(
       async () => new Map<string, unknown>([["APP_TIME_ZONE", currentValue]])
@@ -156,7 +218,7 @@ describe("system settings cache", () => {
   });
 
   it("falls back to the database when Redis is unavailable", async () => {
-    process.env.REDIS_URL = "redis://localhost:6379";
+    configureRedisEnvironment();
     redisMockState.connectFailure = true;
     const loader = vi.fn(
       async () => new Map<string, unknown>([["SELF_USE_MODE_ENABLED", true]])
@@ -171,7 +233,7 @@ describe("system settings cache", () => {
   it("recreates an ended Redis client after the failure cooldown", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-20T00:00:00.000Z"));
-    process.env.REDIS_URL = "redis://localhost:6379";
+    configureRedisEnvironment();
     redisMockState.connectFailure = true;
     const loader = vi.fn(
       async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
@@ -183,7 +245,38 @@ describe("system settings cache", () => {
     vi.setSystemTime(new Date("2026-07-20T00:00:06.000Z"));
     await loadCachedSystemSettings(loader);
 
-    expect(redisMockState.selectedDatabases).toEqual([4, 4]);
+    expect(redisMockState.connectionOptions.map((options) => options.db)).toEqual([
+      4,
+      4,
+    ]);
     expect(redisMockState.store.size).toBe(1);
+  });
+
+  it("falls back to the database when the Redis configuration is incomplete", async () => {
+    process.env.REDIS_HOST = "127.0.0.1";
+    const loader = vi.fn(
+      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+    );
+
+    await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
+      new Map([["APP_TIME_ZONE", "UTC"]])
+    );
+
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(redisMockState.connectionOptions).toHaveLength(0);
+  });
+
+  it("falls back to the database when the Redis port is invalid", async () => {
+    configureRedisEnvironment({ port: "not-a-port" });
+    const loader = vi.fn(
+      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+    );
+
+    await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
+      new Map([["APP_TIME_ZONE", "UTC"]])
+    );
+
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(redisMockState.connectionOptions).toHaveLength(0);
   });
 });
