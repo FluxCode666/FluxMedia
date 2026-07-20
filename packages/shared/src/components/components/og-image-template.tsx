@@ -73,6 +73,7 @@ export function createOgImageResponse(): ImageResponse {
           }}
         >
           <svg
+            aria-hidden="true"
             width="48"
             height="48"
             viewBox="0 0 24 24"
