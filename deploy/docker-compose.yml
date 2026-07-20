@@ -26,8 +26,6 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 必填}
-      REDIS_URL: ${REDIS_URL:?REDIS_URL 必填}
-      REDIS_DB: ${REDIS_DB:-4}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET 必填}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://media.flux-code.cc}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://media.flux-code.cc}
