@@ -3,7 +3,7 @@
 本目录提供 `media.flux-code.cc` 的生产部署配置。Docker Compose 只启动 `web`；Redis、
 PostgreSQL 与数据库迁移均为外部依赖或显式维护 profile，不会常驻运行。注册机与
 ChatGPT Web 代理均不启动。宿主机 Nginx 负责 TLS 终止并反向
-代理到 `127.0.0.1:3000`。
+代理到 `127.0.0.1:3001`。
 
 ## 文件
 

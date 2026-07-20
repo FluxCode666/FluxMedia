@@ -66,3 +66,11 @@ services:
 
 volumes:
   app-storage:
+
+networks:
+  infra:
+    external: true
+    name: infra_default
+  flux-code:
+    external: true
+    name: flux-code
