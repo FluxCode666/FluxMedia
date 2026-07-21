@@ -166,15 +166,116 @@ function storedOperationShape(row) {
 /** 为无业务任务的历史消费选择受控 ledger fallback 类型。 */
 function resolveLedgerFallbackType(metadata) {
   if (
-    nonemptyString(metadata?.adminUserId) ||
-    metadata?.serviceName === "admin_credit_adjustment"
+    metadata?.serviceName === "admin_credit_adjustment" &&
+    nonemptyString(metadata?.adminUserId)
   ) {
     return "admin_credit_adjustment";
   }
-  if (metadata?.serviceName === "manual") {
+  if (nonemptyString(metadata?.serviceName)) {
     return "manual_consumption";
   }
   return null;
+}
+
+/** 把完整已存 context 绑定回权威任务或受控 fallback，禁止只验证内部自洽。 */
+function verifyStoredOperationContext(row, evidence, context, metadata) {
+  if (
+    context.operationType === "image_generation" ||
+    context.operationType === "video_generation"
+  ) {
+    if (
+      context.operationType === "image_generation" &&
+      row.type === "consumption" &&
+      metadata?.blockRepair === true &&
+      Number.isInteger(metadata.index)
+    ) {
+      const sourceRef = nonemptyString(row.sourceRef);
+      const suffix = `:blockrepair-${metadata.index}`;
+      const outputGenerationId = sourceRef?.endsWith(suffix)
+        ? sourceRef.slice(0, -suffix.length)
+        : null;
+      const parent = outputGenerationId
+        ? evidence.blockRepairParentByOutputKey?.get(
+            creditOperationKey(row.userId, "output", outputGenerationId)
+          )
+        : null;
+      if (
+        !parent ||
+        parent.generationId !== context.operationId ||
+        parent.createdAt !== context.operationCreatedAt
+      ) {
+        throw new Error(`账本 ${row.id} 的生成式修复 operation 证据不一致`);
+      }
+      return;
+    }
+    const taskKey = creditOperationKey(row.userId, "task", context.operationId);
+    const taskCreatedAt =
+      context.operationType === "image_generation"
+        ? evidence.imageCreatedAtByKey.get(taskKey)
+        : evidence.videoCreatedAtByKey.get(taskKey);
+    if (!taskCreatedAt || taskCreatedAt !== context.operationCreatedAt) {
+      throw new Error(`账本 ${row.id} 的 operation context 与权威任务不一致`);
+    }
+    const sourceRef =
+      nonemptyString(row.sourceRef) ?? nonemptyString(metadata?.sourceRef);
+    const metadataGenerationId = nonemptyString(metadata?.generationId);
+    const metadataVideoId = nonemptyString(metadata?.videoGenerationId);
+    const sourceMatches =
+      context.operationType === "image_generation"
+        ? row.type === "consumption"
+          ? isAllowedImageSourceRef(context.operationId, sourceRef)
+          : isAllowedImageRefundSourceRef(context.operationId, sourceRef)
+        : sourceRef === `adobe-video:${context.operationId}`;
+    const metadataMatches =
+      row.type === "refund"
+        ? metadataGenerationId === context.operationId
+        : context.operationType === "image_generation"
+          ? metadataGenerationId === context.operationId
+          : (metadataVideoId ?? metadataGenerationId) === context.operationId;
+    if (!sourceMatches || !metadataMatches) {
+      throw new Error(`账本 ${row.id} 的 operation context 任务证据不一致`);
+    }
+    return;
+  }
+
+  if (
+    context.operationType === "editable_file_ppt" ||
+    context.operationType === "editable_file_psd"
+  ) {
+    const kind = context.operationType.endsWith("_ppt") ? "ppt" : "psd";
+    const metadataTaskId = nonemptyString(metadata?.taskId);
+    if (
+      row.type !== "consumption" ||
+      metadata?.kind !== kind ||
+      metadataTaskId !== context.operationId ||
+      nonemptyString(row.sourceRef) !==
+        `editable-file:${context.operationId}` ||
+      row.debitAccount !== `WALLET:${row.userId}` ||
+      row.creditAccount !== `SERVICE:editable_file_${kind}`
+    ) {
+      throw new Error(`账本 ${row.id} 的可编辑文件 operation 证据不一致`);
+    }
+    return;
+  }
+
+  const fallbackType =
+    context.operationType === "uol_credit_consumption" &&
+    nonemptyString(row.sourceRef) &&
+    nonemptyString(metadata?.serviceName)
+      ? "uol_credit_consumption"
+      : resolveLedgerFallbackType(metadata);
+  const accountMatches =
+    row.debitAccount === `WALLET:${row.userId}` &&
+    row.creditAccount === `SERVICE:${metadata.serviceName}`;
+  if (
+    row.type !== "consumption" ||
+    context.operationType !== fallbackType ||
+    context.operationId !== row.id ||
+    context.operationCreatedAt !== row.createdAt ||
+    !accountMatches
+  ) {
+    throw new Error(`账本 ${row.id} 的 operation context 缺少权威证据`);
+  }
 }
 
 /** 校验普通图片账本的完整 sourceRef 白名单，不做末段截取。 */
@@ -242,15 +343,19 @@ export function resolveBackfillCreditOperation(row, evidence) {
     if (!operationType || !operationId || !operationCreatedAt) {
       throw new Error(`账本 ${row.id} 的 operation context 包含空白值`);
     }
-    return rememberOperationContext(
-      {
-        userId: row.userId,
-        operationType,
-        operationId,
-        operationCreatedAt,
-      },
-      evidence
+    const context = {
+      userId: row.userId,
+      operationType,
+      operationId,
+      operationCreatedAt,
+    };
+    verifyStoredOperationContext(
+      row,
+      evidence,
+      context,
+      asRecord(row.metadata) ?? {}
     );
+    return rememberOperationContext(context, evidence);
   }
 
   const metadata = asRecord(row.metadata) ?? {};
@@ -373,7 +478,7 @@ export function resolveBackfillCreditOperation(row, evidence) {
     const accountMatches =
       row.debitAccount === `WALLET:${row.userId}` &&
       row.creditAccount === `SERVICE:${metadata.serviceName}`;
-    if (!operationType || !accountMatches || sourceRef) {
+    if (!operationType || !accountMatches) {
       throw new Error(`消费 ${row.id} 不符合受控 ledger fallback 白名单`);
     }
     return rememberOperationContext(

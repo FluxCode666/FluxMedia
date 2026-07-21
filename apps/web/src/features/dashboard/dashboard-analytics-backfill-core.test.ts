@@ -163,12 +163,84 @@ describe("dashboard analytics backfill core", () => {
     ).toThrow(/无法唯一关联/);
   });
 
-  it("rejects unknown and editable-file legacy consumption without proof", () => {
+  it("allows an idempotent ledger fallback without using sourceRef as operation identity", () => {
+    const evidence = createEvidence();
+    expect(
+      resolveBackfillCreditOperation(
+        creditRow({
+          sourceRef: "client-request-1",
+          creditAccount: "SERVICE:custom-service",
+          metadata: { serviceName: "custom-service" },
+        }),
+        evidence
+      )
+    ).toEqual({
+      operationType: "manual_consumption",
+      operationId: "transaction-1",
+      operationCreatedAt: "2026-07-21T01:00:00.000000",
+    });
+  });
+
+  it("requires complete operation context to match authoritative task evidence", () => {
+    const evidence = createEvidence();
+    evidence.imageCreatedAtByKey.set(
+      creditOperationKey("user-1", "task", "image-1"),
+      "2026-07-20T23:00:00.000000"
+    );
+    expect(
+      resolveBackfillCreditOperation(
+        creditRow({
+          sourceRef: "image-1:charge",
+          operationType: "image_generation",
+          operationId: "image-1",
+          operationCreatedAt: "2026-07-20T23:00:00.000000",
+          metadata: { generationId: "image-1" },
+        }),
+        evidence
+      )
+    ).toMatchObject({ operationId: "image-1" });
+    expect(() =>
+      resolveBackfillCreditOperation(
+        creditRow({
+          id: "transaction-2",
+          sourceRef: "image-1:charge",
+          operationType: "image_generation",
+          operationId: "image-1",
+          operationCreatedAt: "2026-07-21T00:00:00.000000",
+          metadata: { generationId: "image-1" },
+        }),
+        createEvidence()
+      )
+    ).toThrow(/权威任务/);
+  });
+
+  it("does not trust admin metadata without the controlled service account", () => {
+    expect(() =>
+      resolveBackfillCreditOperation(
+        creditRow({
+          creditAccount: "SERVICE:manual",
+          metadata: { serviceName: "manual", adminUserId: "admin-1" },
+        }),
+        createEvidence()
+      )
+    ).not.toThrow();
+    expect(() =>
+      resolveBackfillCreditOperation(
+        creditRow({
+          creditAccount: "SERVICE:other",
+          metadata: { adminUserId: "admin-1" },
+        }),
+        createEvidence()
+      )
+    ).toThrow(/白名单/);
+  });
+
+  it("rejects malformed fallback and editable-file legacy consumption without proof", () => {
     const evidence = createEvidence();
     expect(() =>
       resolveBackfillCreditOperation(
         creditRow({
-          creditAccount: "SERVICE:unclassified-service",
+          creditAccount: "SERVICE:different-service",
           metadata: { serviceName: "unclassified-service" },
         }),
         evidence

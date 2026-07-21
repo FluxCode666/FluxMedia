@@ -8,6 +8,7 @@
     "start": "node ../../scripts/with-root-env.mjs ./node_modules/next/dist/bin/next start",
     "analytics:backfill": "node ../../scripts/with-root-env.mjs ./scripts/backfill-dashboard-analytics.mjs",
     "analytics:reconcile": "node ../../scripts/with-root-env.mjs ./scripts/backfill-dashboard-analytics.mjs --reconcile-only",
+    "analytics:finalize-credit-contract": "node ../../scripts/with-root-env.mjs ./scripts/finalize-credit-usage-contract.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint ."

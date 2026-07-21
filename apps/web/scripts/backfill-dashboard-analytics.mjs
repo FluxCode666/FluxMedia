@@ -209,15 +209,8 @@ function buildOutputUsageEvent(row) {
     row.duration_seconds,
     "video.duration_seconds"
   );
-  if (
-    !Number.isInteger(durationSeconds) ||
-    durationSeconds <= 0 ||
-    typeof row.storage_key !== "string" ||
-    !row.storage_key.trim()
-  ) {
-    throw new Error(
-      `视频任务 ${row.source_task_id} 已完成但秒数或持久化证据非法`
-    );
+  if (!Number.isInteger(durationSeconds) || durationSeconds <= 0) {
+    throw new Error(`视频任务 ${row.source_task_id} 已完成但秒数非法`);
   }
   return {
     output_kind: "video",
@@ -436,6 +429,12 @@ function collectCreditEvidenceCandidates(rows) {
     const candidates = [];
     if (row.operationType && row.operationId) {
       candidates.push([row.operationType, row.operationId]);
+      if (
+        row.operationType === "image_generation" ||
+        row.operationType === "video_generation"
+      ) {
+        taskIds.add(row.operationId);
+      }
     }
     if (generationId) {
       candidates.push(["image_generation", generationId]);
@@ -567,8 +566,8 @@ async function loadCreditEvidence(client, rows) {
 /**
  * 验证历史退款与 refund batch 的用户、金额、batch ID 和完整 sourceRef 一致。
  *
- * 旧账本顶层 source_ref 可能为空，因此只比较所有非空来源；但 metadata 与 batch
- * 必须提供同一个非空幂等键，禁止从 generationId 拼接或截取。
+ * 旧账本顶层 source_ref 可能为空；metadata 与 batch 必须提供同一个非空幂等键，
+ * 顶层字段存在时也必须相同，禁止从 generationId 拼接或截取。
  */
 async function verifyRefundBatchEvidence(client, rows) {
   const refunds = rows.filter((row) => row.type === "refund");
@@ -598,6 +597,10 @@ async function verifyRefundBatchEvidence(client, rows) {
       typeof metadata.sourceRef === "string" && metadata.sourceRef.trim()
         ? metadata.sourceRef.trim()
         : null;
+    const batchSourceRef =
+      typeof batch?.source_ref === "string" && batch.source_ref.trim()
+        ? batch.source_ref.trim()
+        : null;
     const sourceRefs = [row.sourceRef, metadataSourceRef, batch?.source_ref]
       .filter((value) => typeof value === "string" && value.trim())
       .map((value) => value.trim());
@@ -607,6 +610,7 @@ async function verifyRefundBatchEvidence(client, rows) {
       batch.source_type !== "refund" ||
       batch.amount !== row.amount ||
       !metadataSourceRef ||
+      !batchSourceRef ||
       sourceRefs.some((value) => value !== sourceRefs[0])
     ) {
       throw new Error(`退款 ${row.id} 与 credits_batch 证据不一致`);
@@ -856,6 +860,7 @@ async function applyCreditRefunds(client, inserted) {
        SELECT user_id, operation_type, operation_id,
               operation_created_at::timestamp AS operation_created_at,
               sum(amount::numeric) AS refund_amount,
+              min(transaction_created_at::timestamp) AS earliest_refund_at,
               max(transaction_created_at::timestamp) AS updated_at
          FROM input
         WHERE transaction_type = 'refund'
@@ -873,6 +878,14 @@ async function applyCreditRefunds(client, inserted) {
           AND operation.operation_created_at = grouped.operation_created_at
           AND operation.gross_consumed - operation.refunded
               >= grouped.refund_amount
+          AND grouped.earliest_refund_at >= (
+            SELECT min(projected.transaction_created_at)
+              FROM credit_usage_projection_entry projected
+             WHERE projected.user_id = grouped.user_id
+               AND projected.operation_type = grouped.operation_type
+               AND projected.operation_id = grouped.operation_id
+               AND projected.contribution_kind = 'consumption'
+          )
        RETURNING operation.user_id, operation.operation_type,
                  operation.operation_id
      )
@@ -885,7 +898,7 @@ async function applyCreditRefunds(client, inserted) {
     databaseNumber(counts.expected_count, "credit.refund_expected") !==
     databaseNumber(counts.applied_count, "credit.refund_applied")
   ) {
-    throw new Error("退款孤立、创建时间冲突或超过原操作可退毛消费");
+    throw new Error("退款孤立、早于原消费、创建时间冲突或超过原操作可退毛消费");
   }
 }
 
@@ -1063,7 +1076,6 @@ async function reconcileOutputUsage(client) {
          FROM video_generation
         WHERE status = 'completed'
           AND duration_seconds > 0
-          AND nullif(btrim(storage_key), '') IS NOT NULL
      ), event_difference AS (
        SELECT count(*)::integer AS count
          FROM expected
@@ -1099,8 +1111,7 @@ async function reconcileOutputUsage(client) {
          AS insufficient_image_evidence,
        (SELECT count(*)::integer FROM video_generation
          WHERE status = 'completed'
-           AND (duration_seconds <= 0
-                OR nullif(btrim(storage_key), '') IS NULL))
+           AND duration_seconds <= 0)
          AS invalid_completed_videos,
        (SELECT count FROM event_difference) AS event_difference,
        (SELECT count FROM summary_difference) AS summary_difference`
@@ -1187,11 +1198,28 @@ async function reconcileCreditUsage(client) {
        SELECT count(*)::integer AS count
          FROM expected_balance expected
          FULL JOIN credits_balance actual USING (user_id)
-        WHERE expected.user_id IS NOT NULL
+        WHERE actual.user_id IS NULL
+           OR actual.total_spent
+              IS DISTINCT FROM coalesce(expected.total_spent, 0)
+           OR actual.total_refunded
+              IS DISTINCT FROM coalesce(expected.total_refunded, 0)
+     ), refund_temporal_violation AS (
+       SELECT count(*)::integer AS count
+         FROM expected_operation operation
+         JOIN LATERAL (
+           SELECT min(created_at) FILTER (WHERE type = 'consumption')
+                    AS first_consumption_at,
+                  min(created_at) FILTER (WHERE type = 'refund')
+                    AS first_refund_at
+             FROM ledger
+            WHERE ledger.user_id = operation.user_id
+              AND ledger.operation_type = operation.operation_type
+              AND ledger.operation_id = operation.operation_id
+         ) timing ON true
+        WHERE timing.first_refund_at IS NOT NULL
           AND (
-            actual.user_id IS NULL
-            OR actual.total_spent IS DISTINCT FROM expected.total_spent
-            OR actual.total_refunded IS DISTINCT FROM expected.total_refunded
+            timing.first_consumption_at IS NULL
+            OR timing.first_refund_at < timing.first_consumption_at
           )
      )
      SELECT
@@ -1202,6 +1230,8 @@ async function reconcileCreditUsage(client) {
        (SELECT count FROM projection_difference) AS projection_difference,
        (SELECT count FROM operation_difference) AS operation_difference,
        (SELECT count FROM balance_difference) AS balance_difference,
+       (SELECT count FROM refund_temporal_violation)
+         AS refund_temporal_violation,
        (SELECT count(*)::integer FROM expected_operation
          WHERE refunded > gross_consumed) AS negative_net_operation`
   );
@@ -1222,6 +1252,10 @@ async function reconcileCreditUsage(client) {
     balanceDifference: databaseNumber(
       row.balance_difference,
       "credit.balance_difference"
+    ),
+    refundTemporalViolation: databaseNumber(
+      row.refund_temporal_violation,
+      "credit.refund_temporal_violation"
     ),
     negativeNetOperation: databaseNumber(
       row.negative_net_operation,
