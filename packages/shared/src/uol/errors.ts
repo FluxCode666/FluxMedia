@@ -18,6 +18,7 @@ export type OperationErrorCode =
   | "capability_required"
   | "not_found"
   | "not_implemented"
+  | "not_ready"
   | "ownership_violation"
   | "insufficient_credits"
   | "account_frozen"
@@ -49,7 +50,7 @@ export class OperationError extends Error {
     code: OperationErrorCode,
     message: string,
     details?: Record<string, unknown>,
-    httpStatus?: number,
+    httpStatus?: number
   ) {
     super(message);
     this.name = "OperationError";
@@ -66,6 +67,7 @@ const CODE_TO_STATUS: Record<OperationErrorCode, number> = {
   capability_required: 403,
   not_found: 404,
   not_implemented: 501,
+  not_ready: 503,
   ownership_violation: 403,
   insufficient_credits: 402,
   account_frozen: 403,

@@ -14,6 +14,7 @@ vi.mock("@repo/database", () => ({ db: {} }));
 import {
   buildHourlyOutputUsageBucketKey,
   buildOutputUsageRangePredicate,
+  type CreditUsageAnalyticsRepository,
   loadOutputUsageSummary,
   loadOutputUsageTrends,
   type OutputUsageAnalyticsRepository,
@@ -53,6 +54,10 @@ describe("output usage analytics service", () => {
       readLifetimeTotals: vi.fn().mockResolvedValue(null),
       readRangeAggregates: vi.fn(),
     } satisfies OutputUsageAnalyticsRepository;
+    const creditRepository = {
+      readTodayCredits: vi.fn().mockResolvedValue(null),
+      readLifetimeCredits: vi.fn().mockResolvedValue(null),
+    } satisfies CreditUsageAnalyticsRepository;
 
     await expect(
       loadOutputUsageSummary(
@@ -63,11 +68,12 @@ describe("output usage analytics service", () => {
             end: new Date("2026-07-21T16:00:00.000Z"),
           },
         },
-        repository
+        repository,
+        creditRepository
       )
     ).resolves.toEqual({
-      today: { imageCount: 0, videoSeconds: 0 },
-      lifetime: { imageCount: 0, videoSeconds: 0 },
+      today: { imageCount: 0, videoSeconds: 0, creditsConsumed: 0 },
+      lifetime: { imageCount: 0, videoSeconds: 0, creditsConsumed: 0 },
     });
   });
 

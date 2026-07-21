@@ -5,35 +5,32 @@
  * 两套 MCP 物理隔离：独立鉴权、独立路由、独立工具集。
  */
 
-// --- Admin MCP ---
-export {
-  isMcpAdminEnabled,
-  getMcpAdminSecret,
-  getMcpDeniedOps,
-  getMcpReadOnlyMode,
-  getMcpRateLimitPerMin,
-} from "./config";
-
 export {
   authenticateMcpAdmin,
   type McpAuthResult,
 } from "./admin-auth";
-
+// --- Admin MCP ---
+export {
+  getMcpAdminSecret,
+  getMcpDeniedOps,
+  getMcpRateLimitPerMin,
+  getMcpReadOnlyMode,
+  isMcpAdminEnabled,
+} from "./config";
+export { redactSensitiveFields } from "./redact";
 export {
   buildAdminMcpTools,
+  type McpToolDefinition,
   operationNameToToolName,
   toolNameToOperationName,
-  type McpToolDefinition,
 } from "./tool-factory";
-
-export { redactSensitiveFields } from "./redact";
-
-// --- User MCP ---
-export { isMcpUserEnabled, getMcpUserRateLimitPerMin } from "./user-config";
 export {
+  type AuthenticateMcpUserKeyFn,
   authenticateMcpUserKey,
   bindMcpUserAuth,
   McpAuthError,
-  type AuthenticateMcpUserKeyFn,
 } from "./user-auth";
+// --- User MCP ---
+export { getMcpUserRateLimitPerMin, isMcpUserEnabled } from "./user-config";
+export { enrichUserMcpToolArguments } from "./user-tool-arguments";
 export { buildUserMcpTools, type McpToolDescriptor } from "./user-tool-factory";

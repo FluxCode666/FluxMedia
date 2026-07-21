@@ -18,27 +18,33 @@
 // 副作用导入：触发所有操作注册到 registry
 import "@repo/shared/uol/operations";
 
-import { bindExecute, OperationError } from "@repo/shared/uol";
-import type { Principal, OperationContext } from "@repo/shared/uol";
-import type { z } from "zod";
 import type { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
+import {
+  usageSummaryOutputSchema,
+  usageTrendsInputSchema,
+  usageTrendsOutputSchema,
+} from "@repo/shared/analytics/contracts";
+import { resolveUsageTimeRange } from "@repo/shared/analytics/range";
+import { getAnalyticsMetricUnit } from "@repo/shared/analytics/series";
 import { normalizeSubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
-
-import { getExternalModelsForUser } from "@/features/external-api/models";
-import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import {
-  createCreditTopUpCheckout,
-  fulfillAlipayCreditTopUp,
-  getCreditPaymentStatus,
-  getCreditTopUpOptions,
-  getCreditTopUpOrderStatus,
-} from "@/features/payment/credit-top-up";
-import { runImageGenerationForUser } from "@/features/image-generation/operations";
-import type { ImageQuality } from "@/features/image-generation/types";
-import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
+  formatDateInputInTimeZone,
+  parseDateInputInTimeZone,
+} from "@repo/shared/time-zone";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import type { OperationContext, Principal } from "@repo/shared/uol";
+import { bindExecute, OperationError } from "@repo/shared/uol";
+import type { z } from "zod";
+import {
+  type AnalyticsReadModelState,
+  loadOutputUsageSummary,
+  loadOutputUsageTrends,
+  readAnalyticsReadModelStates,
+} from "@/features/dashboard/analytics-service";
+import { getExternalModelsForUser } from "@/features/external-api/models";
 import {
   deleteImageBackendParameterMappingTemplate,
   listAdminImageBackendPool,
@@ -47,6 +53,17 @@ import {
   upsertImageBackendApi,
   upsertImageBackendParameterMappingTemplate,
 } from "@/features/image-backend-pool/service";
+import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
+import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
+import { runImageGenerationForUser } from "@/features/image-generation/operations";
+import type { ImageQuality } from "@/features/image-generation/types";
+import {
+  createCreditTopUpCheckout,
+  fulfillAlipayCreditTopUp,
+  getCreditPaymentStatus,
+  getCreditTopUpOptions,
+  getCreditTopUpOrderStatus,
+} from "@/features/payment/credit-top-up";
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -148,6 +165,108 @@ bindExecute(
       );
     }
     return getExternalModelsForUser(principal.userId);
+  }
+);
+
+// ---------------------------------------------------------------------------
+// analytics 域
+// ---------------------------------------------------------------------------
+
+/** 判断单个统计读模型是否达到当前线上查询所需版本。 */
+function isAnalyticsReadModelReady(state: AnalyticsReadModelState): boolean {
+  return state?.version === 1 && state.status === "ready";
+}
+
+/** 查询统一 analytics readiness，未完成回填时返回相同的暂不可用错误。 */
+async function assertAnalyticsReady(): Promise<void> {
+  const states = await readAnalyticsReadModelStates();
+  if (
+    !isAnalyticsReadModelReady(states.outputUsage) ||
+    !isAnalyticsReadModelReady(states.creditUsage)
+  ) {
+    throw new OperationError(
+      "not_ready",
+      "Analytics data is still being prepared",
+      undefined,
+      503
+    );
+  }
+}
+
+/** 绑定本人摘要 operation，用户 ID 只来自 Principal。 */
+bindExecute(
+  "analytics.getMyUsageSummary",
+  async (_input: Record<string, never>, principal: Principal) => {
+    if (principal.type !== "user" && principal.type !== "apiKey") {
+      throw new OperationError("unauthenticated", "User identity required");
+    }
+    await assertAnalyticsReady();
+    const timeZone = await getAppTimeZone();
+    const asOf = new Date();
+    const today = formatDateInputInTimeZone(asOf, timeZone);
+    const todayStart = parseDateInputInTimeZone(today, { timeZone });
+    if (!todayStart)
+      throw new OperationError(
+        "internal_error",
+        "Unable to resolve analytics day"
+      );
+    const todayRange = {
+      start: new Date(todayStart.getTime()),
+      end: asOf,
+    };
+    const result = await loadOutputUsageSummary({
+      userId: principal.userId,
+      todayRange,
+    });
+    return usageSummaryOutputSchema.parse({
+      asOf: asOf.toISOString(),
+      timeZone,
+      todayRange: {
+        start: todayRange.start.toISOString(),
+        end: todayRange.end.toISOString(),
+      },
+      today: result.today,
+      lifetime: result.lifetime,
+    });
+  }
+);
+
+/** 绑定本人趋势 operation，统一解析时区范围并只执行一次输出事件查询。 */
+bindExecute(
+  "analytics.getMyUsageTrends",
+  async (input: unknown, principal: Principal) => {
+    if (principal.type !== "user" && principal.type !== "apiKey") {
+      throw new OperationError("unauthenticated", "User identity required");
+    }
+    await assertAnalyticsReady();
+    const parsed = usageTrendsInputSchema.parse(input);
+    const timeZone = await getAppTimeZone();
+    let range: ReturnType<typeof resolveUsageTimeRange>;
+    try {
+      range = resolveUsageTimeRange(parsed, {
+        timeZone,
+        asOf: new Date(),
+      });
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new OperationError("validation_error", error.message);
+      }
+      throw error;
+    }
+    const result = await loadOutputUsageTrends({
+      userId: principal.userId,
+      range,
+    });
+    return usageTrendsOutputSchema.parse({
+      asOf: range.asOf.toISOString(),
+      timeZone,
+      range: { start: range.start.toISOString(), end: range.end.toISOString() },
+      granularity: range.granularity,
+      metric: range.metric,
+      unit: getAnalyticsMetricUnit(range.metric),
+      buckets: result.buckets,
+      distribution: result.distribution,
+    });
   }
 );
 

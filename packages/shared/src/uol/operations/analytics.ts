@@ -1,0 +1,53 @@
+/**
+ * UOL Analytics 操作定义。
+ *
+ * 只注册本人摘要与趋势两个只读能力；数据库实现由 apps/web 延迟绑定，确保 Web、
+ * Server Action、MCP 和内置 Agent 共享同一输入输出 schema、权限与 readiness 语义。
+ */
+import {
+  usageSummaryInputSchema,
+  usageSummaryOutputSchema,
+  usageTrendsInputSchema,
+  usageTrendsOutputSchema,
+} from "../../analytics/contracts";
+import { defineOperation } from "../registry";
+
+/** 获取当前用户今日与累计六项用量摘要。 */
+export const getMyUsageSummary = defineOperation({
+  name: "analytics.getMyUsageSummary",
+  domain: "analytics",
+  title: "Get My Usage Summary",
+  description:
+    "获取当前用户今日与累计的图片、视频秒数和积分净消耗六项摘要。" +
+    "用户身份由 Principal 派生，不接受 userId 参数。",
+  input: usageSummaryInputSchema,
+  output: usageSummaryOutputSchema,
+  access: { kind: "protected" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: analytics.getMyUsageSummary");
+  },
+});
+
+/** 获取当前用户按小时/天的单指标趋势与任务类型分布。 */
+export const getMyUsageTrends = defineOperation({
+  name: "analytics.getMyUsageTrends",
+  domain: "analytics",
+  title: "Get My Usage Trends",
+  description:
+    "查询当前用户按小时或按天的生图/生视频趋势与同范围任务类型分布。" +
+    "积分不进入时间范围图表，范围和用户身份由统一契约与 Principal 控制。",
+  input: usageTrendsInputSchema,
+  output: usageTrendsOutputSchema,
+  access: { kind: "protected" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: analytics.getMyUsageTrends");
+  },
+});

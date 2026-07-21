@@ -23,25 +23,25 @@
  * - 绝不暴露管理员操作
  * - 计费走统一管线（与 v1 API 一致）
  */
-import { type NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 
+import { createHash } from "node:crypto";
 import { db } from "@repo/database";
 import { mcpApiKey, user } from "@repo/database/schema";
-import { and, eq } from "drizzle-orm";
-
+import { logWarn } from "@repo/shared/logger";
 import {
-  isMcpUserEnabled,
-  bindMcpUserAuth,
   authenticateMcpUserKey,
+  bindMcpUserAuth,
   buildUserMcpTools,
+  enrichUserMcpToolArguments,
+  isMcpUserEnabled,
   McpAuthError,
 } from "@repo/shared/mcp";
-import { invokeOperation } from "@repo/shared/uol";
-import type { Principal } from "@repo/shared/uol";
 import { checkRateLimit } from "@repo/shared/rate-limit";
-import { logWarn } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import type { Principal } from "@repo/shared/uol";
+import { invokeOperation } from "@repo/shared/uol";
+import { and, eq } from "drizzle-orm";
+import { type NextRequest, NextResponse } from "next/server";
 import { ensureUolInitialized } from "@/server/uol-init";
 
 // 副作用导入：确保所有 UOL 操作已注册到 registry
@@ -79,12 +79,7 @@ bindMcpUserAuth(async (authHeader: string): Promise<Principal> => {
     })
     .from(mcpApiKey)
     .innerJoin(user, eq(user.id, mcpApiKey.userId))
-    .where(
-      and(
-        eq(mcpApiKey.keyHash, keyHash),
-        eq(mcpApiKey.isActive, true),
-      ),
-    )
+    .where(and(eq(mcpApiKey.keyHash, keyHash), eq(mcpApiKey.isActive, true)))
     .limit(1);
 
   const record = keys[0];
@@ -151,6 +146,7 @@ const JSON_RPC_SERVER_ERROR = -32000;
 // ============================================
 
 const MCP_USER_RATE_LIMIT_PREFIX = "mcp-user-key:";
+const MCP_USER_AGGREGATE_RATE_LIMIT_PREFIX = "mcp-user-account:";
 
 // ============================================
 // POST Handler
@@ -161,7 +157,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!isMcpUserEnabled()) {
     return NextResponse.json(
       { error: "MCP User endpoint is disabled" },
-      { status: 404 },
+      { status: 404 }
     );
   }
 
@@ -174,12 +170,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (err instanceof McpAuthError) {
       return NextResponse.json(
         { error: err.message },
-        { status: err.httpStatus },
+        { status: err.httpStatus }
       );
     }
     return NextResponse.json(
       { error: "Authentication failed" },
-      { status: 401 },
+      { status: 401 }
     );
   }
 
@@ -187,7 +183,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (principal.type === "apiKey") {
     const rateLimit = await checkRateLimit(
       `${MCP_USER_RATE_LIMIT_PREFIX}${principal.apiKeyId}`,
-      "ai",
+      "ai"
     );
     if (!rateLimit.success) {
       logWarn("MCP User key rate limit exceeded", {
@@ -206,7 +202,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             message: "Rate limit exceeded",
           },
         } satisfies JsonRpcResponse,
-        { status: 429 },
+        { status: 429 }
+      );
+    }
+
+    // 一个用户可创建多个 MCP key；账户级桶防止通过轮换 key 放大统计查询与生图流量。
+    const aggregateRateLimit = await checkRateLimit(
+      `${MCP_USER_AGGREGATE_RATE_LIMIT_PREFIX}${principal.userId}`,
+      "ai"
+    );
+    if (!aggregateRateLimit.success) {
+      logWarn("MCP User account rate limit exceeded", {
+        source: "mcp-user-route",
+        userId: principal.userId,
+        limit: aggregateRateLimit.limit,
+        reset: aggregateRateLimit.reset,
+      });
+      return NextResponse.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: JSON_RPC_SERVER_ERROR,
+            message: "Rate limit exceeded",
+          },
+        } satisfies JsonRpcResponse,
+        { status: 429 }
       );
     }
   }
@@ -223,7 +244,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           message: "MCP tools are not ready",
         },
       } satisfies JsonRpcResponse,
-      { status: 500 },
+      { status: 500 }
     );
   }
 
@@ -246,7 +267,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             message: "Invalid JSON-RPC request",
           },
         } satisfies JsonRpcResponse,
-        { status: 400 },
+        { status: 400 }
       );
     }
     rpcRequest = body as JsonRpcRequest;
@@ -260,7 +281,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           message: "Failed to parse JSON body",
         },
       } satisfies JsonRpcResponse,
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -275,7 +296,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 async function handleMethod(
   req: JsonRpcRequest,
-  principal: Principal,
+  principal: Principal
 ): Promise<JsonRpcResponse> {
   switch (req.method) {
     case "initialize":
@@ -323,7 +344,7 @@ function handleInitialize(req: JsonRpcRequest): JsonRpcResponse {
 
 function handleToolsList(
   req: JsonRpcRequest,
-  principal: Principal,
+  principal: Principal
 ): JsonRpcResponse {
   const tools = buildUserMcpTools(principal);
   return {
@@ -339,7 +360,7 @@ function handleToolsList(
 
 async function handleToolsCall(
   req: JsonRpcRequest,
-  principal: Principal,
+  principal: Principal
 ): Promise<JsonRpcResponse> {
   const params = req.params ?? {};
   const toolName = params.name as string | undefined;
@@ -358,9 +379,7 @@ async function handleToolsCall(
 
   // 验证工具在用户白名单中
   const userTools = buildUserMcpTools(principal);
-  const allowed = userTools.some(
-    (t: { name: string }) => t.name === toolName,
-  );
+  const allowed = userTools.some((t: { name: string }) => t.name === toolName);
   if (!allowed) {
     return {
       jsonrpc: "2.0",
@@ -372,15 +391,14 @@ async function handleToolsCall(
     };
   }
 
-  // 为需要 userId 的操作自动注入（防止用户伪造其他用户 ID）
-  const enrichedArgs = enrichArgsWithUserId(toolArgs, principal);
+  const enrichedArgs = enrichUserMcpToolArguments(
+    toolName,
+    toolArgs,
+    principal
+  );
 
   try {
-    const result = await invokeOperation(
-      toolName,
-      enrichedArgs,
-      principal,
-    );
+    const result = await invokeOperation(toolName, enrichedArgs, principal);
     return {
       jsonrpc: "2.0",
       id: req.id,
@@ -413,24 +431,4 @@ async function handleToolsCall(
       },
     };
   }
-}
-
-/**
- * 为操作参数自动注入当前用户 ID。
- *
- * 安全约束：用户不可通过 MCP 操作其他用户的数据。
- * 当操作 input 包含 userId 字段时，强制覆盖为当前 principal 的 userId。
- */
-function enrichArgsWithUserId(
-  args: Record<string, unknown>,
-  principal: Principal,
-): Record<string, unknown> {
-  if (principal.type !== "apiKey" && principal.type !== "user") {
-    return args;
-  }
-  // 强制注入 userId，防止越权
-  return {
-    ...args,
-    userId: principal.userId,
-  };
 }

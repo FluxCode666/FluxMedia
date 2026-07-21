@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { bindExecute, clearRegistry, defineOperation } from "../uol/registry";
+import { usageTrendsInputSchema } from "../analytics/contracts";
 import type { Principal } from "../uol/principal";
+import { bindExecute, clearRegistry, defineOperation } from "../uol/registry";
 import type { AccessRequirement, OperationDefinition } from "../uol/types";
 import { buildAdminMcpTools } from "./tool-factory";
+import { enrichUserMcpToolArguments } from "./user-tool-arguments";
 import { buildUserMcpTools } from "./user-tool-factory";
 
 const apiKeyPrincipal = {
@@ -25,7 +27,7 @@ function registerOperation(
   overrides: Partial<OperationDefinition> & {
     name: string;
     access: AccessRequirement;
-  },
+  }
 ) {
   return defineOperation({
     name: overrides.name,
@@ -64,9 +66,9 @@ describe("MCP tool factories", () => {
 
     bindExecute("image.generate", async () => ({ ok: true }));
 
-    expect(buildUserMcpTools(apiKeyPrincipal).map((tool) => tool.name)).toEqual([
-      "image.generate",
-    ]);
+    expect(buildUserMcpTools(apiKeyPrincipal).map((tool) => tool.name)).toEqual(
+      ["image.generate"]
+    );
   });
 
   it("hides admin tools until their UOL operation is bound", () => {
@@ -81,8 +83,55 @@ describe("MCP tool factories", () => {
 
     bindExecute("pool.getAdminPool", async () => ({ ok: true }));
 
-    expect(buildAdminMcpTools(adminPrincipal).map((tool) => tool.name)).toEqual([
-      "pool_getAdminPool",
-    ]);
+    expect(buildAdminMcpTools(adminPrincipal).map((tool) => tool.name)).toEqual(
+      ["pool_getAdminPool"]
+    );
+  });
+
+  it("preserves analytics unions, enums, defaults, and user-only exposure", () => {
+    registerOperation({
+      name: "analytics.getMyUsageTrends",
+      domain: "analytics",
+      access: { kind: "protected" },
+      input: usageTrendsInputSchema,
+      readOnly: true,
+    });
+    bindExecute("analytics.getMyUsageTrends", async () => ({ ok: true }));
+
+    const [tool] = buildUserMcpTools(apiKeyPrincipal);
+    expect(tool?.inputSchema).toMatchObject({
+      anyOf: expect.arrayContaining([
+        expect.objectContaining({
+          type: "object",
+          properties: expect.objectContaining({
+            granularity: { const: "hour" },
+            metric: {
+              type: "string",
+              enum: ["imageCount", "videoSeconds"],
+              default: "imageCount",
+            },
+          }),
+          required: expect.not.arrayContaining(["metric"]),
+        }),
+      ]),
+    });
+    expect(buildAdminMcpTools(adminPrincipal)).toHaveLength(0);
+  });
+
+  it("keeps analytics identity principal-only and overrides legacy userId", () => {
+    expect(
+      enrichUserMcpToolArguments(
+        "analytics.getMyUsageSummary",
+        { userId: "another-user" },
+        apiKeyPrincipal
+      )
+    ).toEqual({});
+    expect(
+      enrichUserMcpToolArguments(
+        "image.getUserGenerations",
+        { userId: "another-user", page: 2 },
+        apiKeyPrincipal
+      )
+    ).toEqual({ userId: "user-1", page: 2 });
   });
 });

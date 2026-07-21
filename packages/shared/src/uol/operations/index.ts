@@ -30,3 +30,5 @@ import "./moderation";
 import "./external-api";
 // 客服支持域
 import "./support";
+// 用户控制台统计
+import "./analytics";

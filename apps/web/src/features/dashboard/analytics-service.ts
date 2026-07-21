@@ -7,6 +7,7 @@
 import { db } from "@repo/database";
 import {
   analyticsReadModelState,
+  creditUsageOperation,
   userOutputUsageEvent,
   userUsageSummary,
 } from "@repo/database/schema";
@@ -26,6 +27,9 @@ type OutputUsageTotals = {
   imageCount: number;
   videoSeconds: number;
 };
+
+/** 积分读模型摘要；只保存净消耗，退款不会制造负展示值。 */
+type CreditUsageTotals = { creditsConsumed: number };
 
 type ReadRangeAggregatesInput = {
   userId: string;
@@ -54,6 +58,16 @@ export interface OutputUsageAnalyticsRepository {
   readRangeAggregates: (
     input: ReadRangeAggregatesInput
   ) => Promise<OutputUsageAggregateRow[]>;
+}
+
+/** 积分摘要仓储；实现必须限定 userId 并只读 operation/余额窄列。 */
+export interface CreditUsageAnalyticsRepository {
+  readTodayCredits: (input: {
+    userId: string;
+    start: Date;
+    end: Date;
+  }) => Promise<CreditUsageTotals | null>;
+  readLifetimeCredits: (userId: string) => Promise<CreditUsageTotals | null>;
 }
 
 /**
@@ -169,6 +183,51 @@ async function readLifetimeTotals(
   return row ?? null;
 }
 
+/** 读取今日净积分消耗；operation_created_at 是业务操作时间而非退款发生时间。 */
+async function readTodayCredits(input: {
+  userId: string;
+  start: Date;
+  end: Date;
+}): Promise<CreditUsageTotals> {
+  const [row] = await db
+    .select({
+      creditsConsumed:
+        sql<number>`coalesce(sum(${creditUsageOperation.netConsumed}), 0)`.mapWith(
+          Number
+        ),
+    })
+    .from(creditUsageOperation)
+    .where(
+      and(
+        eq(creditUsageOperation.userId, input.userId),
+        gte(creditUsageOperation.operationCreatedAt, input.start),
+        lt(creditUsageOperation.operationCreatedAt, input.end)
+      )
+    );
+  return row ?? { creditsConsumed: 0 };
+}
+
+/** 读取用户累计净消耗；避免扫描完整 credits_transaction 历史。 */
+async function readLifetimeCredits(
+  userId: string
+): Promise<CreditUsageTotals | null> {
+  const [row] = await db
+    .select({
+      creditsConsumed:
+        sql<number>`coalesce(sum(${creditUsageOperation.netConsumed}), 0)`.mapWith(
+          Number
+        ),
+    })
+    .from(creditUsageOperation)
+    .where(eq(creditUsageOperation.userId, userId));
+  return row ?? null;
+}
+
+const creditDatabaseRepository: CreditUsageAnalyticsRepository = {
+  readTodayCredits,
+  readLifetimeCredits,
+};
+
 /**
  * 以一次有界 SQL 聚合小时趋势和两类任务总数。
  *
@@ -258,6 +317,17 @@ function normalizeOutputUsageTotals(
   };
 }
 
+/** 防止投影损坏或退款竞态把负值送到页面。 */
+function normalizeCreditTotals(
+  totals: CreditUsageTotals | null
+): CreditUsageTotals {
+  const value = totals?.creditsConsumed ?? 0;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError("积分净消耗必须是非负有限数字");
+  }
+  return { creditsConsumed: value };
+}
+
 /**
  * 加载今日和累计成功产出摘要。
  *
@@ -270,19 +340,35 @@ export async function loadOutputUsageSummary(
     userId: string;
     todayRange: { start: Date; end: Date };
   },
-  repository: OutputUsageAnalyticsRepository = databaseRepository
-): Promise<{ today: OutputUsageTotals; lifetime: OutputUsageTotals }> {
-  const [today, lifetime] = await Promise.all([
+  repository: OutputUsageAnalyticsRepository = databaseRepository,
+  creditRepository: CreditUsageAnalyticsRepository = creditDatabaseRepository
+): Promise<{
+  today: OutputUsageTotals & CreditUsageTotals;
+  lifetime: OutputUsageTotals & CreditUsageTotals;
+}> {
+  const [today, lifetime, todayCredits, lifetimeCredits] = await Promise.all([
     repository.readTodayTotals({
       userId: input.userId,
       start: input.todayRange.start,
       end: input.todayRange.end,
     }),
     repository.readLifetimeTotals(input.userId),
+    creditRepository.readTodayCredits({
+      userId: input.userId,
+      start: input.todayRange.start,
+      end: input.todayRange.end,
+    }),
+    creditRepository.readLifetimeCredits(input.userId),
   ]);
   return {
-    today: normalizeOutputUsageTotals(today),
-    lifetime: normalizeOutputUsageTotals(lifetime),
+    today: {
+      ...normalizeOutputUsageTotals(today),
+      ...normalizeCreditTotals(todayCredits),
+    },
+    lifetime: {
+      ...normalizeOutputUsageTotals(lifetime),
+      ...normalizeCreditTotals(lifetimeCredits),
+    },
   };
 }
 
@@ -376,16 +462,19 @@ export async function loadOutputUsageTrends(
   };
 }
 
+/** 单个统计读模型的版本、状态和最近对账时间。 */
+export type AnalyticsReadModelState = {
+  version: number;
+  status: (typeof analyticsReadModelState.$inferSelect)["status"];
+  lastReconciledAt: Date | null;
+} | null;
+
 /**
  * 读取输出用量读模型状态，供 UOL 绑定在查询前执行 readiness 门禁。
  *
  * @returns 当前版本、状态和最近对账时间；迁移未种子化时返回 null。
  */
-export async function readOutputUsageReadModelState(): Promise<{
-  version: number;
-  status: (typeof analyticsReadModelState.$inferSelect)["status"];
-  lastReconciledAt: Date | null;
-} | null> {
+export async function readOutputUsageReadModelState(): Promise<AnalyticsReadModelState> {
   const [row] = await db
     .select({
       version: analyticsReadModelState.version,
@@ -396,4 +485,32 @@ export async function readOutputUsageReadModelState(): Promise<{
     .where(eq(analyticsReadModelState.readModel, "output_usage"))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * 读取控制台统计依赖的全部读模型状态。
+ *
+ * 产出事件和积分净消耗分别回填、分别对账；只有两者都 ready 才能向用户返回
+ * 完整摘要，避免出现图片/视频已可见而积分仍在构建中的口径漂移。
+ */
+export async function readAnalyticsReadModelStates(): Promise<{
+  outputUsage: AnalyticsReadModelState;
+  creditUsage: AnalyticsReadModelState;
+}> {
+  const rows = await db
+    .select({
+      readModel: analyticsReadModelState.readModel,
+      version: analyticsReadModelState.version,
+      status: analyticsReadModelState.status,
+      lastReconciledAt: analyticsReadModelState.lastReconciledAt,
+    })
+    .from(analyticsReadModelState)
+    .where(
+      sql`${analyticsReadModelState.readModel} in ('output_usage', 'credit_usage')`
+    );
+  const byName = new Map(rows.map((row) => [row.readModel, row]));
+  return {
+    outputUsage: byName.get("output_usage") ?? null,
+    creditUsage: byName.get("credit_usage") ?? null,
+  };
 }

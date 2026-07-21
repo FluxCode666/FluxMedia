@@ -16,6 +16,7 @@ import type { Principal } from "./principal";
  * 每个操作归属唯一领域，用于按域过滤、审计分类、MCP 工具分组。
  */
 export type OperationDomain =
+  | "analytics"
   | "image-generation"
   | "credits"
   | "subscription"
@@ -120,10 +121,7 @@ export interface OperationContext {
  * - hasMaintenanceWrite: true 表示含维护性写入（不面向终端用户的后台写入）
  * - execute: 传输无关的业务逻辑执行体
  */
-export interface OperationDefinition<
-  TInput = unknown,
-  TOutput = unknown,
-> {
+export interface OperationDefinition<TInput = unknown, TOutput = unknown> {
   name: string;
   domain: OperationDomain;
   title: string;
@@ -141,7 +139,7 @@ export interface OperationDefinition<
   execute: (
     input: TInput,
     principal: Principal,
-    ctx: OperationContext,
+    ctx: OperationContext
   ) => Promise<TOutput>;
 }
 
