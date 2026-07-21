@@ -384,6 +384,47 @@ describe("UOL Invoke Gateway", () => {
       }
     });
 
+    it("maps nested database timeouts without leaking query details", async () => {
+      defineOperation({
+        name: "err.database-timeout",
+        domain: "analytics",
+        title: "Database Timeout",
+        description: "Throws a nested PostgreSQL timeout",
+        input: z.object({}),
+        output: z.object({}),
+        access: { kind: "public" },
+        readOnly: true,
+        destructive: false,
+        idempotency: { kind: "natural" },
+        sideEffects: [],
+        execute: async () => {
+          throw new Error(
+            'Failed query: select "private_column" where "user_id" = $1',
+            { cause: new Error("Query read timeout") },
+          );
+        },
+      });
+
+      try {
+        await invokeOperation("err.database-timeout", {}, userPrincipal);
+        expect.fail("Should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(OperationError);
+        const operationError = error as OperationError;
+        expect(operationError.code).toBe("timeout");
+        expect(operationError.httpStatus).toBe(504);
+        expect(operationError.details).toEqual({
+          source: "postgres",
+          retryable: true,
+        });
+        expect(operationError.message).toBe("Database query timed out");
+        expect(operationError.message).not.toContain("private_column");
+        expect(JSON.stringify(operationError.details)).not.toContain(
+          "private_column",
+        );
+      }
+    });
+
     it("wraps unknown errors as internal_error", async () => {
       defineOperation({
         name: "err.unknown",

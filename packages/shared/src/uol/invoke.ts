@@ -20,6 +20,7 @@
  * - 错误映射：将已知领域异常（如 "Insufficient credits"）转为 OperationError
  * - 未知异常：统一包装为 internal_error，防止内部细节泄露
  */
+import { isPostgresTimeoutError } from "@repo/database/pool";
 import { nanoid } from "nanoid";
 import { getOperation, isOperationBound } from "./registry";
 import { assertAccess } from "./access";
@@ -136,6 +137,15 @@ export async function invokeOperation<TOutput = unknown>(
   } catch (e) {
     // OperationError 直接透传
     if (e instanceof OperationError) throw e;
+
+    // 数据库超时只暴露稳定错误码；原始 SQL、参数与连接信息不得穿透接口层。
+    if (isPostgresTimeoutError(e)) {
+      throw new OperationError(
+        "timeout",
+        "Database query timed out",
+        { source: "postgres", retryable: true },
+      );
+    }
 
     // 将已知领域异常映射为 OperationError
     if (e instanceof Error) {

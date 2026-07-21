@@ -26,6 +26,7 @@ export type OperationErrorCode =
   | "validation_error"
   | "idempotency_conflict"
   | "rate_limited"
+  | "timeout"
   | "upstream_error"
   | "moderation_blocked"
   | "internal_error";
@@ -75,6 +76,7 @@ const CODE_TO_STATUS: Record<OperationErrorCode, number> = {
   validation_error: 400,
   idempotency_conflict: 409,
   rate_limited: 429,
+  timeout: 504,
   upstream_error: 502,
   moderation_blocked: 451,
   internal_error: 500,

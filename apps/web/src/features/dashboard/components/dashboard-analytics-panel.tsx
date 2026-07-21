@@ -42,6 +42,7 @@ import {
   refreshDashboardSnapshotAction,
 } from "@/features/dashboard/analytics-actions";
 import type { DashboardSnapshot } from "@/features/dashboard/dashboard-data";
+import { getDashboardActionErrorMessage } from "@/features/dashboard/dashboard-error-message";
 import { RecentCreationsClient } from "@/features/image-generation/components/recent-creations-client";
 import { Link } from "@/i18n/routing";
 
@@ -139,9 +140,11 @@ export function DashboardAnalyticsPanel({
       if (!result?.data) {
         restoreCommittedDraft(committedInput);
         toast.error(
-          typeof result?.serverError === "string"
-            ? result.serverError
-            : copy("Unable to load trend data", "趋势数据加载失败")
+          getDashboardActionErrorMessage(
+            result?.serverError,
+            isZh,
+            copy("Unable to load trend data", "趋势数据加载失败")
+          )
         );
         return;
       }
@@ -275,9 +278,11 @@ export function DashboardAnalyticsPanel({
       if (version !== requestVersion.current) return;
       if (!result?.data) {
         toast.error(
-          typeof result?.serverError === "string"
-            ? result.serverError
-            : copy("Unable to refresh dashboard", "控制台刷新失败")
+          getDashboardActionErrorMessage(
+            result?.serverError,
+            isZh,
+            copy("Unable to refresh dashboard", "控制台刷新失败")
+          )
         );
         return;
       }

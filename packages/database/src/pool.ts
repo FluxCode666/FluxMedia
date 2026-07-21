@@ -32,6 +32,11 @@ type CatchableResult = {
   catch: (onRejected: (error: unknown) => unknown) => unknown;
 };
 
+type ErrorWithCause = Error & {
+  cause?: unknown;
+  code?: unknown;
+};
+
 const STANDARD_POSTGRES_POOL_DEFAULTS = {
   application_name: "fluxmedia-web",
   connectionTimeoutMillis: 5_000,
@@ -78,6 +83,38 @@ export function sanitizePostgresPoolError(
       ? { code: codeCandidate.code }
       : {}),
   };
+}
+
+/**
+ * 判断未知异常链是否表示 PostgreSQL 查询或连接等待超时。
+ *
+ * Drizzle、Better Auth 与 node-postgres 可能逐层包装异常，因此必须沿 `cause` 查找；
+ * 只匹配明确的超时消息或错误码，避免把普通 SQL 错误误报为可重试超时。
+ */
+export function isPostgresTimeoutError(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+
+  while (current instanceof Error && !visited.has(current)) {
+    visited.add(current);
+    const candidate = current as ErrorWithCause;
+    const message = current.message.toLowerCase();
+    const isDrizzleQueryWrapper = message.startsWith("failed query:");
+    if (candidate.code === "ETIMEDOUT") return true;
+    if (
+      !isDrizzleQueryWrapper &&
+      (message === "query read timeout" ||
+        message === "connection terminated due to connection timeout" ||
+        message === "timeout exceeded when trying to connect" ||
+        message === "timeout expired" ||
+        message.includes("canceling statement due to statement timeout"))
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+
+  return false;
 }
 
 /** 判断 pg 是否返回了客户端侧的查询读取超时。 */

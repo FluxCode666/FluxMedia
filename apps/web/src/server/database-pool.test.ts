@@ -10,6 +10,7 @@ import {
   attachPostgresPoolErrorHandler,
   buildStandardPostgresPoolConfig,
   guardPostgresClientQueryTimeouts,
+  isPostgresTimeoutError,
   sanitizePostgresPoolError,
 } from "@repo/database/pool";
 import { describe, expect, it, vi } from "vitest";
@@ -110,5 +111,47 @@ describe("standard PostgreSQL pool reliability", () => {
     expect(JSON.stringify(sanitized)).not.toContain("private-user");
     expect(JSON.stringify(sanitized)).not.toContain("private-password");
     expect(JSON.stringify(sanitized)).not.toContain("db.example.com");
+  });
+
+  it("recognizes nested query and connection timeout errors", () => {
+    const queryTimeout = new Error("Query read timeout");
+    const drizzleError = new Error("Failed query: select private_column", {
+      cause: queryTimeout,
+    });
+    expect(isPostgresTimeoutError(drizzleError)).toBe(true);
+    expect(
+      isPostgresTimeoutError(
+        Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" })
+      )
+    ).toBe(true);
+    expect(
+      isPostgresTimeoutError(
+        new Error("Connection terminated due to connection timeout")
+      )
+    ).toBe(true);
+    expect(
+      isPostgresTimeoutError(
+        new Error("timeout exceeded when trying to connect")
+      )
+    ).toBe(true);
+  });
+
+  it("does not misclassify ordinary database failures as timeouts", () => {
+    expect(
+      isPostgresTimeoutError(
+        Object.assign(new Error("column does not exist"), { code: "42703" })
+      )
+    ).toBe(false);
+    expect(isPostgresTimeoutError(new Error("Connection terminated"))).toBe(
+      false
+    );
+    expect(
+      isPostgresTimeoutError(
+        new Error(
+          "Failed query: select 'statement timeout' from audit_log\n" +
+            "params: timeout expired"
+        )
+      )
+    ).toBe(false);
   });
 });

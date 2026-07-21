@@ -9,6 +9,14 @@ import {
   canManageUserPermissions,
   canViewImageBackendPool,
 } from "./auth/roles";
+import {
+  DATABASE_QUERY_TIMEOUT_MESSAGE,
+  DATABASE_QUERY_UNAVAILABLE_MESSAGE,
+} from "./database-error-messages";
+import {
+  isAuthSessionQueryUnavailableError,
+  isDatabaseQueryTimeoutError,
+} from "./database-errors";
 import { logError, logger } from "./logger/index";
 import { captureError } from "./monitoring/index";
 
@@ -58,6 +66,34 @@ const baseActionClient = createSafeActionClient({
    * - 生产环境下隐藏具体错误信息
    */
   handleServerError(error) {
+    if (isDatabaseQueryTimeoutError(error)) {
+      // 不记录 Better Auth/Drizzle 外层异常，避免 SQL、会话令牌和绑定参数进入日志。
+      const safeError = new Error("Database query timed out");
+      logError(safeError, {
+        source: "server-action",
+        category: "database-timeout",
+      });
+      captureError(safeError, {
+        source: "server-action",
+        category: "database-timeout",
+      });
+      return DATABASE_QUERY_TIMEOUT_MESSAGE;
+    }
+
+    if (isAuthSessionQueryUnavailableError(error)) {
+      // Better Auth 的稳定错误码不保留底层根因，不能误报为超时，也不能记录原始响应。
+      const safeError = new Error("Session data is temporarily unavailable");
+      logError(safeError, {
+        source: "server-action",
+        category: "auth-session-unavailable",
+      });
+      captureError(safeError, {
+        source: "server-action",
+        category: "auth-session-unavailable",
+      });
+      return DATABASE_QUERY_UNAVAILABLE_MESSAGE;
+    }
+
     if (
       error instanceof ActionAuthError ||
       error instanceof ActionBannedError ||
