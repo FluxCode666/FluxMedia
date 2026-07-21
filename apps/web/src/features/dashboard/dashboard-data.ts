@@ -5,6 +5,10 @@
  * 采用同一用户 Principal；筛选请求仍单独调用趋势 operation，避免重复查询摘要。
  */
 import { db } from "@repo/database";
+import {
+  type SafePostgresPoolError,
+  sanitizePostgresPoolError,
+} from "@repo/database/pool";
 import { generation } from "@repo/database/schema";
 import type {
   UsageSummaryOutput,
@@ -12,6 +16,7 @@ import type {
   UsageTrendsOutput,
 } from "@repo/shared/analytics/contracts";
 import type { AppUserRole } from "@repo/shared/auth/roles";
+import { logError } from "@repo/shared/logger";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import { invokeOperation } from "@repo/shared/uol";
 import { and, desc, eq } from "drizzle-orm";
@@ -38,6 +43,7 @@ type DashboardSnapshotDependencies = {
     trendsInput: UsageTrendsInput;
   }) => Promise<UsageTrendsOutput>;
   loadRecentCreations: (userId: string) => Promise<RecentCreation[]>;
+  reportRecentCreationsError: (error: SafePostgresPoolError) => void;
 };
 
 /**
@@ -111,18 +117,40 @@ async function loadTrendsThroughUol(input: {
   );
 }
 
+/**
+ * 从 Drizzle 包装错误中提取安全的数据库根因字段。
+ *
+ * 外层错误包含完整 SQL 和绑定参数，不能直接进入日志；若根因缺失则只记录通用消息。
+ */
+function sanitizeRecentCreationsError(error: unknown): SafePostgresPoolError {
+  const cause =
+    error instanceof Error && "cause" in error ? error.cause : undefined;
+  return sanitizePostgresPoolError(
+    cause ?? new Error("Recent creations query failed")
+  );
+}
+
+/** 记录脱敏后的近期创作降级原因，但不让非关键画廊预览拖垮控制台主体。 */
+function reportRecentCreationsError(error: SafePostgresPoolError): void {
+  logError(new Error("Dashboard recent creations are unavailable"), {
+    source: "dashboard-recent-creations",
+    databaseError: error,
+  });
+}
+
 const defaultSnapshotDependencies: DashboardSnapshotDependencies = {
   ensureInitialized: ensureUolInitialized,
   loadSummary: loadSummaryThroughUol,
   loadTrends: loadTrendsThroughUol,
   loadRecentCreations: loadRecentDashboardCreations,
+  reportRecentCreationsError,
 };
 
 /**
- * 原子装配控制台首屏或刷新快照。
+ * 装配控制台首屏或刷新快照。
  *
  * @param input 当前用户、角色和已经过共享 schema 约束的趋势筛选。
- * @returns 摘要、趋势和近期创作；任一查询失败则整体拒绝，调用方保留旧快照。
+ * @returns 摘要、趋势和近期创作；近期创作失败时降级为空，核心统计失败时整体拒绝。
  */
 export async function loadDashboardSnapshot(
   input: {
@@ -133,10 +161,18 @@ export async function loadDashboardSnapshot(
   dependencies: DashboardSnapshotDependencies = defaultSnapshotDependencies
 ): Promise<DashboardSnapshot> {
   await dependencies.ensureInitialized();
+  const recentCreationsPromise = dependencies
+    .loadRecentCreations(input.userId)
+    .catch((error: unknown) => {
+      dependencies.reportRecentCreationsError(
+        sanitizeRecentCreationsError(error)
+      );
+      return [];
+    });
   const [summary, trends, recentCreations] = await Promise.all([
     dependencies.loadSummary({ userId: input.userId, role: input.role }),
     dependencies.loadTrends(input),
-    dependencies.loadRecentCreations(input.userId),
+    recentCreationsPromise,
   ]);
   return { summary, trends, recentCreations };
 }
