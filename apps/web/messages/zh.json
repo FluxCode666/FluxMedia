@@ -850,7 +850,7 @@
     },
     "billing": {
       "pageTitle": "账单与用量",
-      "description": "订阅、账单历史和积分用量都在这里。",
+      "description": "在这里管理订阅、账单历史、积分用量和生图计价。",
       "tabs": {
         "billing": "账单",
         "usage": "用量"

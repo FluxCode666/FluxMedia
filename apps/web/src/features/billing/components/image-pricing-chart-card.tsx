@@ -1,3 +1,10 @@
+/**
+ * 账单用量页的生图计价说明与曲线卡。
+ *
+ * 使用方通过懒加载包装器按需渲染本组件。关键依赖是 Recharts、
+ * 运行时生图定价和当前用户的套餐计费数据。
+ */
+
 "use client";
 
 import { formatCredits } from "@repo/shared/credits/format";
@@ -7,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@repo/ui/components/card";
+import { useEffect, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -15,35 +23,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useEffect, useRef, useState } from "react";
+import type { ImagePricingCardData } from "@/features/billing/image-pricing-card-data";
 import {
+  DEFAULT_IMAGE_SIZE,
   getImageBaseCreditPricing,
   getImageBaseCredits,
-  DEFAULT_IMAGE_SIZE,
-  IMAGE_1024_BASE_PIXELS,
   IMAGE_1K_BASE_SIZE,
+  IMAGE_1024_BASE_PIXELS,
+  IMAGE_MODERATION_PRICE_CNY,
+  type ImageBaseCreditPricing,
   MAX_IMAGE_ASPECT_RATIO,
   MAX_IMAGE_PIXELS,
   MIN_IMAGE_DIMENSION,
   MIN_IMAGE_PIXELS,
   REFERENCE_CREDIT_PRICE_CNY,
   TEXT_MODERATION_PRICE_CNY,
-  IMAGE_MODERATION_PRICE_CNY,
-  type ImageBaseCreditPricing,
 } from "@/features/image-generation/resolution";
 
-type ImagePricingChartCardProps = {
-  billing: {
-    agentRoundCredits: number;
-    chatRoundCredits: number;
-    groupMultiplier: number;
-    groupName: string | null;
-    moderationBlockingEnabled: boolean;
-    monthlyCredits: number;
-    planName: string;
-  };
+type ImagePricingChartCardProps = ImagePricingCardData & {
   isZh: boolean;
-  pricing: ImageBaseCreditPricing;
 };
 
 type PricingPoint = {
@@ -72,6 +70,7 @@ const PRICING_POINTS = [
   { label: "4K", size: "3840x2160", pixels: MAX_IMAGE_PIXELS },
 ];
 
+/** 根据当前基础定价生成曲线的固定示例点。 */
 function buildChartData(pricing: ImageBaseCreditPricing): PricingPoint[] {
   return PRICING_POINTS.map((point) => ({
     ...point,
@@ -80,23 +79,31 @@ function buildChartData(pricing: ImageBaseCreditPricing): PricingPoint[] {
   }));
 }
 
+/** 使用全局积分精度格式化价格。 */
 function formatPrice(value: number) {
   return formatCredits(value);
 }
 
+/** 按实际扣费规则向上保留两位小数。 */
 function roundUpTwoDecimals(value: number) {
   return Math.ceil((value - 1e-9) * 100) / 100;
 }
 
+/** 将像素整数格式化为易读的英文数字分组。 */
 function formatPixels(value: number) {
   return Math.round(value).toLocaleString("en-US");
 }
 
+/** 将百万像素值压缩为图表刻度文本。 */
 function formatMegapixels(value: number) {
   return `${Number(value.toFixed(2))}MP`;
 }
 
-function getExampleFormula(point: PricingPoint, pricing: ImageBaseCreditPricing) {
+/** 返回示例尺寸的基础积分与可读计算式。 */
+function getExampleFormula(
+  point: PricingPoint,
+  pricing: ImageBaseCreditPricing
+) {
   if (point.pixels <= IMAGE_1024_BASE_PIXELS) {
     return {
       baseCredits: pricing.base1024Credits ?? 0,
@@ -125,6 +132,7 @@ function getExampleFormula(point: PricingPoint, pricing: ImageBaseCreditPricing)
   };
 }
 
+/** 观察容器宽度，使固定高度的 Recharts 适配响应式容器。 */
 function useElementWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -152,6 +160,12 @@ function useElementWidth() {
   return { ref, width };
 }
 
+/**
+ * 渲染完整的生图定价曲线、套餐参数和计算示例。
+ *
+ * @param props 已由 Billing 服务端 loader 装配的计价与语言数据。
+ * @returns 可响应式缩放的客户端计价卡。
+ */
 export function ImagePricingChartCard({
   billing,
   isZh,
@@ -175,8 +189,15 @@ export function ImagePricingChartCard({
   const groupMultiplier = Number.isFinite(billing.groupMultiplier)
     ? Math.max(0.01, billing.groupMultiplier)
     : 1;
-  const multiplierExamplePoint =
-    data.find((point) => point.size === DEFAULT_IMAGE_SIZE) ?? data[0]!;
+  const multiplierExamplePoint = data.find(
+    (point) => point.size === DEFAULT_IMAGE_SIZE
+  ) ?? {
+    baseCredits: getImageBaseCredits(IMAGE_1024_BASE_PIXELS, normalizedPricing),
+    label: "1024",
+    megapixels: Number((IMAGE_1024_BASE_PIXELS / 1_000_000).toFixed(2)),
+    pixels: IMAGE_1024_BASE_PIXELS,
+    size: DEFAULT_IMAGE_SIZE,
+  };
   const multiplierExampleBase = getImageBaseCredits(
     multiplierExamplePoint.pixels,
     normalizedPricing
@@ -349,10 +370,7 @@ export function ImagePricingChartCard({
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {pricingItems.map((item) => (
-            <div
-              className="rounded-md border bg-muted/30 p-3"
-              key={item.label}
-            >
+            <div className="rounded-md border bg-muted/30 p-3" key={item.label}>
               <div className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
                 {item.label}
               </div>

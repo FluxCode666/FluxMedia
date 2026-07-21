@@ -850,7 +850,7 @@
     },
     "billing": {
       "pageTitle": "Billing & Usage",
-      "description": "Manage subscriptions, billing history, and credit usage here.",
+      "description": "Manage subscriptions, billing history, credit usage, and image pricing here.",
       "tabs": {
         "billing": "Billing",
         "usage": "Usage"
