@@ -1,3 +1,10 @@
+/**
+ * 图片生成统一管线与计费结算编排。
+ *
+ * 所有 generate、edit、Chat、Agent、审核和修复贡献均复用父 generation 的
+ * 计费操作上下文；sourceRef 仅承担每笔账本写入幂等，不参与操作身份推断。
+ */
+
 import { db } from "@repo/database";
 import { generation, user } from "@repo/database/schema";
 import {
@@ -7,6 +14,7 @@ import {
 import { resolveImageOutputCount } from "@repo/shared/analytics/output-count";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import { consumeCredits } from "@repo/shared/credits/core";
+import type { CreditOperationContext } from "@repo/shared/credits/usage-read-model";
 import {
   IMAGE_GENERATION_PENDING_TIMEOUT_MS,
   refundGenerationCredits,
@@ -52,6 +60,7 @@ import {
   getModerationFailureCharge,
   getTextChatSuccessTargetCredits,
 } from "./billing-policy";
+import { createImageCreditOperation } from "./credit-operation-context";
 import { toClientErrorMessage } from "./error-sanitize";
 import { buildInputImagesMetadata } from "./generation-metadata";
 import { generativeRepairImage } from "./generative-repair";
@@ -1369,6 +1378,11 @@ export async function runImageGenerationForUser(
   callbacks?: ImageGenerationCallbacks
 ): Promise<ImageGenerationOperationResult> {
   const generationId = input.generationId || nanoid();
+  const operationCreatedAt = new Date();
+  const creditOperation = createImageCreditOperation(
+    generationId,
+    operationCreatedAt
+  );
   const size = input.size || DEFAULT_IMAGE_SIZE;
   const requiresResponsesBackend = Boolean(
     input.requiresResponsesBackend || (input.mode === "chat" && input.agentMode)
@@ -1735,6 +1749,8 @@ export async function runImageGenerationForUser(
             input,
             callbacks,
             generationId,
+            operationCreatedAt,
+            creditOperation,
             size,
             inputImages,
             creditCost,
@@ -1785,6 +1801,8 @@ async function runQueuedImageGenerationForUser({
   input,
   callbacks,
   generationId,
+  operationCreatedAt,
+  creditOperation,
   size,
   inputImages,
   creditCost,
@@ -1815,6 +1833,8 @@ async function runQueuedImageGenerationForUser({
   input: RunImageGenerationInput;
   callbacks?: ImageGenerationCallbacks;
   generationId: string;
+  operationCreatedAt: Date;
+  creditOperation: CreditOperationContext;
   size: string;
   inputImages: ImageInputFile[];
   creditCost: ImageCreditCostBreakdown;
@@ -1890,6 +1910,7 @@ async function runQueuedImageGenerationForUser({
       status: "pending",
       creditsConsumed: initialCreditCharge,
       storageBucket: bucket,
+      createdAt: operationCreatedAt,
       metadata:
         input.mode === "edit"
           ? {
@@ -1972,6 +1993,7 @@ async function runQueuedImageGenerationForUser({
       amount: roundedAmount,
       sourceRef,
       description,
+      operation: creditOperation,
     });
     await refundExternalApiKeyCredits({
       apiKeyId: input.apiKeyId,
@@ -2003,7 +2025,8 @@ async function runQueuedImageGenerationForUser({
         amount: roundedAmount,
         serviceName,
         description,
-        sourceRef,
+        ...(sourceRef !== undefined ? { sourceRef } : {}),
+        operation: creditOperation,
         metadata: {
           ...metadata,
           externalApiKeyId: input.apiKeyId,

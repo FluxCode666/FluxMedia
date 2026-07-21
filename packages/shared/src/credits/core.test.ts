@@ -103,7 +103,17 @@ function createGrantTransaction(draft: CommittedFinancialState) {
 }
 
 /** 创建只命中 sourceRef 幂等快路的查询事务替身。 */
-function createConsumptionFastPathTransaction() {
+function createConsumptionFastPathTransaction(
+  storedOperation: {
+    operationType: string | null;
+    operationId: string | null;
+    operationCreatedAt: Date | null;
+  } = {
+    operationType: "image_generation",
+    operationId: "generation-1",
+    operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+  }
+) {
   return {
     select: vi.fn(() => ({
       from: vi.fn((table: unknown) => ({
@@ -115,9 +125,7 @@ function createConsumptionFastPathTransaction() {
                   id: "transaction-consume-1",
                   amount: 20,
                   metadata: { consumedBatches: [] },
-                  operationType: "image_generation",
-                  operationId: "generation-1",
-                  operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+                  ...storedOperation,
                   createdAt: new Date("2026-07-21T00:00:00.000Z"),
                 },
               ];
@@ -132,6 +140,59 @@ function createConsumptionFastPathTransaction() {
         })),
       })),
     })),
+  };
+}
+
+/** 创建命中 refund batch 唯一约束的退款幂等快路事务替身。 */
+function createRefundFastPathTransaction(storedOperation: {
+  operationType: string | null;
+  operationId: string | null;
+  operationCreatedAt: Date | null;
+}) {
+  return {
+    select: vi.fn(() => ({
+      from: vi.fn((table: unknown) => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => {
+            if (table === creditsBalance) {
+              return [
+                {
+                  id: "balance-1",
+                  userId: "user-1",
+                  balance: 100,
+                  totalEarned: 100,
+                  totalSpent: 20,
+                  totalRefunded: 0,
+                  status: "active",
+                },
+              ];
+            }
+            if (table === creditsTransaction) {
+              return [
+                {
+                  id: "transaction-refund-1",
+                  amount: 20,
+                  ...storedOperation,
+                },
+              ];
+            }
+            throw new Error("unexpected select table in refund fast-path test");
+          }),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => {
+      if (table !== creditsBatch) {
+        throw new Error("unexpected insert table in refund fast-path test");
+      }
+      return {
+        values: vi.fn(() => ({
+          onConflictDoNothing: vi.fn(() => ({
+            returning: vi.fn(async () => []),
+          })),
+        })),
+      };
+    }),
   };
 }
 
@@ -162,6 +223,58 @@ describe("credits core projection transaction", () => {
     );
   });
 
+  it("rejects consumption without operation or explicit ledger fallback before DB access", async () => {
+    const invalidInput = {
+      userId: "user-1",
+      amount: 20,
+      serviceName: "missing-context",
+    } as unknown as Parameters<typeof consumeCredits>[0];
+
+    await expect(consumeCredits(invalidInput)).rejects.toThrow(
+      /operation context/i
+    );
+    expect(databaseMocks.select).not.toHaveBeenCalled();
+    expect(databaseMocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects refund grant without original operation before DB access", async () => {
+    const invalidInput = {
+      userId: "user-1",
+      amount: 25,
+      sourceType: "refund",
+      debitAccount: "SYSTEM:generation_refund",
+      transactionType: "refund",
+      expiresAt: null,
+      sourceRef: "generation-1:refund",
+    } as unknown as Parameters<typeof grantCredits>[0];
+
+    await expect(grantCredits(invalidInput)).rejects.toThrow(
+      /operation context/i
+    );
+    expect(databaseMocks.select).not.toHaveBeenCalled();
+    expect(databaseMocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects refund grant without an idempotency sourceRef before DB access", async () => {
+    const invalidInput = {
+      userId: "user-1",
+      amount: 25,
+      sourceType: "refund",
+      debitAccount: "SYSTEM:generation_refund",
+      transactionType: "refund",
+      expiresAt: null,
+      operation: {
+        operationType: "image_generation",
+        operationId: "generation-1",
+        operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+      },
+    } as unknown as Parameters<typeof grantCredits>[0];
+
+    await expect(grantCredits(invalidInput)).rejects.toThrow(/sourceRef/i);
+    expect(databaseMocks.select).not.toHaveBeenCalled();
+    expect(databaseMocks.transaction).not.toHaveBeenCalled();
+  });
+
   it("rolls back refund ledger and balance writes when projection rejects", async () => {
     projectionMocks.apply.mockImplementation(async () => {
       expect(insideTransaction).toBe(true);
@@ -180,7 +293,7 @@ describe("credits core projection transaction", () => {
         operation: {
           operationType: "image_generation",
           operationId: "generation-1",
-          operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+          operationCreatedAt: new Date("2026-07-21T01:00:00.000Z"),
         },
       })
     ).rejects.toThrow("orphan refund projection");
@@ -209,15 +322,125 @@ describe("credits core projection transaction", () => {
         operation: {
           operationType: "image_generation",
           operationId: "generation-1",
-          operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+          operationCreatedAt: new Date("2026-07-21T01:00:00.000Z"),
         },
       })
     ).resolves.toEqual(
       expect.objectContaining({
         alreadyConsumed: true,
         transactionId: "transaction-consume-1",
+        operation: {
+          operationType: "image_generation",
+          operationId: "generation-1",
+          operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+        },
       })
     );
+
+    expect(projectionMocks.createStore).not.toHaveBeenCalled();
+    expect(projectionMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("reuses the first transaction identity for a legacy ledger fallback replay", async () => {
+    databaseMocks.transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(
+          createConsumptionFastPathTransaction({
+            operationType: null,
+            operationId: null,
+            operationCreatedAt: null,
+          })
+        )
+    );
+
+    await expect(
+      consumeCredits({
+        userId: "user-1",
+        amount: 20,
+        serviceName: "manual",
+        sourceRef: "manual-charge-1",
+        operationFallback: {
+          kind: "ledger_transaction",
+          operationType: "manual_consumption",
+        },
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        alreadyConsumed: true,
+        transactionId: "transaction-consume-1",
+        operation: {
+          operationType: "manual_consumption",
+          operationId: "transaction-consume-1",
+          operationCreatedAt: new Date("2026-07-21T00:00:00.000Z"),
+        },
+      })
+    );
+
+    expect(projectionMocks.createStore).not.toHaveBeenCalled();
+    expect(projectionMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy refunds idempotent without backfilling a missing stored context", async () => {
+    databaseMocks.transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(
+          createRefundFastPathTransaction({
+            operationType: null,
+            operationId: null,
+            operationCreatedAt: null,
+          })
+        )
+    );
+
+    await expect(
+      grantCredits({
+        userId: "user-1",
+        amount: 20,
+        sourceType: "refund",
+        debitAccount: "SYSTEM:generation_refund",
+        transactionType: "refund",
+        expiresAt: null,
+        sourceRef: "generation-1:refund",
+        operation: {
+          operationType: "image_generation",
+          operationId: "generation-1",
+          operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+        },
+      })
+    ).resolves.toEqual(expect.objectContaining({ alreadyGranted: true }));
+
+    expect(projectionMocks.createStore).not.toHaveBeenCalled();
+    expect(projectionMocks.apply).not.toHaveBeenCalled();
+  });
+
+  it("rejects a refund replay whose stored operation context conflicts", async () => {
+    databaseMocks.transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(
+          createRefundFastPathTransaction({
+            operationType: "image_generation",
+            operationId: "generation-1",
+            operationCreatedAt: new Date("2026-07-20T22:00:00.000Z"),
+          })
+        )
+    );
+
+    await expect(
+      grantCredits({
+        userId: "user-1",
+        amount: 20,
+        sourceType: "refund",
+        debitAccount: "SYSTEM:generation_refund",
+        transactionType: "refund",
+        expiresAt: null,
+        sourceRef: "generation-1:refund",
+        operation: {
+          operationType: "image_generation",
+          operationId: "generation-1",
+          operationCreatedAt: new Date("2026-07-20T23:00:00.000Z"),
+        },
+      })
+    ).rejects.toMatchObject({ code: "operation_context_mismatch" });
 
     expect(projectionMocks.createStore).not.toHaveBeenCalled();
     expect(projectionMocks.apply).not.toHaveBeenCalled();

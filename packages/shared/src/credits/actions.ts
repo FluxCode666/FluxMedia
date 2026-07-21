@@ -294,6 +294,10 @@ export const useCredits = withProtectedCreditsAction("useCredits")
         userId,
         amount,
         serviceName,
+        operationFallback: {
+          kind: "ledger_transaction",
+          operationType: "manual_consumption",
+        },
         ...(description !== undefined && { description }),
         ...(metadata !== undefined && { metadata }),
       });

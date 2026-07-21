@@ -33,6 +33,7 @@ import {
   toOpenAIErrorPayload,
 } from "@/features/external-api/images";
 import type { EditableFileKind } from "@/features/image-generation/chatgpt-web";
+import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
 
 const editableFileSchema = z.object({
@@ -84,6 +85,11 @@ function makeEditableFileHandler(
     const clientTaskId = parsed.data.client_task_id?.trim();
     // client_task_id 作幂等/审计标识(计费 sourceRef);缺省用服务端 uuid。
     const taskId = clientTaskId || randomUUID();
+    const creditOperation = createEditableFileCreditOperation(
+      kind,
+      taskId,
+      new Date()
+    );
 
     const useAsync =
       parsed.data.async === true ||
@@ -110,6 +116,7 @@ function makeEditableFileHandler(
         prompt: parsed.data.prompt,
         base64Images: parsed.data.base64_images,
         taskId,
+        operation: creditOperation,
       });
       return {
         object: "editable_file_task" as const,

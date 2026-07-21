@@ -13,6 +13,7 @@
  * 长任务态(queued→轮询)与账号 plus/pro 过滤见后续迭代(⑥),本文件先做同步打通。
  */
 import { consumeCredits } from "@repo/shared/credits/core";
+import type { CreditOperationContext } from "@repo/shared/credits/usage-read-model";
 import { logWarn } from "@repo/shared/logger";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
@@ -32,6 +33,7 @@ import {
   type EditableFileKind,
   generateFileWithChatGptWeb,
 } from "./chatgpt-web";
+import { createEditableFileCreditOperation } from "./credit-operation-context";
 import {
   decodeBase64DataUrl,
   editableFileExtension,
@@ -47,6 +49,7 @@ export type EditableFileOutput = {
   primaryUrl: string;
   zipUrl: string | null;
   creditsCharged: number;
+  operation: CreditOperationContext;
 };
 
 /** pool-account/api/adobe → 租约/上报用的 memberType。web 账号为 pool-account → "account"。 */
@@ -94,6 +97,7 @@ export async function runEditableFileForUser(params: {
   prompt: string;
   base64Images: string[];
   taskId: string;
+  operation?: CreditOperationContext;
 }): Promise<EditableFileOutput> {
   const { userId, apiKeyId, kind, prompt, taskId } = params;
   // PSD 强制要输入图(与 chatgpt2api 一致);PPT 可空。
@@ -103,6 +107,9 @@ export async function runEditableFileForUser(params: {
   const images = params.base64Images.map((raw, index) =>
     decodeBase64DataUrl(raw, index + 1)
   );
+  let creditOperation =
+    params.operation ??
+    createEditableFileCreditOperation(kind, taskId, new Date());
 
   const excluded: string[] = [];
   let lastError = "";
@@ -178,12 +185,13 @@ export async function runEditableFileForUser(params: {
       );
       let creditsCharged = 0;
       if (amount > 0) {
-        await consumeCredits({
+        const consumption = await consumeCredits({
           userId,
           amount,
           serviceName: editableFileServiceName(kind),
           description: kind === "psd" ? "生成 PSD 文件" : "生成 PPT 文件",
           sourceRef: `editable-file:${taskId}`,
+          operation: creditOperation,
           metadata: {
             kind,
             taskId,
@@ -191,6 +199,7 @@ export async function runEditableFileForUser(params: {
             apiKeyId: apiKeyId || null,
           },
         });
+        creditOperation = consumption.operation;
         creditsCharged = amount;
       }
       success = true;
@@ -199,6 +208,7 @@ export async function runEditableFileForUser(params: {
         primaryUrl,
         zipUrl,
         creditsCharged,
+        operation: creditOperation,
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

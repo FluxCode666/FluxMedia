@@ -95,7 +95,7 @@ export const getMyBalance = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 3. credits.grant - 发放积分（webhook/admin/refund 调用）
+// 3. credits.grant - 发放非退款积分（webhook/admin 调用）
 // ---------------------------------------------------------------------------
 export const grant = defineOperation({
   name: "credits.grant",
@@ -104,13 +104,13 @@ export const grant = defineOperation({
   description:
     "向用户发放积分（事务内创建 batch + transaction + 更新余额）。" +
     "传入 sourceRef 时强幂等（onConflict source_type+source_ref）；" +
-    "不传 sourceRef 则不幂等。冻结账户会抛错拒绝发放。",
+    "不传 sourceRef 则不幂等。退款必须改用 credits.refund 并显式引用原操作。",
   input: z.object({
     userId: z.string().describe("目标用户 ID"),
     amount: z.number().int().positive().describe("发放积分数量"),
     sourceType: z
-      .string()
-      .describe("来源类型：purchase/subscription/admin_grant/refund/bonus 等"),
+      .enum(["purchase", "subscription", "bonus"])
+      .describe("非退款来源类型：purchase/subscription/bonus"),
     sourceRef: z
       .string()
       .optional()
@@ -136,16 +136,18 @@ export const grant = defineOperation({
   },
   sideEffects: ["billing"],
   execute: async (input) => {
+    const transactionType =
+      input.sourceType === "purchase"
+        ? "purchase"
+        : input.sourceType === "subscription"
+          ? "monthly_grant"
+          : "admin_grant";
     const params: Parameters<typeof grantCredits>[0] = {
       userId: input.userId,
       amount: input.amount,
-      sourceType: input.sourceType as Parameters<
-        typeof grantCredits
-      >[0]["sourceType"],
+      sourceType: input.sourceType,
       debitAccount: `SYSTEM:${input.sourceType}`,
-      transactionType: input.sourceType as Parameters<
-        typeof grantCredits
-      >[0]["transactionType"],
+      transactionType,
       ...(input.reason != null ? { description: input.reason } : {}),
     };
     if (input.sourceRef) {
@@ -201,6 +203,10 @@ export const consume = defineOperation({
       userId: input.userId,
       amount: input.amount,
       serviceName: input.type,
+      operationFallback: {
+        kind: "ledger_transaction",
+        operationType: "uol_credit_consumption",
+      },
       ...(input.sourceRef != null ? { sourceRef: input.sourceRef } : {}),
       ...(input.reason != null ? { description: input.reason } : {}),
     });
@@ -243,6 +249,10 @@ export const useCredits = defineOperation({
       userId,
       amount: input.amount,
       serviceName: "manual",
+      operationFallback: {
+        kind: "ledger_transaction",
+        operationType: "manual_consumption",
+      },
       ...(input.reason != null ? { description: input.reason } : {}),
     });
     return {
@@ -779,6 +789,12 @@ export const refund = defineOperation({
     sourceRef: z
       .string()
       .describe("幂等键（通常为 SYSTEM:generation_refund:{generationId}）"),
+    operationType: z.string().min(1).describe("原计费操作类型"),
+    operationId: z.string().min(1).describe("原计费操作 ID"),
+    operationCreatedAt: z
+      .string()
+      .datetime()
+      .describe("原计费操作创建时间（ISO8601）"),
     reason: z.string().optional().describe("退款原因"),
   }),
   output: z.object({
@@ -795,22 +811,23 @@ export const refund = defineOperation({
   },
   sideEffects: ["billing"],
   execute: async (input) => {
-    // 从 sourceRef 提取 generationId（格式: SYSTEM:generation_refund:{id}）
-    const parts = input.sourceRef.split(":");
-    const generationId = parts[parts.length - 1] ?? input.sourceRef;
-
     const result = await refundGenerationCredits({
-      generationId,
+      generationId: input.operationId,
       userId: input.userId,
       amount: input.amount,
       sourceRef: input.sourceRef,
       description: input.reason ?? "Generation refund",
+      operation: {
+        operationType: input.operationType,
+        operationId: input.operationId,
+        operationCreatedAt: new Date(input.operationCreatedAt),
+      },
     });
 
     // 退款后获取最新余额
     const account = await getCreditsBalance(input.userId);
     return {
-      batchId: result.refunded ? generationId : "",
+      batchId: result.refunded ? input.operationId : "",
       balance: account.balance,
     };
   },

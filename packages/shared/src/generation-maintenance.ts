@@ -1,8 +1,16 @@
+/**
+ * 生成任务维护与失败退款编排。
+ *
+ * 使用方包括定时清扫、生成管线和管理入口；退款只接受调用方显式提供的
+ * 原计费操作上下文，避免从 sourceRef 或退款发生时间猜测业务归属。
+ */
+
 import { and, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
 
 import { db } from "@repo/database";
-import { creditsBatch, generation } from "@repo/database/schema";
+import { generation } from "@repo/database/schema";
 import { grantCredits } from "./credits/core";
+import type { CreditOperationContext } from "./credits/usage-read-model";
 import { getFailedGenerationTargetCreditsFromMetadata } from "./generation-settlement";
 import { logError } from "./logger";
 import { getStorageProvider } from "./storage/providers";
@@ -79,6 +87,23 @@ export function computeTimeoutRefund(params: {
   const chargedCredits = Math.max(0, params.chargedCredits);
   const targetCredits = Math.max(0, params.targetCredits);
   return Math.max(0, chargedCredits - targetCredits);
+}
+
+/**
+ * 为超时图片行构造原始计费操作身份。
+ *
+ * 创建时间必须取权威 generation 行，而不是清扫或退款时间；否则跨日退款会错误计入
+ * 当日消费。参数来自已持久化行，失败模式由后续投影校验负责处理。
+ */
+export function createTimedOutImageCreditOperation(params: {
+  generationId: string;
+  generationCreatedAt: Date;
+}): CreditOperationContext {
+  return {
+    operationType: "image_generation",
+    operationId: params.generationId,
+    operationCreatedAt: new Date(params.generationCreatedAt),
+  };
 }
 
 /**
@@ -245,44 +270,32 @@ export function stripDestroyedGenerationImageReferences(
   return nextMetadata;
 }
 
-async function refundAlreadyGranted(userId: string, sourceRef: string) {
-  const [existing] = await db
-    .select({ id: creditsBatch.id })
-    .from(creditsBatch)
-    .where(
-      and(
-        eq(creditsBatch.userId, userId),
-        eq(creditsBatch.sourceType, "refund"),
-        eq(creditsBatch.sourceRef, sourceRef)
-      )
-    )
-    .limit(1);
-
-  return Boolean(existing);
-}
-
+/**
+ * 按原计费操作退还生成积分。
+ *
+ * 幂等判断统一交给 grantCredits 的事务内唯一约束与 stored context 校验，避免事务外
+ * 预查产生竞态或绕过 operation 一致性检查。
+ */
 export async function refundGenerationCredits(params: {
   generationId: string;
   userId: string;
   amount: number;
   sourceRef: string;
   description: string;
+  operation: CreditOperationContext;
   metadata?: Record<string, unknown>;
 }) {
   if (params.amount <= 0) {
     return { refunded: false, amount: 0 };
   }
 
-  if (await refundAlreadyGranted(params.userId, params.sourceRef)) {
-    return { refunded: false, amount: params.amount };
-  }
-
-  await grantCredits({
+  const result = await grantCredits({
     userId: params.userId,
     amount: params.amount,
     sourceType: "refund",
     debitAccount: "SYSTEM:generation_refund",
     transactionType: "refund",
+    operation: params.operation,
     sourceRef: params.sourceRef,
     description: params.description,
     metadata: {
@@ -291,7 +304,7 @@ export async function refundGenerationCredits(params: {
     },
   });
 
-  return { refunded: true, amount: params.amount };
+  return { refunded: !result.alreadyGranted, amount: params.amount };
 }
 
 export async function expireStalePendingGenerations(
@@ -393,6 +406,10 @@ export async function expireStalePendingGenerations(
             0,
             50
           )}`,
+          operation: createTimedOutImageCreditOperation({
+            generationId: row.id,
+            generationCreatedAt: row.createdAt,
+          }),
           metadata: {
             reason: "pending_timeout",
             createdAt: row.createdAt.toISOString(),

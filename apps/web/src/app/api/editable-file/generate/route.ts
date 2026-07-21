@@ -22,6 +22,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createJsonKeepAliveResponse } from "@/features/external-api/images";
+import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
 
 const generateSchema = z.object({
@@ -71,6 +72,11 @@ export const POST = withApiLogging(async (request: NextRequest) => {
   }
 
   const taskId = randomUUID();
+  const creditOperation = createEditableFileCreditOperation(
+    kind,
+    taskId,
+    new Date()
+  );
   return createJsonKeepAliveResponse(async () => {
     const result = await runEditableFileForUser({
       userId,
@@ -78,6 +84,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
       prompt,
       base64Images,
       taskId,
+      operation: creditOperation,
     });
     let creditsCharged = result.creditsCharged;
     // chat(web) 会话内生成:成功后再按套餐轮次价扣一次(复用 chat 轮次费,幂等键防重复扣)。
@@ -93,6 +100,7 @@ export const POST = withApiLogging(async (request: NextRequest) => {
           description:
             kind === "psd" ? "chat(web) PSD 轮次" : "chat(web) PPT 轮次",
           sourceRef: `editable-file-round:${taskId}`,
+          operation: result.operation,
           metadata: { kind, taskId, chatRound: true },
         });
         creditsCharged += roundFee;

@@ -122,6 +122,45 @@ function assertCompatibleCreditOperationContext(
   }
 }
 
+type StoredConsumptionOperationRow = StoredCreditOperationFields & {
+  id: string;
+  createdAt: Date;
+};
+
+/**
+ * 解析消费幂等重放应返回的权威 operation context。
+ *
+ * 显式业务 operation 只要求 type/id 稳定，创建时间以首次账本行为准；ledger fallback
+ * 只要求受控 type 稳定，并复用首次 transaction ID/time。旧空 context 行不补写，改用
+ * 首次账本时间构造返回值，使后续同任务贡献可以收敛到稳定上下文。
+ */
+function resolveReplayedConsumptionOperation(
+  expected: CreditOperationContext,
+  row: StoredConsumptionOperationRow,
+  usesLedgerFallback: boolean
+): CreditOperationContext {
+  const stored = readStoredCreditOperationContext(row);
+  if (stored) {
+    const identityMatches = usesLedgerFallback
+      ? stored.operationType === expected.operationType
+      : stored.operationType === expected.operationType &&
+        stored.operationId === expected.operationId;
+    if (!identityMatches) {
+      throw new CreditUsageProjectionError(
+        "operation_context_mismatch",
+        "重试账本行的 operation identity 与原请求不一致"
+      );
+    }
+    return stored;
+  }
+
+  return {
+    operationType: expected.operationType,
+    operationId: usesLedgerFallback ? row.id : expected.operationId,
+    operationCreatedAt: new Date(row.createdAt),
+  };
+}
+
 // ============================================
 // 类型定义
 // ============================================
@@ -129,7 +168,7 @@ function assertCompatibleCreditOperationContext(
 /**
  * 发放积分参数
  */
-export interface GrantCreditsParams {
+interface GrantCreditsBaseParams {
   /** 用户 ID */
   userId: string;
   /** 积分数量 */
@@ -138,8 +177,6 @@ export interface GrantCreditsParams {
   sourceType: CreditsBatchSource;
   /** 借方账户（资金来源） */
   debitAccount: string;
-  /** 交易类型 */
-  transactionType: CreditsTransactionType;
   /** 过期时间，默认按系统积分有效期计算 */
   expiresAt?: Date | null;
   /** 来源引用（如订单 ID） */
@@ -148,14 +185,26 @@ export interface GrantCreditsParams {
   description?: string;
   /** 元数据 */
   metadata?: Record<string, unknown>;
-  /** 退款所属的原计费操作；非退款发放不投影。 */
-  operation?: CreditOperationContext;
 }
+
+/** 发放参数；退款必须与 refund batch 成对且显式引用原操作。 */
+export type GrantCreditsParams =
+  | (GrantCreditsBaseParams & {
+      sourceType: "refund";
+      transactionType: "refund";
+      operation: CreditOperationContext;
+      sourceRef: string;
+    })
+  | (GrantCreditsBaseParams & {
+      sourceType: Exclude<CreditsBatchSource, "refund">;
+      transactionType: Exclude<CreditsTransactionType, "refund">;
+      operation?: never;
+    });
 
 /**
  * 消费积分参数
  */
-export interface ConsumeCreditsParams {
+interface ConsumeCreditsBaseParams {
   /** 用户 ID */
   userId: string;
   /** 消费数量 */
@@ -172,11 +221,20 @@ export interface ConsumeCreditsParams {
   sourceRef?: string;
   /** 元数据 */
   metadata?: Record<string, unknown>;
-  /** 有业务任务的消费必须显式传入，不得从 sourceRef 推断。 */
-  operation?: CreditOperationContext;
-  /** 仅限无业务任务的手工/管理操作显式选择账本 ID 回退。 */
-  operationFallback?: CreditOperationContextFallback;
 }
+
+/** 消费参数必须在业务操作与显式 ledger fallback 中二选一。 */
+export type ConsumeCreditsParams = ConsumeCreditsBaseParams &
+  (
+    | {
+        operation: CreditOperationContext;
+        operationFallback?: never;
+      }
+    | {
+        operation?: never;
+        operationFallback: CreditOperationContextFallback;
+      }
+  );
 
 /**
  * 积分消费结果
@@ -197,6 +255,8 @@ export interface ConsumeCreditsResult {
   }>;
   /** 是否为幂等命中（重复 sourceRef，未实际再次扣费） */
   alreadyConsumed?: boolean;
+  /** 本次写入或幂等重放最终采用的权威 operation context。 */
+  operation: CreditOperationContext;
 }
 
 /**
@@ -407,6 +467,27 @@ export async function grantCredits(params: GrantCreditsParams) {
   if (amount <= 0) {
     throw new Error("积分数量必须大于 0");
   }
+  if (
+    transactionType === "refund" &&
+    (sourceType !== "refund" || !params.operation)
+  ) {
+    throw new RangeError(
+      "refund grant requires an explicit original operation context"
+    );
+  }
+  if (sourceType === "refund" && transactionType !== "refund") {
+    throw new RangeError(
+      "refund credit batch must use the refund transaction type"
+    );
+  }
+  if (
+    transactionType === "refund" &&
+    (typeof sourceRef !== "string" || !sourceRef.trim())
+  ) {
+    throw new RangeError(
+      "refund grant requires a nonempty sourceRef idempotency key"
+    );
+  }
 
   // 账本时间与 ID 在进入事务前只生成一次，账本行与投影共用。
   const transactionId = crypto.randomUUID();
@@ -483,6 +564,40 @@ export async function grantCredits(params: GrantCreditsParams) {
     // 此时跳过记账与余额累加，避免支付 webhook 重放 / 并发回调 / 注册奖励
     // 重复领取导致的积分双重发放（薅羊毛）。
     if (insertedBatch.length === 0) {
+      if (transactionType === "refund" && operation) {
+        if (!sourceRef) {
+          throw new CreditUsageProjectionError(
+            "contribution_conflict",
+            "退款批次冲突但缺少可查询的 sourceRef"
+          );
+        }
+        const [existingRefund] = await tx
+          .select({
+            id: creditsTransaction.id,
+            amount: creditsTransaction.amount,
+            operationType: creditsTransaction.operationType,
+            operationId: creditsTransaction.operationId,
+            operationCreatedAt: creditsTransaction.operationCreatedAt,
+          })
+          .from(creditsTransaction)
+          .where(
+            and(
+              eq(creditsTransaction.userId, userId),
+              eq(creditsTransaction.type, "refund"),
+              eq(creditsTransaction.sourceRef, sourceRef)
+            )
+          )
+          .limit(1);
+        if (!existingRefund || Number(existingRefund.amount) !== amount) {
+          throw new CreditUsageProjectionError(
+            "contribution_conflict",
+            "退款幂等重放与已存账本金额或归属不一致"
+          );
+        }
+        const storedOperation =
+          readStoredCreditOperationContext(existingRefund);
+        assertCompatibleCreditOperationContext(operation, storedOperation);
+      }
       return {
         batchId: null,
         transactionId: null,
@@ -569,6 +684,11 @@ export async function consumeCredits(
   if (amount <= 0) {
     throw new Error("消费数量必须大于 0");
   }
+  if (Boolean(params.operation) === Boolean(params.operationFallback)) {
+    throw new RangeError(
+      "consumeCredits requires exactly one operation context or explicit ledger fallback"
+    );
+  }
 
   // 预分配的账本 ID/时间同时作为无业务任务 fallback 的稳定操作身份。
   const transactionId = crypto.randomUUID();
@@ -578,6 +698,9 @@ export async function consumeCredits(
     transactionCreatedAt,
     ...(params.operationFallback ? { fallback: params.operationFallback } : {}),
   });
+  if (!operation) {
+    throw new RangeError("consumeCredits could not resolve operation context");
+  }
 
   await processExpiredBatches({ userId });
 
@@ -612,8 +735,11 @@ export async function consumeCredits(
           )
           .limit(1);
         if (existing) {
-          const storedOperation = readStoredCreditOperationContext(existing);
-          assertCompatibleCreditOperationContext(operation, storedOperation);
+          const replayedOperation = resolveReplayedConsumptionOperation(
+            operation,
+            existing,
+            Boolean(params.operationFallback)
+          );
           const [balance] = await tx
             .select({ balance: creditsBalance.balance })
             .from(creditsBalance)
@@ -626,6 +752,7 @@ export async function consumeCredits(
             transactionId: existing.id,
             consumedBatches: readConsumedBatchesFromMetadata(existing.metadata),
             alreadyConsumed: true,
+            operation: replayedOperation,
           };
         }
       }
@@ -796,6 +923,7 @@ export async function consumeCredits(
         remainingBalance: updatedBalance.newBalance,
         transactionId,
         consumedBatches,
+        operation,
       };
     });
   } catch (error) {
@@ -825,8 +953,11 @@ export async function consumeCredits(
         )
         .limit(1);
       if (existing) {
-        const storedOperation = readStoredCreditOperationContext(existing);
-        assertCompatibleCreditOperationContext(operation, storedOperation);
+        const replayedOperation = resolveReplayedConsumptionOperation(
+          operation,
+          existing,
+          Boolean(params.operationFallback)
+        );
         const [balance] = await db
           .select({ balance: creditsBalance.balance })
           .from(creditsBalance)
@@ -839,6 +970,7 @@ export async function consumeCredits(
           transactionId: existing.id,
           consumedBatches: readConsumedBatchesFromMetadata(existing.metadata),
           alreadyConsumed: true,
+          operation: replayedOperation,
         };
       }
     }

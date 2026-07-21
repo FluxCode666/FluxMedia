@@ -28,6 +28,7 @@ import { checkRateLimit } from "@repo/shared/rate-limit";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 
 import { getExternalModelsForUser } from "@/features/external-api/models";
+import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import {
   createCreditTopUpCheckout,
   fulfillAlipayCreditTopUp,
@@ -401,12 +402,18 @@ function bindEditableFile(name: "file.generatePpt" | "file.generatePsd") {
       _principal: Principal,
       _ctx: OperationContext
     ) => {
+      const creditOperation = createEditableFileCreditOperation(
+        kind,
+        input.clientRequestId,
+        new Date()
+      );
       const result = await runEditableFileForUser({
         userId: input.userId,
         kind,
         prompt: input.prompt,
         base64Images: input.base64Images ?? [],
         taskId: input.clientRequestId,
+        operation: creditOperation,
       });
       return {
         taskId: input.clientRequestId,

@@ -6,7 +6,8 @@
  * 派发 runAdobeDirectVideoRequest → 视频 re-host 到对象存储 → 标记 completed；任一阶段失败
  * 退款（refundGenerationCredits，幂等）并标记 failed。
  *
- * 不变量：财务真相在 credits_transaction；扣费/退款都带 sourceRef 幂等键，杜绝重复扣/重复退。
+ * 不变量：财务真相在 credits_transaction；扣费/退款都带 sourceRef 幂等键和同一 video
+ * operation context，杜绝重复扣/重复退及跨日归属漂移。
  * 关键依赖：getEffectiveConfig（池解析）、runAdobeDirectVideoRequest（派发）、storage、credits。
  */
 
@@ -33,6 +34,7 @@ import { nanoid } from "nanoid";
 import { completeVideoGenerationWithUsage } from "@/features/dashboard/output-usage-read-model";
 import { releaseImageBackendInflightLease } from "@/features/image-backend-pool/service";
 import { runAdobeDirectVideoRequest } from "./adobe-direct";
+import { createVideoCreditOperation } from "./credit-operation-context";
 import { getEffectiveConfig, poolBackendMemberType } from "./service";
 
 export type VideoGenerationInput = {
@@ -181,6 +183,7 @@ export async function runAdobeVideoGenerationForUser(
   // 扣费/退款幂等键：派生自服务端 videoId，全局唯一。
   const sourceRef = `adobe-video:${videoId}`;
   const now = new Date();
+  const creditOperation = createVideoCreditOperation(videoId, now);
 
   await db.insert(videoGeneration).values({
     id: videoId,
@@ -268,6 +271,7 @@ export async function runAdobeVideoGenerationForUser(
       serviceName: "adobe-video",
       description: `Adobe 视频生成 ${input.model}`,
       sourceRef,
+      operation: creditOperation,
       metadata: {
         videoGenerationId: videoId,
         model: input.model,
@@ -304,6 +308,7 @@ export async function runAdobeVideoGenerationForUser(
       amount: billedCost,
       sourceRef,
       description: `Adobe 视频生成失败退款 ${input.model}`,
+      operation: creditOperation,
     }).catch((error) =>
       logError(error, { source: "adobe-video-refund", videoId })
     );

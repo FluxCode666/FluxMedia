@@ -1,3 +1,9 @@
+/**
+ * 生成维护模块的 DB-free 纯逻辑测试。
+ *
+ * 覆盖超时退款、图片引用清理及保留策略，避免测试触发真实数据库写入。
+ */
+
 import { describe, expect, it } from "vitest";
 
 async function loadHelpers() {
@@ -151,6 +157,24 @@ describe("computeTimeoutRefund", () => {
     expect(computeTimeoutRefund({ chargedCredits: 4, targetCredits: 10 })).toBe(
       0
     );
+  });
+});
+
+describe("createTimedOutImageCreditOperation", () => {
+  it("attributes a timeout refund to the original generation creation time", async () => {
+    const { createTimedOutImageCreditOperation } = await loadHelpers();
+    const generationCreatedAt = new Date("2026-07-20T23:30:00.000Z");
+
+    expect(
+      createTimedOutImageCreditOperation({
+        generationId: "generation-1",
+        generationCreatedAt,
+      })
+    ).toEqual({
+      operationType: "image_generation",
+      operationId: "generation-1",
+      operationCreatedAt: generationCreatedAt,
+    });
   });
 });
 

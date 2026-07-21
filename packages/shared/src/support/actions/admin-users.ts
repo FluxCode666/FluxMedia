@@ -844,6 +844,10 @@ export const adminAdjustCreditsAction = withSuperAdminUsersAction(
       userId: data.userId,
       amount,
       serviceName: "admin_credit_adjustment",
+      operationFallback: {
+        kind: "ledger_transaction",
+        operationType: "admin_credit_adjustment",
+      },
       description: `超管手动扣减积分: ${data.reason}`,
       metadata: {
         adminUserId: ctx.userId,
