@@ -30,6 +30,7 @@ import {
 } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { completeVideoGenerationWithUsage } from "@/features/dashboard/output-usage-read-model";
 import { releaseImageBackendInflightLease } from "@/features/image-backend-pool/service";
 import { runAdobeDirectVideoRequest } from "./adobe-direct";
 import { getEffectiveConfig, poolBackendMemberType } from "./service";
@@ -351,17 +352,16 @@ export async function runAdobeVideoGenerationForUser(
   }
 
   const completedAt = new Date();
-  await db
-    .update(videoGeneration)
-    .set({
-      status: "completed",
+  try {
+    await completeVideoGenerationWithUsage({
+      videoGenerationId: videoId,
       storageKey,
       completedAt,
-      updatedAt: completedAt,
-    })
-    .where(eq(videoGeneration.id, videoId));
-
-  await releaseInflightLease();
+    });
+  } finally {
+    // 读模型失败必须继续上抛并回滚 completed，但不能因此泄漏已占用的后端租约。
+    await releaseInflightLease();
+  }
   return {
     videoGenerationId: videoId,
     storageKey,

@@ -70,6 +70,25 @@ describe("image output count evidence", () => {
     });
   });
 
+  it("recognizes completed chat text as a valid zero-image result", () => {
+    expect(
+      resolveImageOutputCount({
+        status: "completed",
+        storageKey: null,
+        metadata: {
+          chatTextOnlyCharge: {
+            credits: 2,
+            billingMode: "chat",
+          },
+        },
+      })
+    ).toEqual({
+      status: "notCounted",
+      count: 0,
+      reason: "chatTextOnly",
+    });
+  });
+
   it("returns zero for unfinished rows and explicit non-positive counts", () => {
     expect(
       resolveImageOutputCount({

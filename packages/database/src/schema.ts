@@ -1,17 +1,19 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   json,
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 /**
  * Better Auth 核心表 Schema
@@ -1256,6 +1258,112 @@ export const videoGeneration = pgTable(
     index("video_generation_status_idx").on(table.status, table.createdAt),
   ]
 );
+
+// ============================================
+// 用户产出用量读模型
+// ============================================
+
+/** 成功产物类型；事件唯一键由类型和源任务 ID 共同组成。 */
+export const outputUsageKindEnum = pgEnum("output_usage_kind", [
+  "image",
+  "video",
+]);
+
+/** 统计读模型的部署与对账状态。 */
+export const analyticsReadModelStatusEnum = pgEnum(
+  "analytics_read_model_status",
+  ["building", "backfilling", "reconciling", "ready", "failed"]
+);
+
+/**
+ * 成功产物事件读模型。
+ *
+ * 每个持久化任务最多一行；图片数量和视频秒数互斥。该表可由 generation 与
+ * video_generation 重建，不是产物真相。
+ */
+export const userOutputUsageEvent = pgTable(
+  "user_output_usage_event",
+  {
+    outputKind: outputUsageKindEnum("output_kind").notNull(),
+    sourceTaskId: text("source_task_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    operationCreatedAt: timestamp("operation_created_at").notNull(),
+    imageCount: integer("image_count").notNull().default(0),
+    videoSeconds: integer("video_seconds").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.outputKind, table.sourceTaskId] }),
+    index("user_output_usage_event_user_created_kind_idx").on(
+      table.userId,
+      table.operationCreatedAt,
+      table.outputKind
+    ),
+    check(
+      "user_output_usage_event_metric_check",
+      sql`(
+        (${table.outputKind} = 'image' AND ${table.imageCount} > 0 AND ${table.videoSeconds} = 0)
+        OR
+        (${table.outputKind} = 'video' AND ${table.imageCount} = 0 AND ${table.videoSeconds} > 0)
+      )`
+    ),
+  ]
+);
+
+/**
+ * 每用户累计成功产出汇总。
+ *
+ * 只有成功插入新的产物事件后才按增量原子更新，避免重放或回填覆盖并发写入。
+ */
+export const userUsageSummary = pgTable(
+  "user_usage_summary",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    totalImageCount: bigint("total_image_count", { mode: "number" })
+      .notNull()
+      .default(0),
+    totalVideoSeconds: bigint("total_video_seconds", { mode: "number" })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "user_usage_summary_nonnegative_check",
+      sql`${table.totalImageCount} >= 0 AND ${table.totalVideoSeconds} >= 0`
+    ),
+  ]
+);
+
+/** 读模型分批回填使用的稳定复合游标。 */
+export type AnalyticsReadModelCursor = {
+  createdAt: string;
+  id: string;
+};
+
+/**
+ * 统计读模型启用状态。
+ *
+ * UOL 只允许读取 ready 版本；回填器在零差异对账后更新状态和水位。
+ */
+export const analyticsReadModelState = pgTable("analytics_read_model_state", {
+  readModel: text("read_model").primaryKey(),
+  version: integer("version").notNull(),
+  status: analyticsReadModelStatusEnum("status").notNull().default("building"),
+  snapshotHighWater: json(
+    "snapshot_high_water"
+  ).$type<AnalyticsReadModelCursor | null>(),
+  catchUpWater: json("catch_up_water").$type<AnalyticsReadModelCursor | null>(),
+  details: json("details").$type<Record<string, unknown> | null>(),
+  lastReconciledAt: timestamp("last_reconciled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const imageBackendInflightLease = pgTable(
   "image_backend_inflight_lease",

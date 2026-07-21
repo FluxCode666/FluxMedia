@@ -14,7 +14,7 @@ export type ImageOutputCountResult =
   | {
       status: "notCounted";
       count: 0;
-      reason: "notCompleted" | "nonPositiveBillableCount";
+      reason: "notCompleted" | "nonPositiveBillableCount" | "chatTextOnly";
     }
   | {
       status: "insufficientEvidence";
@@ -73,6 +73,11 @@ export function resolveImageOutputCount(
   }
   if (asRecord(outputImage?.photoRetention)) {
     return { status: "counted", count: 1, evidence: "photoRetention" };
+  }
+  // Chat 纯文本会合法地把 generation 标为 completed，但它不是图片产物。只有明确的
+  // chatTextOnlyCharge 标记可以归零；其他 completed 无证据行仍须阻断历史回填。
+  if (asRecord(input.metadata?.chatTextOnlyCharge)) {
+    return { status: "notCounted", count: 0, reason: "chatTextOnly" };
   }
   return {
     status: "insufficientEvidence",
