@@ -18,6 +18,11 @@ import { invokeOperation } from "@repo/shared/uol";
 
 import { ensureUolInitialized } from "@/server/uol-init";
 
+import {
+  type DashboardSnapshot,
+  loadDashboardSnapshot,
+} from "./dashboard-data";
+
 /** 读取当前用户今日与累计图片、视频和净消耗积分摘要。 */
 export const getMyUsageSummaryAction = protectedAction
   .metadata({ action: "analytics.getMyUsageSummary" })
@@ -44,4 +49,20 @@ export const getMyUsageTrendsAction = protectedAction
       parsedInput,
       { type: "user", userId: ctx.userId, role }
     );
+  });
+
+/**
+ * 按当前已提交筛选刷新摘要、趋势与近期创作。
+ * 任一子查询失败时 action 整体失败，客户端不会混用不同时间点的数据。
+ */
+export const refreshDashboardSnapshotAction = protectedAction
+  .metadata({ action: "analytics.refreshDashboardSnapshot" })
+  .schema(usageTrendsInputSchema)
+  .action(async ({ parsedInput, ctx }): Promise<DashboardSnapshot> => {
+    const role = await getUserRoleById(ctx.userId);
+    return loadDashboardSnapshot({
+      userId: ctx.userId,
+      role,
+      trendsInput: parsedInput,
+    });
   });
