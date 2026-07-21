@@ -1,8 +1,8 @@
 import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleNeonWs } from "drizzle-orm/neon-serverless";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 
+import { createStandardPostgresPool } from "./pool";
 import * as schema from "./schema";
 
 /**
@@ -37,6 +37,24 @@ const isNeon = databaseUrl.includes("neon.tech");
  */
 const isNodeJs = typeof process !== "undefined" && process.versions?.node;
 
+type DatabaseGlobal = typeof globalThis & {
+  fluxMediaPostgresPool?: ReturnType<typeof createStandardPostgresPool>;
+};
+
+const databaseGlobal = globalThis as DatabaseGlobal;
+
+/**
+ * 返回进程内唯一的标准 PostgreSQL 连接池。
+ *
+ * Next.js 开发热更新会重新执行模块；把池保存在 globalThis 可防止旧池与空闲连接泄漏。
+ * 生产进程同样只创建一次，进程退出时由 Node 统一回收。
+ */
+function getStandardPostgresPool() {
+  databaseGlobal.fluxMediaPostgresPool ??=
+    createStandardPostgresPool(databaseUrl);
+  return databaseGlobal.fluxMediaPostgresPool;
+}
+
 /**
  * 创建数据库实例
  * - Neon: 使用 WebSocket 连接 (支持事务，兼容 Node.js 和 Edge)
@@ -58,9 +76,7 @@ function createDatabaseConnection() {
   }
 
   // 标准 PostgreSQL 连接池 (本地开发/Docker)
-  const pool = new Pool({
-    connectionString: databaseUrl,
-  });
+  const pool = getStandardPostgresPool();
   return drizzlePg(pool, { schema });
 }
 
