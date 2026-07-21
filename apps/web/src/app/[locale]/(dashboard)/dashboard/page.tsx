@@ -7,12 +7,17 @@
 import type { UsageTrendsInput } from "@repo/shared/analytics/contracts";
 import { auth } from "@repo/shared/auth";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
+import { OperationError } from "@repo/shared/uol";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
 
 import { DashboardAnalyticsPanel } from "@/features/dashboard/components/dashboard-analytics-panel";
-import { loadDashboardSnapshot } from "@/features/dashboard/dashboard-data";
+import { DashboardAnalyticsPending } from "@/features/dashboard/components/dashboard-analytics-pending";
+import {
+  type DashboardSnapshot,
+  loadDashboardSnapshot,
+} from "@/features/dashboard/dashboard-data";
 
 const DEFAULT_TRENDS_INPUT = {
   granularity: "hour",
@@ -31,11 +36,20 @@ export default async function DashboardPage() {
   if (!session?.user) redirect(`/${locale}/sign-in`);
 
   const role = await getUserRoleById(session.user.id);
-  const snapshot = await loadDashboardSnapshot({
-    userId: session.user.id,
-    role,
-    trendsInput: DEFAULT_TRENDS_INPUT,
-  });
+  let snapshot: DashboardSnapshot;
+  try {
+    snapshot = await loadDashboardSnapshot({
+      userId: session.user.id,
+      role,
+      trendsInput: DEFAULT_TRENDS_INPUT,
+    });
+  } catch (error) {
+    // 迁移后的读模型先处于 building；不能伪造零值，也不应让预期部署窗口整页崩溃。
+    if (error instanceof OperationError && error.code === "not_ready") {
+      return <DashboardAnalyticsPending isZh={locale === "zh"} />;
+    }
+    throw error;
+  }
 
   return (
     <div className="container mx-auto px-4 py-6 md:px-6">
