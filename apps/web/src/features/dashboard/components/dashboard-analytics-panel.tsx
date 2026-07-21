@@ -27,13 +27,7 @@ import {
   SelectValue,
 } from "@repo/ui/components/select";
 import { cn } from "@repo/ui/utils";
-import {
-  CalendarDays,
-  Coins,
-  Image as ImageIcon,
-  RefreshCw,
-  Video,
-} from "lucide-react";
+import { Coins, Image as ImageIcon, RefreshCw, Video } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -50,20 +44,17 @@ import {
   ActivityDistributionChartLazy,
   UsageTrendChartLazy,
 } from "./dashboard-analytics-charts-lazy";
+import {
+  type DailyRange,
+  DashboardRangePicker,
+  type HourlyRange,
+} from "./dashboard-range-picker";
 
 type DashboardAnalyticsPanelProps = {
   initialSnapshot: DashboardSnapshot;
   isZh: boolean;
   userName: string;
 };
-
-type HourlyRange = "last24Hours" | "last48Hours" | "custom";
-type DailyRange =
-  | "last7Days"
-  | "currentMonth"
-  | "currentQuarter"
-  | "currentYear"
-  | "custom";
 
 const sectionEnterClass =
   "animate-in fade-in slide-in-from-bottom-2 animation-duration-500 fill-mode-backwards motion-reduce:animate-none";
@@ -130,13 +121,15 @@ export function DashboardAnalyticsPanel({
   };
 
   /** 仅查询趋势；失败时保留旧图和已提交筛选。 */
-  const submitTrendInput = async (nextInput: UsageTrendsInput) => {
+  const submitTrendInput = async (
+    nextInput: UsageTrendsInput
+  ): Promise<boolean> => {
     const version = requestVersion.current + 1;
     requestVersion.current = version;
     setIsTrendLoading(true);
     try {
       const result = await getMyUsageTrendsAction(nextInput);
-      if (version !== requestVersion.current) return;
+      if (version !== requestVersion.current) return false;
       if (!result?.data) {
         restoreCommittedDraft(committedInput);
         toast.error(
@@ -146,15 +139,17 @@ export function DashboardAnalyticsPanel({
             copy("Unable to load trend data", "趋势数据加载失败")
           )
         );
-        return;
+        return false;
       }
       setSnapshot((previous) => ({ ...previous, trends: result.data }));
       setCommittedInput(nextInput);
       restoreCommittedDraft(nextInput);
+      return true;
     } catch {
-      if (version !== requestVersion.current) return;
+      if (version !== requestVersion.current) return false;
       restoreCommittedDraft(committedInput);
       toast.error(copy("Unable to load trend data", "趋势数据加载失败"));
+      return false;
     } finally {
       if (version === requestVersion.current) setIsTrendLoading(false);
     }
@@ -229,30 +224,29 @@ export function DashboardAnalyticsPanel({
   };
 
   /** 应用当前自定义墙上时间或自然日范围。 */
-  const applyCustomRange = () => {
+  const applyCustomRange = async (): Promise<boolean> => {
     if (granularity === "hour") {
       if (!customHourlyStart || !customHourlyEnd) {
         toast.error(
           copy("Choose both start and end time", "请选择开始和结束时间")
         );
-        return;
+        return false;
       }
-      void submitTrendInput({
+      return submitTrendInput({
         granularity: "hour",
         metric: snapshot.trends.metric,
         range: "custom",
         start: customHourlyStart,
         end: customHourlyEnd,
       });
-      return;
     }
     if (!customDailyStart || !customDailyEnd) {
       toast.error(
         copy("Choose both start and end date", "请选择开始和结束日期")
       );
-      return;
+      return false;
     }
-    void submitTrendInput({
+    return submitTrendInput({
       granularity: "day",
       metric: snapshot.trends.metric,
       range: "custom",
@@ -434,56 +428,24 @@ export function DashboardAnalyticsPanel({
             <label className="text-sm font-medium" htmlFor="usage-range">
               {copy("Time range", "时间范围")}：
             </label>
-            <Select
+            <DashboardRangePicker
+              customDailyEnd={customDailyEnd}
+              customDailyStart={customDailyStart}
+              customHourlyEnd={customHourlyEnd}
+              customHourlyStart={customHourlyStart}
+              dailyRange={dailyRange}
               disabled={isBusy}
-              onValueChange={
-                granularity === "hour"
-                  ? handleHourlyRangeChange
-                  : handleDailyRangeChange
-              }
-              value={granularity === "hour" ? hourlyRange : dailyRange}
-            >
-              <SelectTrigger
-                className="w-full min-w-44 sm:w-auto"
-                id="usage-range"
-              >
-                <CalendarDays className="size-4" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {granularity === "hour" ? (
-                  <>
-                    <SelectItem value="last24Hours">
-                      {copy("Last 24 hours", "近 24 小时")}
-                    </SelectItem>
-                    <SelectItem value="last48Hours">
-                      {copy("Last 48 hours", "近 48 小时")}
-                    </SelectItem>
-                    <SelectItem value="custom">
-                      {copy("Custom date and time", "自定义日期与时间")}
-                    </SelectItem>
-                  </>
-                ) : (
-                  <>
-                    <SelectItem value="last7Days">
-                      {copy("Last 7 days", "近 7 天")}
-                    </SelectItem>
-                    <SelectItem value="currentMonth">
-                      {copy("This month", "本月")}
-                    </SelectItem>
-                    <SelectItem value="currentQuarter">
-                      {copy("This quarter", "本季度")}
-                    </SelectItem>
-                    <SelectItem value="currentYear">
-                      {copy("This year", "本年")}
-                    </SelectItem>
-                    <SelectItem value="custom">
-                      {copy("Custom date range", "自定义日期范围")}
-                    </SelectItem>
-                  </>
-                )}
-              </SelectContent>
-            </Select>
+              granularity={granularity}
+              hourlyRange={hourlyRange}
+              isZh={isZh}
+              onApplyCustomRange={applyCustomRange}
+              onCustomDailyEndChange={setCustomDailyEnd}
+              onCustomDailyStartChange={setCustomDailyStart}
+              onCustomHourlyEndChange={setCustomHourlyEnd}
+              onCustomHourlyStartChange={setCustomHourlyStart}
+              onDailyRangeChange={handleDailyRangeChange}
+              onHourlyRangeChange={handleHourlyRangeChange}
+            />
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <label className="text-sm font-medium" htmlFor="usage-granularity">
@@ -507,51 +469,6 @@ export function DashboardAnalyticsPanel({
             </Select>
           </div>
         </CardContent>
-        {((granularity === "hour" && hourlyRange === "custom") ||
-          (granularity === "day" && dailyRange === "custom")) && (
-          <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-end">
-            <label className="flex flex-1 flex-col gap-1.5 text-xs font-medium text-muted-foreground">
-              {copy("Start", "开始")}
-              <input
-                className="h-9 rounded-md border bg-background px-3 text-sm text-foreground outline-none transition-shadow focus-visible:ring-3 focus-visible:ring-ring/50"
-                disabled={isBusy}
-                onChange={(event) =>
-                  granularity === "hour"
-                    ? setCustomHourlyStart(event.target.value)
-                    : setCustomDailyStart(event.target.value)
-                }
-                type={granularity === "hour" ? "datetime-local" : "date"}
-                value={
-                  granularity === "hour" ? customHourlyStart : customDailyStart
-                }
-              />
-            </label>
-            <label className="flex flex-1 flex-col gap-1.5 text-xs font-medium text-muted-foreground">
-              {copy("End", "结束")}
-              <input
-                className="h-9 rounded-md border bg-background px-3 text-sm text-foreground outline-none transition-shadow focus-visible:ring-3 focus-visible:ring-ring/50"
-                disabled={isBusy}
-                onChange={(event) =>
-                  granularity === "hour"
-                    ? setCustomHourlyEnd(event.target.value)
-                    : setCustomDailyEnd(event.target.value)
-                }
-                type={granularity === "hour" ? "datetime-local" : "date"}
-                value={
-                  granularity === "hour" ? customHourlyEnd : customDailyEnd
-                }
-              />
-            </label>
-            <Button
-              disabled={isBusy}
-              onClick={applyCustomRange}
-              type="button"
-              variant="outline"
-            >
-              {copy("Apply", "应用")}
-            </Button>
-          </div>
-        )}
       </Card>
 
       <div className={cn(sectionEnterClass, "delay-320")}>
