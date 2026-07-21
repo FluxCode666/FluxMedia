@@ -367,16 +367,11 @@ export function DashboardAnalyticsPanel({
       {[
         {
           title: copy("Today", "今日统计"),
-          note: copy(
-            `Natural day in ${snapshot.summary.timeZone}`,
-            `按 ${snapshot.summary.timeZone} 自然日`
-          ),
           metrics: todayMetrics,
           delay: "delay-80",
         },
         {
           title: copy("Lifetime", "累计统计"),
-          note: copy("Since account creation", "账户创建以来"),
           metrics: lifetimeMetrics,
           delay: "delay-160",
         },
@@ -385,14 +380,9 @@ export function DashboardAnalyticsPanel({
           className={cn("space-y-3", sectionEnterClass, section.delay)}
           key={section.title}
         >
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="font-serif text-lg font-medium tracking-tight">
-              {section.title}
-            </h2>
-            <span className="text-xs text-muted-foreground">
-              {section.note}
-            </span>
-          </div>
+          <h2 className="font-serif text-lg font-medium tracking-tight">
+            {section.title}
+          </h2>
           <div className="grid gap-4 md:grid-cols-3">
             {section.metrics.map((metric) => {
               const Icon = metric.icon;

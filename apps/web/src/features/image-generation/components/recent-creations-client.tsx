@@ -52,7 +52,7 @@ export function RecentCreationsClient({
           // fill-mode backwards 保证延迟期间停留在首帧(透明),避免闪现跳变。
           <div
             key={item.id}
-            className="animate-in fade-in slide-in-from-bottom-2 duration-400 motion-reduce:animate-none"
+            className="min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-400 motion-reduce:animate-none"
             style={{
               animationDelay: `${(index % 12) * 50}ms`,
               animationFillMode: "backwards",

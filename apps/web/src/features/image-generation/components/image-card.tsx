@@ -87,7 +87,7 @@ export function ImageCard({
   return (
     <Card
       onClick={handleCardClick}
-      className={`group gap-0 overflow-hidden rounded-lg border border-border bg-background p-0 shadow-none transition-[translate,box-shadow] duration-250 motion-reduce:transition-none ${
+      className={`group min-w-0 gap-0 overflow-hidden rounded-lg border border-border bg-background p-0 shadow-none transition-[translate,box-shadow] duration-250 motion-reduce:transition-none ${
         clickable
           ? "cursor-pointer hover:-translate-y-1 hover:shadow-whisper"
           : ""
@@ -135,9 +135,7 @@ export function ImageCard({
         {(selectable || selected) && (
           <div
             className={`absolute left-2.5 top-2.5 z-10 ${
-              selectable
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100"
+              selectable ? "opacity-100" : "opacity-0 group-hover:opacity-100"
             } transition-opacity duration-150`}
           >
             <div
@@ -165,19 +163,21 @@ export function ImageCard({
           </div>
         )}
       </div>
-      <div className="space-y-2 p-3">
+      <div className="min-w-0 space-y-2 p-3">
         <p className="line-clamp-2 text-sm leading-snug text-foreground">
           {prompt}
         </p>
-        <div className="flex items-center justify-between gap-2">
+        {/* 模型名可能很长：允许该项收缩并省略，避免把日期或卡片边界挤出。 */}
+        <div className="flex min-w-0 items-center gap-2">
           <Badge
             variant="outline"
-            className="rounded-full border-border font-normal text-[10px] uppercase tracking-wide"
+            className="min-w-0 w-auto flex-1 justify-start rounded-full border-border font-normal text-[10px] uppercase tracking-wide"
+            title={model}
           >
-            {model}
+            <span className="min-w-0 truncate">{model}</span>
           </Badge>
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Clock className="h-3 w-3" />
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <Clock className="h-3 w-3 shrink-0" />
             {formatCreatedDate(createdAt, locale, timeZone)}
           </span>
         </div>
