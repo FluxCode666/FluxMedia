@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
+import { withUtcPostgresConnectionString } from "./src/pool";
+
 // drizzle-kit 经 pnpm --filter 执行时会把 cwd 切到 packages/database；环境文件是
 // monorepo 根目录的部署配置，必须从当前配置文件的位置推导，不能依赖 cwd。
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -44,7 +46,8 @@ export default defineConfig({
 
   // 数据库连接配置 (从环境变量读取)
   dbCredentials: {
-    url: databaseUrl,
+    // drizzle-kit 自己创建连接池，不会继承应用池的 options；显式固定迁移会话为 UTC。
+    url: withUtcPostgresConnectionString(databaseUrl),
   },
 
   // 启用详细日志

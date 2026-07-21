@@ -5,6 +5,7 @@ import {
   initializeMissingSystemSettingsDefaults,
   setBootstrappedProcessSetting,
 } from ".";
+import { isSettingKey } from "./definitions";
 
 let bootstrapped = false;
 
@@ -24,6 +25,9 @@ export async function bootstrapSystemSettingsEnv() {
       .from(systemSetting);
 
     for (const row of rows) {
+      // 已移除或未知的 DB 键不得反向覆盖真实部署环境；APP_TIME_ZONE 等 env-only
+      // 配置由其业务模块直接读取 process.env。
+      if (!isSettingKey(row.key)) continue;
       if (row.value === null || row.value === undefined) continue;
       const value =
         typeof row.value === "string"

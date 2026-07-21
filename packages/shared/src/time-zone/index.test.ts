@@ -4,15 +4,42 @@ import {
   DEFAULT_APP_TIME_ZONE,
   formatDateInputInTimeZone,
   getTimeZoneOffsetMinutes,
+  normalizeUserTimeZonePreference,
   normalizeTimeZone,
   parseDateInputInTimeZone,
   parseDateTimeInputInTimeZone,
+  resolveDisplayTimeZone,
+  userTimeZoneSchema,
 } from "./index";
 
 describe("time-zone helpers", () => {
   it("normalizes invalid IANA time zones to the default", () => {
     expect(normalizeTimeZone("Asia/Shanghai")).toBe("Asia/Shanghai");
     expect(normalizeTimeZone("not-a-time-zone")).toBe(DEFAULT_APP_TIME_ZONE);
+  });
+
+  it("prefers a valid user preference over the deployment default", () => {
+    expect(resolveDisplayTimeZone("Europe/Berlin", "Asia/Shanghai")).toBe(
+      "Europe/Berlin"
+    );
+    expect(resolveDisplayTimeZone(null, "Asia/Shanghai")).toBe("Asia/Shanghai");
+    expect(resolveDisplayTimeZone("invalid-zone", "Europe/London")).toBe(
+      "Europe/London"
+    );
+  });
+
+  it("accepts null to inherit the deployment default", () => {
+    expect(userTimeZoneSchema.safeParse(null).success).toBe(true);
+    expect(userTimeZoneSchema.safeParse("America/New_York").success).toBe(true);
+    expect(userTimeZoneSchema.safeParse("invalid-zone").success).toBe(false);
+  });
+
+  it("rejects an invalid stored user preference", () => {
+    expect(normalizeUserTimeZonePreference(" Europe/Paris ")).toBe(
+      "Europe/Paris"
+    );
+    expect(normalizeUserTimeZonePreference("UTC+8")).toBeNull();
+    expect(normalizeUserTimeZonePreference(null)).toBeNull();
   });
 
   it("formats date inputs in the configured time zone", () => {

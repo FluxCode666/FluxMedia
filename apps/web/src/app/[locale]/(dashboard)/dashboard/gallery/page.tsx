@@ -2,7 +2,7 @@ import { db } from "@repo/database";
 import { generation, videoGeneration } from "@repo/database/schema";
 import { getCurrentUser } from "@repo/shared/auth/server";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { and, count, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
@@ -239,7 +239,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
           .limit(limit)
       : Promise.resolve([] as Array<typeof videoGeneration.$inferSelect>),
     db.select({ count: count() }).from(videoGeneration).where(videoCondition),
-    getAppTimeZone(),
+    getUserTimeZone(user.id),
   ]);
 
   const allDraftItems = extractAgentDraftGenerations(draftParentRows);
@@ -274,23 +274,26 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
         : activeTab === "uploads"
           ? allUploadItems.slice(0, limit)
           : finalRows.map((g) => ({
-            id: g.id,
-            parentId: g.id,
-            prompt: g.prompt,
-            revisedPrompt: g.revisedPrompt,
-            promptRepairNotice: extractPromptRepairNotice(g.metadata),
-            model: g.model,
-            size: g.size,
-            status: g.status,
-            creditsConsumed: g.creditsConsumed,
-            storageKey: g.storageKey,
-            storageBucket: g.storageBucket,
-            imageUrl: buildSignedStorageImageUrl(g.storageKey, g.storageBucket),
-            createdAt: g.createdAt.toISOString(),
-            outputRole: "final" as GalleryOutputRole,
-            referenceImages: extractGenerationReferenceImages(g.metadata),
-            isLayered: hasLayeredMeta(g.metadata),
-          }));
+              id: g.id,
+              parentId: g.id,
+              prompt: g.prompt,
+              revisedPrompt: g.revisedPrompt,
+              promptRepairNotice: extractPromptRepairNotice(g.metadata),
+              model: g.model,
+              size: g.size,
+              status: g.status,
+              creditsConsumed: g.creditsConsumed,
+              storageKey: g.storageKey,
+              storageBucket: g.storageBucket,
+              imageUrl: buildSignedStorageImageUrl(
+                g.storageKey,
+                g.storageBucket
+              ),
+              createdAt: g.createdAt.toISOString(),
+              outputRole: "final" as GalleryOutputRole,
+              referenceImages: extractGenerationReferenceImages(g.metadata),
+              isLayered: hasLayeredMeta(g.metadata),
+            }));
 
   const finalCount =
     (completedStorageCountResult[0]?.count ?? 0) -

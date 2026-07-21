@@ -1,5 +1,5 @@
 import { getServerSession } from "@repo/shared/auth/server";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 
@@ -19,7 +19,7 @@ export default async function ExternalApiPage() {
 
   const [t, timeZone] = await Promise.all([
     getTranslations("Settings.externalApi"),
-    getAppTimeZone(),
+    getUserTimeZone(session.user.id),
   ]);
 
   return (

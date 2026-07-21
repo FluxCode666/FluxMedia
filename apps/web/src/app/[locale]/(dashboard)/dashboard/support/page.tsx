@@ -5,14 +5,19 @@ import { redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@repo/ui/components/card";
 import { db } from "@repo/database";
 import { ticket, user } from "@repo/database/schema";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { isAdminRole } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 
 const userUnreadTicketSql =
   sql<boolean>`${ticket.lastAdminActivityAt} > ${ticket.userLastSeenAt}`.mapWith(
@@ -39,7 +44,7 @@ export default async function SupportPage() {
   const [t, role, timeZone] = await Promise.all([
     getTranslations("Support"),
     getUserRoleById(session.user.id),
-    getAppTimeZone(),
+    getUserTimeZone(session.user.id),
   ]);
   const isAdmin = isAdminRole(role);
   const unreadSql = isAdmin ? adminUnreadTicketSql : userUnreadTicketSql;

@@ -3,10 +3,19 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@repo/ui/components/avatar";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@repo/ui/components/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@repo/ui/components/card";
 import { db } from "@repo/database";
 import { ticket, ticketMessage, user } from "@repo/database/schema";
 import { AdminTicketReplyForm } from "@repo/shared/support/components/admin-ticket-reply-form";
@@ -21,7 +30,7 @@ import { getServerSession } from "@repo/shared/auth/server";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { isAdminRole } from "@repo/shared/auth/roles";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 
 interface TicketDetailPageProps {
   params: Promise<{
@@ -47,7 +56,7 @@ export default async function TicketDetailPage({
   }
   const [role, timeZone] = await Promise.all([
     getUserRoleById(session.user.id),
-    getAppTimeZone(),
+    getUserTimeZone(session.user.id),
   ]);
   const isAdmin = isAdminRole(role);
 
@@ -239,7 +248,9 @@ export default async function TicketDetailPage({
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">{ticketUser?.name || "未知用户"}</p>
+                  <p className="font-medium">
+                    {ticketUser?.name || "未知用户"}
+                  </p>
                   <p className="text-sm text-muted-foreground">
                     {ticketUser?.email}
                   </p>

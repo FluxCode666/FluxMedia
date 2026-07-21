@@ -51,6 +51,7 @@ export const userRoleEnum = pgEnum("user_role", [
  * @field banned - 是否被封禁
  * @field bannedReason - 封禁原因
  * @field moderationBlockRiskLevel - 用户默认审核拦截级别
+ * @field timeZone - 用户展示时区；为空时继承部署环境 APP_TIME_ZONE
  * @field customerId - 支付提供商客户 ID (Creem)
  * @field createdAt - 创建时间
  * @field updatedAt - 更新时间
@@ -67,6 +68,7 @@ export const user = pgTable("user", {
   moderationBlockRiskLevel: text("moderation_block_risk_level")
     .notNull()
     .default("low"),
+  timeZone: text("time_zone"),
   customerId: text("customer_id").unique(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

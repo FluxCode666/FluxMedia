@@ -24,13 +24,14 @@ describe("system settings env file sync", () => {
   it("only writes public settings and explicitly managed internal keys", () => {
     expect(shouldSyncSettingToEnvFile("NEXT_PUBLIC_APP_URL")).toBe(true);
     expect(shouldSyncSettingToEnvFile("SUB2API_AUTO_SYNC_TASKS")).toBe(true);
+    expect(shouldSyncSettingToEnvFile("APP_TIME_ZONE")).toBe(false);
 
-    expect(shouldSyncSettingToEnvFile("__internal_job_scheduler:sub2api-sync")).toBe(
-      false
-    );
-    expect(shouldSyncSettingToEnvFile("SUB2API_AUTO_SYNC_INTERVAL_MINUTES")).toBe(
-      false
-    );
+    expect(
+      shouldSyncSettingToEnvFile("__internal_job_scheduler:sub2api-sync")
+    ).toBe(false);
+    expect(
+      shouldSyncSettingToEnvFile("SUB2API_AUTO_SYNC_INTERVAL_MINUTES")
+    ).toBe(false);
   });
 });
 
@@ -52,7 +53,7 @@ describe("buildManagedEnvBlock", () => {
       { key: "NEXT_PUBLIC_APP_URL", value: "https://example.com" },
       // 非托管 key（不在定义且非内部白名单）应被过滤掉
       { key: "SOME_UNMANAGED_KEY", value: "secret" },
-      { key: "APP_TIME_ZONE", value: "UTC" },
+      { key: "NEXT_PUBLIC_APP_NAME", value: "FluxMedia" },
       // 空值（null/undefined）应被剔除
       { key: "NEXT_PUBLIC_APP_NAME", value: null },
     ]);
@@ -61,9 +62,9 @@ describe("buildManagedEnvBlock", () => {
     expect(lines[0]).toBe(BEGIN);
     expect(lines[lines.length - 1]).toBe(END);
     expect(block).not.toContain("SOME_UNMANAGED_KEY");
-    expect(block).not.toContain("NEXT_PUBLIC_APP_NAME");
-    // 按 key 字母序排序：APP_TIME_ZONE 在 NEXT_PUBLIC_APP_URL 之前
-    expect(block.indexOf("APP_TIME_ZONE")).toBeLessThan(
+    expect(block).toContain('NEXT_PUBLIC_APP_NAME="FluxMedia"');
+    // 按 key 字母序排序：NEXT_PUBLIC_APP_NAME 在 NEXT_PUBLIC_APP_URL 之前
+    expect(block.indexOf("NEXT_PUBLIC_APP_NAME")).toBeLessThan(
       block.indexOf("NEXT_PUBLIC_APP_URL")
     );
   });
@@ -71,19 +72,19 @@ describe("buildManagedEnvBlock", () => {
   it("drops values whose serialized line embeds the block sentinel (S-M9)", () => {
     const block = buildManagedEnvBlock([
       { key: "NEXT_PUBLIC_APP_NAME", value: `evil ${END} tail` },
-      { key: "APP_TIME_ZONE", value: "UTC" },
+      { key: "NEXT_PUBLIC_APP_NAME", value: "FluxMedia" },
     ]);
 
     // 含哨兵子串的值被排除，托管块仍只有一对 BEGIN/END 边界
-    expect(block).not.toContain("NEXT_PUBLIC_APP_NAME");
+    expect(block).not.toContain("evil");
     expect(block.match(new RegExp(END, "g"))).toHaveLength(1);
-    expect(block).toContain('APP_TIME_ZONE="UTC"');
+    expect(block).toContain('NEXT_PUBLIC_APP_NAME="FluxMedia"');
   });
 });
 
 describe("applyManagedEnvBlock", () => {
   it("appends managed block when none exists", () => {
-    const managed = `${BEGIN}\nAPP_TIME_ZONE="UTC"\n${END}`;
+    const managed = `${BEGIN}\nNEXT_PUBLIC_APP_NAME="FluxMedia"\n${END}`;
     const next = applyManagedEnvBlock("DATABASE_URL=postgres://x", managed);
 
     expect(next).toContain("DATABASE_URL=postgres://x");
@@ -92,12 +93,12 @@ describe("applyManagedEnvBlock", () => {
 
   it("replaces existing managed block in place preserving surrounding lines", () => {
     const current = `KEEP_ME=1\n${BEGIN}\nOLD="old"\n${END}\nTAIL=2`;
-    const managed = `${BEGIN}\nAPP_TIME_ZONE="UTC"\n${END}`;
+    const managed = `${BEGIN}\nNEXT_PUBLIC_APP_NAME="FluxMedia"\n${END}`;
     const next = applyManagedEnvBlock(current, managed);
 
     expect(next).toContain("KEEP_ME=1");
     expect(next).toContain("TAIL=2");
-    expect(next).toContain('APP_TIME_ZONE="UTC"');
+    expect(next).toContain('NEXT_PUBLIC_APP_NAME="FluxMedia"');
     expect(next).not.toContain('OLD="old"');
     // 仍只保留一对哨兵
     expect(next.match(new RegExp(END, "g"))).toHaveLength(1);

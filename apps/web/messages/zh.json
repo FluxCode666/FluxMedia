@@ -804,6 +804,16 @@
       "description": "选择您偏好的界面语言。",
       "placeholder": "选择语言"
     },
+    "timeZone": {
+      "title": "显示时区",
+      "description": "历史记录、账单和站内日期将按此时区展示；数据库和外部 API 仍使用 UTC。",
+      "effective": "当前生效：{timeZone}",
+      "inherit": "使用部署默认值（{timeZone}）",
+      "placeholder": "选择时区",
+      "save": "保存",
+      "saved": "时区设置已保存",
+      "error": "保存时区失败"
+    },
     "deleteAccount": {
       "title": "删除账户",
       "description": "永久删除您的账户及所有相关数据。此操作无法撤销。",

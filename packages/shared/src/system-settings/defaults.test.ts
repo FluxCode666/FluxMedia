@@ -120,7 +120,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("PLAN_CAPABILITY_MATRIX");
     expect(initializedKeys).toContain(CREDIT_PACKAGE_MATRIX_SETTING_KEY);
     expect(initializedKeys).toContain("BILLING_YEARLY_ENABLED");
-    expect(initializedKeys).toContain("APP_TIME_ZONE");
+    expect(initializedKeys).not.toContain("APP_TIME_ZONE");
     expect(initializedKeys).toContain("MARKETING_SLA_STATUS_ENABLED");
     expect(initializedKeys).toContain("SELF_USE_MODE_ENABLED");
     expect(initializedKeys).toContain("GENERATION_IMAGE_RETENTION_HOURS");
@@ -137,7 +137,7 @@ describe("system setting default initialization", () => {
       DEFAULT_PLAN_CAPABILITY_MATRIX
     );
     expect(store.get("BILLING_YEARLY_ENABLED")?.value).toBe(true);
-    expect(store.get("APP_TIME_ZONE")?.value).toBe("UTC");
+    expect(store.get("APP_TIME_ZONE")).toBeUndefined();
     expect(store.get("MARKETING_SLA_STATUS_ENABLED")?.value).toBe(true);
     expect(store.get("SELF_USE_MODE_ENABLED")?.value).toBe(true);
     expect(store.get("GENERATION_IMAGE_RETENTION_HOURS")?.value).toBe(0);

@@ -1,23 +1,83 @@
 /**
- * 应用时区的格式化与本地日期时间解析工具。
+ * 展示时区的校验、格式化与本地日期时间解析工具。
  *
- * 使用方包括管理端日期筛选、用户统计范围解析和所有需要按应用时区展示时间的组件。
+ * 使用方包括用户设置、管理端日期筛选、用户统计范围解析和所有需要按展示时区处理
+ * 时间的组件。数据库与外部 API 始终使用 UTC，本模块只负责展示与本地输入解释。
  * 本模块只依赖 Intl；解析时通过本地字段 round-trip 拒绝非法日期与 DST 不存在时刻，
  * 对 DST 重复时刻确定性选择较早的 UTC 瞬间。
  */
-export const APP_TIME_ZONE_SETTING_KEY = "APP_TIME_ZONE";
+import { z } from "zod";
+
 export const DEFAULT_APP_TIME_ZONE = "UTC";
 
-export const APP_TIME_ZONE_OPTIONS = [
-  { label: "UTC", value: "UTC" },
-  { label: "中国标准时间 (Asia/Shanghai)", value: "Asia/Shanghai" },
-  { label: "香港时间 (Asia/Hong_Kong)", value: "Asia/Hong_Kong" },
-  { label: "新加坡时间 (Asia/Singapore)", value: "Asia/Singapore" },
-  { label: "日本时间 (Asia/Tokyo)", value: "Asia/Tokyo" },
-  { label: "太平洋时间 (America/Los_Angeles)", value: "America/Los_Angeles" },
-  { label: "东部时间 (America/New_York)", value: "America/New_York" },
-  { label: "伦敦时间 (Europe/London)", value: "Europe/London" },
+export const USER_TIME_ZONE_OPTIONS = [
+  "UTC",
+  "Asia/Shanghai",
+  "Asia/Hong_Kong",
+  "Asia/Singapore",
+  "Asia/Tokyo",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Paris",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
 ] as const;
+
+/**
+ * 判断字符串是否为当前运行时支持的 IANA 时区。
+ *
+ * @param value 待验证的时区名称。
+ * @returns 非空且可被 Intl.DateTimeFormat 识别时返回 true；无副作用。
+ */
+export function isValidTimeZone(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 100) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: trimmed });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 规范化来自数据库等非可信来源的可空用户时区偏好。
+ *
+ * @param value 待规范化的用户时区值。
+ * @returns 合法 IANA 时区返回去空格后的值；缺失或非法时返回 null；无副作用。
+ */
+export function normalizeUserTimeZonePreference(
+  value?: string | null
+): string | null {
+  const trimmed = value?.trim();
+  return trimmed && isValidTimeZone(trimmed) ? trimmed : null;
+}
+
+/** 用户时区偏好输入；null 明确表示继承部署环境 APP_TIME_ZONE。 */
+export const userTimeZoneSchema = z
+  .string()
+  .trim()
+  .min(1, "时区不能为空")
+  .max(100, "时区名称过长")
+  .refine(isValidTimeZone, "无效的 IANA 时区")
+  .nullable();
+
+/**
+ * 按“用户偏好优先、部署时区兜底、最终 UTC”解析有效展示时区。
+ *
+ * @param userTimeZone 用户保存的可空 IANA 时区。
+ * @param appTimeZone 部署环境 APP_TIME_ZONE。
+ * @returns 可安全传给 Intl 的展示时区；无副作用。
+ */
+export function resolveDisplayTimeZone(
+  userTimeZone?: string | null,
+  appTimeZone?: string | null
+): string {
+  const fallback = normalizeTimeZone(appTimeZone, DEFAULT_APP_TIME_ZONE);
+  return normalizeTimeZone(userTimeZone, fallback);
+}
 
 export function normalizeTimeZone(
   value?: string | null,

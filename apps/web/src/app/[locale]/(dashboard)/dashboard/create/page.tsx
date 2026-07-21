@@ -7,7 +7,7 @@ import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/pl
 import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-limits";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
@@ -35,7 +35,7 @@ export default async function CreatePage() {
       getUserRecentGenerations(user.id, 6),
       getUserPlan(user.id),
       getUserApiConfig(user.id),
-      getAppTimeZone(),
+      getUserTimeZone(user.id),
     ]);
   const [
     uploadLimits,

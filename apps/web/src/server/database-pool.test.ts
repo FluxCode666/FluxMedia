@@ -12,10 +12,34 @@ import {
   guardPostgresClientQueryTimeouts,
   isPostgresTimeoutError,
   sanitizePostgresPoolError,
+  withUtcPostgresConnectionString,
 } from "@repo/database/pool";
 import { describe, expect, it, vi } from "vitest";
 
 describe("standard PostgreSQL pool reliability", () => {
+  it("appends UTC session options to migration connection URLs", () => {
+    const base = withUtcPostgresConnectionString(
+      "postgresql://user:pass@example.invalid/db?sslmode=require"
+    );
+    const baseUrl = new URL(base);
+    expect(baseUrl.searchParams.get("sslmode")).toBe("require");
+    expect(baseUrl.searchParams.get("options")).toBe("-c timezone=UTC");
+
+    const existing = withUtcPostgresConnectionString(
+      "postgresql://user:pass@example.invalid/db?options=-c%20statement_timeout%3D5000"
+    );
+    expect(new URL(existing).searchParams.get("options")).toBe(
+      "-c statement_timeout=5000 -c timezone=UTC"
+    );
+
+    const alreadyUtc = withUtcPostgresConnectionString(
+      "postgresql://user:pass@example.invalid/db?options=-c%20timezone%3DUTC"
+    );
+    expect(new URL(alreadyUtc).searchParams.get("options")).toBe(
+      "-c timezone=UTC"
+    );
+  });
+
   it("uses bounded waits, keepalive, and connection rotation", () => {
     expect(
       buildStandardPostgresPoolConfig("postgresql://example.invalid/test")

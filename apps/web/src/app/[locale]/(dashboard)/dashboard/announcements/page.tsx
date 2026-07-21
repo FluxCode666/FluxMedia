@@ -8,7 +8,7 @@ import {
 } from "@repo/shared/announcements";
 import { getServerSession } from "@repo/shared/auth/server";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { Badge } from "@repo/ui/components/badge";
 import {
   Card,
@@ -71,15 +71,16 @@ function formatDateTime(
 }
 
 export default async function DashboardAnnouncementsPage() {
-  const [session, locale, timeZone] = await Promise.all([
+  const [session, locale] = await Promise.all([
     getServerSession(),
     getLocale(),
-    getAppTimeZone(),
   ]);
 
   if (!session?.user) {
     redirect(`/${locale}/sign-in`);
   }
+
+  const timeZone = await getUserTimeZone(session.user.id);
 
   const announcements = await listActiveAnnouncementsForUser(session.user.id);
   const unreadIds = announcements

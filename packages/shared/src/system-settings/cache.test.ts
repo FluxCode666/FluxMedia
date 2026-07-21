@@ -175,15 +175,16 @@ describe("system settings cache", () => {
       username: "cache-user",
     });
     const loader = vi.fn(
-      async () => new Map<string, unknown>([["APP_TIME_ZONE", "Asia/Shanghai"]])
+      async () =>
+        new Map<string, unknown>([["NEXT_PUBLIC_APP_NAME", "FluxMedia"]])
     );
 
     await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
-      new Map([["APP_TIME_ZONE", "Asia/Shanghai"]])
+      new Map([["NEXT_PUBLIC_APP_NAME", "FluxMedia"]])
     );
     clearLocalSystemSettingsCache();
     await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
-      new Map([["APP_TIME_ZONE", "Asia/Shanghai"]])
+      new Map([["NEXT_PUBLIC_APP_NAME", "FluxMedia"]])
     );
 
     expect(loader).toHaveBeenCalledTimes(1);
@@ -203,7 +204,8 @@ describe("system settings cache", () => {
     configureRedisEnvironment();
     let currentValue = "UTC";
     const loader = vi.fn(
-      async () => new Map<string, unknown>([["APP_TIME_ZONE", currentValue]])
+      async () =>
+        new Map<string, unknown>([["NEXT_PUBLIC_APP_NAME", currentValue]])
     );
 
     await loadCachedSystemSettings(loader);
@@ -211,7 +213,7 @@ describe("system settings cache", () => {
     await invalidateSystemSettingsCache();
 
     await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
-      new Map([["APP_TIME_ZONE", "Asia/Tokyo"]])
+      new Map([["NEXT_PUBLIC_APP_NAME", "Asia/Tokyo"]])
     );
     expect(loader).toHaveBeenCalledTimes(2);
     expect(redisMockState.deletedKeys.length).toBeGreaterThan(0);
@@ -236,7 +238,7 @@ describe("system settings cache", () => {
     configureRedisEnvironment();
     redisMockState.connectFailure = true;
     const loader = vi.fn(
-      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+      async () => new Map<string, unknown>([["NEXT_PUBLIC_APP_NAME", "UTC"]])
     );
 
     await loadCachedSystemSettings(loader);
@@ -245,21 +247,20 @@ describe("system settings cache", () => {
     vi.setSystemTime(new Date("2026-07-20T00:00:06.000Z"));
     await loadCachedSystemSettings(loader);
 
-    expect(redisMockState.connectionOptions.map((options) => options.db)).toEqual([
-      4,
-      4,
-    ]);
+    expect(
+      redisMockState.connectionOptions.map((options) => options.db)
+    ).toEqual([4, 4]);
     expect(redisMockState.store.size).toBe(1);
   });
 
   it("falls back to the database when the Redis configuration is incomplete", async () => {
     process.env.REDIS_HOST = "127.0.0.1";
     const loader = vi.fn(
-      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+      async () => new Map<string, unknown>([["NEXT_PUBLIC_APP_NAME", "UTC"]])
     );
 
     await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
-      new Map([["APP_TIME_ZONE", "UTC"]])
+      new Map([["NEXT_PUBLIC_APP_NAME", "UTC"]])
     );
 
     expect(loader).toHaveBeenCalledTimes(1);
@@ -269,11 +270,11 @@ describe("system settings cache", () => {
   it("falls back to the database when the Redis port is invalid", async () => {
     configureRedisEnvironment({ port: "not-a-port" });
     const loader = vi.fn(
-      async () => new Map<string, unknown>([["APP_TIME_ZONE", "UTC"]])
+      async () => new Map<string, unknown>([["NEXT_PUBLIC_APP_NAME", "UTC"]])
     );
 
     await expect(loadCachedSystemSettings(loader)).resolves.toEqual(
-      new Map([["APP_TIME_ZONE", "UTC"]])
+      new Map([["NEXT_PUBLIC_APP_NAME", "UTC"]])
     );
 
     expect(loader).toHaveBeenCalledTimes(1);

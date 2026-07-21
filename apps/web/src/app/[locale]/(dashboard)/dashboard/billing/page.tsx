@@ -7,7 +7,7 @@
 
 import { getServerSession } from "@repo/shared/auth/server";
 import { CreditUsageSection } from "@repo/shared/credits/components";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { redirect } from "next/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import type { ReactNode } from "react";
@@ -55,7 +55,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   const [t, tTabs, timeZone] = await Promise.all([
     getTranslations("Settings.billing"),
     getTranslations("Settings.billing.tabs"),
-    getAppTimeZone(),
+    getUserTimeZone(session.user.id),
   ]);
   let activeContent: ReactNode;
 

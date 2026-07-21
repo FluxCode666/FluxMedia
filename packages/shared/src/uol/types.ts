@@ -41,6 +41,7 @@ export type OperationDomain =
  */
 export type AccessRequirement =
   | { kind: "public" }
+  | { kind: "user" }
   | { kind: "protected" }
   | { kind: "owner"; resource: string }
   | { kind: "admin" }

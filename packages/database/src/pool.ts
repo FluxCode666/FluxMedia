@@ -55,6 +55,29 @@ const STANDARD_POSTGRES_POOL_DEFAULTS = {
 export const POSTGRES_UTC_SESSION_OPTIONS =
   STANDARD_POSTGRES_POOL_DEFAULTS.options;
 
+/**
+ * 为迁移工具使用的 PostgreSQL URL 追加 UTC 会话参数。
+ *
+ * @param connectionString 原始 PostgreSQL 连接 URL。
+ * @returns 保留原查询参数并确保最后应用 timezone=UTC 的连接 URL；无外部副作用。
+ * @throws URL 无法解析时抛出，让迁移在连接前明确失败。
+ */
+export function withUtcPostgresConnectionString(
+  connectionString: string
+): string {
+  const url = new URL(connectionString);
+  const currentOptions = url.searchParams.get("options")?.trim();
+  if (!currentOptions) {
+    url.searchParams.set("options", POSTGRES_UTC_SESSION_OPTIONS);
+  } else if (!currentOptions.includes(POSTGRES_UTC_SESSION_OPTIONS)) {
+    url.searchParams.set(
+      "options",
+      `${currentOptions} ${POSTGRES_UTC_SESSION_OPTIONS}`
+    );
+  }
+  return url.toString();
+}
+
 /** 移除错误消息中的数据库 URL 与常见凭据字段，并限制日志长度。 */
 function sanitizePostgresPoolErrorMessage(message: string): string {
   return message

@@ -1,5 +1,6 @@
 import { db, user } from "@repo/database";
 import { getServerSession } from "@repo/shared/auth/server";
+import { getAppTimeZone } from "@repo/shared/time-zone/server";
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
@@ -29,11 +30,17 @@ export default async function SettingsPage() {
     redirect(`/${locale}/sign-in`);
   }
 
-  const [profile] = await db
-    .select({ moderationBlockRiskLevel: user.moderationBlockRiskLevel })
-    .from(user)
-    .where(eq(user.id, session.user.id))
-    .limit(1);
+  const [[profile], defaultTimeZone] = await Promise.all([
+    db
+      .select({
+        moderationBlockRiskLevel: user.moderationBlockRiskLevel,
+        timeZone: user.timeZone,
+      })
+      .from(user)
+      .where(eq(user.id, session.user.id))
+      .limit(1),
+    getAppTimeZone(),
+  ]);
 
   return (
     <SettingsProfileView
@@ -47,6 +54,8 @@ export default async function SettingsPage() {
           profile?.moderationBlockRiskLevel === "high"
             ? profile.moderationBlockRiskLevel
             : "low",
+        timeZone: profile?.timeZone?.trim() || null,
+        defaultTimeZone,
       }}
     />
   );

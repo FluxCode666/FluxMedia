@@ -34,7 +34,7 @@ import {
   formatDateInputInTimeZone,
   parseDateInputInTimeZone,
 } from "@repo/shared/time-zone";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import type { OperationContext, Principal } from "@repo/shared/uol";
 import { bindExecute, OperationError } from "@repo/shared/uol";
 import type { z } from "zod";
@@ -201,7 +201,7 @@ bindExecute(
       throw new OperationError("unauthenticated", "User identity required");
     }
     await assertAnalyticsReady();
-    const timeZone = await getAppTimeZone();
+    const timeZone = await getUserTimeZone(principal.userId);
     const asOf = new Date();
     const today = formatDateInputInTimeZone(asOf, timeZone);
     const todayStart = parseDateInputInTimeZone(today, { timeZone });
@@ -240,7 +240,7 @@ bindExecute(
     }
     await assertAnalyticsReady();
     const parsed = usageTrendsInputSchema.parse(input);
-    const timeZone = await getAppTimeZone();
+    const timeZone = await getUserTimeZone(principal.userId);
     let range: ReturnType<typeof resolveUsageTimeRange>;
     try {
       range = resolveUsageTimeRange(parsed, {

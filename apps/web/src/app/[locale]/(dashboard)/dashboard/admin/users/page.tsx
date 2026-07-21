@@ -8,7 +8,7 @@ import {
 } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
 import { AdminUsersManagement } from "@repo/shared/support/components";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 
 export default async function DashboardAdminUsersPage() {
   const session = await getServerSession();
@@ -22,7 +22,7 @@ export default async function DashboardAdminUsersPage() {
     redirect(`/${locale}/dashboard`);
   }
 
-  const timeZone = await getAppTimeZone();
+  const timeZone = await getUserTimeZone(session.user.id);
 
   return (
     <AdminUsersManagement

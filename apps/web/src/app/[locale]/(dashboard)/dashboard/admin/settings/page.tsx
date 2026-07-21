@@ -8,7 +8,7 @@ import {
   canViewImageBackendPool,
 } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { ImageBackendPoolAdminPanel } from "@/features/image-backend-pool";
 import { AdminSettingsTabs } from "./admin-settings-tabs";
 
@@ -25,10 +25,10 @@ export default async function DashboardAdminSettingsPage() {
   }
 
   if (!canAccessAdminArea(role)) {
-    const timeZone = await getAppTimeZone();
+    const timeZone = await getUserTimeZone(session.user.id);
     return <ImageBackendPoolAdminPanel readOnly timeZone={timeZone} />;
   }
-  const timeZone = await getAppTimeZone();
+  const timeZone = await getUserTimeZone(session.user.id);
 
   // 系统设置面板可写入 BETTER_AUTH_SECRET 等密钥，必须限制为超管，
   // 否则普通 admin 可改写认证密钥伪造会话实现账号接管（见审计 S-C1）。

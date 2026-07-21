@@ -143,24 +143,24 @@ describe("setSystemSettings", () => {
 
   it("rejects unknown setting key throwing 未知配置项", async () => {
     await expect(
-      setSystemSettings([{ key: "NOT_A_REAL_KEY", value: "x" }], "admin")
-    ).rejects.toThrow("未知配置项: NOT_A_REAL_KEY");
+      setSystemSettings([{ key: "APP_TIME_ZONE", value: "UTC" }], "admin")
+    ).rejects.toThrow("未知配置项: APP_TIME_ZONE");
   });
 
   it("clear entry deletes stored setting", async () => {
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "Asia/Shanghai",
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "FluxMedia",
     });
 
     const changed = await setSystemSettings(
-      [{ key: "APP_TIME_ZONE", value: "", clear: true }],
+      [{ key: "NEXT_PUBLIC_APP_NAME", value: "", clear: true }],
       "admin"
     );
 
-    expect(changed).toEqual(["APP_TIME_ZONE"]);
-    expect(store.has("APP_TIME_ZONE")).toBe(false);
-    expect(deletedKeys.value).toContain("APP_TIME_ZONE");
+    expect(changed).toEqual(["NEXT_PUBLIC_APP_NAME"]);
+    expect(store.has("NEXT_PUBLIC_APP_NAME")).toBe(false);
+    expect(deletedKeys.value).toContain("NEXT_PUBLIC_APP_NAME");
   });
 
   it("skips blank secret to avoid wiping stored secret", async () => {
@@ -205,10 +205,13 @@ describe("setSystemSettings", () => {
     expect(store.get("BETTER_AUTH_SECRET")?.value).toBe("fresh-secret");
     expect(store.get("BETTER_AUTH_SECRET")?.isSecret).toBe(true);
 
-    // APP_TIME_ZONE 非 secret，isSecret 必为 false。
-    await setSystemSettings([{ key: "APP_TIME_ZONE", value: "UTC" }], "admin");
-    expect(store.get("APP_TIME_ZONE")?.value).toBe("UTC");
-    expect(store.get("APP_TIME_ZONE")?.isSecret).toBe(false);
+    // NEXT_PUBLIC_APP_NAME 非 secret，isSecret 必为 false。
+    await setSystemSettings(
+      [{ key: "NEXT_PUBLIC_APP_NAME", value: "FluxMedia" }],
+      "admin"
+    );
+    expect(store.get("NEXT_PUBLIC_APP_NAME")?.value).toBe("FluxMedia");
+    expect(store.get("NEXT_PUBLIC_APP_NAME")?.isSecret).toBe(false);
   });
 
   it("coerces number values and rejects non-numeric (coerceValue, C-L25)", async () => {
@@ -356,32 +359,32 @@ describe("importSystemSettingsFromEnv", () => {
 
   afterEach(() => {
     resetBootstrappedProcessSettingsForTests();
-    delete process.env.APP_TIME_ZONE;
+    delete process.env.NEXT_PUBLIC_APP_NAME;
     delete process.env.BETTER_AUTH_SECRET;
   });
 
   it("overwrite=false (importMissing) keeps existing stored value", async () => {
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "Asia/Shanghai",
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "Stored Name",
     });
-    process.env.APP_TIME_ZONE = "UTC";
+    process.env.NEXT_PUBLIC_APP_NAME = "Env Name";
 
     await importSystemSettingsFromEnv({ overwrite: false });
 
-    expect(store.get("APP_TIME_ZONE")?.value).toBe("Asia/Shanghai");
+    expect(store.get("NEXT_PUBLIC_APP_NAME")?.value).toBe("Stored Name");
   });
 
   it("overwrite=true replaces stored value with env-derived value", async () => {
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "Asia/Shanghai",
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "Stored Name",
     });
-    process.env.APP_TIME_ZONE = "UTC";
+    process.env.NEXT_PUBLIC_APP_NAME = "Env Name";
 
     await importSystemSettingsFromEnv({ overwrite: true });
 
-    expect(store.get("APP_TIME_ZONE")?.value).toBe("UTC");
+    expect(store.get("NEXT_PUBLIC_APP_NAME")?.value).toBe("Env Name");
   });
 
   it("flags isSecret true for secret-defined keys", async () => {
@@ -404,7 +407,7 @@ describe("getAdminSystemSettingsSnapshot", () => {
 
   afterEach(() => {
     resetBootstrappedProcessSettingsForTests();
-    delete process.env.APP_TIME_ZONE;
+    delete process.env.NEXT_PUBLIC_APP_NAME;
   });
 
   it("masks secret values to empty string even when stored", async () => {
@@ -424,28 +427,32 @@ describe("getAdminSystemSettingsSnapshot", () => {
   });
 
   it("returns non-secret stored value verbatim", async () => {
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "Asia/Tokyo",
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "Stored Name",
     });
 
     const snapshot = await getAdminSystemSettingsSnapshot();
-    const tz = snapshot.find((item) => item.key === "APP_TIME_ZONE");
+    const appName = snapshot.find(
+      (item) => item.key === "NEXT_PUBLIC_APP_NAME"
+    );
 
-    expect(tz?.value).toBe("Asia/Tokyo");
-    expect(tz?.stored).toBe(true);
-    expect(tz?.fromEnv).toBe(false);
+    expect(appName?.value).toBe("Stored Name");
+    expect(appName?.stored).toBe(true);
+    expect(appName?.fromEnv).toBe(false);
   });
 
   it("falls back to trimmed env value when not stored and sets fromEnv=true", async () => {
-    process.env.APP_TIME_ZONE = "  UTC  ";
+    process.env.NEXT_PUBLIC_APP_NAME = "  Env Name  ";
 
     const snapshot = await getAdminSystemSettingsSnapshot();
-    const tz = snapshot.find((item) => item.key === "APP_TIME_ZONE");
+    const appName = snapshot.find(
+      (item) => item.key === "NEXT_PUBLIC_APP_NAME"
+    );
 
-    expect(tz?.value).toBe("UTC");
-    expect(tz?.stored).toBe(false);
-    expect(tz?.fromEnv).toBe(true);
+    expect(appName?.value).toBe("Env Name");
+    expect(appName?.stored).toBe(false);
+    expect(appName?.fromEnv).toBe(true);
   });
 
   it("JSON.stringifies an object stored value for display", async () => {
@@ -474,7 +481,7 @@ describe("runtime setting getters stored/env fallback (C-L29)", () => {
   afterEach(() => {
     resetBootstrappedProcessSettingsForTests();
     delete process.env.SELF_USE_MODE_ENABLED;
-    delete process.env.APP_TIME_ZONE;
+    delete process.env.NEXT_PUBLIC_APP_NAME;
     delete process.env.PAYMENT_PROVIDER;
     delete process.env.PLAN_CAPABILITY_MATRIX;
   });
@@ -503,19 +510,21 @@ describe("runtime setting getters stored/env fallback (C-L29)", () => {
   });
 
   it("getRuntimeSettingString prefers stored over env and trims", async () => {
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "  Asia/Shanghai  ",
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "  Stored Name  ",
     });
-    process.env.APP_TIME_ZONE = "UTC";
+    process.env.NEXT_PUBLIC_APP_NAME = "Env Name";
 
-    await expect(getRuntimeSettingString("APP_TIME_ZONE")).resolves.toBe(
-      "Asia/Shanghai"
+    await expect(getRuntimeSettingString("NEXT_PUBLIC_APP_NAME")).resolves.toBe(
+      "Stored Name"
     );
 
     store.clear();
     clearSystemSettingsCache();
-    await expect(getRuntimeSettingString("APP_TIME_ZONE")).resolves.toBe("UTC");
+    await expect(getRuntimeSettingString("NEXT_PUBLIC_APP_NAME")).resolves.toBe(
+      "Env Name"
+    );
   });
 
   it("getRuntimeSettingSelect returns fallback when value not in allowed list", async () => {
@@ -566,19 +575,21 @@ describe("runtime setting getters stored/env fallback (C-L29)", () => {
   });
 
   it("clear falls back to deployment env instead of bootstrapped DB env", async () => {
-    process.env.APP_TIME_ZONE = "UTC";
-    setBootstrappedProcessSetting("APP_TIME_ZONE", "Asia/Shanghai");
-    store.set("APP_TIME_ZONE", {
-      key: "APP_TIME_ZONE",
-      value: "Asia/Shanghai",
+    process.env.NEXT_PUBLIC_APP_NAME = "Env Name";
+    setBootstrappedProcessSetting("NEXT_PUBLIC_APP_NAME", "Stored Name");
+    store.set("NEXT_PUBLIC_APP_NAME", {
+      key: "NEXT_PUBLIC_APP_NAME",
+      value: "Stored Name",
     });
 
     await setSystemSettings(
-      [{ key: "APP_TIME_ZONE", clear: true, value: "" }],
+      [{ key: "NEXT_PUBLIC_APP_NAME", clear: true, value: "" }],
       "admin"
     );
 
-    expect(process.env.APP_TIME_ZONE).toBe("Asia/Shanghai");
-    await expect(getRuntimeSettingString("APP_TIME_ZONE")).resolves.toBe("UTC");
+    expect(process.env.NEXT_PUBLIC_APP_NAME).toBe("Stored Name");
+    await expect(getRuntimeSettingString("NEXT_PUBLIC_APP_NAME")).resolves.toBe(
+      "Env Name"
+    );
   });
 });

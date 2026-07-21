@@ -3,7 +3,12 @@
 import { useState } from "react";
 
 import { SystemSettingsPanel } from "@repo/shared/system-settings/components";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@repo/ui/components/tabs";
 
 import { ImageBackendPoolAdminPanel } from "@/features/image-backend-pool";
 
@@ -31,7 +36,9 @@ export function AdminSettingsTabs({
   const handleTabChange = (value: string) => {
     // 非超管禁止进入系统设置，强制回落到后端池。
     const nextTab: AdminSettingsTab =
-      value === "system" && canManageSystemSettings ? "system" : "image-backends";
+      value === "system" && canManageSystemSettings
+        ? "system"
+        : "image-backends";
     setActiveTab(nextTab);
     setMountedTabs((current) => {
       if (current.has(nextTab)) return current;
@@ -61,7 +68,9 @@ export function AdminSettingsTabs({
       </TabsList>
       {canManageSystemSettings ? (
         <TabsContent value="system" className="mt-6">
-          {mountedTabs.has("system") ? <SystemSettingsPanel /> : null}
+          {mountedTabs.has("system") ? (
+            <SystemSettingsPanel timeZone={timeZone} />
+          ) : null}
         </TabsContent>
       ) : null}
       <TabsContent value="image-backends" className="mt-6">

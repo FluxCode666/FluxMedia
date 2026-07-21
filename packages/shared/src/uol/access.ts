@@ -27,11 +27,20 @@ import { OperationError } from "./errors";
  */
 export function assertAccess(
   access: AccessRequirement,
-  principal: Principal,
+  principal: Principal
 ): void {
   switch (access.kind) {
     case "public":
       // 无需身份验证
+      return;
+
+    case "user":
+      if (principal.type !== "user") {
+        throw new OperationError(
+          "unauthenticated",
+          "User session authentication required"
+        );
+      }
       return;
 
     case "protected":
@@ -44,7 +53,7 @@ export function assertAccess(
       ) {
         throw new OperationError(
           "forbidden",
-          "This operation requires user authentication",
+          "This operation requires user authentication"
         );
       }
       return;
@@ -52,53 +61,36 @@ export function assertAccess(
     case "admin":
       if (principal.type === "system") return;
       if (principal.type !== "user") {
-        throw new OperationError(
-          "forbidden",
-          "Admin access required",
-        );
+        throw new OperationError("forbidden", "Admin access required");
       }
       if (
         principal.role !== "admin" &&
         principal.role !== "super_admin" &&
         principal.role !== "observer_admin"
       ) {
-        throw new OperationError(
-          "forbidden",
-          "Admin access required",
-        );
+        throw new OperationError("forbidden", "Admin access required");
       }
       return;
 
     case "superAdmin":
       if (principal.type === "system") return;
-      if (
-        principal.type !== "user" ||
-        principal.role !== "super_admin"
-      ) {
-        throw new OperationError(
-          "forbidden",
-          "Super admin access required",
-        );
+      if (principal.type !== "user" || principal.role !== "super_admin") {
+        throw new OperationError("forbidden", "Super admin access required");
       }
       return;
 
     case "imageBackendPoolViewer":
       if (principal.type === "system") return;
       if (principal.type !== "user") {
-        throw new OperationError(
-          "forbidden",
-          "Admin access required",
-        );
+        throw new OperationError("forbidden", "Admin access required");
       }
       // observer_admin, admin, super_admin 均可查看
       if (
-        !["observer_admin", "admin", "super_admin"].includes(
-          principal.role,
-        )
+        !["observer_admin", "admin", "super_admin"].includes(principal.role)
       ) {
         throw new OperationError(
           "forbidden",
-          "Image backend pool viewer access required",
+          "Image backend pool viewer access required"
         );
       }
       return;
@@ -108,7 +100,7 @@ export function assertAccess(
       if (principal.type !== "apiKey") {
         throw new OperationError(
           "unauthenticated",
-          "API key authentication required",
+          "API key authentication required"
         );
       }
       return;
@@ -116,10 +108,7 @@ export function assertAccess(
     case "cron":
       if (principal.type === "system") return;
       if (principal.type !== "cron") {
-        throw new OperationError(
-          "forbidden",
-          "Cron authentication required",
-        );
+        throw new OperationError("forbidden", "Cron authentication required");
       }
       return;
 
@@ -131,7 +120,7 @@ export function assertAccess(
       ) {
         throw new OperationError(
           "forbidden",
-          `Webhook authentication required (provider: ${access.provider})`,
+          `Webhook authentication required (provider: ${access.provider})`
         );
       }
       return;
@@ -141,7 +130,7 @@ export function assertAccess(
       if (principal.type !== "proxy") {
         throw new OperationError(
           "forbidden",
-          "Proxy secret authentication required",
+          "Proxy secret authentication required"
         );
       }
       return;
@@ -157,7 +146,7 @@ export function assertAccess(
       ) {
         throw new OperationError(
           "forbidden",
-          "Owner-scoped operations require user identity",
+          "Owner-scoped operations require user identity"
         );
       }
       return;
@@ -166,7 +155,7 @@ export function assertAccess(
       if (principal.type !== "system") {
         throw new OperationError(
           "forbidden",
-          "System-only operation, not accessible via external transport",
+          "System-only operation, not accessible via external transport"
         );
       }
       return;

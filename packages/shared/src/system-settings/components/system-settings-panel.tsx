@@ -1830,7 +1830,7 @@ function CreditPackageMatrixInput({
   );
 }
 
-export function SystemSettingsPanel() {
+export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
   const [settings, setSettings] = useState<SettingSnapshotItem[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
   const [clearKeys, setClearKeys] = useState<Record<string, boolean>>({});
@@ -1917,9 +1917,6 @@ export function SystemSettingsPanel() {
     }
     return map;
   }, [settings]);
-  const configuredTimeZone =
-    settings.find((setting) => setting.key === "APP_TIME_ZONE")?.value || "UTC";
-
   const handleSave = () => {
     const payload: SettingUpdate[] = [];
     try {
@@ -2164,7 +2161,7 @@ export function SystemSettingsPanel() {
                               hour: "2-digit",
                               minute: "2-digit",
                             },
-                            configuredTimeZone
+                            timeZone
                           )}
                         </p>
                       )}

@@ -804,6 +804,16 @@
       "description": "Select your preferred language for the interface.",
       "placeholder": "Select language"
     },
+    "timeZone": {
+      "title": "Display time zone",
+      "description": "History, billing, and in-app dates use this time zone. The database and external API remain in UTC.",
+      "effective": "Currently effective: {timeZone}",
+      "inherit": "Use deployment default ({timeZone})",
+      "placeholder": "Select a time zone",
+      "save": "Save",
+      "saved": "Time zone saved",
+      "error": "Failed to save time zone"
+    },
     "deleteAccount": {
       "title": "Delete Account",
       "description": "Permanently delete your account and all associated data. This action cannot be undone.",

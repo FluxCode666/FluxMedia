@@ -19,7 +19,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@repo/ui/components/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@repo/ui/components/avatar";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@repo/ui/components/avatar";
 import { Button } from "@repo/ui/components/button";
 import {
   Form,
@@ -40,7 +44,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@repo/ui/components/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@repo/ui/components/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@repo/ui/components/tabs";
 import {
   getAllowedModerationBlockRiskLevels,
   type ModerationBlockRiskLevel,
@@ -48,9 +57,11 @@ import {
 } from "@repo/shared/config/subscription-plan";
 import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
+import { USER_TIME_ZONE_OPTIONS } from "@repo/shared/time-zone";
 import {
   deleteAccountAction,
   updateProfileAction,
+  updateTimeZoneAction,
 } from "@/features/settings/actions";
 import { updateProfileSchema } from "@/features/settings/schemas";
 import {
@@ -74,10 +85,13 @@ interface SettingsProfileViewProps {
     email: string;
     image?: string | null | undefined;
     moderationBlockRiskLevel: ModerationBlockRiskLevel;
+    timeZone: string | null;
+    defaultTimeZone: string;
   };
 }
 
 type FormValues = z.infer<typeof updateProfileSchema>;
+const INHERIT_TIME_ZONE_VALUE = "__inherit_app_time_zone__";
 
 /** Tab 触发器统一样式：单色边框激活态 + 150ms 颜色过渡 */
 const tabTriggerClass =
@@ -113,6 +127,9 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedTimeZone, setSelectedTimeZone] = useState(
+    user.timeZone ?? INHERIT_TIME_ZONE_VALUE
+  );
   const [userPlan, setUserPlan] = useState<SubscriptionPlan>("free");
   const [capabilities, setCapabilities] =
     useState<PlanCapabilitySnapshot | null>(null);
@@ -251,8 +268,28 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       },
     });
 
+  const { execute: executeUpdateTimeZone, isPending: isUpdatingTimeZone } =
+    useAction(updateTimeZoneAction, {
+      onSuccess: ({ data }) => {
+        setSelectedTimeZone(data?.timeZone ?? INHERIT_TIME_ZONE_VALUE);
+        toast.success(t("timeZone.saved"));
+        router.refresh();
+      },
+      onError: ({ error }) => {
+        toast.error(error.serverError || t("timeZone.error"));
+      },
+    });
+
   const onSubmit = (values: FormValues) => {
     executeUpdateProfile(values);
+  };
+
+  /** 保存当前时区选择；继承选项转换为数据库 NULL。 */
+  const handleTimeZoneSave = () => {
+    executeUpdateTimeZone({
+      timeZone:
+        selectedTimeZone === INHERIT_TIME_ZONE_VALUE ? null : selectedTimeZone,
+    });
   };
 
   const handleAvatarClick = () => {
@@ -488,9 +525,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
                                   </span>
                                 </div>
                                 <p className="mt-2 text-xs font-normal text-muted-foreground">
-                                  {t(
-                                    `moderation.options.${level}.description`
-                                  )}
+                                  {t(`moderation.options.${level}.description`)}
                                 </p>
                               </Label>
                             );
@@ -585,6 +620,72 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
                   <SelectItem value="zh">中文</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </section>
+
+          <section className="space-y-6">
+            <div className="border-b border-border/60 pb-2">
+              <h2 className={sectionTitleClass}>{t("timeZone.title")}</h2>
+            </div>
+            <div
+              className={`flex flex-col gap-4 md:flex-row md:items-center md:justify-between ${settingRowClass}`}
+            >
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">
+                  {t("timeZone.description")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("timeZone.effective", {
+                    timeZone: user.timeZone ?? user.defaultTimeZone,
+                  })}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={selectedTimeZone}
+                  onValueChange={setSelectedTimeZone}
+                  disabled={isUpdatingTimeZone}
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder={t("timeZone.placeholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={INHERIT_TIME_ZONE_VALUE}>
+                      {t("timeZone.inherit", {
+                        timeZone: user.defaultTimeZone,
+                      })}
+                    </SelectItem>
+                    {user.timeZone &&
+                      !USER_TIME_ZONE_OPTIONS.some(
+                        (timeZone) => timeZone === user.timeZone
+                      ) && (
+                        <SelectItem value={user.timeZone}>
+                          {user.timeZone}
+                        </SelectItem>
+                      )}
+                    {USER_TIME_ZONE_OPTIONS.map((timeZone) => (
+                      <SelectItem key={timeZone} value={timeZone}>
+                        {timeZone}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTimeZoneSave}
+                  disabled={
+                    isUpdatingTimeZone ||
+                    selectedTimeZone ===
+                      (user.timeZone ?? INHERIT_TIME_ZONE_VALUE)
+                  }
+                >
+                  {isUpdatingTimeZone && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  {t("timeZone.save")}
+                </Button>
+              </div>
             </div>
           </section>
 

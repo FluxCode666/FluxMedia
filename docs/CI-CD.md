@@ -139,7 +139,8 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 | `FLUXMEDIA_SUPER_ADMIN_EMAIL` | 无 | 首次创建超管所用邮箱；自用模式启用且尚无超管时必须设置。 |
 | `FLUXMEDIA_SUPER_ADMIN_PASSWORD` | 无 | 首次创建超管所用密码；机密，仅保存在服务器 `.env` 或 Secret Manager，绝不写入镜像、日志或凭据文件。 |
 | `INTERNAL_JOB_SCHEDULER_ENABLED` | `true` | 单实例启用内部定时任务；多实例前必须先实现任务互斥。 |
-| `APP_TIME_ZONE` / `TZ` | `Asia/Shanghai` | 应用和容器时区。 |
+| `APP_TIME_ZONE` | `Asia/Shanghai` | 用户未设置个人时区时的站内展示兜底，仅由部署环境管理；数据库连接和外部 API 始终使用 UTC。 |
+| `TZ` | `Asia/Shanghai` | 容器进程的系统时区；不会改变固定为 UTC 的 PostgreSQL 会话。 |
 | `RATE_LIMIT_TRUSTED_PROXY` | `true` | 仅因请求只经过受控宿主机 Nginx 才可启用；直连公网部署必须设为 `false`。 |
 | `REDIS_HOST` | 无 | 外部 Redis 的 IP 或主机名；必须由服务器 `.env` 提供。 |
 | `REDIS_PORT` | `6379` | 外部 Redis 端口，必须是 `1` 到 `65535` 的整数。 |

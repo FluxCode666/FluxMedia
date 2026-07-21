@@ -12,7 +12,7 @@ import {
   extractPromptRepairNotice,
 } from "@/features/image-generation/generation-metadata";
 import { getCurrentUser } from "@repo/shared/auth/server";
-import { getAppTimeZone } from "@repo/shared/time-zone/server";
+import { getUserTimeZone } from "@repo/shared/time-zone/server";
 
 interface HistoryPageProps {
   searchParams: Promise<{ page?: string }>;
@@ -43,7 +43,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
       .select({ count: count() })
       .from(generation)
       .where(eq(generation.userId, user.id)),
-    getAppTimeZone(),
+    getUserTimeZone(user.id),
   ]);
 
   const withUrls = generations.map((g) => ({
