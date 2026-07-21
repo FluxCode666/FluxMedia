@@ -47,8 +47,13 @@ const STANDARD_POSTGRES_POOL_DEFAULTS = {
   max: 10,
   maxLifetimeSeconds: 300,
   maxUses: 1_000,
+  options: "-c timezone=UTC",
   query_timeout: 10_000,
 } as const satisfies PoolConfig;
+
+/** PostgreSQL 会话统一使用 UTC，匹配 Drizzle 对无时区 timestamp 的解析约定。 */
+export const POSTGRES_UTC_SESSION_OPTIONS =
+  STANDARD_POSTGRES_POOL_DEFAULTS.options;
 
 /** 移除错误消息中的数据库 URL 与常见凭据字段，并限制日志长度。 */
 function sanitizePostgresPoolErrorMessage(message: string): string {

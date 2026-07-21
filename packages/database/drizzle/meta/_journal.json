@@ -365,6 +365,13 @@
       "when": 1784592120000,
       "tag": "0051_credit_usage_operation_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784592180000,
+      "tag": "0052_normalize_generation_created_at_utc",
+      "breakpoints": true
     }
   ]
 }

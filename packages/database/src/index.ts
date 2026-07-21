@@ -2,7 +2,10 @@ import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
 import { drizzle as drizzleNeonWs } from "drizzle-orm/neon-serverless";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 
-import { createStandardPostgresPool } from "./pool";
+import {
+  createStandardPostgresPool,
+  POSTGRES_UTC_SESSION_OPTIONS,
+} from "./pool";
 import * as schema from "./schema";
 
 /**
@@ -71,7 +74,10 @@ function createDatabaseConnection() {
     }
 
     // 使用 WebSocket 连接池，支持事务
-    const pool = new NeonPool({ connectionString: databaseUrl });
+    const pool = new NeonPool({
+      connectionString: databaseUrl,
+      options: POSTGRES_UTC_SESSION_OPTIONS,
+    });
     return drizzleNeonWs(pool, { schema });
   }
 

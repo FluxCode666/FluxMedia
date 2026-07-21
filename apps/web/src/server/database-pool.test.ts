@@ -28,6 +28,7 @@ describe("standard PostgreSQL pool reliability", () => {
       keepAliveInitialDelayMillis: 10_000,
       maxLifetimeSeconds: 300,
       maxUses: 1_000,
+      options: "-c timezone=UTC",
       query_timeout: 10_000,
     });
   });
