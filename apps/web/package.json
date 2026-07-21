@@ -6,6 +6,8 @@
     "dev": "node ../../scripts/with-root-env.mjs ./node_modules/next/dist/bin/next dev --turbopack --port 3000",
     "build": "next build",
     "start": "node ../../scripts/with-root-env.mjs ./node_modules/next/dist/bin/next start",
+    "analytics:backfill": "node ../../scripts/with-root-env.mjs ./scripts/backfill-dashboard-analytics.mjs",
+    "analytics:reconcile": "node ../../scripts/with-root-env.mjs ./scripts/backfill-dashboard-analytics.mjs --reconcile-only",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint ."

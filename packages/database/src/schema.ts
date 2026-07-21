@@ -605,6 +605,19 @@ export const creditsTransaction = pgTable(
         (${table.operationType} IS NOT NULL AND ${table.operationId} IS NOT NULL AND ${table.operationCreatedAt} IS NOT NULL)
       )`
     ),
+    check(
+      "credits_transaction_credit_usage_operation_required_check",
+      sql`(
+        ${table.type} NOT IN ('consumption', 'refund')
+        OR (
+          ${table.operationType} IS NOT NULL
+          AND length(btrim(${table.operationType})) > 0
+          AND ${table.operationId} IS NOT NULL
+          AND length(btrim(${table.operationId})) > 0
+          AND ${table.operationCreatedAt} IS NOT NULL
+        )
+      )`
+    ),
   ]
 );
 
@@ -1498,6 +1511,14 @@ export type AnalyticsReadModelCursor = {
   id: string;
 };
 
+/** 不同读模型使用的高水位；积分模型分别冻结消费和退款上界。 */
+export type AnalyticsReadModelWatermark =
+  | AnalyticsReadModelCursor
+  | {
+      consumption: AnalyticsReadModelCursor | null;
+      refund: AnalyticsReadModelCursor | null;
+    };
+
 /**
  * 统计读模型启用状态。
  *
@@ -1509,8 +1530,10 @@ export const analyticsReadModelState = pgTable("analytics_read_model_state", {
   status: analyticsReadModelStatusEnum("status").notNull().default("building"),
   snapshotHighWater: json(
     "snapshot_high_water"
-  ).$type<AnalyticsReadModelCursor | null>(),
-  catchUpWater: json("catch_up_water").$type<AnalyticsReadModelCursor | null>(),
+  ).$type<AnalyticsReadModelWatermark | null>(),
+  catchUpWater: json(
+    "catch_up_water"
+  ).$type<AnalyticsReadModelWatermark | null>(),
   details: json("details").$type<Record<string, unknown> | null>(),
   lastReconciledAt: timestamp("last_reconciled_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
