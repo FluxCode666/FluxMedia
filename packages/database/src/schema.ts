@@ -415,6 +415,12 @@ export const creditsTransactionTypeEnum = pgEnum("credits_transaction_type", [
   "refund",
 ]);
 
+/** 积分用量投影只接受消费与退款两种账本贡献。 */
+export const creditUsageContributionKindEnum = pgEnum(
+  "credit_usage_contribution_kind",
+  ["consumption", "refund"]
+);
+
 // ============================================
 // 积分余额表 (Credits Balances)
 // ============================================
@@ -428,37 +434,54 @@ export const creditsTransactionTypeEnum = pgEnum("credits_transaction_type", [
  * @field balance - 当前可用积分余额
  * @field totalEarned - 累计获得积分
  * @field totalSpent - 累计消费积分
+ * @field totalRefunded - 累计已关联退回的消费积分
  * @field status - 账户状态（active/frozen）
  * @field createdAt - 创建时间
  * @field updatedAt - 更新时间
  */
-export const creditsBalance = pgTable("credits_balance", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .unique()
-    .references(() => user.id, { onDelete: "cascade" }),
-  balance: numeric("balance", { precision: 18, scale: 2, mode: "number" })
-    .notNull()
-    .default(0),
-  totalEarned: numeric("total_earned", {
-    precision: 18,
-    scale: 2,
-    mode: "number",
-  })
-    .notNull()
-    .default(0),
-  totalSpent: numeric("total_spent", {
-    precision: 18,
-    scale: 2,
-    mode: "number",
-  })
-    .notNull()
-    .default(0),
-  status: creditsBalanceStatusEnum("status").notNull().default("active"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const creditsBalance = pgTable(
+  "credits_balance",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .unique()
+      .references(() => user.id, { onDelete: "cascade" }),
+    balance: numeric("balance", { precision: 18, scale: 2, mode: "number" })
+      .notNull()
+      .default(0),
+    totalEarned: numeric("total_earned", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    totalSpent: numeric("total_spent", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    totalRefunded: numeric("total_refunded", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    status: creditsBalanceStatusEnum("status").notNull().default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "credits_balance_total_refunded_nonnegative_check",
+      sql`${table.totalRefunded} >= 0`
+    ),
+  ]
+);
 
 // ============================================
 // 积分批次表 (Credits Batches)
@@ -554,6 +577,10 @@ export const creditsTransaction = pgTable(
     // 来源引用（幂等键）：同一 (type, source_ref) 只记一次。
     // 用于消费路径的请求级幂等（重试/并发重复扣费防护），对齐发放/退款的幂等设计。
     sourceRef: text("source_ref"),
+    // 计费操作上下文与 source_ref 幂等键独立；expand 阶段允许三列全空。
+    operationType: text("operation_type"),
+    operationId: text("operation_id"),
+    operationCreatedAt: timestamp("operation_created_at"),
     metadata: json("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -569,6 +596,119 @@ export const creditsTransaction = pgTable(
     index("credits_transaction_user_id_created_at_idx").on(
       table.userId,
       table.createdAt
+    ),
+    check(
+      "credits_transaction_operation_context_all_or_none_check",
+      sql`(
+        (${table.operationType} IS NULL AND ${table.operationId} IS NULL AND ${table.operationCreatedAt} IS NULL)
+        OR
+        (${table.operationType} IS NOT NULL AND ${table.operationId} IS NOT NULL AND ${table.operationCreatedAt} IS NOT NULL)
+      )`
+    ),
+  ]
+);
+
+/**
+ * 每个计费操作的可重建净消耗投影。
+ *
+ * 初扣、补扣和关联退款使用同一操作主键；账本仍是唯一财务真相。
+ */
+export const creditUsageOperation = pgTable(
+  "credit_usage_operation",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    operationType: text("operation_type").notNull(),
+    operationId: text("operation_id").notNull(),
+    operationCreatedAt: timestamp("operation_created_at").notNull(),
+    grossConsumed: numeric("gross_consumed", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    refunded: numeric("refunded", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    netConsumed: numeric("net_consumed", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "credit_usage_operation_user_type_id_pk",
+      columns: [table.userId, table.operationType, table.operationId],
+    }),
+    index("credit_usage_operation_user_created_at_idx").on(
+      table.userId,
+      table.operationCreatedAt
+    ),
+    check(
+      "credit_usage_operation_identity_nonempty_check",
+      sql`length(btrim(${table.operationType})) > 0 AND length(btrim(${table.operationId})) > 0`
+    ),
+    check(
+      "credit_usage_operation_amounts_check",
+      sql`${table.grossConsumed} >= 0
+        AND ${table.refunded} >= 0
+        AND ${table.refunded} <= ${table.grossConsumed}
+        AND ${table.netConsumed} = ${table.grossConsumed} - ${table.refunded}`
+    ),
+  ]
+);
+
+/**
+ * 账本交易到计费操作的唯一投影贡献。
+ *
+ * transaction_id 主键使在线双写、回填与重试对同一账本行至多应用一次。
+ */
+export const creditUsageProjectionEntry = pgTable(
+  "credit_usage_projection_entry",
+  {
+    transactionId: text("transaction_id")
+      .primaryKey()
+      .references(() => creditsTransaction.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    contributionKind:
+      creditUsageContributionKindEnum("contribution_kind").notNull(),
+    amount: numeric("amount", {
+      precision: 18,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    operationType: text("operation_type").notNull(),
+    operationId: text("operation_id").notNull(),
+    operationCreatedAt: timestamp("operation_created_at").notNull(),
+    transactionCreatedAt: timestamp("transaction_created_at").notNull(),
+    projectedAt: timestamp("projected_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("credit_usage_projection_entry_user_operation_idx").on(
+      table.userId,
+      table.operationType,
+      table.operationId
+    ),
+    check(
+      "credit_usage_projection_entry_identity_nonempty_check",
+      sql`length(btrim(${table.operationType})) > 0 AND length(btrim(${table.operationId})) > 0`
+    ),
+    check(
+      "credit_usage_projection_entry_amount_positive_check",
+      sql`${table.amount} > 0`
     ),
   ]
 );
@@ -633,6 +773,14 @@ export type NewCreditsBatch = typeof creditsBatch.$inferInsert;
 export type CreditsTransaction = typeof creditsTransaction.$inferSelect;
 export type NewCreditsTransaction = typeof creditsTransaction.$inferInsert;
 
+export type CreditUsageOperation = typeof creditUsageOperation.$inferSelect;
+export type NewCreditUsageOperation = typeof creditUsageOperation.$inferInsert;
+
+export type CreditUsageProjectionEntry =
+  typeof creditUsageProjectionEntry.$inferSelect;
+export type NewCreditUsageProjectionEntry =
+  typeof creditUsageProjectionEntry.$inferInsert;
+
 /** 积分账户状态类型 */
 export type CreditsBalanceStatus =
   (typeof creditsBalanceStatusEnum.enumValues)[number];
@@ -648,6 +796,10 @@ export type CreditsBatchSource =
 /** 积分交易类型 */
 export type CreditsTransactionType =
   (typeof creditsTransactionTypeEnum.enumValues)[number];
+
+/** 积分用量投影贡献类型。 */
+export type CreditUsageContributionKind =
+  (typeof creditUsageContributionKindEnum.enumValues)[number];
 
 // ============================================
 // Newsletter 订阅表

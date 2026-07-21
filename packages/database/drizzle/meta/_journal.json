@@ -351,6 +351,13 @@
       "when": 1784592000000,
       "tag": "0049_user_output_usage_read_model",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784592060000,
+      "tag": "0050_credit_usage_operation",
+      "breakpoints": true
     }
   ]
 }

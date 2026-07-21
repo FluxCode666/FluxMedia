@@ -4,8 +4,6 @@
  * 实现企业级双重记账和 FIFO 过期机制
  */
 
-import { and, asc, eq, gte, gt, isNull, lt, or, sql } from "drizzle-orm";
-
 import { db } from "@repo/database";
 import {
   type CreditsBatchSource,
@@ -14,6 +12,7 @@ import {
   creditsBatch,
   creditsTransaction,
 } from "@repo/database/schema";
+import { and, asc, eq, gt, gte, isNull, lt, or, sql } from "drizzle-orm";
 import { logEvent } from "../logger/index";
 import { getRuntimeSettingNumber } from "../system-settings";
 import { CREDIT_CONFIG_DEFAULTS } from "./config";
@@ -21,6 +20,14 @@ import {
   isUniqueConstraintViolation,
   readConsumedBatchesFromMetadata,
 } from "./idempotency";
+import {
+  applyCreditUsageContribution,
+  type CreditOperationContext,
+  type CreditOperationContextFallback,
+  CreditUsageProjectionError,
+  createCreditUsageProjectionStore,
+  resolveCreditOperationContext,
+} from "./usage-read-model";
 
 const CREDIT_DECIMAL_PLACES = 2;
 const CREDIT_DECIMAL_FACTOR = 10 ** CREDIT_DECIMAL_PLACES;
@@ -71,6 +78,50 @@ function normalizeCreditAmount(amount: number) {
   );
 }
 
+type StoredCreditOperationFields = {
+  operationType: string | null;
+  operationId: string | null;
+  operationCreatedAt: Date | null;
+};
+
+/** 从账本行读取已持久化的 operation context，拒绝部分字段作为真实。 */
+function readStoredCreditOperationContext(
+  row: StoredCreditOperationFields
+): CreditOperationContext | null {
+  const values = [row.operationType, row.operationId, row.operationCreatedAt];
+  if (values.every((value) => value === null)) return null;
+  if (values.some((value) => value === null)) {
+    throw new CreditUsageProjectionError(
+      "operation_context_mismatch",
+      "账本行的 operation context 字段不完整"
+    );
+  }
+  return {
+    operationType: row.operationType as string,
+    operationId: row.operationId as string,
+    operationCreatedAt: row.operationCreatedAt as Date,
+  };
+}
+
+/** 确保重试传入的操作身份与原账本行一致，但不为旧行猜测 context。 */
+function assertCompatibleCreditOperationContext(
+  expected: CreditOperationContext | null,
+  stored: CreditOperationContext | null
+): void {
+  if (!expected || !stored) return;
+  if (
+    expected.operationType !== stored.operationType ||
+    expected.operationId !== stored.operationId ||
+    expected.operationCreatedAt.getTime() !==
+      stored.operationCreatedAt.getTime()
+  ) {
+    throw new CreditUsageProjectionError(
+      "operation_context_mismatch",
+      "重试账本行的 operation context 与原请求不一致"
+    );
+  }
+}
+
 // ============================================
 // 类型定义
 // ============================================
@@ -97,6 +148,8 @@ export interface GrantCreditsParams {
   description?: string;
   /** 元数据 */
   metadata?: Record<string, unknown>;
+  /** 退款所属的原计费操作；非退款发放不投影。 */
+  operation?: CreditOperationContext;
 }
 
 /**
@@ -119,6 +172,10 @@ export interface ConsumeCreditsParams {
   sourceRef?: string;
   /** 元数据 */
   metadata?: Record<string, unknown>;
+  /** 有业务任务的消费必须显式传入，不得从 sourceRef 推断。 */
+  operation?: CreditOperationContext;
+  /** 仅限无业务任务的手工/管理操作显式选择账本 ID 回退。 */
+  operationFallback?: CreditOperationContextFallback;
 }
 
 /**
@@ -351,6 +408,17 @@ export async function grantCredits(params: GrantCreditsParams) {
     throw new Error("积分数量必须大于 0");
   }
 
+  // 账本时间与 ID 在进入事务前只生成一次，账本行与投影共用。
+  const transactionId = crypto.randomUUID();
+  const transactionCreatedAt = new Date();
+  const operation =
+    transactionType === "refund"
+      ? resolveCreditOperationContext(params.operation, {
+          transactionId,
+          transactionCreatedAt,
+        })
+      : null;
+
   return await db.transaction(async (tx) => {
     const [balanceRecord] = await tx
       .select()
@@ -384,7 +452,7 @@ export async function grantCredits(params: GrantCreditsParams) {
       throw new AccountFrozenError(userId);
     }
 
-    const issuedAt = new Date();
+    const issuedAt = transactionCreatedAt;
     const effectiveExpiresAt =
       expiresAt === undefined
         ? sourceType === "bonus"
@@ -424,7 +492,6 @@ export async function grantCredits(params: GrantCreditsParams) {
       };
     }
 
-    const transactionId = crypto.randomUUID();
     const creditAccount = `WALLET:${userId}`;
 
     await tx.insert(creditsTransaction).values({
@@ -436,19 +503,39 @@ export async function grantCredits(params: GrantCreditsParams) {
       creditAccount,
       description,
       sourceRef,
+      ...(operation
+        ? {
+            operationType: operation.operationType,
+            operationId: operation.operationId,
+            operationCreatedAt: operation.operationCreatedAt,
+          }
+        : {}),
       metadata: {
         ...metadata,
         batchId,
         sourceRef,
       },
+      createdAt: transactionCreatedAt,
     });
 
+    if (transactionType === "refund" && operation) {
+      await applyCreditUsageContribution(createCreditUsageProjectionStore(tx), {
+        transactionId,
+        transactionType: "refund",
+        transactionCreatedAt,
+        userId,
+        amount,
+        operation,
+      });
+    }
+
+    // 锁顺序固定为计费操作 → 积分账户，与并发消费保持一致。
     await tx
       .update(creditsBalance)
       .set({
         balance: sql`${creditsBalance.balance} + ${amount}`,
         totalEarned: sql`${creditsBalance.totalEarned} + ${amount}`,
-        updatedAt: new Date(),
+        updatedAt: transactionCreatedAt,
       })
       .where(eq(creditsBalance.userId, userId));
 
@@ -483,6 +570,15 @@ export async function consumeCredits(
     throw new Error("消费数量必须大于 0");
   }
 
+  // 预分配的账本 ID/时间同时作为无业务任务 fallback 的稳定操作身份。
+  const transactionId = crypto.randomUUID();
+  const transactionCreatedAt = new Date();
+  const operation = resolveCreditOperationContext(params.operation, {
+    transactionId,
+    transactionCreatedAt,
+    ...(params.operationFallback ? { fallback: params.operationFallback } : {}),
+  });
+
   await processExpiredBatches({ userId });
 
   try {
@@ -501,6 +597,10 @@ export async function consumeCredits(
             id: creditsTransaction.id,
             amount: creditsTransaction.amount,
             metadata: creditsTransaction.metadata,
+            operationType: creditsTransaction.operationType,
+            operationId: creditsTransaction.operationId,
+            operationCreatedAt: creditsTransaction.operationCreatedAt,
+            createdAt: creditsTransaction.createdAt,
           })
           .from(creditsTransaction)
           .where(
@@ -512,6 +612,8 @@ export async function consumeCredits(
           )
           .limit(1);
         if (existing) {
+          const storedOperation = readStoredCreditOperationContext(existing);
+          assertCompatibleCreditOperationContext(operation, storedOperation);
           const [balance] = await tx
             .select({ balance: creditsBalance.balance })
             .from(creditsBalance)
@@ -562,7 +664,10 @@ export async function consumeCredits(
               eq(creditsBatch.userId, userId),
               eq(creditsBatch.status, "active"),
               gt(creditsBatch.remaining, 0),
-              or(isNull(creditsBatch.expiresAt), gt(creditsBatch.expiresAt, now))
+              or(
+                isNull(creditsBatch.expiresAt),
+                gt(creditsBatch.expiresAt, now)
+              )
             )
           )
           // 扣减顺序:最快到期的批次先扣(在过期作废前尽量用掉),无到期(永久)批次最后扣;
@@ -598,7 +703,10 @@ export async function consumeCredits(
               eq(creditsBatch.id, batch.id),
               eq(creditsBatch.status, "active"),
               gte(creditsBatch.remaining, consumeFromThisBatch),
-              or(isNull(creditsBatch.expiresAt), gt(creditsBatch.expiresAt, now))
+              or(
+                isNull(creditsBatch.expiresAt),
+                gt(creditsBatch.expiresAt, now)
+              )
             )
           )
           .returning({ id: creditsBatch.id });
@@ -619,7 +727,6 @@ export async function consumeCredits(
         throw new InsufficientCreditsError(amount, amount - remainingToConsume);
       }
 
-      const transactionId = crypto.randomUUID();
       const debitAccount = `WALLET:${userId}`;
       const creditAccount = `SERVICE:${serviceName}`;
 
@@ -634,19 +741,42 @@ export async function consumeCredits(
         creditAccount,
         description: description ?? `消费于 ${serviceName}`,
         sourceRef,
+        ...(operation
+          ? {
+              operationType: operation.operationType,
+              operationId: operation.operationId,
+              operationCreatedAt: operation.operationCreatedAt,
+            }
+          : {}),
         metadata: {
           ...metadata,
           serviceName,
           consumedBatches,
         },
+        createdAt: transactionCreatedAt,
       });
 
+      if (operation) {
+        await applyCreditUsageContribution(
+          createCreditUsageProjectionStore(tx),
+          {
+            transactionId,
+            transactionType: "consumption",
+            transactionCreatedAt,
+            userId,
+            amount,
+            operation,
+          }
+        );
+      }
+
+      // 与退款使用同一锁顺序：先 operation，再 balance，避免交叉死锁。
       const [updatedBalance] = await tx
         .update(creditsBalance)
         .set({
           balance: sql`${creditsBalance.balance} - ${amount}`,
           totalSpent: sql`${creditsBalance.totalSpent} + ${amount}`,
-          updatedAt: new Date(),
+          updatedAt: transactionCreatedAt,
         })
         .where(
           and(
@@ -680,6 +810,10 @@ export async function consumeCredits(
           id: creditsTransaction.id,
           amount: creditsTransaction.amount,
           metadata: creditsTransaction.metadata,
+          operationType: creditsTransaction.operationType,
+          operationId: creditsTransaction.operationId,
+          operationCreatedAt: creditsTransaction.operationCreatedAt,
+          createdAt: creditsTransaction.createdAt,
         })
         .from(creditsTransaction)
         .where(
@@ -691,6 +825,8 @@ export async function consumeCredits(
         )
         .limit(1);
       if (existing) {
+        const storedOperation = readStoredCreditOperationContext(existing);
+        assertCompatibleCreditOperationContext(operation, storedOperation);
         const [balance] = await db
           .select({ balance: creditsBalance.balance })
           .from(creditsBalance)
@@ -747,9 +883,7 @@ export async function voidActiveSubscriptionCreditsForUpgrade(
           eq(creditsBatch.sourceType, "subscription"),
           eq(creditsBatch.status, "active"),
           gt(creditsBatch.remaining, 0),
-          issuedBefore
-            ? lt(creditsBatch.issuedAt, issuedBefore)
-            : sql`true`,
+          issuedBefore ? lt(creditsBatch.issuedAt, issuedBefore) : sql`true`,
           newBatchSourceRef
             ? sql`${creditsBatch.sourceRef} IS DISTINCT FROM ${newBatchSourceRef}`
             : sql`true`
