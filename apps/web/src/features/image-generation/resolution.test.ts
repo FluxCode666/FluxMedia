@@ -3,13 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_IMAGE_MODEL,
   fitImageDimensionsToValidSize,
-  getImageBaseCredits,
   getImageBackendApiModel,
   getImageCreditCostBreakdown,
   getImageModel,
   getQualityMultiplier,
   getThinkingMultiplier,
-  IMAGE_1024_BASE_PIXELS,
   IMAGE_DIMENSION_STEP,
   isImageModel,
   isImageSizeWithinPixelRange,
@@ -27,12 +25,17 @@ import {
 } from "./resolution";
 
 describe("image resolution credit pricing", () => {
-  it("keeps legacy default anchor prices for 1024 square and 4K", () => {
+  it("keeps the default fixed prices for 1K, 2K, and 4K tiers", () => {
     expect(
       getImageCreditCostBreakdown("1024x1024", {
         textModerationCount: 0,
       }).baseCredits
     ).toBe(1.27);
+    expect(
+      getImageCreditCostBreakdown("2048x1152", {
+        textModerationCount: 0,
+      }).baseCredits
+    ).toBe(5.07);
     expect(
       getImageCreditCostBreakdown("3840x2160", {
         textModerationCount: 0,
@@ -40,24 +43,32 @@ describe("image resolution credit pricing", () => {
     ).toBe(10);
   });
 
-  it("linearly interpolates between configured 1024 square and 4K prices", () => {
-    const pricing = { base1024Credits: 2, base4kCredits: 20 };
-    const halfwayPixels = (IMAGE_1024_BASE_PIXELS + MAX_IMAGE_PIXELS) / 2;
+  it("uses the fixed tier of the longest edge instead of interpolating pixels", () => {
+    const pricing = {
+      base1024Credits: 2,
+      base2kCredits: 8,
+      base4kCredits: 20,
+    };
+    const baseCreditsFor = (size: string) =>
+      getImageCreditCostBreakdown(size, {
+        basePricing: pricing,
+        textModerationCount: 0,
+      }).baseCredits;
 
-    expect(getImageBaseCredits(IMAGE_1024_BASE_PIXELS, pricing)).toBe(2);
-    expect(getImageBaseCredits(MAX_IMAGE_PIXELS, pricing)).toBe(20);
-    expect(getImageBaseCredits(halfwayPixels, pricing)).toBe(11);
+    expect(baseCreditsFor("1536x1024")).toBe(2);
+    expect(baseCreditsFor("2048x1152")).toBe(8);
+    expect(baseCreditsFor("3072x1728")).toBe(8);
+    expect(baseCreditsFor("3839x2160")).toBe(8);
+    expect(baseCreditsFor("3840x2160")).toBe(20);
+    expect(baseCreditsFor("4096x2304")).toBe(20);
   });
 
-  it("clamps outside the configured anchor range", () => {
-    const pricing = { base1024Credits: 2, base4kCredits: 20 };
-
-    expect(getImageBaseCredits(512 * 512, pricing)).toBe(2);
-    expect(getImageBaseCredits(MAX_IMAGE_PIXELS * 2, pricing)).toBe(20);
-  });
-
-  it("charges the 1024 base price for the legal lower-bound size", () => {
-    const pricing = { base1024Credits: 2, base4kCredits: 20 };
+  it("charges the 1K price for the legal lower-bound size", () => {
+    const pricing = {
+      base1024Credits: 2,
+      base2kCredits: 8,
+      base4kCredits: 20,
+    };
     const lowerBoundSize = "1024x640";
 
     expect(validateImageSize(lowerBoundSize)).toMatchObject({

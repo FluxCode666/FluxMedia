@@ -71,7 +71,7 @@ OpenAI 原生并非 1:1。
 总积分 = 基础积分(按尺寸) × 模型族倍率 × Adobe 后端倍率 × 分组倍率
 ```
 
-- 基础积分：按输出像素插值（1024² 与 4096² 两端之间线性插值，admin 可配 base1024 / base4k）。
+- 基础积分：按输出最长边使用固定档位（小于 2048px 为 1K，2048px 至小于 3840px 为 2K，达到或超过 3840px 为 4K；管理员可分别配置三个档位）。
 - 模型族倍率：`resolveImageModelMultiplier`，从 IMAGE_MODEL_MULTIPLIERS 取，非 firefly 族为 1。
 - Adobe 后端倍率：该 adobe 成员的 `billing_multiplier`（当前配置 1）。
 - 分组倍率：选中分组（含子组叠乘）的 billingMultiplier（`getEffectiveBillingMultiplierForSelectedGroup`）。

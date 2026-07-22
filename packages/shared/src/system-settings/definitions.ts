@@ -152,6 +152,7 @@ export type SettingKey =
   | "FREE_CREDITS_EXPIRY_DAYS"
   | "CREDITS_EXPIRY_DAYS"
   | "IMAGE_BASE_CREDITS_1024"
+  | "IMAGE_BASE_CREDITS_2K"
   | "IMAGE_BASE_CREDITS_4K"
   | "IMAGE_MODEL_MULTIPLIERS"
   | "IMAGE_SUPER_RESOLUTION_ENABLED"
@@ -1389,9 +1390,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "IMAGE_BASE_CREDITS_1024",
-    label: "1024x1024 基础生图积分",
+    label: "1K 档基础生图积分",
     description:
-      "不含文本/图片审核成本的 1024x1024 生图基础价格。其他分辨率会在该价格与 4K 基础价格之间按像素数线性推算；低于 1024x1024 按该价格封底。",
+      "不含文本/图片审核成本的 1K 档生图基础价格。最长边小于 2048px 的输出均按此固定价格计费。",
     category: "credits",
     valueType: "number",
     // WHY: 生图基础积分价格直接决定每次扣费，必须为正；上限拦截误填的异常巨大值，
@@ -1401,10 +1402,22 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 1.27,
   },
   {
+    key: "IMAGE_BASE_CREDITS_2K",
+    label: "2K 档基础生图积分",
+    description:
+      "不含文本/图片审核成本的 2K 档生图基础价格。最长边达到 2048px、但小于 3840px 的输出均按此固定价格计费。",
+    category: "credits",
+    valueType: "number",
+    // WHY: 固定档位直接决定用户扣费，必须限制为正的合理数值。
+    min: 0.01,
+    max: 100_000,
+    defaultValue: 5.07,
+  },
+  {
     key: "IMAGE_BASE_CREDITS_4K",
     label: "4K 基础生图积分",
     description:
-      "不含文本/图片审核成本的 3840x2160 / 2160x3840 生图基础价格。1024x1024 到 4K 之间按像素数线性推算；高于 4K 按该价格封顶。",
+      "不含文本/图片审核成本的 4K 档生图基础价格。最长边达到或超过 3840px 的输出均按此固定价格计费。",
     category: "credits",
     valueType: "number",
     // WHY: 同 IMAGE_BASE_CREDITS_1024，4K 基础价格须为正并设上限。

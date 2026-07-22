@@ -29,11 +29,12 @@ import {
   getImageBaseCreditPricing,
   getImageBaseCredits,
   IMAGE_1K_BASE_SIZE,
+  IMAGE_2K_BASE_EDGE,
+  IMAGE_4K_BASE_EDGE,
   IMAGE_1024_BASE_PIXELS,
   IMAGE_MODERATION_PRICE_CNY,
   type ImageBaseCreditPricing,
   MAX_IMAGE_ASPECT_RATIO,
-  MAX_IMAGE_PIXELS,
   MIN_IMAGE_DIMENSION,
   MIN_IMAGE_PIXELS,
   REFERENCE_CREDIT_PRICE_CNY,
@@ -46,7 +47,9 @@ type ImagePricingChartCardProps = ImagePricingCardData & {
 
 type PricingPoint = {
   baseCredits: number;
+  dimensions: { height: number; width: number };
   label: string;
+  longestEdge: number;
   megapixels: number;
   pixels: number;
   size: string;
@@ -54,27 +57,55 @@ type PricingPoint = {
 
 const PRICING_POINTS = [
   {
+    dimensions: { height: 640, width: 1024 },
     label: "Lower bound",
     size: "1024x640",
     pixels: MIN_IMAGE_PIXELS,
   },
-  { label: "1024", size: "1024x1024", pixels: IMAGE_1024_BASE_PIXELS },
   {
+    dimensions: { height: 1024, width: 1024 },
+    label: "1024",
+    size: "1024x1024",
+    pixels: 1024 * 1024,
+  },
+  {
+    dimensions: { height: 1248, width: 1248 },
     label: "1K",
     size: IMAGE_1K_BASE_SIZE,
     pixels: 1248 * 1248,
   },
-  { label: "3:2", size: "1536x1024", pixels: 1536 * 1024 },
-  { label: "2K", size: "2048x2048", pixels: 2048 * 2048 },
-  { label: "3K", size: "3072x1728", pixels: 3072 * 1728 },
-  { label: "4K", size: "3840x2160", pixels: MAX_IMAGE_PIXELS },
+  {
+    dimensions: { height: 1024, width: 1536 },
+    label: "3:2",
+    size: "1536x1024",
+    pixels: 1536 * 1024,
+  },
+  {
+    dimensions: { height: 2048, width: 2048 },
+    label: "2K",
+    size: "2048x2048",
+    pixels: 2048 * 2048,
+  },
+  {
+    dimensions: { height: 1728, width: 3072 },
+    label: "3K",
+    size: "3072x1728",
+    pixels: 3072 * 1728,
+  },
+  {
+    dimensions: { height: 2160, width: 3840 },
+    label: "4K",
+    size: "3840x2160",
+    pixels: 3840 * 2160,
+  },
 ];
 
-/** 根据当前基础定价生成曲线的固定示例点。 */
+/** 根据当前固定档位定价生成示例点。 */
 function buildChartData(pricing: ImageBaseCreditPricing): PricingPoint[] {
   return PRICING_POINTS.map((point) => ({
     ...point,
-    baseCredits: getImageBaseCredits(point.pixels, pricing),
+    baseCredits: getImageBaseCredits(point.dimensions, pricing),
+    longestEdge: Math.max(point.dimensions.width, point.dimensions.height),
     megapixels: Number((point.pixels / 1_000_000).toFixed(2)),
   }));
 }
@@ -99,36 +130,35 @@ function formatMegapixels(value: number) {
   return `${Number(value.toFixed(2))}MP`;
 }
 
+/** 将最长边像素值格式化为图表刻度。 */
+function formatLongestEdge(value: number) {
+  return `${Math.round(value).toLocaleString("en-US")}px`;
+}
+
 /** 返回示例尺寸的基础积分与可读计算式。 */
 function getExampleFormula(
   point: PricingPoint,
   pricing: ImageBaseCreditPricing
 ) {
-  if (point.pixels <= IMAGE_1024_BASE_PIXELS) {
+  if (point.longestEdge < IMAGE_2K_BASE_EDGE) {
     return {
       baseCredits: pricing.base1024Credits ?? 0,
-      formula: `P <= ${formatPixels(IMAGE_1024_BASE_PIXELS)}`,
+      formula: `E < ${formatLongestEdge(IMAGE_2K_BASE_EDGE)}`,
     };
   }
 
-  if (point.pixels >= MAX_IMAGE_PIXELS) {
+  if (point.longestEdge >= IMAGE_4K_BASE_EDGE) {
     return {
       baseCredits: pricing.base4kCredits ?? 0,
-      formula: `P >= ${formatPixels(MAX_IMAGE_PIXELS)}`,
+      formula: `E >= ${formatLongestEdge(IMAGE_4K_BASE_EDGE)}`,
     };
   }
 
-  const progress =
-    (point.pixels - IMAGE_1024_BASE_PIXELS) /
-    (MAX_IMAGE_PIXELS - IMAGE_1024_BASE_PIXELS);
-
   return {
-    baseCredits: getImageBaseCredits(point.pixels, pricing),
-    formula: `${formatPrice(pricing.base1024Credits ?? 0)} + ${Number(
-      progress.toFixed(4)
-    )} x (${formatPrice(pricing.base4kCredits ?? 0)} - ${formatPrice(
-      pricing.base1024Credits ?? 0
-    )})`,
+    baseCredits: pricing.base2kCredits ?? 0,
+    formula: `${formatLongestEdge(IMAGE_2K_BASE_EDGE)} <= E < ${formatLongestEdge(
+      IMAGE_4K_BASE_EDGE
+    )}`,
   };
 }
 
@@ -173,13 +203,7 @@ export function ImagePricingChartCard({
 }: ImagePricingChartCardProps) {
   const normalizedPricing = getImageBaseCreditPricing(pricing);
   const data = buildChartData(normalizedPricing);
-  const chartXTicks = [
-    Number((MIN_IMAGE_PIXELS / 1_000_000).toFixed(2)),
-    Number((IMAGE_1024_BASE_PIXELS / 1_000_000).toFixed(2)),
-    Number(((1248 * 1248) / 1_000_000).toFixed(2)),
-    Number(((2048 * 2048) / 1_000_000).toFixed(2)),
-    Number((MAX_IMAGE_PIXELS / 1_000_000).toFixed(2)),
-  ];
+  const chartXTicks = [1024, 1248, IMAGE_2K_BASE_EDGE, IMAGE_4K_BASE_EDGE];
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const { ref: chartContainerRef, width: chartWidth } = useElementWidth();
   const textModerationCredits =
@@ -192,14 +216,19 @@ export function ImagePricingChartCard({
   const multiplierExamplePoint = data.find(
     (point) => point.size === DEFAULT_IMAGE_SIZE
   ) ?? {
-    baseCredits: getImageBaseCredits(IMAGE_1024_BASE_PIXELS, normalizedPricing),
+    baseCredits: getImageBaseCredits(
+      { height: 1024, width: 1024 },
+      normalizedPricing
+    ),
+    dimensions: { height: 1024, width: 1024 },
     label: "1024",
+    longestEdge: 1024,
     megapixels: Number((IMAGE_1024_BASE_PIXELS / 1_000_000).toFixed(2)),
-    pixels: IMAGE_1024_BASE_PIXELS,
+    pixels: 1024 * 1024,
     size: DEFAULT_IMAGE_SIZE,
   };
   const multiplierExampleBase = getImageBaseCredits(
-    multiplierExamplePoint.pixels,
+    multiplierExamplePoint.dimensions,
     normalizedPricing
   );
   const multiplierExampleReviewAddOn = billing.moderationBlockingEnabled
@@ -262,20 +291,22 @@ export function ImagePricingChartCard({
     <Card className="transition-[border-color,box-shadow,translate] duration-250 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-whisper motion-reduce:transition-none">
       <CardHeader className="space-y-1">
         <CardTitle className="font-serif text-lg font-medium tracking-tight">
-          {copy("Image Pricing Curve", "生图计价曲线")}
+          {copy("Image Pricing Tiers", "生图固定价格档位")}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {copy(
-            `Base image credits interpolate from ${formatPrice(
+            `Base image credits use fixed tiers: 1K ${formatPrice(
               normalizedPricing.base1024Credits
-            )} at 1024x1024 to ${formatPrice(
-              normalizedPricing.base4kCredits
-            )} at 3840x2160.`,
-            `基础生图积分从 1024x1024 的 ${formatPrice(
+            )}, 2K ${formatPrice(
+              normalizedPricing.base2kCredits
+            )}, and 4K ${formatPrice(normalizedPricing.base4kCredits)}.`,
+            `基础生图积分采用固定档位：1K ${formatPrice(
               normalizedPricing.base1024Credits
-            )} 到 3840x2160 的 ${formatPrice(
+            )}、2K ${formatPrice(
+              normalizedPricing.base2kCredits
+            )}、4K ${formatPrice(
               normalizedPricing.base4kCredits
-            )} 之间按像素线性推算；低于 1024x1024 但仍满足模型尺寸限制时按 1024 基础价封底。`
+            )}；按输出最长边归档。`
           )}
         </p>
       </CardHeader>
@@ -300,13 +331,10 @@ export function ImagePricingChartCard({
               />
               <XAxis
                 axisLine={false}
-                dataKey="megapixels"
-                domain={[
-                  Number((MIN_IMAGE_PIXELS / 1_000_000).toFixed(2)),
-                  Number((MAX_IMAGE_PIXELS / 1_000_000).toFixed(2)),
-                ]}
+                dataKey="longestEdge"
+                domain={[1024, IMAGE_4K_BASE_EDGE]}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                tickFormatter={(value) => formatMegapixels(Number(value))}
+                tickFormatter={(value) => formatLongestEdge(Number(value))}
                 ticks={chartXTicks}
                 tickLine={false}
                 type="number"
@@ -353,7 +381,7 @@ export function ImagePricingChartCard({
                   )}`;
                 }}
               />
-              {/* 数据点空心化(fill 取 background)以适配暗色;线宽 2px 更克制 */}
+              {/* 阶梯线与固定档位一致；数据点空心化以适配暗色主题。 */}
               <Line
                 activeDot={{ r: 5 }}
                 dataKey="baseCredits"
@@ -361,7 +389,7 @@ export function ImagePricingChartCard({
                 isAnimationActive={false}
                 stroke="var(--primary)"
                 strokeWidth={2}
-                type="linear"
+                type="stepBefore"
               />
             </LineChart>
           ) : (
@@ -384,7 +412,7 @@ export function ImagePricingChartCard({
               {copy("Base formula", "基础公式")}
             </div>
             <div className="mt-2 space-y-1 text-muted-foreground">
-              <p>{copy("P = width x height.", "P = 宽 x 高。")}</p>
+              <p>{copy("E = max(width, height).", "E = max(宽, 高)。")}</p>
               <p>
                 {copy(
                   `Valid GPT image sizes start at ${formatPixels(
@@ -397,13 +425,13 @@ export function ImagePricingChartCard({
               </p>
               <p>
                 {copy(
-                  `If P <= ${formatPixels(
-                    IMAGE_1024_BASE_PIXELS
+                  `If E < ${formatLongestEdge(
+                    IMAGE_2K_BASE_EDGE
                   )}, base = ${formatPrice(
                     normalizedPricing.base1024Credits
                   )}.`,
-                  `若 P <= ${formatPixels(
-                    IMAGE_1024_BASE_PIXELS
+                  `若 E < ${formatLongestEdge(
+                    IMAGE_2K_BASE_EDGE
                   )}，基础价 = ${formatPrice(
                     normalizedPricing.base1024Credits
                   )}。`
@@ -411,16 +439,30 @@ export function ImagePricingChartCard({
               </p>
               <p>
                 {copy(
-                  `If ${formatPixels(
-                    IMAGE_1024_BASE_PIXELS
-                  )} < P < ${formatPixels(
-                    MAX_IMAGE_PIXELS
-                  )}, base = B1024 + (P - P1024) / (P4K - P1024) x (B4K - B1024).`,
-                  `若 ${formatPixels(
-                    IMAGE_1024_BASE_PIXELS
-                  )} < P < ${formatPixels(
-                    MAX_IMAGE_PIXELS
-                  )}，基础价 = B1024 + (P - P1024) / (P4K - P1024) x (B4K - B1024)。`
+                  `If ${formatLongestEdge(
+                    IMAGE_2K_BASE_EDGE
+                  )} <= E < ${formatLongestEdge(
+                    IMAGE_4K_BASE_EDGE
+                  )}, base = ${formatPrice(normalizedPricing.base2kCredits)}.`,
+                  `若 ${formatLongestEdge(
+                    IMAGE_2K_BASE_EDGE
+                  )} <= E < ${formatLongestEdge(
+                    IMAGE_4K_BASE_EDGE
+                  )}，基础价 = ${formatPrice(
+                    normalizedPricing.base2kCredits
+                  )}。`
+                )}
+              </p>
+              <p>
+                {copy(
+                  `If E >= ${formatLongestEdge(
+                    IMAGE_4K_BASE_EDGE
+                  )}, base = ${formatPrice(normalizedPricing.base4kCredits)}.`,
+                  `若 E >= ${formatLongestEdge(
+                    IMAGE_4K_BASE_EDGE
+                  )}，基础价 = ${formatPrice(
+                    normalizedPricing.base4kCredits
+                  )}。`
                 )}
               </p>
               <p>

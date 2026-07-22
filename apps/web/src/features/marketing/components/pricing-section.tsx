@@ -37,6 +37,8 @@ import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
 import {
   getImageBaseCreditPricing,
   getImageCreditCostBreakdown,
+  IMAGE_2K_BASE_EDGE,
+  IMAGE_4K_BASE_EDGE,
   IMAGE_MODERATION_PRICE_CNY,
   type ImageBaseCreditPricing,
   REFERENCE_CREDIT_PRICE_CNY,
@@ -299,15 +301,19 @@ export function PricingSection({
   };
 
   const pricingSubtitle = copy(
-    `Pay with credits. Subscription credits follow the current plan period; other credits follow the batch expiry shown on the usage page. Base image pricing is loaded from admin settings: 1024×1024 = ${formatCreditAmount(
+    `Pay with credits. Subscription credits follow the current plan period; other credits follow the batch expiry shown on the usage page. Base image pricing is loaded from admin settings: 1K = ${formatCreditAmount(
       normalizedImageBasePricing.base1024Credits
+    )} credits, 2K = ${formatCreditAmount(
+      normalizedImageBasePricing.base2kCredits
     )} credits, 4K = ${formatCreditAmount(
       normalizedImageBasePricing.base4kCredits
     )} credits, plus ${formatCreditAmount(
       textModerationCredits
     )} text review and ${formatCreditAmount(imageModerationCredits)} image review credits.`,
-    `按积分付费，订阅积分按套餐周期有效，其他积分以用量页显示的批次到期时间为准。出图基础价格读取后台配置：1024×1024 = ${formatCreditAmount(
+    `按积分付费，订阅积分按套餐周期有效，其他积分以用量页显示的批次到期时间为准。出图基础价格读取后台配置：1K = ${formatCreditAmount(
       normalizedImageBasePricing.base1024Credits
+    )} 积分，2K = ${formatCreditAmount(
+      normalizedImageBasePricing.base2kCredits
     )} 积分，4K = ${formatCreditAmount(
       normalizedImageBasePricing.base4kCredits
     )} 积分，并叠加文本审核 ${formatCreditAmount(
@@ -317,16 +323,20 @@ export function PricingSection({
 
   const billingRuleItems = [
     copy(
-      `Base image credits are loaded from admin settings: 1024×1024 = ${formatCreditAmount(
+      `Base image credits are loaded from admin settings: 1K = ${formatCreditAmount(
         normalizedImageBasePricing.base1024Credits
-      )} credits, 3840×2160 / 2160×3840 = ${formatCreditAmount(
+      )} credits, 2K = ${formatCreditAmount(
+        normalizedImageBasePricing.base2kCredits
+      )} credits, 4K = ${formatCreditAmount(
         normalizedImageBasePricing.base4kCredits
-      )} credits. Sizes between them are linearly interpolated by output pixels; below 1024×1024 uses the 1024 price floor, and above 4K uses the 4K cap.`,
-      `基础出图读取后台配置：1024×1024 = ${formatCreditAmount(
+      )} credits. The fixed tier is selected by the longest edge: below ${IMAGE_2K_BASE_EDGE}px uses 1K, ${IMAGE_2K_BASE_EDGE}px to below ${IMAGE_4K_BASE_EDGE}px uses 2K, and ${IMAGE_4K_BASE_EDGE}px or above uses 4K.`,
+      `基础出图读取后台配置：1K = ${formatCreditAmount(
         normalizedImageBasePricing.base1024Credits
-      )} 积分，3840×2160 / 2160×3840 = ${formatCreditAmount(
+      )} 积分，2K = ${formatCreditAmount(
+        normalizedImageBasePricing.base2kCredits
+      )} 积分，4K = ${formatCreditAmount(
         normalizedImageBasePricing.base4kCredits
-      )} 积分；中间尺寸按实际输出像素量线性推算，低于 1024×1024 按 1024 价格封底，高于 4K 按 4K 价格封顶。`
+      )} 积分。固定档位按最长边确定：小于 ${IMAGE_2K_BASE_EDGE}px 按 1K，达到 ${IMAGE_2K_BASE_EDGE}px 但小于 ${IMAGE_4K_BASE_EDGE}px 按 2K，达到或超过 ${IMAGE_4K_BASE_EDGE}px 按 4K。`
     ),
     copy(
       `Page Chat base round charge comes from the Plan Capability Matrix: ${getRoundCreditSummary(

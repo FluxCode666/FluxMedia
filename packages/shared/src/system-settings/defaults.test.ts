@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_PLAN_CAPABILITY_MATRIX } from "../subscription/services/plan-capabilities";
 import {
   CREDIT_PACKAGE_MATRIX_SETTING_KEY,
   getRuntimeCreditPackages,
 } from "../credits/packages";
+import { DEFAULT_PLAN_CAPABILITY_MATRIX } from "../subscription/services/plan-capabilities";
 import {
   clearSystemSettingsCache,
   getRuntimeSettingNumber,
@@ -128,6 +128,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("GENERATION_IMAGE_MAX_COUNT");
     expect(initializedKeys).toContain("IMAGE_GENERATION_GLOBAL_CONCURRENCY");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1024");
+    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_2K");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_4K");
     expect(initializedKeys).toContain("RATE_LIMIT_AI_REQUESTS_PER_MINUTE");
     expect(initializedKeys).not.toContain("BETTER_AUTH_SECRET");
@@ -147,6 +148,7 @@ describe("system setting default initialization", () => {
     expect(store.get("CREDITS_EXPIRY_DAYS")?.value).toBe(0);
     expect(store.get("IMAGE_GENERATION_GLOBAL_CONCURRENCY")?.value).toBe(500);
     expect(store.get("IMAGE_BASE_CREDITS_1024")?.value).toBe(1.27);
+    expect(store.get("IMAGE_BASE_CREDITS_2K")?.value).toBe(5.07);
     expect(store.get("IMAGE_BASE_CREDITS_4K")?.value).toBe(10);
     expect(store.get("RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE")?.value).toBe(100);
     expect(store.get("RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE")?.value).toBe(5);
