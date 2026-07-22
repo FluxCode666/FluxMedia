@@ -670,26 +670,6 @@
       "title": "Advanced Settings",
       "description": "Configuration options for power users."
     },
-    "moderation": {
-      "title": "Moderation block level",
-      "description": "This setting applies only to web (creation page) generation and only takes effect when moderation blocking is enabled; requests made with an external API key use that key's own level.",
-      "upgradeHint": "Ultra can allow low-risk results. Enterprise can also allow medium-risk results.",
-      "disabledByPlan": "Moderation blocking is not enabled for your current plan, so this setting has no effect.",
-      "options": {
-        "low": {
-          "label": "Block low and above",
-          "description": "Strictest: low, medium, and high are blocked."
-        },
-        "medium": {
-          "label": "Allow low",
-          "description": "Blocks medium and high only. Available on Ultra."
-        },
-        "high": {
-          "label": "Block high only",
-          "description": "Allows low and medium. Available on Enterprise."
-        }
-      }
-    },
     "externalApi": {
       "title": "External API access",
       "description": "Create FluxMedia OpenAI-compatible API keys for other sites or applications. Image generation and image edits require Starter or higher; Responses requires Pro or higher. External calls use your account credits and appear in your usage records.",

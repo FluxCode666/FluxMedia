@@ -33,7 +33,6 @@ export default async function SettingsPage() {
   const [[profile], defaultTimeZone] = await Promise.all([
     db
       .select({
-        moderationBlockRiskLevel: user.moderationBlockRiskLevel,
         timeZone: user.timeZone,
       })
       .from(user)
@@ -49,11 +48,6 @@ export default async function SettingsPage() {
         name: session.user.name || "",
         email: session.user.email || "",
         image: session.user.image,
-        moderationBlockRiskLevel:
-          profile?.moderationBlockRiskLevel === "medium" ||
-          profile?.moderationBlockRiskLevel === "high"
-            ? profile.moderationBlockRiskLevel
-            : "low",
         timeZone: profile?.timeZone?.trim() || null,
         defaultTimeZone,
       }}

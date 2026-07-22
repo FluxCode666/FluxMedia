@@ -35,8 +35,6 @@ import {
   FormMessage,
 } from "@repo/ui/components/form";
 import { Input } from "@repo/ui/components/input";
-import { Label } from "@repo/ui/components/label";
-import { RadioGroup, RadioGroupItem } from "@repo/ui/components/radio-group";
 import {
   Select,
   SelectContent,
@@ -50,13 +48,6 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui/components/tabs";
-import {
-  getAllowedModerationBlockRiskLevels,
-  type ModerationBlockRiskLevel,
-  type SubscriptionPlan,
-} from "@repo/shared/config/subscription-plan";
-import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
-import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import { USER_TIME_ZONE_OPTIONS } from "@repo/shared/time-zone";
 import {
   deleteAccountAction,
@@ -84,7 +75,6 @@ interface SettingsProfileViewProps {
     name: string;
     email: string;
     image?: string | null | undefined;
-    moderationBlockRiskLevel: ModerationBlockRiskLevel;
     timeZone: string | null;
     defaultTimeZone: string;
   };
@@ -130,18 +120,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const [selectedTimeZone, setSelectedTimeZone] = useState(
     user.timeZone ?? INHERIT_TIME_ZONE_VALUE
   );
-  const [userPlan, setUserPlan] = useState<SubscriptionPlan>("free");
-  const [capabilities, setCapabilities] =
-    useState<PlanCapabilitySnapshot | null>(null);
-  const moderationOptions =
-    capabilities?.moderation.allowedBlockRiskLevels ||
-    getAllowedModerationBlockRiskLevels(userPlan);
-  const moderationBlockingEnabled =
-    capabilities?.features["moderation.blocking"] ?? true;
-  const moderationControlAllowed =
-    moderationBlockingEnabled && moderationOptions.length > 1;
-  const avatarMaxFileSizeBytes =
-    capabilities?.limits.maxFileSizeBytes ?? MAX_FILE_SIZE;
+  const avatarMaxFileSizeBytes = MAX_FILE_SIZE;
   const normalizeTab = useCallback((value: string | null) => {
     if (
       value === "security" ||
@@ -183,26 +162,8 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
     resolver: zodResolver(updateProfileSchema),
     defaultValues: {
       name: user.name,
-      moderationBlockRiskLevel: user.moderationBlockRiskLevel,
     },
   });
-
-  useEffect(() => {
-    getMyPlanAction().then((result) => {
-      if (result?.data?.plan) {
-        const nextPlan = result.data.plan;
-        setUserPlan(nextPlan);
-        setCapabilities(result.data.capabilities ?? null);
-        const allowed =
-          result.data.capabilities?.moderation.allowedBlockRiskLevels ||
-          getAllowedModerationBlockRiskLevels(nextPlan);
-        const current = form.getValues("moderationBlockRiskLevel");
-        if (current && !allowed.includes(current)) {
-          form.setValue("moderationBlockRiskLevel", allowed.at(-1) || "low");
-        }
-      }
-    });
-  }, [form]);
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
@@ -481,72 +442,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
                     {t("general.emailDescription")}
                   </p>
                 </div>
-
-                <FormField
-                  control={form.control}
-                  name="moderationBlockRiskLevel"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className={fieldLabelClass}>
-                        {t("moderation.title")}
-                      </FormLabel>
-                      <FormControl>
-                        <RadioGroup
-                          value={field.value}
-                          onValueChange={(value) =>
-                            field.onChange(value as ModerationBlockRiskLevel)
-                          }
-                          className="grid max-w-2xl gap-3 md:grid-cols-3"
-                          disabled={isPending || !moderationControlAllowed}
-                        >
-                          {(
-                            [
-                              "low",
-                              "medium",
-                              "high",
-                            ] as ModerationBlockRiskLevel[]
-                          ).map((level) => {
-                            const optionAllowed =
-                              moderationOptions.includes(level);
-                            return (
-                              <Label
-                                key={level}
-                                htmlFor={`moderation-risk-${level}`}
-                                className={`rounded-md border border-border p-3 text-sm transition-colors duration-150 has-[[data-state=checked]]:border-foreground/40 has-[[data-state=checked]]:bg-muted/40 ${
-                                  optionAllowed
-                                    ? "cursor-pointer hover:bg-muted/50"
-                                    : "cursor-not-allowed opacity-50"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <RadioGroupItem
-                                    id={`moderation-risk-${level}`}
-                                    value={level}
-                                    disabled={!optionAllowed}
-                                  />
-                                  <span className="font-medium">
-                                    {t(`moderation.options.${level}.label`)}
-                                  </span>
-                                </div>
-                                <p className="mt-2 text-xs font-normal text-muted-foreground">
-                                  {t(`moderation.options.${level}.description`)}
-                                </p>
-                              </Label>
-                            );
-                          })}
-                        </RadioGroup>
-                      </FormControl>
-                      <FormDescription>
-                        {moderationControlAllowed
-                          ? t("moderation.description")
-                          : moderationBlockingEnabled
-                            ? t("moderation.upgradeHint")
-                            : t("moderation.disabledByPlan")}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </form>
             </Form>
           </section>

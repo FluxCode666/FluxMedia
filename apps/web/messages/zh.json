@@ -670,26 +670,6 @@
       "title": "高级设置",
       "description": "面向高级用户的配置选项。"
     },
-    "moderation": {
-      "title": "审核拦截级别",
-      "description": "该设置仅作用于网页端（创作页）生成，且仅在本站启用审核拦截时生效；通过外接 API Key 调用时，改用该 API Key 单独设置的审核级别。",
-      "upgradeHint": "旗舰版可放开 low 级拦截，企业版可继续放开 medium 级拦截。",
-      "disabledByPlan": "当前套餐未启用本站审核拦截，该设置不会生效。",
-      "options": {
-        "low": {
-          "label": "拦截 low 及以上",
-          "description": "最严格：low、medium、high 均会拦截。"
-        },
-        "medium": {
-          "label": "放开 low",
-          "description": "仅拦截 medium、high，旗舰版可选。"
-        },
-        "high": {
-          "label": "仅拦截 high",
-          "description": "放开 low、medium，仅企业版可选。"
-        }
-      }
-    },
     "externalApi": {
       "title": "外接 API 访问",
       "description": "创建本站 OpenAI 兼容 API Key，供其他站点或程序调用 FluxMedia。图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上。外部调用会消耗你的账户积分，并写入使用记录。",
