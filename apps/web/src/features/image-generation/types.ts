@@ -339,6 +339,7 @@ export interface ApiConfig {
     adobeGptImageQuality?: string;
     billingGroupId?: string | null;
     imageCreditOverrides?: ImageCreditOverrides;
+    /** 仅 Adobe 视频计费使用；图像固定价格不读取此倍率。 */
     billingMultiplier?: number;
     reportResult?: boolean;
     inflightLease?: boolean;

@@ -7,10 +7,7 @@
 
 import { db } from "@repo/database";
 import { generation, user } from "@repo/database/schema";
-import {
-  isAdobeImageFamilyModelId,
-  resolveImageModelMultiplier,
-} from "@repo/shared/adobe";
+import { isAdobeImageFamilyModelId } from "@repo/shared/adobe";
 import { resolveImageOutputCount } from "@repo/shared/analytics/output-count";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
 import { consumeCredits } from "@repo/shared/credits/core";
@@ -36,7 +33,6 @@ import {
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
-  getRuntimeSettingJson,
   getRuntimeSettingNumber,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
@@ -72,7 +68,7 @@ import {
   getOutputFormatExtension,
   normalizeOutputFormat,
 } from "./output-format";
-import { getRuntimeImageBaseCreditPricing } from "./pricing-settings";
+import { getRuntimeImageCreditPricing } from "./pricing-settings";
 import { withImageGenerationQueue } from "./queue";
 import {
   DEFAULT_IMAGE_MODEL,
@@ -82,6 +78,7 @@ import {
   getImageModel,
   getImageSizePixels,
   type ImageBaseCreditPricing,
+  type ResolvedImageModerationCreditPricing,
   type ImageQualityLevel,
   type ImageThinkingLevel,
   isFireflyModel,
@@ -226,35 +223,10 @@ function shouldForceWebBackend(
   return isImageSizeWithinPixelRange(size, range.minPixels, range.maxPixels);
 }
 
-const TEXT_MODERATION_ONLY_CREDITS =
-  getImageCreditCostBreakdown(DEFAULT_IMAGE_SIZE).moderationOnlyCredits;
-
 type ImageCreditCostBreakdown = ReturnType<typeof getImageCreditCostBreakdown>;
 
 function getChatRoundCount(result: GenerateImageResult) {
   return Math.max(1, Math.floor(result.agentRoundCount || 1));
-}
-
-function normalizeBillingMultiplier(value: unknown) {
-  const parsed =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value)
-        : Number.NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
-  return Math.min(100, Math.max(0.01, Math.round(parsed * 100) / 100));
-}
-
-function getConfigBillingMultiplier(config: ApiConfig) {
-  if (
-    config.backend?.type !== "pool-account" &&
-    config.backend?.type !== "pool-api" &&
-    config.backend?.type !== "pool-adobe"
-  ) {
-    return 1;
-  }
-  return normalizeBillingMultiplier(config.backend.billingMultiplier);
 }
 
 /**
@@ -309,41 +281,6 @@ function getRequestedModelForBackendSelection(input: RunImageGenerationInput) {
     return input.imageModel;
   }
   return input.model;
-}
-
-/** 把系统设置里的图像模型倍率 JSON 收窄成 family→正数 的 map。 */
-function parseImageModelMultipliers(value: unknown): Record<string, number> {
-  if (!value || typeof value !== "object") return {};
-  const out: Record<string, number> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
-  }
-  return out;
-}
-
-function applyBillingMultiplier(credits: number, multiplier: number) {
-  const amount = Math.max(0, credits);
-  return multiplier === 1 ? amount : roundUpCreditAmount(amount * multiplier);
-}
-
-function applyBillingMultiplierToCreditCost(
-  creditCost: ImageCreditCostBreakdown,
-  multiplier: number
-): ImageCreditCostBreakdown {
-  if (multiplier === 1) return creditCost;
-  return {
-    ...creditCost,
-    baseCredits: applyBillingMultiplier(creditCost.baseCredits, multiplier),
-    moderationCredits: applyBillingMultiplier(
-      creditCost.moderationCredits,
-      multiplier
-    ),
-    moderationOnlyCredits: applyBillingMultiplier(
-      creditCost.moderationOnlyCredits,
-      multiplier
-    ),
-    totalCredits: applyBillingMultiplier(creditCost.totalCredits, multiplier),
-  };
 }
 
 function resolveOutputRole(params: {
@@ -1279,7 +1216,6 @@ function buildBackendExecutionMetadata(params: {
       model: params.config.model,
       apiKeyId: backend.apiKeyId,
       billingGroupId: backend.billingGroupId,
-      billingMultiplier: backend.billingMultiplier,
       chargeImageCredits: params.billingPolicy.chargeImageCredits,
       chargeModerationCredits: params.billingPolicy.chargeModerationCredits,
       billingMode: params.billingPolicy.mode,
@@ -1616,73 +1552,6 @@ export async function runImageGenerationForUser(
 
           const { config, useCredits } = effectiveConfig;
           leasedConfig = config;
-          // 整体计费倍率 = 整个 Adobe(后端)倍率 × 该 firefly 图像模型族倍率。
-          // 模型族倍率只在此处折入一次,得到的 effectiveMultiplier 作为本次请求统一的
-          // billingMultiplier 向下传递,确保扣费/明细/退款/元数据口径一致(退款须按相同
-          // 倍率结算,故元数据上报的 billingMultiplier 即 effectiveMultiplier)。
-          const backendBillingMultiplier = getConfigBillingMultiplier(config);
-          const imageModelMultipliers = parseImageModelMultipliers(
-            await getRuntimeSettingJson("IMAGE_MODEL_MULTIPLIERS")
-          );
-          const modelMultiplier = resolveImageModelMultiplier(
-            input.model,
-            imageModelMultipliers
-          );
-          const billingMultiplier = backendBillingMultiplier * modelMultiplier;
-          const moderationEnabled =
-            (await isContentModerationEnabled()) &&
-            moderationBlockingEnabled &&
-            config.contentSafetyEnabled !== false;
-          const moderationImageCount = moderationEnabled
-            ? inputImages.length
-            : 0;
-          const imageBasePricing = await getRuntimeImageBaseCreditPricing();
-          const baseCreditCost = getImageCreditCostBreakdown(size, {
-            textModerationCount: moderationEnabled ? undefined : 0,
-            imageModerationCount: moderationImageCount,
-            basePricing: imageBasePricing,
-            quality: input.quality as ImageQualityLevel | undefined,
-            thinking: input.thinking as ImageThinkingLevel | undefined,
-          });
-          const creditCost = applyBillingMultiplierToCreditCost(
-            baseCreditCost,
-            billingMultiplier
-          );
-          const creditsPerImage = creditCost.totalCredits;
-          const chatRoundCredits = isChatInput
-            ? applyBillingMultiplier(
-                input.agentMode
-                  ? planCapabilities.billing.agentRoundCredits
-                  : planCapabilities.billing.chatRoundCredits,
-                billingMultiplier
-              )
-            : 0;
-          const billingPolicy = buildGenerationBillingPolicy({
-            useSiteImageCredits: useCredits,
-            moderationEnabled,
-          });
-          const initialCreditCharge = getInitialGenerationCharge({
-            policy: billingPolicy,
-            isChatInput,
-            chatRoundCredits,
-            creditCost,
-          });
-          const chatModerationOnlyCredits = applyBillingMultiplier(
-            TEXT_MODERATION_ONLY_CREDITS,
-            billingMultiplier
-          );
-          const moderationFailureCredits = moderationEnabled
-            ? getModerationFailureCharge({
-                policy: billingPolicy,
-                moderationOnlyFailureSettlement:
-                  planCapabilities.features["moderation.onlyFailureSettlement"],
-                isChatInput,
-                chatRoundCredits,
-                chatModerationOnlyCredits,
-                creditCost,
-                initialCreditCharge,
-              })
-            : 0;
           let imageModel: string;
           let gptModel: string | undefined;
           let recordModel: string;
@@ -1745,6 +1614,61 @@ export async function runImageGenerationForUser(
             };
           }
 
+          const moderationEnabled =
+            (await isContentModerationEnabled()) &&
+            moderationBlockingEnabled &&
+            config.contentSafetyEnabled !== false;
+          const moderationImageCount = moderationEnabled
+            ? inputImages.length
+            : 0;
+          // WHY: 先解析实际图像模型，再按“所选分组覆盖 → 全局模型价 → 通用档位价”
+          // 合并完整价格，保证 Chat 顶层文本模型不会误选生图价格。
+          const {
+            basePricing: imageBasePricing,
+            moderationPricing: imageModerationPricing,
+          } = await getRuntimeImageCreditPricing(
+            imageModel,
+            config.backend?.imageCreditOverrides
+          );
+          const creditCost = getImageCreditCostBreakdown(size, {
+            textModerationCount: moderationEnabled ? undefined : 0,
+            imageModerationCount: moderationImageCount,
+            basePricing: imageBasePricing,
+            moderationPricing: imageModerationPricing,
+            quality: input.quality as ImageQualityLevel | undefined,
+            thinking: input.thinking as ImageThinkingLevel | undefined,
+          });
+          const creditsPerImage = creditCost.totalCredits;
+          const chatRoundCredits = isChatInput
+            ? input.agentMode
+              ? planCapabilities.billing.agentRoundCredits
+              : planCapabilities.billing.chatRoundCredits
+            : 0;
+          const billingPolicy = buildGenerationBillingPolicy({
+            useSiteImageCredits: useCredits,
+            moderationEnabled,
+          });
+          const initialCreditCharge = getInitialGenerationCharge({
+            policy: billingPolicy,
+            isChatInput,
+            chatRoundCredits,
+            creditCost,
+          });
+          const chatModerationOnlyCredits = roundUpCreditAmount(
+            imageModerationPricing.textModerationCredits
+          );
+          const moderationFailureCredits = moderationEnabled
+            ? getModerationFailureCharge({
+                policy: billingPolicy,
+                moderationOnlyFailureSettlement:
+                  planCapabilities.features["moderation.onlyFailureSettlement"],
+                isChatInput,
+                chatRoundCredits,
+                chatModerationOnlyCredits,
+                creditCost,
+                initialCreditCharge,
+              })
+            : 0;
           return await runQueuedImageGenerationForUser({
             input,
             callbacks,
@@ -1766,10 +1690,10 @@ export async function runImageGenerationForUser(
             apiPrompt,
             moderationPrompt,
             imageBasePricing,
+            imageModerationPricing,
             config,
             useCredits,
             billingPolicy,
-            billingMultiplier,
             imageModel,
             gptModel,
             recordModel,
@@ -1818,10 +1742,10 @@ async function runQueuedImageGenerationForUser({
   apiPrompt,
   moderationPrompt,
   imageBasePricing,
+  imageModerationPricing,
   config,
   useCredits,
   billingPolicy,
-  billingMultiplier,
   imageModel,
   gptModel,
   recordModel,
@@ -1850,10 +1774,10 @@ async function runQueuedImageGenerationForUser({
   apiPrompt: string;
   moderationPrompt: string;
   imageBasePricing: ImageBaseCreditPricing;
+  imageModerationPricing: ResolvedImageModerationCreditPricing;
   config: Awaited<ReturnType<typeof getEffectiveConfig>>["config"];
   useCredits: boolean;
   billingPolicy: GenerationBillingPolicy;
-  billingMultiplier: number;
   imageModel: string;
   gptModel?: string;
   recordModel: string;
@@ -1877,7 +1801,6 @@ async function runQueuedImageGenerationForUser({
     billingPolicy,
   });
   const billingMetadata = {
-    billingMultiplier,
     billingGroupId: config.backend?.billingGroupId ?? null,
     chargeImageCredits: billingPolicy.chargeImageCredits,
     chargeModerationCredits: billingPolicy.chargeModerationCredits,
@@ -2099,7 +2022,6 @@ async function runQueuedImageGenerationForUser({
           mode: input.mode,
           size,
           creditCost,
-          billingMultiplier,
           billingGroupId: config.backend?.billingGroupId ?? null,
           initialCredits: initialCreditCharge,
           targetImageCredits: creditsPerImage,
@@ -2868,16 +2790,14 @@ async function runQueuedImageGenerationForUser({
             repairPrompt: input.repairPrompt,
             // 生成式修复计费:重绘一次按尺寸扣一次,幂等 sourceRef 防重试重复扣。
             chargeTile: async (tileSize, tileIndex) => {
-              const tileCost = applyBillingMultiplierToCreditCost(
-                getImageCreditCostBreakdown(tileSize, {
-                  textModerationCount: 0,
-                  imageModerationCount: 0,
-                  basePricing: imageBasePricing,
-                  quality: input.quality as ImageQualityLevel | undefined,
-                  thinking: input.thinking as ImageThinkingLevel | undefined,
-                }),
-                billingMultiplier
-              ).totalCredits;
+              const tileCost = getImageCreditCostBreakdown(tileSize, {
+                textModerationCount: 0,
+                imageModerationCount: 0,
+                basePricing: imageBasePricing,
+                moderationPricing: imageModerationPricing,
+                quality: input.quality as ImageQualityLevel | undefined,
+                thinking: input.thinking as ImageThinkingLevel | undefined,
+              }).totalCredits;
               await chargeAdditionalCredits(
                 tileCost,
                 "image-generation",
@@ -3007,41 +2927,35 @@ async function runQueuedImageGenerationForUser({
           thinkingMultiplier: 1,
           pixels: 0,
         }
-      : applyBillingMultiplierToCreditCost(
-          getImageCreditCostBreakdown(output.size, {
-            textModerationCount: moderationEnabled ? undefined : 0,
-            imageModerationCount: moderationEnabled ? inputImages.length : 0,
-            basePricing: imageBasePricing,
-            quality: input.quality as ImageQualityLevel | undefined,
-            thinking: input.thinking as ImageThinkingLevel | undefined,
-          }),
-          billingMultiplier
-        )
+      : getImageCreditCostBreakdown(output.size, {
+          textModerationCount: moderationEnabled ? undefined : 0,
+          imageModerationCount: moderationEnabled ? inputImages.length : 0,
+          basePricing: imageBasePricing,
+          moderationPricing: imageModerationPricing,
+          quality: input.quality as ImageQualityLevel | undefined,
+          thinking: input.thinking as ImageThinkingLevel | undefined,
+        })
   );
   const billableOutputCreditCosts = billableOutputs.map((output) =>
-    applyBillingMultiplierToCreditCost(
-      getImageCreditCostBreakdown(output.size, {
-        textModerationCount: moderationEnabled ? undefined : 0,
-        imageModerationCount: moderationEnabled ? inputImages.length : 0,
-        basePricing: imageBasePricing,
-        quality: input.quality as ImageQualityLevel | undefined,
-        thinking: input.thinking as ImageThinkingLevel | undefined,
-      }),
-      billingMultiplier
-    )
+    getImageCreditCostBreakdown(output.size, {
+      textModerationCount: moderationEnabled ? undefined : 0,
+      imageModerationCount: moderationEnabled ? inputImages.length : 0,
+      basePricing: imageBasePricing,
+      moderationPricing: imageModerationPricing,
+      quality: input.quality as ImageQualityLevel | undefined,
+      thinking: input.thinking as ImageThinkingLevel | undefined,
+    })
   );
   const actualCreditCost =
     billableOutputCreditCosts[billableOutputCreditCosts.length - 1] ||
-    applyBillingMultiplierToCreditCost(
-      getImageCreditCostBreakdown(primaryOutput.size, {
-        textModerationCount: moderationEnabled ? undefined : 0,
-        imageModerationCount: moderationEnabled ? inputImages.length : 0,
-        basePricing: imageBasePricing,
-        quality: input.quality as ImageQualityLevel | undefined,
-        thinking: input.thinking as ImageThinkingLevel | undefined,
-      }),
-      billingMultiplier
-    );
+    getImageCreditCostBreakdown(primaryOutput.size, {
+      textModerationCount: moderationEnabled ? undefined : 0,
+      imageModerationCount: moderationEnabled ? inputImages.length : 0,
+      basePricing: imageBasePricing,
+      moderationPricing: imageModerationPricing,
+      quality: input.quality as ImageQualityLevel | undefined,
+      thinking: input.thinking as ImageThinkingLevel | undefined,
+    });
   const actualImageCredits = perOutputCreditCosts.reduce(
     (total, item) => roundCreditAmount(total + item.totalCredits),
     0

@@ -3181,11 +3181,6 @@ function toResolvedPoolConfig(
           adobeSourced: member.adobeSourced,
           billingGroupId: fallbackGroupId,
           imageCreditOverrides,
-          // Adobe 来源 api：组倍率 × 本后端倍率（复用 Adobe 伪账号同一倍率链）；
-          // 普通 api 不套成员倍率，仅组倍率。
-          billingMultiplier: member.adobeSourced
-            ? billingMultiplier * (member.billingMultiplier || 1)
-            : billingMultiplier,
           reportResult: true,
           inflightLease: true,
           inflightLeaseId: member.leaseId,
@@ -3222,7 +3217,7 @@ function toResolvedPoolConfig(
           adobeSupportsVideo: member.supportsVideo,
           billingGroupId: fallbackGroupId,
           imageCreditOverrides,
-          // 组倍率 × 本 Adobe 后端倍率（叠加），作用于图像与视频扣费。
+          // 仅视频保留组倍率 × Adobe 后端倍率；图像固定价格不读取此值。
           billingMultiplier:
             billingMultiplier * (member.billingMultiplier || 1),
           reportResult: true,
@@ -3274,7 +3269,6 @@ function toResolvedPoolConfig(
         accountBackend: implementationMode,
         billingGroupId: fallbackGroupId,
         imageCreditOverrides,
-        billingMultiplier,
         reportResult: true,
         inflightLease: true,
         inflightLeaseId: member.leaseId,

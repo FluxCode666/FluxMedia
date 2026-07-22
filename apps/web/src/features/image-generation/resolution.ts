@@ -173,6 +173,11 @@ export type ImageModerationCreditPricing = {
   imageModerationCredits?: number;
 };
 
+export type ResolvedImageModerationCreditPricing = {
+  textModerationCredits: number;
+  imageModerationCredits: number;
+};
+
 export function roundCreditAmount(value: number) {
   return (
     Math.round((value + Number.EPSILON) * CREDIT_DECIMAL_FACTOR) /
@@ -241,7 +246,7 @@ export function getImageBaseCreditPricing(
  */
 export function getImageModerationCreditPricing(
   pricing?: ImageModerationCreditPricing | null
-) {
+): ResolvedImageModerationCreditPricing {
   return {
     textModerationCredits: normalizeModerationCreditPrice(
       pricing?.textModerationCredits,

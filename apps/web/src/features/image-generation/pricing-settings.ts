@@ -23,7 +23,7 @@ import {
   DEFAULT_IMAGE_1024_BASE_CREDIT_COST,
   DEFAULT_IMAGE_MODERATION_CREDIT_COST,
   DEFAULT_TEXT_MODERATION_CREDIT_COST,
-  type ImageModerationCreditPricing,
+  type ResolvedImageModerationCreditPricing,
 } from "./resolution";
 
 export async function getRuntimeImageBaseCreditPricing(): Promise<
@@ -57,7 +57,7 @@ export async function getRuntimeImageBaseCreditPricing(): Promise<
 }
 
 /** 读取允许为零的文本与输入图片审核费用。 */
-export async function getRuntimeImageModerationCreditPricing(): Promise<ImageModerationCreditPricing> {
+export async function getRuntimeImageModerationCreditPricing(): Promise<ResolvedImageModerationCreditPricing> {
   const [textModerationCredits, imageModerationCredits] = await Promise.all([
     getRuntimeSettingNumber(
       "IMAGE_TEXT_MODERATION_CREDITS",

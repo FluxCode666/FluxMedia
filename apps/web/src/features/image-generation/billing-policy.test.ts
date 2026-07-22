@@ -111,6 +111,28 @@ describe("generation billing policy", () => {
     ).toBe(0);
   });
 
+  it("keeps moderation enabled while charging zero when moderation prices are zero", () => {
+    const policy = buildGenerationBillingPolicy({
+      useSiteImageCredits: false,
+      moderationEnabled: true,
+    });
+    const zeroModerationCost = {
+      totalCredits: 0,
+      moderationOnlyCredits: 0,
+    };
+
+    expect(policy.mode).toBe("moderation_only");
+    expect(policy.chargeModerationCredits).toBe(true);
+    expect(
+      getInitialGenerationCharge({
+        policy,
+        isChatInput: false,
+        chatRoundCredits: 1,
+        creditCost: zeroModerationCost,
+      })
+    ).toBe(0);
+  });
+
   it("keeps moderation-only billing for moderation failures on user upstreams", () => {
     const policy = buildGenerationBillingPolicy({
       useSiteImageCredits: false,
