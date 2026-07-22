@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import type { SubscriptionPlan } from "../../config/subscription-plan";
+import { purchasablePlansOutputSchema } from "../../subscription/purchase-contract";
 import {
   canUsePlanCapability,
   getPlanCapabilityMatrix,
@@ -32,32 +33,7 @@ import { defineOperation } from "../registry";
 // ============================================
 
 /** 本人可购买套餐的窄输出契约；资格码由 U3 的购买服务实现。 */
-export const purchasablePlansOutputSchema = z.object({
-  enabled: z.boolean(),
-  currentPlan: z.enum(["free", "starter", "pro", "ultra", "enterprise"]),
-  currency: z.string().trim().min(1).max(12),
-  plans: z.array(
-    z.object({
-      id: z.enum(["starter", "pro", "ultra", "enterprise"]),
-      name: z.string().trim().min(1).max(120),
-      description: z.string().trim().max(500),
-      features: z.array(z.string().trim().min(1).max(240)).max(32),
-      popular: z.boolean(),
-      highlighted: z.boolean(),
-      eligible: z.boolean(),
-      eligibilityCode: z
-        .enum(["available", "current_plan", "downgrade", "unavailable"])
-        .nullable(),
-      prices: z.array(
-        z.object({
-          priceId: z.string().trim().min(1).max(512),
-          amount: z.number().finite().nonnegative(),
-          interval: z.enum(["monthly", "yearly"]),
-        })
-      ),
-    })
-  ),
-});
+export { purchasablePlansOutputSchema };
 
 export const listMyPurchasablePlans = defineOperation({
   name: "subscription.listMyPurchasablePlans",

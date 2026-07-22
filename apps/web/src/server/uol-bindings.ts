@@ -35,6 +35,7 @@ import {
 } from "@repo/shared/credits/usage-log-contract";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { checkRateLimit } from "@repo/shared/rate-limit";
+import { purchasablePlansOutputSchema } from "@repo/shared/subscription/purchase-contract";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import {
   formatDateInputInTimeZone,
@@ -70,6 +71,7 @@ import {
   getCreditTopUpOptions,
   getCreditTopUpOrderStatus,
 } from "@/features/payment/credit-top-up";
+import { loadSubscriptionPurchaseOptions } from "@/features/payment/subscription-purchase-options";
 import { databaseUsageLogRepository } from "@/features/usage-log/repository";
 import {
   loadUsageEventDetail,
@@ -425,6 +427,33 @@ bindExecute(
       userId: principal.userId,
       orderId: input.orderId,
     });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// subscription 钱包购买能力域
+// ---------------------------------------------------------------------------
+
+/**
+ * subscription.listMyPurchasablePlans - 只从 user Principal 读取本人资格。
+ * 输出再次执行共享 schema，防止运行时套餐配置夹带敏感字段。
+ */
+bindExecute(
+  "subscription.listMyPurchasablePlans",
+  async (
+    _input: Record<string, never>,
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    return purchasablePlansOutputSchema.parse(
+      await loadSubscriptionPurchaseOptions(principal.userId)
+    );
   }
 );
 

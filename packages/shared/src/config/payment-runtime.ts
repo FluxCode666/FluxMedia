@@ -1,3 +1,4 @@
+import type { RuntimePaymentProvider } from "../payment/provider-policy";
 import {
   type PaymentConfig,
   PaymentType,
@@ -20,7 +21,8 @@ import {
 
 export type PaidPlanId = "starter" | "pro" | "ultra" | "enterprise";
 
-export type RuntimePaymentConfig = PaymentConfig & {
+export type RuntimePaymentConfig = Omit<PaymentConfig, "provider"> & {
+  provider: RuntimePaymentProvider;
   yearlyEnabled: boolean;
 };
 
@@ -58,7 +60,7 @@ const PLAN_DEFAULT_AMOUNTS = {
   enterprise: { monthly: 800, yearly: 5760 },
 } as const;
 
-export type RuntimePaymentProvider = "creem" | "epay" | "alipay_f2f" | "none";
+export type { RuntimePaymentProvider } from "../payment/provider-policy";
 
 function getDefaultPaymentProvider(): RuntimePaymentProvider {
   if (

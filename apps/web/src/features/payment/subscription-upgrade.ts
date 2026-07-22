@@ -8,8 +8,8 @@ import {
   type PaidPlanId,
 } from "@repo/shared/config/payment-runtime";
 import {
+  compareSubscriptionPlans,
   getPlanFromPriceId,
-  PLAN_RANK,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
 
@@ -144,7 +144,7 @@ export async function createSubscriptionCheckoutQuote(
     throw new Error("找不到当前订阅套餐");
   }
 
-  if (PLAN_RANK[targetPlan] <= PLAN_RANK[currentPlan]) {
+  if (compareSubscriptionPlans(currentPlan, targetPlan) !== "upgrade") {
     throw new Error("只能升级到更高级套餐");
   }
 

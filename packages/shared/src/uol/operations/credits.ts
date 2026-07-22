@@ -13,10 +13,10 @@ import { z } from "zod";
 import {
   consumeCredits,
   ensureRegistrationBonus,
-  freezeCreditsAccount,
-  getCreditsBalance,
   getUserActiveBatches as fetchUserActiveBatches,
   getUserTransactions as fetchUserTransactions,
+  freezeCreditsAccount,
+  getCreditsBalance,
   getUserTransactionsCount,
   grantCredits,
   processExpiredBatches,
@@ -29,20 +29,17 @@ import {
   usageLogDetailInputSchema,
   usageLogListInputSchema,
 } from "../../credits/usage-log-contract";
+import {
+  walletBalanceSnapshotSchema,
+  walletTopUpOptionsSchema,
+} from "../../credits/wallet-contract";
 import { refundGenerationCredits } from "../../generation-maintenance";
 import { getRuntimeSettingNumber } from "../../system-settings";
 import { getPrincipalUserId } from "../principal";
 import { defineOperation } from "../registry";
 
 /** 钱包余额概览的窄输出；运行时 parse 防止账户对象敏感字段外泄。 */
-export const myBalanceOutputSchema = z.object({
-  balance: z.number().finite(),
-  totalSpent: z.number().finite().nonnegative(),
-  totalRefunded: z.number().finite().nonnegative(),
-  totalNetSpent: z.number().finite().nonnegative(),
-  status: z.enum(["active", "frozen"]),
-  asOf: z.string().datetime({ offset: true }),
-});
+export const myBalanceOutputSchema = walletBalanceSnapshotSchema;
 
 // ---------------------------------------------------------------------------
 // 1. credits.getBalance - 获取指定用户积分余额（含过期处理副作用）
@@ -945,19 +942,7 @@ export const getTopUpOptions = defineOperation({
     "读取当前用户可用的按金额积分充值币种、金额区间、兑换比例与支付方式。" +
     "仅返回已配置且实际可结账的通道，不暴露支付密钥。",
   input: z.object({}),
-  output: z.object({
-    enabled: z.boolean(),
-    defaultCurrency: z.string(),
-    currencies: z.array(
-      z.object({
-        currency: z.string(),
-        creditsPerMajorUnit: z.number().positive(),
-        minAmountMinor: z.number().int().positive(),
-        maxAmountMinor: z.number().int().positive(),
-        providers: z.array(z.literal("alipay_f2f")),
-      })
-    ),
-  }),
+  output: walletTopUpOptionsSchema,
   access: { kind: "protected" },
   readOnly: true,
   destructive: false,

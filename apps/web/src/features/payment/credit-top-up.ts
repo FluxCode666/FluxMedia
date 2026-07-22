@@ -13,12 +13,12 @@ import { db } from "@repo/database";
 import { paymentOrder } from "@repo/database/schema";
 import { CREDIT_CONFIG_DEFAULTS } from "@repo/shared/credits/config";
 import { grantCredits } from "@repo/shared/credits/core";
+import { getCreditPaymentDisplayStatus } from "@repo/shared/credits/purchase-orders";
 import {
   type CreditTopUpPaymentProvider,
   normalizeCreditTopUpConfig,
   quoteCreditTopUp,
 } from "@repo/shared/credits/top-up";
-import { getCreditPaymentDisplayStatus } from "@repo/shared/credits/purchase-orders";
 import { logError, logEvent } from "@repo/shared/logger";
 import {
   createAlipayF2FPrecreate,
@@ -165,7 +165,8 @@ export async function getCreditTopUpOptions() {
         (provider) => provider !== "alipay_f2f" || alipayEnabled
       ),
     }))
-    .filter((item) => item.providers.length > 0);
+    .filter((item) => item.providers.length > 0)
+    .slice(0, 16);
 
   return {
     enabled: config.enabled && currencies.length > 0,

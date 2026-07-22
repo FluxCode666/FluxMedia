@@ -15,10 +15,11 @@ import {
   getRuntimeSettingSelect,
   getRuntimeSettingString,
 } from "../system-settings";
+import type { RuntimePaymentProvider } from "./provider-policy";
 
 export const EPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
 
-export type PaymentProvider = "creem" | "epay" | "alipay_f2f" | "none";
+export type PaymentProvider = RuntimePaymentProvider;
 export type EpayBusinessType = "subscription" | "credit_purchase";
 
 export interface EpayMetadata {

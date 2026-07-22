@@ -20,6 +20,11 @@ export type SubscriptionPlan =
   | "ultra"
   | "enterprise";
 
+export type SubscriptionPlanTransition =
+  | "current_plan"
+  | "downgrade"
+  | "upgrade";
+
 export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   "free",
   "starter",
@@ -27,6 +32,22 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   "ultra",
   "enterprise",
 ];
+
+/**
+ * 比较两个套餐等级。
+ *
+ * @param currentPlan 当前有效套餐。
+ * @param targetPlan 用户准备购买的目标套餐。
+ * @returns 同级、降级或升级；不读取价格和订阅状态。
+ */
+export function compareSubscriptionPlans(
+  currentPlan: SubscriptionPlan,
+  targetPlan: SubscriptionPlan
+): SubscriptionPlanTransition {
+  const difference = PLAN_RANK[targetPlan] - PLAN_RANK[currentPlan];
+  if (difference === 0) return "current_plan";
+  return difference < 0 ? "downgrade" : "upgrade";
+}
 
 export type ModerationBlockRiskLevel = "low" | "medium" | "high";
 

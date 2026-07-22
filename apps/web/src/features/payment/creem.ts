@@ -8,6 +8,16 @@
 import crypto from "node:crypto";
 import { getRuntimeSettingString } from "@repo/shared/system-settings";
 
+/** Creem checkout 必需配置缺失，调用方可用稳定类型区分业务关闭与读取异常。 */
+export class CreemCheckoutConfigurationError extends Error {
+  constructor() {
+    super(
+      "Creem 支付通道未完整配置，请在系统设置中填写 API Key 和 Webhook Secret"
+    );
+    this.name = "CreemCheckoutConfigurationError";
+  }
+}
+
 async function getRuntimeCreemApiKey() {
   return (await getRuntimeSettingString("CREEM_API_KEY")) ?? "";
 }
@@ -35,9 +45,7 @@ export async function assertRuntimeCreemCheckoutConfigured(): Promise<void> {
     getRuntimeSettingString("CREEM_WEBHOOK_SECRET"),
   ]);
   if (!apiKey.trim() || !webhookSecret?.trim()) {
-    throw new Error(
-      "Creem 支付通道未完整配置，请在系统设置中填写 API Key 和 Webhook Secret"
-    );
+    throw new CreemCheckoutConfigurationError();
   }
 }
 
