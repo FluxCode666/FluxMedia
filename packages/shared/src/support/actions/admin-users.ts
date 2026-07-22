@@ -1,18 +1,5 @@
 "use server";
 
-import {
-  and,
-  count,
-  desc,
-  eq,
-  ilike,
-  inArray,
-  or,
-  sql,
-} from "drizzle-orm";
-import { revalidatePath } from "next/cache";
-import { z } from "zod";
-
 import { db } from "@repo/database";
 import {
   account,
@@ -26,17 +13,21 @@ import {
   subscription,
   user,
 } from "@repo/database/schema";
+import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import {
   ADMIN_MANAGEMENT_ROLES,
   APP_USER_ROLES,
+  type AppUserRole,
   canActOnTargetRole,
   getUserRoleLabel,
 } from "../../auth/roles";
+import { PRICE_IDS } from "../../config/payment";
 import {
   getPlanFromPriceId,
   type SubscriptionPlan,
 } from "../../config/subscription-plan";
-import { PRICE_IDS } from "../../config/payment";
 import {
   consumeCredits,
   freezeCreditsAccount,
@@ -46,23 +37,29 @@ import {
 } from "../../credits/core";
 import { expireStalePendingGenerations } from "../../generation-maintenance";
 import {
+  type ModerationBlockRiskLevel,
+  moderationBlockRiskLevelSchema,
+} from "../../moderation/policy-contract";
+import {
   ActionUserError,
   adminAction,
   superAdminAction,
 } from "../../safe-action";
 import { buildSignedStorageImageUrl } from "../../storage/signed-url";
 import { getUserPlan } from "../../subscription/services/user-plan";
+import { invokeOperation, OperationError, type Principal } from "../../uol";
+import "../../uol/operations/moderation";
 import { randomUUID } from "node:crypto";
 // 密码哈希链路：与 bootstrap-super-admin.ts 完全一致，写入 account.password，禁止明文/自造哈希
 import { hashPassword } from "better-auth/crypto";
-// 积分账户惰性创建（新建用户后初始化积分账户，余额 0）
-import { ensureCreditsBalance } from "../../credits/core";
 // 邮箱规范化 + 注册身份登记/查重（防薅羊毛账本，建号/改邮箱需同步）
 import { normalizeEmail } from "../../auth/email-domain";
 import {
   isRegistrationEmailTaken,
   recordRegistrationIdentity,
 } from "../../auth/registration-identity";
+// 积分账户惰性创建（新建用户后初始化积分账户，余额 0）
+import { ensureCreditsBalance } from "../../credits/core";
 
 const withAdminUsersAction = (name: string) =>
   adminAction.metadata({ action: `support.adminUsers.${name}` });
@@ -127,6 +124,70 @@ const reasonSchema = z
   .trim()
   .min(1, "请填写操作原因")
   .max(300, "原因最多300字符");
+
+const setUserModerationPolicySchema = userIdSchema
+  .extend({
+    level: moderationBlockRiskLevelSchema.nullable(),
+    reason: reasonSchema,
+  })
+  .strict();
+
+interface ResolvedUserModerationPolicyActionResult {
+  globalDefault: ModerationBlockRiskLevel;
+  userOverride: ModerationBlockRiskLevel | null;
+  effectiveLevel: ModerationBlockRiskLevel;
+  source: "user_override" | "global" | "fallback_high";
+}
+
+interface UserModerationPolicyWriteActionResult {
+  changed: boolean;
+  before: unknown;
+  after: ModerationBlockRiskLevel | null;
+  effectiveLevel: ModerationBlockRiskLevel;
+  source: "user_override" | "global" | "fallback_high";
+  auditLogId: string | null;
+  updatedAt: Date;
+}
+
+/** 从 adminAction 已复查的用户 ID 与角色构造可信人工会话 Principal。 */
+function createAdminUsersPrincipal(input: {
+  userId: string;
+  role: AppUserRole;
+}): Principal {
+  return { type: "user", userId: input.userId, role: input.role };
+}
+
+/** 把审核策略 UOL 错误转换为不泄露内部细节的中文反馈。 */
+function throwUserModerationPolicyActionError(error: unknown): never {
+  if (!(error instanceof OperationError)) throw error;
+  switch (error.code) {
+    case "forbidden":
+    case "unauthenticated":
+      throw new ActionUserError("无权查看或修改该用户的审核策略");
+    case "validation_error":
+      throw new ActionUserError("用户、审核级别或变更原因不合法");
+    case "not_found":
+      throw new ActionUserError("用户不存在");
+    case "timeout":
+    case "not_ready":
+      throw new ActionUserError("审核策略服务暂时不可用，请稍后重试");
+    default:
+      throw new ActionUserError("审核策略操作失败，请稍后重试");
+  }
+}
+
+/** 调用审核策略 operation，并在 Server Action 边界统一映射错误。 */
+async function invokeUserModerationPolicyOperation<T>(
+  name: string,
+  input: unknown,
+  principal: Principal
+): Promise<T> {
+  try {
+    return await invokeOperation<T>(name, input, principal);
+  } catch (error) {
+    throwUserModerationPolicyActionError(error);
+  }
+}
 
 const updateUserRoleSchema = userIdSchema.extend({
   role: z.enum(APP_USER_ROLES),
@@ -253,7 +314,8 @@ function isSubscriptionWithinPeriod(sub: {
   if (sub.status === "lifetime") {
     return true;
   }
-  const withinPeriod = !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date();
+  const withinPeriod =
+    !sub.currentPeriodEnd || sub.currentPeriodEnd > new Date();
   return (
     (["active", "trialing"].includes(sub.status) && withinPeriod) ||
     (sub.status === "canceled" && withinPeriod)
@@ -279,13 +341,12 @@ function effectiveSubscriptionCondition() {
 }
 
 function getPlanPriceIds(plan: Exclude<PlanFilter, "all" | "free">) {
-  return Object.values(PRICE_IDS)
-    .filter((value): value is string => {
-      if (!value) {
-        return false;
-      }
-      return getPlanFromPriceId(value) === plan;
-    });
+  return Object.values(PRICE_IDS).filter((value): value is string => {
+    if (!value) {
+      return false;
+    }
+    return getPlanFromPriceId(value) === plan;
+  });
 }
 
 function getMonthlyPriceIdForPlan(plan: Exclude<SubscriptionPlan, "free">) {
@@ -430,7 +491,8 @@ export const getAllUsersAction = withAdminUsersAction("getAllUsers")
         emailVerified: user.emailVerified,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        creditsBalance: sql<number>`coalesce(${creditsBalance.balance}, 0)`.mapWith(Number),
+        creditsBalance:
+          sql<number>`coalesce(${creditsBalance.balance}, 0)`.mapWith(Number),
         creditsTotalEarned:
           sql<number>`coalesce(${creditsBalance.totalEarned}, 0)`.mapWith(
             Number
@@ -459,16 +521,15 @@ export const getAllUsersAction = withAdminUsersAction("getAllUsers")
         .orderBy(desc(user.createdAt))
         .limit(input.pageSize)
         .offset(offset),
-      (where ? countQuery.where(where) : countQuery),
+      where ? countQuery.where(where) : countQuery,
       Promise.all([
         db.select({ count: count() }).from(user),
         db
           .select({ count: count() })
           .from(user)
-          .where(inArray(user.role, [
-            "observer_admin",
-            ...ADMIN_MANAGEMENT_ROLES,
-          ])),
+          .where(
+            inArray(user.role, ["observer_admin", ...ADMIN_MANAGEMENT_ROLES])
+          ),
         db.select({ count: count() }).from(user).where(eq(user.banned, true)),
         db
           .select({ count: count() })
@@ -485,9 +546,10 @@ export const getAllUsersAction = withAdminUsersAction("getAllUsers")
               .select({
                 userId: generation.userId,
                 total: sql<number>`count(*)`.mapWith(Number),
-                failed: sql<number>`sum(case when ${generation.status} = 'failed' then 1 else 0 end)`.mapWith(
-                  Number
-                ),
+                failed:
+                  sql<number>`sum(case when ${generation.status} = 'failed' then 1 else 0 end)`.mapWith(
+                    Number
+                  ),
               })
               .from(generation)
               .where(inArray(generation.userId, userIds))
@@ -496,9 +558,10 @@ export const getAllUsersAction = withAdminUsersAction("getAllUsers")
               .select({
                 userId: externalApiKey.userId,
                 total: sql<number>`count(*)`.mapWith(Number),
-                active: sql<number>`sum(case when ${externalApiKey.isActive} then 1 else 0 end)`.mapWith(
-                  Number
-                ),
+                active:
+                  sql<number>`sum(case when ${externalApiKey.isActive} then 1 else 0 end)`.mapWith(
+                    Number
+                  ),
               })
               .from(externalApiKey)
               .where(inArray(externalApiKey.userId, userIds))
@@ -546,10 +609,46 @@ export const getAllUsersAction = withAdminUsersAction("getAllUsers")
     };
   });
 
+/**
+ * 设置或清除用户审核级别覆盖。
+ *
+ * Action 只传递真实会话 Principal 和已校验输入；目标角色判断、事务与审计均由
+ * moderation operation 下层持有，避免传输层形成第二套权限或写入逻辑。
+ */
+export const setUserModerationPolicyAction = withAdminUsersAction(
+  "setUserModerationPolicy"
+)
+  .schema(setUserModerationPolicySchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result =
+      await invokeUserModerationPolicyOperation<UserModerationPolicyWriteActionResult>(
+        "moderation.setUserRiskLevelOverride",
+        parsedInput,
+        createAdminUsersPrincipal({
+          userId: ctx.userId,
+          role: ctx.role,
+        })
+      );
+    revalidatePath("/dashboard/users");
+    return {
+      success: true,
+      ...result,
+      message: !result.changed
+        ? "用户审核级别未发生变化"
+        : result.after === null
+          ? "用户审核级别已恢复继承全站配置"
+          : `用户审核级别已更新为 ${result.after}`,
+    };
+  });
+
 export const getUserDetailAction = withAdminUsersAction("getUserDetail")
   .schema(userIdSchema)
-  .action(async ({ parsedInput }) => {
+  .action(async ({ parsedInput, ctx }) => {
     const userId = parsedInput.userId;
+    const principal = createAdminUsersPrincipal({
+      userId: ctx.userId,
+      role: ctx.role,
+    });
     await expireStalePendingGenerations({ userId, limit: 100 });
 
     const [
@@ -562,12 +661,9 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
       apiKeys,
       auditLogs,
       generationSummary,
+      moderationPolicy,
     ] = await Promise.all([
-      db
-        .select()
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1),
+      db.select().from(user).where(eq(user.id, userId)).limit(1),
       db
         .select()
         .from(creditsBalance)
@@ -639,6 +735,8 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
           adminUserId: adminAuditLog.adminUserId,
           action: adminAuditLog.action,
           reason: adminAuditLog.reason,
+          before: adminAuditLog.before,
+          after: adminAuditLog.after,
           metadata: adminAuditLog.metadata,
           createdAt: adminAuditLog.createdAt,
         })
@@ -664,6 +762,11 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
         })
         .from(generation)
         .where(eq(generation.userId, userId)),
+      invokeUserModerationPolicyOperation<ResolvedUserModerationPolicyActionResult>(
+        "moderation.getUserRiskPolicy",
+        { userId },
+        principal
+      ),
     ]);
 
     const userData = userRows[0];
@@ -689,6 +792,7 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
       })),
       apiKeys,
       auditLogs,
+      moderationPolicy,
       generationSummary: generationSummary[0] ?? {
         total: 0,
         completed: 0,
@@ -729,7 +833,11 @@ export const banUserAction = withAdminUsersAction("banUser")
   .action(async ({ parsedInput: data, ctx }) => {
     const targetUser = await getUserBasicOrThrow(data.userId);
     // 目标权限护栏：禁止普通 admin 封禁/解封管理员及超管账户（防锁死超管，见 S-H5）。
-    assertCanActOnTarget(ctx.role, targetUser.role, data.banned ? "封禁" : "解封");
+    assertCanActOnTarget(
+      ctx.role,
+      targetUser.role,
+      data.banned ? "封禁" : "解封"
+    );
     const reason = data.reason || (data.banned ? "管理员操作" : "解除封禁");
 
     await db
@@ -997,8 +1105,7 @@ export const setUserCreditsStatusAction = withAdminUsersAction(
     await writeAdminAuditLog({
       adminUserId: ctx.userId,
       targetUserId: data.userId,
-      action:
-        data.status === "frozen" ? "credits.freeze" : "credits.unfreeze",
+      action: data.status === "frozen" ? "credits.freeze" : "credits.unfreeze",
       reason: data.reason,
       before: before
         ? {
@@ -1016,8 +1123,7 @@ export const setUserCreditsStatusAction = withAdminUsersAction(
 
     revalidatePath("/dashboard/users");
     return {
-      message:
-        data.status === "frozen" ? "积分账户已冻结" : "积分账户已解冻",
+      message: data.status === "frozen" ? "积分账户已冻结" : "积分账户已解冻",
     };
   });
 
@@ -1051,7 +1157,9 @@ export const setExternalApiKeyStatusAction = withAdminUsersAction(
     await writeAdminAuditLog({
       adminUserId: ctx.userId,
       targetUserId: apiKey.userId,
-      action: data.isActive ? "external_api_key.enable" : "external_api_key.disable",
+      action: data.isActive
+        ? "external_api_key.enable"
+        : "external_api_key.disable",
       reason: data.reason,
       before: {
         id: apiKey.id,

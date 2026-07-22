@@ -1,19 +1,86 @@
 "use server";
 
+/**
+ * 系统设置 Server Actions。
+ *
+ * 职责：验证真实管理员会话，把传输输入转换为 UOL 调用，并映射安全的用户反馈。
+ * 审核策略写入、事务与审计全部由 moderation operation 和 policy service 持有。
+ */
+
 import { z } from "zod";
 
+import type { AppUserRole } from "../../auth/roles";
 import {
   destroyGenerationPhotosByMaxCount,
   shouldRunMaxCountCleanupOnSettingsChange,
 } from "../../generation-maintenance";
 import { logError } from "../../logger";
-import { superAdminAction } from "../../safe-action";
+import {
+  type ModerationBlockRiskLevel,
+  moderationBlockRiskLevelSchema,
+} from "../../moderation/policy-contract";
+import { ActionUserError, superAdminAction } from "../../safe-action";
+import { invokeOperation, OperationError, type Principal } from "../../uol";
+import "../../uol/operations/moderation";
 import {
   getAdminSystemSettingsSnapshot,
   importSystemSettingsFromEnv,
   initializeMissingSystemSettingsDefaults,
   setSystemSettings,
 } from "../index";
+
+interface ResolvedModerationPolicyActionResult {
+  globalDefault: ModerationBlockRiskLevel;
+  userOverride: ModerationBlockRiskLevel | null;
+  effectiveLevel: ModerationBlockRiskLevel;
+  source: "user_override" | "global" | "fallback_high";
+}
+
+interface GlobalModerationPolicyWriteActionResult {
+  changed: boolean;
+  before: unknown;
+  after: ModerationBlockRiskLevel;
+  auditLogId: string | null;
+  updatedAt: Date;
+}
+
+const globalModerationPolicyInputSchema = z
+  .object({
+    level: moderationBlockRiskLevelSchema,
+    reason: z
+      .string()
+      .trim()
+      .min(1, "请填写变更原因")
+      .max(300, "变更原因最多 300 个字符"),
+  })
+  .strict();
+
+/** 从已复查数据库角色的 Action 上下文构造可信人工会话 Principal。 */
+function createSystemSettingsPrincipal(input: {
+  userId: string;
+  role: AppUserRole;
+}): Principal {
+  return { type: "user", userId: input.userId, role: input.role };
+}
+
+/** 把 UOL 错误映射为安全中文反馈，不透传 internal_error 内部消息。 */
+function throwModerationPolicyActionError(error: unknown): never {
+  if (!(error instanceof OperationError)) throw error;
+  switch (error.code) {
+    case "forbidden":
+    case "unauthenticated":
+      throw new ActionUserError("无权查看或修改全站审核策略");
+    case "validation_error":
+      throw new ActionUserError("审核级别或变更原因不合法");
+    case "not_found":
+      throw new ActionUserError("全站审核策略不存在");
+    case "timeout":
+    case "not_ready":
+      throw new ActionUserError("审核策略服务暂时不可用，请稍后重试");
+    default:
+      throw new ActionUserError("审核策略操作失败，请稍后重试");
+  }
+}
 
 const settingUpdateSchema = z.object({
   key: z.string().min(1),
@@ -26,6 +93,53 @@ export const getSystemSettingsAction = superAdminAction
   .action(async () => {
     const settings = await getAdminSystemSettingsSnapshot();
     return { settings };
+  });
+
+/** 读取全站审核级别，只负责把真实 super_admin 会话传入 UOL。 */
+export const getGlobalModerationPolicyAction = superAdminAction
+  .metadata({ action: "system-settings.moderation.getGlobalPolicy" })
+  .action(async ({ ctx }) => {
+    try {
+      const policy =
+        await invokeOperation<ResolvedModerationPolicyActionResult>(
+          "moderation.getGlobalRiskPolicy",
+          {},
+          createSystemSettingsPrincipal({
+            userId: ctx.userId,
+            role: ctx.role,
+          })
+        );
+      return { policy };
+    } catch (error) {
+      throwModerationPolicyActionError(error);
+    }
+  });
+
+/** 更新全站审核级别；策略、事务与审计由 UOL 下层统一完成。 */
+export const setGlobalModerationPolicyAction = superAdminAction
+  .metadata({ action: "system-settings.moderation.setGlobalPolicy" })
+  .schema(globalModerationPolicyInputSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    try {
+      const result =
+        await invokeOperation<GlobalModerationPolicyWriteActionResult>(
+          "moderation.setGlobalRiskLevel",
+          parsedInput,
+          createSystemSettingsPrincipal({
+            userId: ctx.userId,
+            role: ctx.role,
+          })
+        );
+      return {
+        success: true,
+        ...result,
+        message: result.changed
+          ? "全站审核级别已更新"
+          : "全站审核级别未发生变化",
+      };
+    } catch (error) {
+      throwModerationPolicyActionError(error);
+    }
   });
 
 export const updateSystemSettingsAction = superAdminAction
