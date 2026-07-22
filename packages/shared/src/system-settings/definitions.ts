@@ -93,6 +93,7 @@ export type SettingKey =
   | "CONTENT_MODERATION_PROXY_TIMEOUT_MS"
   | "CONTENT_MODERATION_PROVIDER_TIMEOUT_MS"
   | "CONTENT_MODERATION_PUBLIC_BASE_URL"
+  | "CONTENT_MODERATION_BLOCK_RISK_LEVEL"
   | "ALIYUN_MODERATION_ACCESS_KEY_ID"
   | "ALIYUN_MODERATION_ACCESS_KEY_SECRET"
   | "ALIYUN_MODERATION_REGION_ID"
@@ -223,6 +224,8 @@ export interface SettingDefinition {
   max?: number;
   defaultValue?: unknown;
   exampleValue?: unknown;
+  /** true 表示该键只允许专用 operation 写入，通用设置和 env 同步均需跳过。 */
+  managedByDedicatedOperation?: boolean;
 }
 
 const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
@@ -860,6 +863,20 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     category: "moderation",
     valueType: "boolean",
     defaultValue: true,
+  },
+  {
+    key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL",
+    label: "全站审核拦截级别",
+    description: "用户无管理员覆盖时使用的全站审核级别。",
+    category: "moderation",
+    valueType: "select",
+    options: [
+      { label: "低风险", value: "low" },
+      { label: "中风险", value: "medium" },
+      { label: "高风险", value: "high" },
+    ],
+    defaultValue: "high",
+    managedByDedicatedOperation: true,
   },
   {
     key: "CONTENT_MODERATION_PROVIDER",

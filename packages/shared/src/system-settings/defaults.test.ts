@@ -136,6 +136,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("IMAGE_MODEL_CREDIT_PRICES");
     expect(initializedKeys).toContain("IMAGE_TEXT_MODERATION_CREDITS");
     expect(initializedKeys).toContain("IMAGE_INPUT_MODERATION_CREDITS");
+    expect(initializedKeys).toContain("CONTENT_MODERATION_BLOCK_RISK_LEVEL");
     expect(initializedKeys).toContain("RATE_LIMIT_AI_REQUESTS_PER_MINUTE");
     expect(initializedKeys).not.toContain("BETTER_AUTH_SECRET");
     expect(initializedKeys).not.toContain("CREEM_API_KEY");
@@ -166,6 +167,9 @@ describe("system setting default initialization", () => {
     });
     expect(store.get("IMAGE_TEXT_MODERATION_CREDITS")?.value).toBe(0.04);
     expect(store.get("IMAGE_INPUT_MODERATION_CREDITS")?.value).toBe(0.06);
+    expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
+      "high"
+    );
     expect(store.get("RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE")?.value).toBe(100);
     expect(store.get("RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE")?.value).toBe(5);
     expect(store.get("RATE_LIMIT_AI_REQUESTS_PER_MINUTE")?.value).toBe(20);
@@ -175,6 +179,22 @@ describe("system setting default initialization", () => {
     expect(store.get("PLAN_STARTER_MONTHLY_AMOUNT")?.value).toBe(20);
     expect(store.get("BETTER_AUTH_SECRET")).toBeUndefined();
     expect(store.get("CREEM_API_KEY")).toBeUndefined();
+  });
+
+  it("does not overwrite an existing dedicated moderation policy", async () => {
+    store.set("CONTENT_MODERATION_BLOCK_RISK_LEVEL", {
+      key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL",
+      value: "medium",
+    });
+
+    const initializedKeys = await initializeMissingSystemSettingsDefaults();
+
+    expect(initializedKeys).not.toContain(
+      "CONTENT_MODERATION_BLOCK_RISK_LEVEL"
+    );
+    expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
+      "medium"
+    );
   });
 
   it("migrates video model multipliers to fixed per-second prices", async () => {

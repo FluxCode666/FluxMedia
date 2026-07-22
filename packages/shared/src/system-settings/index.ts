@@ -314,6 +314,12 @@ export async function importSystemSettingsFromEnv(options?: {
   );
   const now = new Date();
   const values = SYSTEM_SETTING_DEFINITIONS.flatMap((definition) => {
+    if (
+      "managedByDedicatedOperation" in definition &&
+      definition.managedByDedicatedOperation
+    ) {
+      return [];
+    }
     if (!options?.overwrite && storedKeys.has(definition.key)) return [];
 
     const value = getProcessSettingValue(definition);
@@ -465,7 +471,9 @@ async function migrateLegacyVideoModelPricing(now: Date, updatedBy?: string) {
         })
         .onConflictDoNothing({ target: systemSetting.key });
     }
-    await tx.delete(systemSetting).where(inArray(systemSetting.key, [legacyKey]));
+    await tx
+      .delete(systemSetting)
+      .where(inArray(systemSetting.key, [legacyKey]));
   });
   await invalidateSystemSettingsCache();
 }
@@ -683,6 +691,10 @@ export async function setSystemSettings(
         throw new Error(`未知配置项: ${entry.key}`);
       }
 
+      if (definition.managedByDedicatedOperation) {
+        throw new Error(`${definition.label}只能通过专用审核策略入口修改`);
+      }
+
       if (entry.clear) {
         await tx.delete(systemSetting).where(eq(systemSetting.key, entry.key));
         changedKeys.push(entry.key);
@@ -744,7 +756,11 @@ export async function getAdminSystemSettingsSnapshot() {
 
   return SYSTEM_SETTING_DEFINITIONS.map((definition) => {
     const row = stored.get(definition.key);
-    const envValue = getRuntimeEnvironmentFallback(definition.key);
+    const envValue =
+      "managedByDedicatedOperation" in definition &&
+      definition.managedByDedicatedOperation
+        ? undefined
+        : getRuntimeEnvironmentFallback(definition.key);
     const hasStoredValue =
       row?.value !== undefined &&
       row.value !== null &&

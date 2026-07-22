@@ -25,6 +25,9 @@ describe("system settings env file sync", () => {
     expect(shouldSyncSettingToEnvFile("NEXT_PUBLIC_APP_URL")).toBe(true);
     expect(shouldSyncSettingToEnvFile("SUB2API_AUTO_SYNC_TASKS")).toBe(true);
     expect(shouldSyncSettingToEnvFile("APP_TIME_ZONE")).toBe(false);
+    expect(
+      shouldSyncSettingToEnvFile("CONTENT_MODERATION_BLOCK_RISK_LEVEL")
+    ).toBe(false);
 
     expect(
       shouldSyncSettingToEnvFile("__internal_job_scheduler:sub2api-sync")

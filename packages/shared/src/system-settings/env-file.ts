@@ -24,11 +24,16 @@ const MANAGED_BLOCK_REGEX = new RegExp(
   "g"
 );
 
+/**
+ * 判断系统设置是否允许写入托管 env 文件。
+ *
+ * @param key - 待同步的数据库设置键。
+ * @returns 普通已注册键或内部白名单键返回 true；专用 operation 键返回 false。
+ */
 export function shouldSyncSettingToEnvFile(key: string) {
-  return (
-    SETTING_DEFINITION_BY_KEY.has(key as SettingKey) ||
-    MANAGED_INTERNAL_ENV_KEYS.has(key)
-  );
+  if (MANAGED_INTERNAL_ENV_KEYS.has(key)) return true;
+  const definition = SETTING_DEFINITION_BY_KEY.get(key as SettingKey);
+  return Boolean(definition && !definition.managedByDedicatedOperation);
 }
 
 function quoteEnvValue(value: string) {

@@ -369,6 +369,35 @@ describe("setSystemSettings", () => {
       )
     ).rejects.toThrow(/字段或链接格式无效/);
   });
+
+  it("rejects generic writes and clears for the dedicated moderation policy", async () => {
+    store.set("CONTENT_MODERATION_BLOCK_RISK_LEVEL", {
+      key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL",
+      value: "high",
+    });
+
+    await expect(
+      setSystemSettings(
+        [{ key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL", value: "low" }],
+        "admin"
+      )
+    ).rejects.toThrow(/专用审核策略入口/);
+    await expect(
+      setSystemSettings(
+        [
+          {
+            key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL",
+            value: "",
+            clear: true,
+          },
+        ],
+        "admin"
+      )
+    ).rejects.toThrow(/专用审核策略入口/);
+    expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
+      "high"
+    );
+  });
 });
 
 describe("importSystemSettingsFromEnv", () => {
@@ -380,6 +409,7 @@ describe("importSystemSettingsFromEnv", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     resetBootstrappedProcessSettingsForTests();
     delete process.env.NEXT_PUBLIC_APP_NAME;
     delete process.env.BETTER_AUTH_SECRET;
@@ -416,6 +446,20 @@ describe("importSystemSettingsFromEnv", () => {
 
     expect(store.get("BETTER_AUTH_SECRET")?.value).toBe("env-secret");
     expect(store.get("BETTER_AUTH_SECRET")?.isSecret).toBe(true);
+  });
+
+  it("never imports the dedicated moderation policy from env", async () => {
+    store.set("CONTENT_MODERATION_BLOCK_RISK_LEVEL", {
+      key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL",
+      value: "high",
+    });
+    vi.stubEnv("CONTENT_MODERATION_BLOCK_RISK_LEVEL", "low");
+
+    await importSystemSettingsFromEnv({ overwrite: true });
+
+    expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
+      "high"
+    );
   });
 });
 
