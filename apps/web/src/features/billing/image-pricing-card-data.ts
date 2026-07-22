@@ -5,30 +5,35 @@
  * 用户套餐能力和后端分组偏好，不将数据查询带入 Dashboard 首屏。
  */
 
+import type {
+  ImageCreditOverrides,
+  ResolvedImageCreditPricing,
+} from "@repo/shared/image-backend/group-image-pricing";
+import { isContentModerationEnabled } from "@repo/shared/moderation";
 import { getPlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 
+import { getEffectiveImageBackendGroupForUser } from "@/features/image-backend-pool/service";
 import {
-  getUserImageBackendPreference,
-  listImageBackendGroupOptions,
-} from "@/features/image-backend-pool/service";
-import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
-import {
-  getImageBaseCreditPricing,
-  type ImageBaseCreditPricing,
-} from "@/features/image-generation/resolution";
+  getRuntimeImageBaseCreditPricing,
+  getRuntimeImageModelCreditPricing,
+  getRuntimeImageModerationCreditPricing,
+} from "@/features/image-generation/pricing-settings";
+import type { ResolvedImageModerationCreditPricing } from "@/features/image-generation/resolution";
 
 export type ImagePricingCardData = {
   billing: {
     agentRoundCredits: number;
     chatRoundCredits: number;
-    groupMultiplier: number;
     groupName: string | null;
     moderationBlockingEnabled: boolean;
     monthlyCredits: number;
     planName: string;
   };
-  pricing: ImageBaseCreditPricing;
+  fallbackPricing: ResolvedImageCreditPricing;
+  globalModelPricing: ImageCreditOverrides;
+  groupModelOverrides: ImageCreditOverrides;
+  moderationPricing: ResolvedImageModerationCreditPricing;
 };
 
 /**
@@ -41,32 +46,42 @@ export type ImagePricingCardData = {
 export async function loadImagePricingCardData(
   userId: string
 ): Promise<ImagePricingCardData> {
-  const [runtimePricing, userPlanInfo] = await Promise.all([
-    getRuntimeImageBaseCreditPricing(),
-    getUserPlan(userId),
-  ]);
-  const [capabilities, backendGroups, selectedBackendGroupId] =
-    await Promise.all([
-      getPlanCapabilitySnapshot(userPlanInfo.plan),
-      listImageBackendGroupOptions({ plan: userPlanInfo.plan }),
-      getUserImageBackendPreference(userId, userPlanInfo.plan),
+  const [
+    fallbackPricing,
+    globalModelPricing,
+    moderationPricing,
+    moderationSystemEnabled,
+    userPlanInfo,
+  ] = await Promise.all([
+      getRuntimeImageBaseCreditPricing(),
+      getRuntimeImageModelCreditPricing(),
+      getRuntimeImageModerationCreditPricing(),
+      isContentModerationEnabled(),
+      getUserPlan(userId),
     ]);
-  const activeBackendGroup =
-    backendGroups.find((group) => group.id === selectedBackendGroupId) ??
-    backendGroups.find((group) => group.isDefault) ??
-    backendGroups[0] ??
-    null;
+  const [capabilities, activeBackendGroup] = await Promise.all([
+    getPlanCapabilitySnapshot(userPlanInfo.plan),
+    getEffectiveImageBackendGroupForUser(userId, userPlanInfo.plan),
+  ]);
 
   return {
     billing: {
       agentRoundCredits: capabilities.billing.agentRoundCredits,
       chatRoundCredits: capabilities.billing.chatRoundCredits,
-      groupMultiplier: activeBackendGroup?.billingMultiplier ?? 1,
       groupName: activeBackendGroup?.name ?? null,
-      moderationBlockingEnabled: capabilities.features["moderation.blocking"],
+      moderationBlockingEnabled:
+        moderationSystemEnabled &&
+        capabilities.features["moderation.blocking"] &&
+        activeBackendGroup?.contentSafetyEnabled !== false,
       monthlyCredits: capabilities.limits.monthlyCredits,
       planName: userPlanInfo.planName,
     },
-    pricing: getImageBaseCreditPricing(runtimePricing),
+    fallbackPricing,
+    globalModelPricing,
+    groupModelOverrides: activeBackendGroup?.imageCreditOverrides ?? {
+      version: 1,
+      byModel: {},
+    },
+    moderationPricing,
   };
 }

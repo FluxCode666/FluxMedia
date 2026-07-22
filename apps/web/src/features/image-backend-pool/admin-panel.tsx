@@ -5268,7 +5268,7 @@ export function ImageBackendPoolAdminPanel({
                 <CardContent className="space-y-4">
                   <p className="text-xs text-muted-foreground">
                     图像最终积分 = 按实际输出像素命中的模型固定价格 + 审核费用。
-                    图像模型、分组和后端倍率不再参与图像扣费。
+                    图像质量、分组和后端倍率不再参与图像扣费。
                   </p>
 
                   <div className="space-y-2">

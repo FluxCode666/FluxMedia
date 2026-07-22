@@ -1,0 +1,177 @@
+/**
+ * 生图计价卡服务端数据装配测试。
+ *
+ * 使用 Vitest 隔离运行时设置、套餐能力与后端分组查询，确保账单展示使用与
+ * 实际扣费一致的四档、模型覆盖和审核价格契约。
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getEffectiveImageBackendGroupForUser: vi.fn(
+    async (): Promise<{
+      id: string;
+      imageCreditOverrides: {
+        version: 1;
+        byModel: Record<string, { base2kCredits: number }>;
+      };
+      contentSafetyEnabled: boolean | null;
+      isDefault: boolean;
+      name: string;
+    } | null> => ({
+      id: "group-selected",
+      contentSafetyEnabled: true,
+      imageCreditOverrides: {
+        version: 1,
+        byModel: {
+          "gpt-image-2": { base2kCredits: 6.6 },
+        },
+      },
+      isDefault: false,
+      name: "专业池",
+    })
+  ),
+  getPlanCapabilitySnapshot: vi.fn(async () => ({
+    billing: { agentRoundCredits: 3, chatRoundCredits: 2 },
+    features: { "moderation.blocking": true },
+    limits: { monthlyCredits: 800 },
+  })),
+  isContentModerationEnabled: vi.fn(async () => true),
+  getRuntimeImageBaseCreditPricing: vi.fn(async () => ({
+    base1024Credits: 1.1,
+    base1kCredits: 2.1,
+    base2kCredits: 5.1,
+    base4kCredits: 10.1,
+  })),
+  getRuntimeImageModelCreditPricing: vi.fn(async () => ({
+    version: 1 as const,
+    byModel: {
+      "gpt-image-2": {
+        base1024Credits: 1.5,
+        base1kCredits: 2.5,
+        base2kCredits: 5.5,
+        base4kCredits: 10.5,
+      },
+    },
+  })),
+  getRuntimeImageModerationCreditPricing: vi.fn(async () => ({
+    textModerationCredits: 0.13,
+    imageModerationCredits: 0.27,
+  })),
+  getUserPlan: vi.fn(async () => ({
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: null,
+    hasActiveSubscription: true,
+    plan: "pro" as const,
+    planName: "Pro",
+    priceId: "price-pro",
+    subscriptionStatus: "active",
+  })),
+}));
+
+vi.mock("@repo/shared/subscription/services/plan-capabilities", () => ({
+  getPlanCapabilitySnapshot: mocks.getPlanCapabilitySnapshot,
+}));
+
+vi.mock("@repo/shared/moderation", () => ({
+  isContentModerationEnabled: mocks.isContentModerationEnabled,
+}));
+
+vi.mock("@repo/shared/subscription/services/user-plan", () => ({
+  getUserPlan: mocks.getUserPlan,
+}));
+
+vi.mock("@/features/image-backend-pool/service", () => ({
+  getEffectiveImageBackendGroupForUser:
+    mocks.getEffectiveImageBackendGroupForUser,
+}));
+
+vi.mock("@/features/image-generation/pricing-settings", () => ({
+  getRuntimeImageBaseCreditPricing: mocks.getRuntimeImageBaseCreditPricing,
+  getRuntimeImageModelCreditPricing: mocks.getRuntimeImageModelCreditPricing,
+  getRuntimeImageModerationCreditPricing:
+    mocks.getRuntimeImageModerationCreditPricing,
+}));
+
+import { loadImagePricingCardData } from "./image-pricing-card-data";
+
+describe("loadImagePricingCardData", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getEffectiveImageBackendGroupForUser.mockResolvedValue({
+      id: "group-selected",
+      contentSafetyEnabled: true,
+      imageCreditOverrides: {
+        version: 1,
+        byModel: {
+          "gpt-image-2": { base2kCredits: 6.6 },
+        },
+      },
+      isDefault: false,
+      name: "专业池",
+    });
+  });
+
+  it("返回运行时四档、全局模型价、所选分组覆盖和审核费", async () => {
+    const result = await loadImagePricingCardData("user-1");
+
+    expect(result).toMatchObject({
+      billing: {
+        agentRoundCredits: 3,
+        chatRoundCredits: 2,
+        groupName: "专业池",
+        moderationBlockingEnabled: true,
+        monthlyCredits: 800,
+        planName: "Pro",
+      },
+      fallbackPricing: {
+        base1024Credits: 1.1,
+        base1kCredits: 2.1,
+        base2kCredits: 5.1,
+        base4kCredits: 10.1,
+      },
+      globalModelPricing: {
+        version: 1,
+        byModel: {
+          "gpt-image-2": { base4kCredits: 10.5 },
+        },
+      },
+      groupModelOverrides: {
+        version: 1,
+        byModel: {
+          "gpt-image-2": { base2kCredits: 6.6 },
+        },
+      },
+      moderationPricing: {
+        imageModerationCredits: 0.27,
+        textModerationCredits: 0.13,
+      },
+    });
+    expect("groupMultiplier" in result.billing).toBe(false);
+    expect(mocks.getEffectiveImageBackendGroupForUser).toHaveBeenCalledWith(
+      "user-1",
+      "pro"
+    );
+  });
+
+  it("无可用分组时返回空覆盖契约", async () => {
+    mocks.getEffectiveImageBackendGroupForUser.mockResolvedValue(null);
+
+    const result = await loadImagePricingCardData("user-1");
+
+    expect(result.billing.groupName).toBeNull();
+    expect(result.groupModelOverrides).toEqual({ version: 1, byModel: {} });
+  });
+
+  it("审核总开关关闭时展示零审核附加", async () => {
+    mocks.isContentModerationEnabled.mockResolvedValueOnce(false);
+
+    const result = await loadImagePricingCardData("user-1");
+
+    expect(result.billing.moderationBlockingEnabled).toBe(false);
+    expect(result.moderationPricing).toEqual({
+      imageModerationCredits: 0.27,
+      textModerationCredits: 0.13,
+    });
+  });
+});

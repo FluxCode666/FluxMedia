@@ -67,11 +67,7 @@ export function UsageLogPricingTrends({
       {isExpanded ? (
         <div className="border-t p-5" id={contentId}>
           {data ? (
-            <ImagePricingChartCardLazy
-              billing={data.billing}
-              isZh={isZh}
-              pricing={data.pricing}
-            />
+            <ImagePricingChartCardLazy {...data} isZh={isZh} />
           ) : (
             <div className="space-y-3" role="alert">
               <p className="text-sm text-destructive">{copy.pricing.error}</p>
