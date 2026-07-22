@@ -49,12 +49,12 @@ Adobe 后端「Adobe Firefly 直连」字段：
 | 默认 ratio | 1x1 | size 缺省/auto 时回退比例 |
 | 默认 resolution | 2k | size 缺省/auto 时回退分辨率 |
 | gpt_image_quality | high | quality=auto/未选时的 detailLevel 取值依据 |
-| billing_multiplier | 1 | 本后端计费倍率（与分组倍率相乘） |
+| 图像定价 | 固定模型价 | 图像不使用 Adobe 成员或分组倍率；价格按分组模型覆盖 → 全局模型价 → 通用四档回退 |
 
-已配模型族倍率（系统设置 IMAGE_MODEL_MULTIPLIERS / VIDEO_MODEL_MULTIPLIERS，其余族默认 1）：
-
-- 图像：`{ gpt-image-2: 1, nano-banana-pro: 1.5 }`
-- 视频：`{ sora2: 1, sora2-pro: 2, veo31: 1.5 }`
+图像的四档由**实际输出像素的最长边**决定：小于 1248px 为 1024，1248px 至小于
+2048px 为 1K，2048px 至小于 3840px 为 2K，达到或超过 3840px 为 4K。最终图像积分为
+命中的固定基础价加运行时审核费；关闭审核时不收费，审核费也可配置为 0。视频仍使用其
+独立的每秒定价与视频模型配置。
 
 在「混合分组」里 adobe priority=100 是大数，而组内 web/codex 账号与 api 成员通常优先级更小
 （数字更小先选），因此普通图像请求会优先打到 web/codex/api；只有当它们限流、耗尽配额或

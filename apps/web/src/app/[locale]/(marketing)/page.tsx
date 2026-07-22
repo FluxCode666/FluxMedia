@@ -12,7 +12,10 @@ import {
 } from "@repo/shared/system-settings";
 import type { Metadata } from "next";
 import { SiteJsonLd, SoftwareAppJsonLd } from "@/components/seo/json-ld";
-import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
+import {
+  getRuntimeImageBaseCreditPricing,
+  getRuntimeImageModerationCreditPricing,
+} from "@/features/image-generation/pricing-settings";
 import { getRecentGenerationSlaStats } from "@/features/image-generation/sla";
 import {
   FAQSection,
@@ -98,6 +101,7 @@ export default async function HomePage({
     creditPackages,
     creditPackageExpiryDays,
     imageBasePricing,
+    imageModerationPricing,
     slaEnabled,
     slaStats,
     session,
@@ -111,6 +115,7 @@ export default async function HomePage({
       { nonNegative: true }
     ),
     getRuntimeImageBaseCreditPricing(),
+    getRuntimeImageModerationCreditPricing(),
     getRuntimeSettingBoolean("MARKETING_SLA_STATUS_ENABLED", true),
     getRecentGenerationSlaStats(1000),
     getServerSession(),
@@ -156,6 +161,7 @@ export default async function HomePage({
             }
             creditPackageExpiryDays={creditPackageExpiryDays}
             imageBasePricing={imageBasePricing}
+            imageModerationPricing={imageModerationPricing}
           />
         </section>
         {/* 谷段三折「册页」:问答折子 + 页边墨线章节刻度 */}

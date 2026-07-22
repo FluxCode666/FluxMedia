@@ -37,12 +37,12 @@ import { useCurrentSession } from "@/features/auth/hooks/use-current-session";
 import {
   getImageBaseCreditPricing,
   getImageCreditCostBreakdown,
+  getImageModerationCreditPricing,
+  IMAGE_1K_BASE_EDGE,
   IMAGE_2K_BASE_EDGE,
   IMAGE_4K_BASE_EDGE,
-  IMAGE_MODERATION_PRICE_CNY,
   type ImageBaseCreditPricing,
-  REFERENCE_CREDIT_PRICE_CNY,
-  TEXT_MODERATION_PRICE_CNY,
+  type ImageModerationCreditPricing,
 } from "@/features/image-generation/resolution";
 import {
   createCheckoutSession,
@@ -96,6 +96,7 @@ interface PricingSectionProps {
   creditPackages?: RuntimeCreditPackage[];
   creditPackageExpiryDays?: number;
   imageBasePricing?: ImageBaseCreditPricing;
+  imageModerationPricing?: ImageModerationCreditPricing;
 }
 
 /**
@@ -108,6 +109,7 @@ export function PricingSection({
   creditPackages = [],
   creditPackageExpiryDays,
   imageBasePricing,
+  imageModerationPricing,
 }: PricingSectionProps) {
   const t = useTranslations("Pricing");
   // 影片第五幕"装裱"眉标文案(仅语义包装,定价交互与内容不动)
@@ -263,46 +265,25 @@ export function PricingSection({
     getPlanLimits(planId).monthlyCredits;
   const normalizedImageBasePricing =
     getImageBaseCreditPricing(imageBasePricing);
-  const textModerationCredits =
-    TEXT_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
-  const imageModerationCredits =
-    IMAGE_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
+  const normalizedImageModerationPricing = getImageModerationCreditPricing(
+    imageModerationPricing
+  );
+  const { textModerationCredits, imageModerationCredits } =
+    normalizedImageModerationPricing;
   const textTo4kCredits = getImageCreditCostBreakdown("3840x2160", {
     basePricing: normalizedImageBasePricing,
+    moderationPricing: normalizedImageModerationPricing,
     imageModerationCount: 0,
     textModerationCount: 1,
   }).totalCredits;
   const getEstimated4kCount = (credits: number) =>
     Math.max(0, Math.floor(credits / textTo4kCredits));
 
-  const getRoundCreditSummary = (
-    key: "chatRoundCredits" | "agentRoundCredits"
-  ) => {
-    const entries = PLAN_IDS.map((planId) => ({
-      planId,
-      value: capabilityMatrix.billing[planId as SubscriptionPlan][key],
-    }));
-    const uniqueValues = new Set(entries.map((entry) => entry.value));
-    if (uniqueValues.size === 1) {
-      const firstValue = entries[0]?.value ?? 0;
-      return copy(
-        `${formatCreditAmount(firstValue)} credits/round for all plans`,
-        `所有套餐 ${formatCreditAmount(firstValue)} 积分/轮`
-      );
-    }
-    return entries
-      .map(({ planId, value }) =>
-        copy(
-          `${t(`plans.${planId}.name`)} ${formatCreditAmount(value)}`,
-          `${t(`plans.${planId}.name`)} ${formatCreditAmount(value)}`
-        )
-      )
-      .join(copy(", ", "，"));
-  };
-
   const pricingSubtitle = copy(
-    `Pay with credits. Subscription credits follow the current plan period; other credits follow the batch expiry shown on the usage page. Base image pricing is loaded from admin settings: 1K = ${formatCreditAmount(
+    `Pay with credits. Subscription credits follow the current plan period; other credits follow the batch expiry shown on the usage page. Generic image pricing is loaded from admin settings: 1024 = ${formatCreditAmount(
       normalizedImageBasePricing.base1024Credits
+    )} credits, 1K = ${formatCreditAmount(
+      normalizedImageBasePricing.base1kCredits
     )} credits, 2K = ${formatCreditAmount(
       normalizedImageBasePricing.base2kCredits
     )} credits, 4K = ${formatCreditAmount(
@@ -310,8 +291,10 @@ export function PricingSection({
     )} credits, plus ${formatCreditAmount(
       textModerationCredits
     )} text review and ${formatCreditAmount(imageModerationCredits)} image review credits.`,
-    `按积分付费，订阅积分按套餐周期有效，其他积分以用量页显示的批次到期时间为准。出图基础价格读取后台配置：1K = ${formatCreditAmount(
+    `按积分付费，订阅积分按套餐周期有效，其他积分以用量页显示的批次到期时间为准。通用出图基础价格读取后台配置：1024 = ${formatCreditAmount(
       normalizedImageBasePricing.base1024Credits
+    )} 积分，1K = ${formatCreditAmount(
+      normalizedImageBasePricing.base1kCredits
     )} 积分，2K = ${formatCreditAmount(
       normalizedImageBasePricing.base2kCredits
     )} 积分，4K = ${formatCreditAmount(
@@ -323,56 +306,36 @@ export function PricingSection({
 
   const billingRuleItems = [
     copy(
-      `Base image credits are loaded from admin settings: 1K = ${formatCreditAmount(
+      `Generic image credits are loaded from admin settings: 1024 = ${formatCreditAmount(
         normalizedImageBasePricing.base1024Credits
+      )} credits, 1K = ${formatCreditAmount(
+        normalizedImageBasePricing.base1kCredits
       )} credits, 2K = ${formatCreditAmount(
         normalizedImageBasePricing.base2kCredits
       )} credits, 4K = ${formatCreditAmount(
         normalizedImageBasePricing.base4kCredits
-      )} credits. The fixed tier is selected by the longest edge: below ${IMAGE_2K_BASE_EDGE}px uses 1K, ${IMAGE_2K_BASE_EDGE}px to below ${IMAGE_4K_BASE_EDGE}px uses 2K, and ${IMAGE_4K_BASE_EDGE}px or above uses 4K.`,
-      `基础出图读取后台配置：1K = ${formatCreditAmount(
+      )} credits. The actual output's longest edge selects the tier: below ${IMAGE_1K_BASE_EDGE}px uses 1024, ${IMAGE_1K_BASE_EDGE}px to below ${IMAGE_2K_BASE_EDGE}px uses 1K, ${IMAGE_2K_BASE_EDGE}px to below ${IMAGE_4K_BASE_EDGE}px uses 2K, and ${IMAGE_4K_BASE_EDGE}px or above uses 4K. A group model override takes precedence over the global model price, which takes precedence over these generic tiers.`,
+      `通用出图基础价格读取后台配置：1024 = ${formatCreditAmount(
         normalizedImageBasePricing.base1024Credits
+      )} 积分，1K = ${formatCreditAmount(
+        normalizedImageBasePricing.base1kCredits
       )} 积分，2K = ${formatCreditAmount(
         normalizedImageBasePricing.base2kCredits
       )} 积分，4K = ${formatCreditAmount(
         normalizedImageBasePricing.base4kCredits
-      )} 积分。固定档位按最长边确定：小于 ${IMAGE_2K_BASE_EDGE}px 按 1K，达到 ${IMAGE_2K_BASE_EDGE}px 但小于 ${IMAGE_4K_BASE_EDGE}px 按 2K，达到或超过 ${IMAGE_4K_BASE_EDGE}px 按 4K。`
+      )} 积分。实际输出像素的最长边决定固定档位：小于 ${IMAGE_1K_BASE_EDGE}px 按 1024，达到 ${IMAGE_1K_BASE_EDGE}px 但小于 ${IMAGE_2K_BASE_EDGE}px 按 1K，达到 ${IMAGE_2K_BASE_EDGE}px 但小于 ${IMAGE_4K_BASE_EDGE}px 按 2K，达到或超过 ${IMAGE_4K_BASE_EDGE}px 按 4K。分组模型覆盖优先于全局模型价格，再回退到这些通用档位。`
     ),
     copy(
-      `Page Chat base round charge comes from the Plan Capability Matrix: ${getRoundCreditSummary(
-        "chatRoundCredits"
-      )}. If the round generates images, actual image output and review fees are added.`,
-      `页面 Chat 基础轮次费读取套餐能力矩阵：${getRoundCreditSummary(
-        "chatRoundCredits"
-      )}；若本轮生成图片，再叠加实际图片输出和审核费用。`
+      `Text review: ${formatCreditAmount(textModerationCredits)} credits per request. When moderation is disabled, it is not charged; an enabled moderation fee may be configured as zero.`,
+      `文本审核：每次 ${formatCreditAmount(textModerationCredits)} 积分。关闭审核时不收费；审核开启时费用也可配置为 0。`
     ),
     copy(
-      `Page Agent base round charge comes from the Plan Capability Matrix: ${getRoundCreditSummary(
-        "agentRoundCredits"
-      )}. Agent stream previews are not charged as final image outputs; final completed images are billed by actual size and count.`,
-      `页面 Agent 基础轮次费读取套餐能力矩阵：${getRoundCreditSummary(
-        "agentRoundCredits"
-      )}；Agent 流式预览不按成品图单独收费，最终成品图按实际尺寸和数量追加计费。`
+      `Input-image review: ${formatCreditAmount(imageModerationCredits)} credits for each current input image; it follows the same disabled-or-zero rule.`,
+      `输入图片审核：本次每张输入图片 ${formatCreditAmount(imageModerationCredits)} 积分；同样在审核关闭时不收费，或可配置为 0。`
     ),
     copy(
-      `Text review: ${formatCreditAmount(
-        textModerationCredits
-      )} credits per request, calculated only from the latest input text.`,
-      `文本审核：每次 ${formatCreditAmount(
-        textModerationCredits
-      )} 积分，只按本次最新输入文本计算。`
-    ),
-    copy(
-      `Image review: ${formatCreditAmount(
-        imageModerationCredits
-      )} credits for each image in the current input; text-to-image has no image review fee.`,
-      `图片审核：本次输入的每张图片 ${formatCreditAmount(
-        imageModerationCredits
-      )} 积分；文生图无输入图时不收图片审核费。`
-    ),
-    copy(
-      "Final price = Chat/Agent base round credits + base image credits + text review credits + input image review credits, shown and charged with two decimals. Plain text-to-image/image-edit requests do not include Chat/Agent base round credits.",
-      "最终价格 = Chat/Agent 每轮基础积分 + 基础出图积分 + 文本审核积分 + 输入图片审核积分，按两位小数展示和扣费。普通文生图/图生图没有 Chat/Agent 每轮基础积分。"
+      "Final image price = fixed model/tier base price + runtime review fees, shown and charged with two decimals.",
+      "最终图片价格 = 固定模型/档位基础价 + 运行时审核费，按两位小数展示和扣费。"
     ),
   ];
 
