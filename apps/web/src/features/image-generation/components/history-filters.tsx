@@ -34,6 +34,7 @@ import {
   type HistoryTypeFilter,
   hasActiveHistoryFilters,
 } from "./history-query";
+import { HistoryDateRangePicker } from "./history-date-range-picker";
 
 type HistoryFiltersProps = {
   modelOptions: string[];
@@ -151,51 +152,20 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
       className="rounded-lg border border-border bg-background p-4"
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.4fr)_minmax(190px,1fr)_150px_140px_auto] xl:items-end">
-        <fieldset className="min-w-0">
-          <legend className="mb-2 text-xs font-medium text-muted-foreground">
-            {copy("Created date", "创建日期")}
-          </legend>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] overflow-hidden rounded-md border border-input bg-background">
-            <label className="min-w-0 px-3 py-1.5">
-              <span className="block text-[10px] text-muted-foreground">
-                {copy("From", "开始")}
-              </span>
-              <input
-                className="h-6 w-full min-w-0 bg-transparent text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                disabled={isNavigating}
-                max={createdTo || undefined}
-                onChange={(event) => {
-                  setCreatedFrom(event.target.value);
-                  setDateError(null);
-                }}
-                type="date"
-                value={createdFrom}
-              />
-            </label>
-            <span
-              aria-hidden="true"
-              className="flex items-center border-x border-border bg-muted/30 px-2 text-xs text-muted-foreground"
-            >
-              –
-            </span>
-            <label className="min-w-0 px-3 py-1.5">
-              <span className="block text-[10px] text-muted-foreground">
-                {copy("To", "结束")}
-              </span>
-              <input
-                className="h-6 w-full min-w-0 bg-transparent text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                disabled={isNavigating}
-                min={createdFrom || undefined}
-                onChange={(event) => {
-                  setCreatedTo(event.target.value);
-                  setDateError(null);
-                }}
-                type="date"
-                value={createdTo}
-              />
-            </label>
-          </div>
-        </fieldset>
+        <HistoryDateRangePicker
+          createdFrom={createdFrom}
+          createdTo={createdTo}
+          disabled={isNavigating}
+          isZh={isZh}
+          onRangeChange={({
+            createdFrom: nextCreatedFrom,
+            createdTo: nextCreatedTo,
+          }) => {
+            setCreatedFrom(nextCreatedFrom);
+            setCreatedTo(nextCreatedTo);
+            setDateError(null);
+          }}
+        />
 
         <div className="grid min-w-0 gap-2 text-xs font-medium text-muted-foreground">
           <span id="history-model-filter-label">{copy("Model", "模型")}</span>

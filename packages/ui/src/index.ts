@@ -45,6 +45,9 @@ export {
   CardContent,
 } from "./components/card";
 
+// Calendar
+export { Calendar, CalendarDayButton } from "./components/calendar";
+
 // Checkbox
 export { Checkbox } from "./components/checkbox";
 
