@@ -1,3 +1,9 @@
+/**
+ * 管理后台用户列表与详情工作台。
+ *
+ * 职责：提供用户检索、账户运维、审核策略管理与管理员审计视图；所有写操作
+ * 委托给 support Server Actions，组件只负责权限感知的交互和结果展示。
+ */
 "use client";
 
 import {
@@ -23,6 +29,10 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { formatCredits } from "../../../credits/format";
+import type {
+  ModerationBlockRiskLevel,
+  ModerationPolicySource,
+} from "../../../moderation/policy-contract";
 import { buildStorageThumbnailUrl } from "../../../storage/signed-url";
 import { formatDateInTimeZone } from "../../../time-zone";
 import {
@@ -83,9 +93,11 @@ import {
 import { Textarea } from "@repo/ui/components/textarea";
 import {
   APP_USER_ROLES,
+  canActOnTargetRole,
   getUserRoleLabel,
   type AppUserRole,
 } from "../../../auth/roles";
+import { ModerationPolicyControl } from "./moderation-policy-control";
 
 type UserStatusFilter = "all" | "active" | "banned" | "unverified";
 type SubscriptionStatusFilter =
@@ -195,8 +207,17 @@ type UserDetail = {
     adminUserId: string | null;
     action: string;
     reason: string | null;
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+    metadata: Record<string, unknown> | null;
     createdAt: Date;
   }>;
+  moderationPolicy: {
+    globalDefault: ModerationBlockRiskLevel;
+    userOverride: ModerationBlockRiskLevel | null;
+    effectiveLevel: ModerationBlockRiskLevel;
+    source: ModerationPolicySource;
+  };
   generationSummary: {
     total: number;
     completed: number;
@@ -317,10 +338,135 @@ function userRoleBadge(role: AppUserRole) {
   return null;
 }
 
+const MODERATION_POLICY_AUDIT_ACTION =
+  "moderation.setUserRiskLevelOverride" as const;
+const MODERATION_LEVEL_LABELS: Record<ModerationBlockRiskLevel, string> = {
+  low: "low（严格）",
+  medium: "medium（均衡）",
+  high: "high（宽松）",
+};
+
+/**
+ * 从审计 metadata 读取非空字符串，避免信任 JSON 字段形状。
+ *
+ * @param metadata - 数据库返回的未信任审计元数据。
+ * @param key - 需要读取的字段名。
+ * @returns 非空字符串；字段缺失或类型非法时返回 null。
+ */
+function readAuditMetadataString(
+  metadata: Record<string, unknown> | null,
+  key: string
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+/**
+ * 把审核策略审计快照转换为稳定文案。
+ *
+ * @param snapshot - before 或 after JSON 快照。
+ * @returns 合法级别、"继承全站"或"未知"；不会原样输出未信任 JSON。
+ */
+function formatModerationAuditLevel(
+  snapshot: Record<string, unknown> | null
+): string {
+  const level = snapshot?.level;
+  if (level === null) {
+    return "继承全站";
+  }
+  if (level === "low" || level === "medium" || level === "high") {
+    return MODERATION_LEVEL_LABELS[level];
+  }
+  return "未知";
+}
+
+/**
+ * 把审计中的目标角色安全转换为中文角色名。
+ *
+ * @param metadata - 数据库返回的未信任审计元数据。
+ * @returns 合法目标角色的中文名，缺失或非法时返回短横线。
+ */
+function formatAuditTargetRole(
+  metadata: Record<string, unknown> | null
+): string {
+  const role = readAuditMetadataString(metadata, "targetRole");
+  return role && APP_USER_ROLES.includes(role as AppUserRole)
+    ? getUserRoleLabel(role)
+    : "-";
+}
+
+/**
+ * 渲染一次用户审核策略变更审计。
+ *
+ * @param props - 审计记录与管理员时区。
+ * @returns 结构化的前后值、操作者、原因、请求 ID、目标角色和时间。
+ */
+function ModerationPolicyAuditEntry({
+  log,
+  timeZone,
+}: {
+  log: UserDetail["auditLogs"][number];
+  timeZone: string | undefined;
+}) {
+  const actorUserId =
+    log.adminUserId ??
+    readAuditMetadataString(log.metadata, "actorUserId") ??
+    "-";
+  const requestId = readAuditMetadataString(log.metadata, "requestId") ?? "-";
+
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <span className="font-medium">用户审核级别变更</span>
+        <span className="text-xs text-muted-foreground">
+          {formatDateTime(log.createdAt, timeZone)}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Badge variant="outline">
+          {formatModerationAuditLevel(log.before)}
+        </Badge>
+        <span className="text-muted-foreground" aria-hidden="true">
+          →
+        </span>
+        <Badge variant="secondary">
+          {formatModerationAuditLevel(log.after)}
+        </Badge>
+      </div>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div className="min-w-0 sm:col-span-2">
+          <dt className="text-muted-foreground">变更原因</dt>
+          <dd className="mt-0.5 break-words">{log.reason || "未填写原因"}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-muted-foreground">管理员</dt>
+          <dd className="mt-0.5 break-all font-mono">{actorUserId}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-muted-foreground">目标角色</dt>
+          <dd className="mt-0.5">{formatAuditTargetRole(log.metadata)}</dd>
+        </div>
+        <div className="min-w-0 sm:col-span-2">
+          <dt className="text-muted-foreground">请求 ID</dt>
+          <dd className="mt-0.5 break-all font-mono">{requestId}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * 提供管理员用户列表、详情与受权限约束的运维操作。
+ *
+ * @param props - 当前管理员角色、超管能力标志与显示时区。
+ * @returns 用户管理工作台；加载或写入失败时通过 toast 向管理员反馈。
+ */
 export function AdminUsersManagement({
+  actorRole,
   canManageRoles = false,
   timeZone,
 }: {
+  actorRole: AppUserRole;
   canManageRoles?: boolean;
   timeZone?: string;
 }) {
@@ -927,6 +1073,13 @@ export function AdminUsersManagement({
         100
     )}%`;
   }, [detail]);
+  const canManageModerationPolicy = detail
+    ? canActOnTargetRole(actorRole, detail.user.role)
+    : false;
+  const moderationPolicyReadOnlyReason =
+    actorRole === "admin"
+      ? "目标用户权限不低于当前管理员，仅可查看其审核策略。"
+      : "当前管理员角色没有修改该用户审核策略的权限。";
 
   return (
     <div className="space-y-6">
@@ -1524,6 +1677,14 @@ export function AdminUsersManagement({
                         ]}
                       />
                     </div>
+                    <ModerationPolicyControl
+                      key={detail.user.id}
+                      userId={detail.user.id}
+                      policy={detail.moderationPolicy}
+                      canManage={canManageModerationPolicy}
+                      readOnlyReason={moderationPolicyReadOnlyReason}
+                      onUpdated={() => loadDetail(detail.user.id, false)}
+                    />
                   </TabsContent>
 
                   <TabsContent value="credits" className="space-y-4">
@@ -1743,18 +1904,26 @@ export function AdminUsersManagement({
                     ) : (
                       <div className="space-y-2">
                         {detail.auditLogs.map((log) => (
-                          <div key={log.id} className="rounded-md border p-3 text-sm">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium">{log.action}</span>
-                              <span className="text-xs text-muted-foreground">
-                                {formatDateTime(log.createdAt, timeZone)}
-                              </span>
+                          log.action === MODERATION_POLICY_AUDIT_ACTION ? (
+                            <ModerationPolicyAuditEntry
+                              key={log.id}
+                              log={log}
+                              timeZone={timeZone}
+                            />
+                          ) : (
+                            <div key={log.id} className="rounded-md border p-3 text-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-medium">{log.action}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatDateTime(log.createdAt, timeZone)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {log.reason || "未填写原因"} · 管理员{" "}
+                                {log.adminUserId || "-"}
+                              </p>
                             </div>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {log.reason || "未填写原因"} · 管理员{" "}
-                              {log.adminUserId || "-"}
-                            </p>
-                          </div>
+                          )
                         ))}
                       </div>
                     )}
