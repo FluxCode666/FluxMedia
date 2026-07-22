@@ -11,10 +11,12 @@ export type GenerationCreditDetails = {
   imageModerationCount: number | null;
   mode: string | null;
   moderationCredits: number | null;
+  requestedResolution: string | null;
   requestedSize: string | null;
   requestedTotalCredits: number | null;
   textModerationCount: number | null;
   totalCredits: number;
+  settledResolution: string | null;
   upstreamImageOutputCount: number | null;
 };
 
@@ -80,7 +82,9 @@ export function extractGenerationCreditDetails(
   if (!isRecord(metadata)) return null;
 
   const backend = isRecord(metadata.backend) ? metadata.backend : {};
-  const outputImage = isRecord(metadata.outputImage) ? metadata.outputImage : {};
+  const outputImage = isRecord(metadata.outputImage)
+    ? metadata.outputImage
+    : {};
   const creditCost = readCreditCost(metadata.creditCost);
   const requestedCreditCost = readCreditCost(outputImage.requestedCreditCost);
   const actualCreditCost = readCreditCost(outputImage.actualCreditCost);
@@ -101,9 +105,8 @@ export function extractGenerationCreditDetails(
   const chatCredits =
     readNumber(chatTextOnlyCharge?.credits) ??
     (chatRoundCredits !== null && chatRoundCount !== null
-      ? Math.round(
-          (chatRoundCredits * chatRoundCount + Number.EPSILON) * 100
-        ) / 100
+      ? Math.round((chatRoundCredits * chatRoundCount + Number.EPSILON) * 100) /
+        100
       : null);
 
   const actualImageCredits =
@@ -139,6 +142,7 @@ export function extractGenerationCreditDetails(
       null,
     mode: readString(metadata.mode),
     moderationCredits,
+    requestedResolution: readString(outputImage.requestedResolution),
     requestedSize: readString(outputImage.requestedSize),
     requestedTotalCredits:
       requestedCreditCost?.totalCredits ?? creditCost?.totalCredits ?? null,
@@ -148,6 +152,7 @@ export function extractGenerationCreditDetails(
       creditCost?.textModerationCount ??
       null,
     totalCredits: creditsConsumed,
+    settledResolution: readString(outputImage.settledResolution),
     upstreamImageOutputCount: readNumber(outputImage.upstreamImageOutputCount),
   };
 }

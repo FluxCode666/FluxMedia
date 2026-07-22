@@ -211,7 +211,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       return;
     }
     if (requestedTab === "usage") {
-      router.replace("/dashboard/usage-log");
+      router.replace("/dashboard/history");
       return;
     }
     if (requestedTab === "external-api") {

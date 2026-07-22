@@ -43,6 +43,10 @@ import {
   type ImageCreditOverrides,
   parseImageCreditOverrides,
 } from "@repo/shared/image-backend/group-image-pricing";
+import {
+  type HistoryListOutput,
+  historyListOutputSchema,
+} from "@repo/shared/image-generation/history-contract";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { purchasablePlansOutputSchema } from "@repo/shared/subscription/purchase-contract";
 import { subscriptionCheckoutOutputSchema } from "@repo/shared/subscription/checkout-contract";
@@ -83,6 +87,11 @@ import {
 } from "@/features/image-backend-pool/service";
 import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
+import { databaseHistoryRepository } from "@/features/image-generation/history-repository";
+import {
+  HistoryServiceError,
+  loadHistoryRecords,
+} from "@/features/image-generation/history-service";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import type { ImageQuality } from "@/features/image-generation/types";
 import {
@@ -193,6 +202,33 @@ bindExecute(
       creditsUsed: result.creditsConsumed,
       model: result.model,
     };
+  }
+);
+
+/** 绑定本人统一生成历史；Principal 是唯一身份来源，API key 不得读取站内完整历史。 */
+bindExecute(
+  "image.listMyHistoryRecords",
+  async (input: unknown, principal: Principal): Promise<HistoryListOutput> => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    try {
+      const timeZone = await getUserTimeZone(principal.userId);
+      return historyListOutputSchema.parse(
+        await loadHistoryRecords(
+          { userId: principal.userId, timeZone, input },
+          { repository: databaseHistoryRepository }
+        )
+      );
+    } catch (error) {
+      if (error instanceof HistoryServiceError) {
+        throw new OperationError(error.code, error.message);
+      }
+      throw error;
+    }
   }
 );
 

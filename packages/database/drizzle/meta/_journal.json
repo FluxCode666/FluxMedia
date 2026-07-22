@@ -386,6 +386,13 @@
       "when": 1784707200000,
       "tag": "0054_usage_log_keyset_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784764800000,
+      "tag": "0055_history_model_indexes",
+      "breakpoints": true
     }
   ]
 }

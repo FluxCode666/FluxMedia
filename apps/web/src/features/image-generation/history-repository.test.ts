@@ -1,0 +1,89 @@
+/**
+ * 统一生成历史 SQL 构造器测试。
+ *
+ * 不连接数据库，仅编译 Drizzle SQL，证明图片/视频分支有界、筛选参数化、双向 keyset
+ * 使用原始主键列，并且模型选项只按 type 收窄。
+ */
+
+import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@repo/database", () => ({ db: {} }));
+
+import {
+  buildHistoryListSql,
+  buildHistoryModelOptionsSql,
+} from "./history-repository";
+
+const baseQuery = {
+  userId: "user-1",
+  start: new Date("2026-07-01T00:00:00.000Z"),
+  end: new Date("2026-07-23T00:00:00.000Z"),
+  asOf: new Date("2026-07-22T12:00:00.000Z"),
+  model: "gpt-image-2",
+  status: "completed" as const,
+  type: null,
+  cursor: null,
+  branchLimit: 21,
+};
+
+describe("history repository SQL", () => {
+  it("builds one bounded parameterized image/video union", () => {
+    const compiled = new PgDialect().sqlToQuery(buildHistoryListSql(baseQuery));
+
+    expect(compiled.sql).toContain("with image_rows as");
+    expect(compiled.sql).toContain("video_rows as");
+    expect(compiled.sql).toContain("union all");
+    expect(compiled.sql).toContain("order by g.created_at desc, g.id desc");
+    expect(compiled.sql).toContain("order by v.created_at desc, v.id desc");
+    expect(compiled.params).toContain("user-1");
+    expect(compiled.params).toContain("gpt-image-2");
+    expect(compiled.params.filter((value) => value === 21)).toHaveLength(3);
+    expect(compiled.sql).not.toContain("sql.raw");
+    expect(compiled.sql).toContain("jsonb_build_object");
+    expect(compiled.sql).toContain("'settledResolution'");
+    expect(compiled.sql).toContain("'inputImages'");
+    expect(compiled.sql).toContain("null::jsonb as metadata");
+    expect(compiled.sql).not.toContain("g.metadata,");
+    expect(compiled.sql).not.toContain("v.metadata,");
+    expect(compiled.sql).not.toContain("webConversation");
+  });
+
+  it("reverses comparison and order for a signed previous cursor", () => {
+    const compiled = new PgDialect().sqlToQuery(
+      buildHistoryListSql({
+        ...baseQuery,
+        cursor: {
+          createdAt: new Date("2026-07-20T12:00:00.000Z"),
+          kindRank: 1,
+          id: "image-20",
+          direction: "previous",
+        },
+      })
+    );
+
+    expect(compiled.sql).toMatch(/g\.created_at > \$\d+/);
+    expect(compiled.sql).toMatch(/g\.id > \$\d+/);
+    expect(compiled.sql).toContain("order by g.created_at asc, g.id asc");
+    expect(compiled.sql).toContain(
+      "order by created_at asc, kind_rank asc, id asc"
+    );
+  });
+
+  it("reads real distinct models scoped only by user and selected type", () => {
+    const compiled = new PgDialect().sqlToQuery(
+      buildHistoryModelOptionsSql({
+        userId: "user-1",
+        type: "image",
+        limit: 200,
+      })
+    );
+
+    expect(compiled.sql).toContain("from generation g");
+    expect(compiled.sql).toContain("from video_generation v");
+    expect(compiled.sql).toContain("union");
+    expect(compiled.sql).toContain("order by model asc");
+    expect(compiled.params).toContain("user-1");
+    expect(compiled.params).toContain(200);
+  });
+});

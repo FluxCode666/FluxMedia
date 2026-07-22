@@ -16,15 +16,15 @@ import {
   Trash2,
 } from "lucide-react";
 import Image from "next/image";
-import { useLocale } from "next-intl";
 import { useRouter } from "next/navigation";
+import { useLocale } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { deleteGenerationAction } from "@/features/image-generation/actions";
 import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
-import { ExportPsdDialog } from "@/features/psd-export/components/export-psd-dialog";
 import { writePendingReferenceHandoff } from "@/features/image-generation/reference-handoff";
+import { ExportPsdDialog } from "@/features/psd-export/components/export-psd-dialog";
 import { generateDownloadFilename } from "@/lib/download-filename";
 
 export interface LightboxReferenceImage {
@@ -47,6 +47,8 @@ export interface LightboxGeneration {
   promptRepairNotice?: string | null;
   model: string;
   size: string;
+  /** 记录时的实际结算分辨率档位；与像素尺寸 size 分开显示。 */
+  resolution?: string | null;
   creditsConsumed: number;
   creditDetails?: GenerationCreditDetails | null;
   status: "pending" | "completed" | "failed";
@@ -202,6 +204,19 @@ export function ImageLightbox({
                     "-",
             }
           : null,
+        {
+          label: copy("Resolution settlement", "分辨率结算"),
+          value:
+            creditDetails.requestedResolution &&
+            creditDetails.settledResolution &&
+            creditDetails.requestedResolution !==
+              creditDetails.settledResolution
+              ? `${creditDetails.requestedResolution} -> ${creditDetails.settledResolution}`
+              : creditDetails.settledResolution ||
+                creditDetails.requestedResolution ||
+                generation.resolution ||
+                "-",
+        },
       ].filter((row): row is { label: string; value: string } => row !== null)
     : [];
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -548,6 +563,14 @@ export function ImageLightbox({
                   </div>
                   <div>
                     <dt className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                      {copy("Resolution", "分辨率")}
+                    </dt>
+                    <dd className="mt-0.5 font-mono text-xs text-foreground">
+                      {generation.resolution || "-"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
                       {copy("Credits", "积分")}
                     </dt>
                     <dd className="mt-0.5 text-xs text-foreground">
@@ -630,7 +653,10 @@ export function ImageLightbox({
                   >
                     <a
                       href={previewImageUrl}
-                      download={generateDownloadFilename(generation.prompt, generation.createdAt)}
+                      download={generateDownloadFilename(
+                        generation.prompt,
+                        generation.createdAt
+                      )}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

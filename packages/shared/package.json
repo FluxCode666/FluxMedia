@@ -46,6 +46,7 @@
     "./generation-maintenance": "./src/generation-maintenance.ts",
     "./generation-timeout": "./src/generation-timeout.ts",
     "./generation-settlement": "./src/generation-settlement.ts",
+    "./image-generation/history-contract": "./src/image-generation/history-contract.ts",
     "./image-backend/nested-groups": "./src/image-backend/nested-groups.ts",
     "./image-backend/group-image-pricing": "./src/image-backend/group-image-pricing.ts",
     "./image-backend/request-parameter-mapping": "./src/image-backend/request-parameter-mapping.ts",

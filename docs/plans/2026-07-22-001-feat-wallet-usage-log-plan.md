@@ -8,9 +8,12 @@ artifact_readiness: implementation-ready
 product_contract_source: ce-brainstorm
 execution: code
 deepened: 2026-07-22
+superseded_by: docs/plans/2026-07-22-002-feat-unified-history-records-plan.md
 ---
 
 # 钱包与使用日志重构 - Plan
+
+> 独立“使用日志”用户界面及其退款行、请求级活动表要求已被 `docs/plans/2026-07-22-002-feat-unified-history-records-plan.md` 取代；本文的钱包、支付兼容和保留在 UOL 的计费用量能力仍有效。
 
 ## Goal Capsule
 

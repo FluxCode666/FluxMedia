@@ -15,6 +15,10 @@
  */
 import { z } from "zod";
 
+import {
+  historyListInputSchema,
+  historyListOutputSchema,
+} from "../../image-generation/history-contract";
 import { defineOperation } from "../registry";
 
 // ---------------------------------------------------------------------------
@@ -173,6 +177,28 @@ defineOperation({
   sideEffects: [],
   execute: async () => {
     throw new Error("Not yet wired: image.getStatus");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 5. image.listMyHistoryRecords - 当前会话用户的图片/视频统一历史
+// ---------------------------------------------------------------------------
+defineOperation({
+  name: "image.listMyHistoryRecords",
+  domain: "image-generation",
+  title: "获取本人统一生成历史",
+  description:
+    "按创建日期、模型、状态与产物类型读取当前会话用户的图片/视频历史。" +
+    "身份只来自 Principal，返回安全详情、真实模型选项与双向 keyset cursor。",
+  input: historyListInputSchema,
+  output: historyListOutputSchema,
+  access: { kind: "user" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: image.listMyHistoryRecords");
   },
 });
 

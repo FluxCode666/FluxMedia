@@ -53,7 +53,7 @@ export function resolveLegacyBillingRedirect(
   }
 
   if (walletParams.size === 0 && tab === "usage") {
-    return "/dashboard/usage-log";
+    return "/dashboard/history";
   }
   const query = walletParams.toString();
   return query ? `/dashboard/wallet?${query}` : "/dashboard/wallet";

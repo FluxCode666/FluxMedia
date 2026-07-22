@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * 图片与视频历史记录的响应式列表容器。
+ *
+ * 使用方：历史记录服务端页面。组件负责筛选、稳定 keyset 导航和详情弹层；
+ * 数据读取与用户归属校验由服务端 UOL 查询完成。
+ */
+
 import { formatCredits } from "@repo/shared/credits/format";
 import { buildStorageThumbnailUrl } from "@repo/shared/storage/image-url";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
@@ -9,87 +16,105 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Film,
   ImageIcon,
   ImagePlus,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
-import type {
-  LightboxReferenceImage,
-  LightboxGeneration,
-} from "@/features/image-generation/components/image-lightbox";
 
-// 懒加载:lightbox(大图查看模态)仅在点开某张图时才需要,改 next/dynamic 后从列表页
-// 首屏 bundle 移出,点开时再异步加载。
+import { Link } from "@/i18n/routing";
+
+import type { GenerationCreditDetails } from "../credit-calculation-details";
+import { formatHistoryError } from "./history-error-copy";
+import { HistoryFilters } from "./history-filters";
+import {
+  buildNextHistoryHref,
+  buildPreviousHistoryHref,
+  type HistoryQueryState,
+  hasActiveHistoryFilters,
+} from "./history-query";
+import {
+  HistoryVideoDialog,
+  type HistoryVideoDialogRecord,
+} from "./history-video-dialog";
+import type {
+  LightboxGeneration,
+  LightboxReferenceImage,
+} from "./image-lightbox";
+
+// 图片灯箱和视频详情都只在用户点开记录后才需要，避免进入历史页时加载大弹层代码。
 const ImageLightbox = dynamic(
-  () =>
-    import("@/features/image-generation/components/image-lightbox").then(
-      (m) => m.ImageLightbox
-    ),
+  () => import("./image-lightbox").then((module) => module.ImageLightbox),
   { ssr: false }
 );
-import type { GenerationCreditDetails } from "@/features/image-generation/credit-calculation-details";
 
-export interface HistoryGeneration {
-  id: string;
-  prompt: string;
-  revisedPrompt: string | null;
-  promptRepairNotice?: string | null;
-  model: string;
-  size: string;
-  creditsConsumed: number;
-  creditDetails: GenerationCreditDetails | null;
-  status: "pending" | "completed" | "failed";
-  error: string | null;
+export type HistoryRecordStatus = "processing" | "completed" | "failed";
+
+type HistoryRecordBase = {
+  completedAt: string | null;
   createdAt: string;
-  storageKey: string | null;
-  storageBucket: string | null;
-  imageUrl: string | null;
-  referenceImages?: LightboxReferenceImage[];
-  isLayered?: boolean;
-}
-
-export interface HistoryClientProps {
-  initialGenerations: HistoryGeneration[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  timeZone: string;
-}
-
-function statusClasses(status: HistoryGeneration["status"]): string {
-  switch (status) {
-    case "completed":
-      return "bg-foreground/10 text-foreground";
-    case "failed":
-      return "bg-destructive/10 text-destructive";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
-}
-
-const STATUS_LABELS_ZH: Record<string, string> = {
-  completed: "已完成",
-  failed: "失败",
-  pending: "处理中",
+  creditsConsumed: number;
+  error: string | null;
+  id: string;
+  model: string;
+  prompt: string;
+  status: HistoryRecordStatus;
 };
 
+export type HistoryImageRecord = HistoryRecordBase & {
+  creditDetails: GenerationCreditDetails | null;
+  imageUrl: string | null;
+  isLayered?: boolean;
+  kind: "image";
+  promptRepairNotice?: string | null;
+  referenceImages?: LightboxReferenceImage[];
+  revisedPrompt: string | null;
+  size: string;
+};
+
+export type HistoryVideoRecord = HistoryRecordBase &
+  Omit<
+    HistoryVideoDialogRecord,
+    keyof HistoryRecordBase | "kind" | "status"
+  > & {
+    kind: "video";
+    status: HistoryRecordStatus;
+  };
+
+export type HistoryRecord = HistoryImageRecord | HistoryVideoRecord;
+
+export type HistoryClientProps = {
+  modelOptions: string[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  queryState: HistoryQueryState;
+  records: HistoryRecord[];
+  timeZone: string;
+};
+
+/** 返回与可见状态文字配套的语义徽标样式。 */
+function statusClasses(status: HistoryRecordStatus): string {
+  if (status === "completed") return "bg-foreground/10 text-foreground";
+  if (status === "failed") return "bg-destructive/10 text-destructive";
+  return "bg-muted text-muted-foreground";
+}
+
+/** 格式化用户时区中的完整创建日期；异常输入回退原字符串。 */
 function formatDate(iso: string, locale: string, timeZone: string): string {
   try {
     return formatDateInTimeZone(
       iso,
       locale,
       {
-        month: "short",
         day: "2-digit",
-        year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        month: "short",
         timeZoneName: "short",
+        year: "numeric",
       },
       timeZone
     );
@@ -98,13 +123,14 @@ function formatDate(iso: string, locale: string, timeZone: string): string {
   }
 }
 
+/** 生成图片积分列的简短组成说明；视频记录只展示最终积分。 */
 function creditSummary(
-  item: HistoryGeneration,
+  item: HistoryRecord,
   copy: (en: string, zh: string) => string
-) {
+): string | null {
+  if (item.kind !== "image" || !item.creditDetails) return null;
   const details = item.creditDetails;
-  if (!details) return null;
-  const parts = [];
+  const parts: string[] = [];
   if (details.actualImageCredits !== null) {
     parts.push(
       `${copy("image", "图片")} ${formatCredits(details.actualImageCredits)}`
@@ -115,287 +141,335 @@ function creditSummary(
       `${copy("conversation", "对话")} ${formatCredits(details.chatCredits)}`
     );
   }
-  if (details.billingMultiplier !== 1) {
-    parts.push(
-      `${copy("legacy multiplier", "历史倍率")} x${Number(
-        details.billingMultiplier.toFixed(4)
-      )}`
-    );
-  }
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** 返回列表规格文字，图片保留像素尺寸，视频展示分辨率与时长。 */
+function formatRecordSpecification(record: HistoryRecord): string {
+  return record.kind === "image"
+    ? record.size
+    : `${record.resolution} · ${record.durationSeconds}s`;
+}
+
+/** 将统一列表状态映射回图片灯箱的历史状态类型。 */
+function toLightboxGeneration(record: HistoryImageRecord): LightboxGeneration {
+  return {
+    creditDetails: record.creditDetails,
+    createdAt: record.createdAt,
+    creditsConsumed: record.creditsConsumed,
+    error: record.error,
+    id: record.id,
+    isLayered: record.isLayered,
+    model: record.model,
+    prompt: record.prompt,
+    promptRepairNotice: record.promptRepairNotice,
+    referenceImages: record.referenceImages,
+    resolution: record.creditDetails?.settledResolution ?? null,
+    revisedPrompt: record.revisedPrompt,
+    size: record.size,
+    status: record.status === "processing" ? "pending" : record.status,
+  };
+}
+
+/**
+ * 渲染筛选、图片/视频混合记录和对应详情。
+ *
+ * @param props 已在服务端校验并序列化的一页历史记录与 keyset 状态。
+ * @returns 日期优先、移动端完整显示时间的混合记录列表。
+ * @sideEffects 删除图片成功后仅从当前客户端页移除对应记录。
+ */
 export function HistoryClient({
-  initialGenerations,
-  totalCount,
-  page,
-  pageSize,
+  modelOptions,
+  nextCursor,
+  previousCursor,
+  queryState,
+  records,
   timeZone,
 }: HistoryClientProps) {
   const locale = useLocale();
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
-  const statusLabel = (status: string) =>
-    isZh ? STATUS_LABELS_ZH[status] || status : status;
-  const router = useRouter();
-  const [items, setItems] = useState<HistoryGeneration[]>(initialGenerations);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pageInput, setPageInput] = useState(String(page));
+  const statusLabel = (status: HistoryRecordStatus) =>
+    ({
+      completed: copy("Completed", "已完成"),
+      failed: copy("Failed", "失败"),
+      processing: copy("Processing", "处理中"),
+    })[status];
+  const [items, setItems] = useState<HistoryRecord[]>(records);
+  const [selectedKey, setSelectedKey] = useState<{
+    id: string;
+    kind: HistoryRecord["kind"];
+  } | null>(null);
+  const selected =
+    items.find(
+      (item) => item.id === selectedKey?.id && item.kind === selectedKey.kind
+    ) ?? null;
+  const hasPreviousPage = Boolean(previousCursor);
+  const hasNextPage = Boolean(nextCursor);
 
-  // page prop 变化时同步输入框显示值
   useEffect(() => {
-    setPageInput(String(page));
-  }, [page]);
+    setItems(records);
+    setSelectedKey(null);
+  }, [records]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const selected = items.find((i) => i.id === selectedId) ?? null;
-  const historyHref = (nextPage: number) =>
-    `/${locale}/dashboard/history?page=${nextPage}`;
-  const createHref = `/${locale}/dashboard/create`;
-
-  /**
-   * 处理页码输入框提交：解析、校验、导航。
-   * 用于 onKeyDown(Enter) 和 onBlur，提取为公共函数避免重复。
-   */
-  const commitPageInput = () => {
-    const parsed = Number.parseInt(pageInput, 10);
-    if (Number.isNaN(parsed) || parsed < 1) {
-      // 无效输入，重置为当前页
-      setPageInput(String(page));
-      return;
-    }
-    const clamped = Math.min(parsed, totalPages);
-    if (clamped === page) {
-      // 目标页与当前页相同，仅同步显示值
-      setPageInput(String(page));
-      return;
-    }
-    setPageInput(String(clamped));
-    router.push(historyHref(clamped));
-  };
-
-  const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((x) => x.id !== id));
-  };
-
-  if (items.length === 0) {
-    return (
-      <div className="flex animate-in fade-in flex-col items-center justify-center rounded-lg border border-dashed border-border bg-background px-6 py-24 text-center duration-400 motion-reduce:animate-none">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-          <ImagePlus
-            className="h-7 w-7 text-muted-foreground"
-            strokeWidth={1.2}
-          />
-        </div>
-        <h3 className="mt-5 font-serif text-lg font-medium text-foreground">
-          {copy("No history yet", "还没有历史记录")}
-        </h3>
-        <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          {copy(
-            "Your generation history will appear here once you create images.",
-            "创建图片后，生成历史会显示在这里。"
-          )}
-        </p>
-        <Button asChild variant="outline" className="mt-8">
-          <Link href={createHref}>{copy("Create an image", "创建图片")}</Link>
-        </Button>
-      </div>
+  /** 图片删除成功后同步当前页；视频详情本次不提供删除操作。 */
+  function handleDelete(id: string): void {
+    setItems((previous) =>
+      previous.filter((item) => item.kind !== "image" || item.id !== id)
     );
+    setSelectedKey(null);
   }
 
   return (
-    <>
-      <div className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="hidden grid-cols-[64px_minmax(0,1fr)_150px_90px_118px_92px_128px] items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground md:grid">
-          <div>{copy("Image", "图片")}</div>
-          <div>{copy("Prompt", "提示词")}</div>
-          <div>{copy("Model", "模型")}</div>
-          <div>{copy("Size", "尺寸")}</div>
-          <div>{copy("Credits", "积分")}</div>
-          <div>{copy("Status", "状态")}</div>
-          <div>{copy("Date", "日期")}</div>
-        </div>
+    <div className="space-y-4">
+      <HistoryFilters modelOptions={modelOptions} state={queryState} />
 
-        <ul className="divide-y divide-border">
-          {items.map((item) => {
-            const summary = creditSummary(item, copy);
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(item.id)}
-                  className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-muted/70 md:grid-cols-[64px_minmax(0,1fr)_150px_90px_118px_92px_128px] md:items-center md:gap-3"
-                >
-                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-sm border border-border bg-muted md:h-14 md:w-14">
-                    {item.imageUrl && item.status === "completed" ? (
-                      <Image
-                        // 列表缩略图(56–64px):请求 w=128 的小图,避免下整图(平均 2.4MB)。
-                        // 宽度走"路径段"(非 ?w= 查询参数),绕过 Cloudflare 忽略 query 的边缘
-                        // 缓存键(否则命中并下回整张原图、挤占连接、饿死导航)。
-                        src={
-                          buildStorageThumbnailUrl(item.imageUrl, 128) ??
-                          item.imageUrl
-                        }
-                        alt={item.prompt}
-                        fill
-                        sizes="64px"
-                        className="object-contain"
-                        unoptimized
-                        // 低优先级:把 HTTP/2 连接带宽优先让给导航请求(见 ImageCard 注释)。
-                        fetchPriority="low"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                        <ImageIcon className="h-5 w-5" strokeWidth={1.2} />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="line-clamp-2 break-words text-sm leading-snug text-foreground">
-                      {item.prompt}
-                    </p>
-                    {item.error ? (
-                      <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-destructive">
-                        {item.error}
-                      </p>
-                    ) : null}
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
-                      <span className="font-mono">{item.model}</span>
-                      <span>·</span>
-                      <span>{item.size}</span>
-                      <span>·</span>
-                      <Badge
-                        variant="outline"
-                        className={`rounded-full border-transparent px-2 py-0 font-normal text-[10px] uppercase ${statusClasses(item.status)}`}
-                      >
-                        {statusLabel(item.status)}
-                      </Badge>
-                    </div>
-                    {summary && (
-                      <p className="mt-1 text-[11px] leading-tight text-muted-foreground md:hidden">
-                        {summary}
-                      </p>
-                    )}
-                  </div>
-
-                  <div
-                    className="hidden min-w-0 truncate font-mono text-xs text-foreground md:block"
-                    title={item.model}
-                  >
-                    {item.model}
-                  </div>
-                  <div className="hidden font-mono text-xs text-foreground md:block">
-                    {item.size}
-                  </div>
-                  <div className="hidden text-xs text-foreground md:block">
-                    {formatCredits(item.creditsConsumed)}
-                    {summary && (
-                      <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
-                        {summary}
-                      </span>
-                    )}
-                  </div>
-                  <div className="hidden md:block">
-                    <Badge
-                      variant="outline"
-                      className={`rounded-full border-transparent font-normal text-[10px] uppercase tracking-wide ${statusClasses(item.status)}`}
-                    >
-                      {statusLabel(item.status)}
-                    </Badge>
-                  </div>
-                  <div className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
-                    <Clock className="h-3 w-3" />
-                    <span className="truncate">
-                      {formatDate(item.createdAt, locale, timeZone)}
-                    </span>
-                  </div>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-4">
-          <p className="text-xs text-muted-foreground">
-            {copy(
-              `Page ${page} of ${totalPages} · ${totalCount} total`,
-              `第 ${page} / ${totalPages} 页 · 共 ${totalCount} 条`
-            )}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              asChild={page > 1}
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-            >
-              {page > 1 ? (
-                <Link href={historyHref(page - 1)}>
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  {copy("Previous", "上一页")}
-                </Link>
-              ) : (
-                <span>
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  {copy("Previous", "上一页")}
-                </span>
-              )}
-            </Button>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={pageInput}
-              onChange={(e) => setPageInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  commitPageInput();
-                }
-              }}
-              onBlur={commitPageInput}
-              aria-label={copy(
-                "Page number",
-                "页码"
-              )}
-              className="h-8 w-16 rounded-sm border border-border bg-background text-center text-sm text-foreground transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      {items.length === 0 ? (
+        <div
+          aria-live="polite"
+          className="flex animate-in fade-in flex-col items-center justify-center rounded-lg border border-dashed border-border bg-background px-6 py-20 text-center duration-400 motion-reduce:animate-none"
+        >
+          <div className="flex size-16 items-center justify-center rounded-full bg-muted">
+            <ImagePlus
+              className="size-7 text-muted-foreground"
+              strokeWidth={1.2}
             />
-            <span className="text-xs text-muted-foreground">
-              / {totalPages}
-            </span>
-            <Button
-              asChild={page < totalPages}
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-            >
-              {page < totalPages ? (
-                <Link href={historyHref(page + 1)}>
-                  {copy("Next", "下一页")}
-                  <ChevronRight className="ml-1 h-4 w-4" />
-                </Link>
-              ) : (
-                <span>
-                  {copy("Next", "下一页")}
-                  <ChevronRight className="ml-1 h-4 w-4" />
-                </span>
-              )}
+          </div>
+          <h2 className="mt-5 font-serif text-lg font-medium text-foreground">
+            {hasActiveHistoryFilters(queryState)
+              ? copy("No matching records", "没有匹配的记录")
+              : copy("No history yet", "还没有历史记录")}
+          </h2>
+          <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+            {hasActiveHistoryFilters(queryState)
+              ? copy(
+                  "Try changing or clearing the current filters.",
+                  "请调整或清空当前筛选条件。"
+                )
+              : copy(
+                  "Your image and video generations will appear here.",
+                  "你生成的图片和视频会显示在这里。"
+                )}
+          </p>
+          {!hasActiveHistoryFilters(queryState) ? (
+            <Button asChild className="mt-8" variant="outline">
+              <Link href="/dashboard/create">
+                {copy("Start creating", "开始创作")}
+              </Link>
             </Button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border bg-background">
+          <div className="overflow-x-auto">
+            <div className="lg:min-w-[1180px]">
+              <div className="hidden grid-cols-[228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px] items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground lg:grid">
+                <div>{copy("Date", "日期")}</div>
+                <div>{copy("Preview", "预览")}</div>
+                <div>{copy("Prompt", "提示词")}</div>
+                <div>{copy("Type", "类型")}</div>
+                <div>{copy("Model", "模型")}</div>
+                <div>{copy("Specification", "规格")}</div>
+                <div>{copy("Credits", "积分")}</div>
+                <div>{copy("Status", "状态")}</div>
+              </div>
+
+              <ul className="divide-y divide-border">
+                {items.map((item) => {
+                  const summary = creditSummary(item, copy);
+                  const errorMessage = formatHistoryError(item.error, copy);
+                  return (
+                    <li key={`${item.kind}-${item.id}`}>
+                      <button
+                        className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px] lg:items-center"
+                        onClick={() =>
+                          setSelectedKey({ id: item.id, kind: item.kind })
+                        }
+                        type="button"
+                      >
+                        <div className="col-span-2 flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground lg:col-span-1">
+                          <Clock className="size-3 shrink-0" />
+                          <time dateTime={item.createdAt}>
+                            {formatDate(item.createdAt, locale, timeZone)}
+                          </time>
+                        </div>
+
+                        <div className="relative size-12 shrink-0 overflow-hidden rounded-sm border border-border bg-muted lg:size-14">
+                          {item.kind === "image" &&
+                          item.imageUrl &&
+                          item.status === "completed" ? (
+                            <Image
+                              alt={item.prompt}
+                              className="object-contain"
+                              fetchPriority="low"
+                              fill
+                              sizes="64px"
+                              src={
+                                buildStorageThumbnailUrl(item.imageUrl, 128) ??
+                                item.imageUrl
+                              }
+                              unoptimized
+                            />
+                          ) : (
+                            <div className="flex size-full items-center justify-center text-muted-foreground">
+                              {item.kind === "video" ? (
+                                <Film className="size-5" strokeWidth={1.2} />
+                              ) : (
+                                <ImageIcon
+                                  className="size-5"
+                                  strokeWidth={1.2}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 break-words text-sm leading-snug text-foreground">
+                            {item.prompt}
+                          </p>
+                          {errorMessage ? (
+                            <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-destructive">
+                              {errorMessage}
+                            </p>
+                          ) : null}
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground lg:hidden">
+                            <span>
+                              {item.kind === "image"
+                                ? copy("Image", "图片")
+                                : copy("Video", "视频")}
+                            </span>
+                            <span>·</span>
+                            <span className="break-all font-mono">
+                              {item.model}
+                            </span>
+                            <span>·</span>
+                            <span>{formatRecordSpecification(item)}</span>
+                            <Badge
+                              className={`rounded-full border-transparent px-2 py-0 font-normal text-[10px] uppercase ${statusClasses(item.status)}`}
+                              variant="outline"
+                            >
+                              {statusLabel(item.status)}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[11px] leading-tight text-muted-foreground lg:hidden">
+                            {formatCredits(item.creditsConsumed)}
+                            {summary ? ` · ${summary}` : ""}
+                          </p>
+                        </div>
+
+                        <div className="hidden text-xs text-foreground lg:block">
+                          {item.kind === "image"
+                            ? copy("Image", "图片")
+                            : copy("Video", "视频")}
+                        </div>
+                        <div
+                          className="hidden min-w-0 truncate font-mono text-xs text-foreground lg:block"
+                          title={item.model}
+                        >
+                          {item.model}
+                        </div>
+                        <div className="hidden font-mono text-xs text-foreground lg:block">
+                          {formatRecordSpecification(item)}
+                        </div>
+                        <div className="hidden text-xs text-foreground lg:block">
+                          {formatCredits(item.creditsConsumed)}
+                          {summary ? (
+                            <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+                              {summary}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="hidden lg:block">
+                          <Badge
+                            className={`rounded-full border-transparent font-normal text-[10px] uppercase tracking-wide ${statusClasses(item.status)}`}
+                            variant="outline"
+                          >
+                            {statusLabel(item.status)}
+                          </Badge>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </div>
         </div>
       )}
 
-      {selected && (
+      {hasPreviousPage || hasNextPage ? (
+        <nav
+          aria-label={copy("History pagination", "历史记录分页")}
+          className="flex items-center justify-between gap-3 pt-1"
+        >
+          <p className="text-xs text-muted-foreground">
+            {copy(
+              "Records are ordered by creation date.",
+              "记录按创建日期倒序排列。"
+            )}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              asChild={hasPreviousPage}
+              disabled={!hasPreviousPage}
+              size="sm"
+              variant="outline"
+            >
+              {hasPreviousPage && previousCursor ? (
+                <Link
+                  href={buildPreviousHistoryHref(queryState, previousCursor)}
+                >
+                  <ChevronLeft />
+                  {copy("Previous", "上一页")}
+                </Link>
+              ) : (
+                <span>
+                  <ChevronLeft />
+                  {copy("Previous", "上一页")}
+                </span>
+              )}
+            </Button>
+            <Button
+              asChild={hasNextPage}
+              disabled={!hasNextPage}
+              size="sm"
+              variant="outline"
+            >
+              {hasNextPage && nextCursor ? (
+                <Link href={buildNextHistoryHref(queryState, nextCursor)}>
+                  {copy("Next", "下一页")}
+                  <ChevronRight />
+                </Link>
+              ) : (
+                <span>
+                  {copy("Next", "下一页")}
+                  <ChevronRight />
+                </span>
+              )}
+            </Button>
+          </div>
+        </nav>
+      ) : null}
+
+      {selected?.kind === "image" ? (
         <ImageLightbox
-          generation={selected as LightboxGeneration}
+          generation={toLightboxGeneration(selected)}
           imageUrl={selected.imageUrl}
-          open={selectedId !== null}
-          timeZone={timeZone}
-          onClose={() => setSelectedId(null)}
+          onClose={() => setSelectedKey(null)}
           onDelete={handleDelete}
+          open={selectedKey !== null}
+          timeZone={timeZone}
         />
-      )}
-    </>
+      ) : null}
+      {selected?.kind === "video" ? (
+        <HistoryVideoDialog
+          onClose={() => setSelectedKey(null)}
+          open={selectedKey !== null}
+          record={selected}
+          timeZone={timeZone}
+        />
+      ) : null}
+    </div>
   );
 }

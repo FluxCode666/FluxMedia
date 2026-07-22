@@ -90,6 +90,7 @@ import {
   roundUpCreditAmount,
 } from "./resolution";
 import { calibrateImageResolution } from "./resolution-calibration";
+import { resolveImageResolutionSettlement } from "./resolution-settlement";
 import {
   editImage,
   generateChatImage,
@@ -2989,6 +2990,8 @@ async function runQueuedImageGenerationForUser({
         mode: input.mode,
         requestedSize: size,
         actualSize: primaryOutput.size,
+        requestedResolution: resolveImageResolutionSettlement(size),
+        settledResolution: resolveImageResolutionSettlement(primaryOutput.size),
         requestedCreditCost: creditCost,
         actualCreditCost,
         perOutputCreditCosts,
@@ -3093,6 +3096,10 @@ async function runQueuedImageGenerationForUser({
           outputImage: {
             requestedSize: size,
             actualSize: primaryOutput.size,
+            requestedResolution: resolveImageResolutionSettlement(size),
+            settledResolution: resolveImageResolutionSettlement(
+              primaryOutput.size
+            ),
             actualSizeDetected: primaryOutput.actualSizeDetected,
             actualSizeMatchesRequested: primaryOutput.size === size,
             requestedFormat: input.outputFormat || null,

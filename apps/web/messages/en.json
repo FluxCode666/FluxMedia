@@ -607,7 +607,6 @@
       "backendHelp": "System Docs",
       "externalApi": "External API",
       "wallet": "Wallet",
-      "usageLog": "Usage Log",
       "announcements": "Announcements",
       "settings": "Settings",
       "userManagement": "User Management",
@@ -643,7 +642,6 @@
       "security": "Security",
       "billing": "Billing & Usage",
       "wallet": "Wallet",
-      "usageLog": "Usage Log",
       "notifications": "Notifications",
       "ticketDetails": "Ticket Details",
       "advanced": "Advanced"

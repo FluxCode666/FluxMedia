@@ -1,8 +1,8 @@
 /**
- * 使用日志页的默认折叠价格趋势。
+ * 历史记录页的默认折叠价格趋势卡。
  *
- * 使用方：使用日志路由。只有用户明确展开时才挂载现有的懒加载图表，保留既有定价
- * 数据口径，并将价格数据读取失败隔离在本卡内，不影响请求日志。
+ * 使用方：历史记录服务端页面。折叠态不会挂载图表客户端代码；价格数据失败只影响
+ * 本卡，不覆盖已经加载成功的生成记录。
  */
 "use client";
 
@@ -13,40 +13,39 @@ import { ImagePricingChartCardLazy } from "@/features/billing/components/image-p
 import type { ImagePricingCardData } from "@/features/billing/image-pricing-card-data";
 import { Link } from "@/i18n/routing";
 
-import type { UsageLogCopy } from "./usage-log-copy";
-
-type UsageLogPricingTrendsProps = {
-  copy: UsageLogCopy;
+type HistoryPricingTrendsProps = {
   data: ImagePricingCardData | null;
   isZh: boolean;
   retryHref: string;
 };
 
 /**
- * 渲染默认收起的旧价格趋势内容。
+ * 渲染可展开的价格趋势，默认保持收起。
  *
- * @param props 图表公开数据、失败重试 URL 和本地化文案。
- * @returns 可展开卡片；失败时只显示安全提示与同页重试入口。
- * @sideEffects 用户展开时初始化图表组件及其懒加载代码块。
+ * @param props 当前用户的计价卡数据、语言和同页重试地址。
+ * @returns 独立失败边界的折叠卡片。
  */
-export function UsageLogPricingTrends({
-  copy,
+export function HistoryPricingTrends({
   data,
   isZh,
   retryHref,
-}: UsageLogPricingTrendsProps) {
+}: HistoryPricingTrendsProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const contentId = useId();
+  const copy = (en: string, zh: string) => (isZh ? zh : en);
 
   return (
     <section className="rounded-xl border bg-card">
       <div className="flex items-center justify-between gap-4 p-5">
         <div>
           <h2 className="font-serif text-xl font-medium">
-            {copy.pricing.title}
+            {copy("Pricing trends", "价格趋势")}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {copy.pricing.description}
+            {copy(
+              "Review the current image pricing for your plan and backend group.",
+              "查看当前套餐与后端分组对应的生图价格。"
+            )}
           </p>
         </div>
         <Button
@@ -61,7 +60,7 @@ export function UsageLogPricingTrends({
           ) : (
             <ChevronRight className="mr-2 h-4 w-4" aria-hidden="true" />
           )}
-          {isExpanded ? copy.pricing.hide : copy.pricing.show}
+          {isExpanded ? copy("Hide", "收起") : copy("Show", "展开")}
         </Button>
       </div>
       {isExpanded ? (
@@ -70,9 +69,14 @@ export function UsageLogPricingTrends({
             <ImagePricingChartCardLazy {...data} isZh={isZh} />
           ) : (
             <div className="space-y-3" role="alert">
-              <p className="text-sm text-destructive">{copy.pricing.error}</p>
+              <p className="text-sm text-destructive">
+                {copy(
+                  "Pricing data could not be loaded.",
+                  "价格数据加载失败。"
+                )}
+              </p>
               <Link className="text-sm font-medium underline" href={retryHref}>
-                {copy.pricing.retry}
+                {copy("Retry", "重试")}
               </Link>
             </div>
           )}

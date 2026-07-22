@@ -27,7 +27,6 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/external-api": "externalApi",
     "/dashboard/billing": "billing",
     "/dashboard/wallet": "wallet",
-    "/dashboard/usage-log": "usageLog",
     "/dashboard/settings": "settings",
     "/dashboard/admin/users": "userManagement",
     "/dashboard/admin/announcements": "announcementManagement",

@@ -1,0 +1,169 @@
+/**
+ * 统一生成历史的共享 UOL 契约。
+ *
+ * 使用方：历史记录 UOL、Web 查询服务和历史页。调用方只能提交筛选与分页参数，
+ * 用户身份始终来自 Principal；图片和视频通过 kind 判别，避免混用专属字段。
+ */
+
+import { z } from "zod";
+
+/** 历史记录产物类型。 */
+export const historyRecordTypeSchema = z.enum(["image", "video"]);
+
+/** 图片与视频统一后的展示状态。 */
+export const historyRecordStatusSchema = z.enum([
+  "processing",
+  "completed",
+  "failed",
+]);
+
+/** 校验 YYYY-MM-DD 同时确实是有效公历日期。 */
+function isValidDateOnly(value: string): boolean {
+  const [year, month, day] = value.split("-").map(Number);
+  if (year === undefined || month === undefined || day === undefined) {
+    return false;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** 用户时区中的自然日输入，不在共享层猜测 UTC 边界。 */
+export const historyDateOnlySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isValidDateOnly, "Invalid calendar date");
+
+/** cursor 必须绑定的全部筛选，筛选变化后旧 cursor 不可复用。 */
+export const historyCursorFiltersSchema = z
+  .object({
+    createdFrom: historyDateOnlySchema.nullable().default(null),
+    createdTo: historyDateOnlySchema.nullable().default(null),
+    model: z.string().trim().min(1).max(240).nullable().default(null),
+    status: historyRecordStatusSchema.nullable().default(null),
+    type: historyRecordTypeSchema.nullable().default(null),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      !value.createdFrom ||
+      !value.createdTo ||
+      value.createdFrom <= value.createdTo,
+    { message: "createdFrom must not be after createdTo", path: ["createdTo"] }
+  );
+
+/** 本人历史列表输入；userId 等只读身份字段会被 strict 拒绝。 */
+export const historyListInputSchema = historyCursorFiltersSchema
+  .safeExtend({
+    cursor: z.string().min(1).max(4096).nullable().default(null),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict();
+
+const isoDateTimeSchema = z.string().datetime({ offset: true });
+
+/** 图片积分结算快照的白名单字段，不直接暴露 generation.metadata。 */
+export const historyCreditDetailsSchema = z
+  .object({
+    actualImageCredits: z.number().finite().nullable(),
+    actualSize: z.string().nullable(),
+    baseCredits: z.number().finite().nullable(),
+    billableImageOutputCount: z.number().finite().nullable(),
+    billingGroupId: z.string().nullable(),
+    billingMultiplier: z.number().finite().positive(),
+    chatCredits: z.number().finite().nullable(),
+    chatRoundCount: z.number().finite().nullable(),
+    chatRoundCredits: z.number().finite().nullable(),
+    imageModerationCount: z.number().finite().nullable(),
+    mode: z.string().nullable(),
+    moderationCredits: z.number().finite().nullable(),
+    requestedSize: z.string().nullable(),
+    requestedResolution: z.string().nullable(),
+    settledResolution: z.string().nullable(),
+    requestedTotalCredits: z.number().finite().nullable(),
+    textModerationCount: z.number().finite().nullable(),
+    totalCredits: z.number().finite().nonnegative(),
+    upstreamImageOutputCount: z.number().finite().nullable(),
+  })
+  .strict();
+
+/** Lightbox 所需的安全参考图字段；内部存储键和桶名不跨 UOL。 */
+export const historyReferenceImageSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    imageUrl: z.string().min(1),
+    name: z.string().nullable(),
+    type: z.string().nullable(),
+    sizeBytes: z.number().finite().nonnegative().nullable(),
+    source: z.string().min(1).max(100),
+    role: z.string().min(1).max(100),
+    index: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** 图片、视频共同拥有且可安全跨 UOL 边界的历史字段。 */
+const historyRecordCommonSchema = z.object({
+  id: z.string().min(1).max(512),
+  prompt: z.string(),
+  model: z.string().min(1).max(240),
+  status: historyRecordStatusSchema,
+  creditsConsumed: z.number().finite().nonnegative(),
+  error: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+});
+
+/** 图片历史详情所需的结算元数据、尺寸与受控资源地址。 */
+export const imageHistoryRecordSchema = historyRecordCommonSchema
+  .extend({
+    kind: z.literal("image"),
+    revisedPrompt: z.string().nullable(),
+    size: z.string().min(1).max(200),
+    creditDetails: historyCreditDetailsSchema.nullable(),
+    promptRepairNotice: z.string().nullable(),
+    referenceImages: z.array(historyReferenceImageSchema).max(50),
+    isLayered: z.boolean(),
+    imageUrl: z.string().nullable(),
+  })
+  .strict();
+
+/** 视频历史详情所需的原生分辨率、时长、比例与受控资源地址。 */
+export const videoHistoryRecordSchema = historyRecordCommonSchema
+  .extend({
+    kind: z.literal("video"),
+    family: z.string().min(1).max(240),
+    resolution: z.string().min(1).max(100),
+    durationSeconds: z.number().int().positive(),
+    aspectRatio: z.string().min(1).max(100),
+    videoUrl: z.string().nullable(),
+  })
+  .strict();
+
+/** 统一历史记录判别联合。 */
+export const historyRecordSchema = z.discriminatedUnion("kind", [
+  imageHistoryRecordSchema,
+  videoHistoryRecordSchema,
+]);
+
+/** 有界 keyset 列表输出，并携带用户历史中真实出现过的模型选项。 */
+export const historyListOutputSchema = z
+  .object({
+    asOf: isoDateTimeSchema,
+    records: z.array(historyRecordSchema).max(50),
+    modelOptions: z.array(z.string().min(1).max(240)).max(200),
+    nextCursor: z.string().min(1).max(4096).nullable(),
+    previousCursor: z.string().min(1).max(4096).nullable(),
+  })
+  .strict();
+
+export type HistoryRecordType = z.infer<typeof historyRecordTypeSchema>;
+export type HistoryRecordStatus = z.infer<typeof historyRecordStatusSchema>;
+export type HistoryCreditDetails = z.infer<typeof historyCreditDetailsSchema>;
+export type HistoryReferenceImage = z.infer<typeof historyReferenceImageSchema>;
+export type HistoryCursorFilters = z.infer<typeof historyCursorFiltersSchema>;
+export type HistoryListInput = z.input<typeof historyListInputSchema>;
+export type HistoryRecord = z.infer<typeof historyRecordSchema>;
+export type HistoryListOutput = z.infer<typeof historyListOutputSchema>;

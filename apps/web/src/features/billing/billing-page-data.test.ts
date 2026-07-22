@@ -8,7 +8,7 @@ describe("resolveLegacyBillingRedirect", () => {
     [{}, "/dashboard/wallet"],
     [{ tab: "billing" }, "/dashboard/wallet"],
     [{ tab: "unknown" }, "/dashboard/wallet"],
-    [{ tab: "usage" }, "/dashboard/usage-log"],
+    [{ tab: "usage" }, "/dashboard/history"],
   ])("把旧页面参数 %o 迁移到 %s", (searchParams, expected) => {
     expect(resolveLegacyBillingRedirect(searchParams)).toBe(expected);
   });
