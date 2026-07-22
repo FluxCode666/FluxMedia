@@ -8,18 +8,19 @@ import { getPlanUploadLimits } from "@repo/shared/subscription/services/upload-l
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
-import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { getLocale } from "next-intl/server";
+import { getEffectiveImageBackendGroupForUser } from "@/features/image-backend-pool/service";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
-import { hasLayeredMeta } from "@/features/psd-export/layered-meta";
-import { getRuntimeImageBaseCreditPricing } from "@/features/image-generation/pricing-settings";
+import {
+  getRuntimeImageBaseCreditPricing,
+  getRuntimeImageModelCreditPricing,
+  getRuntimeImageModerationCreditPricing,
+} from "@/features/image-generation/pricing-settings";
 import { getUserRecentGenerations } from "@/features/image-generation/queries";
 import { getUserApiConfig } from "@/features/image-generation/service";
 import { getVideoPricingForUser } from "@/features/image-generation/video-operations";
-import {
-  getUserImageBackendPreference,
-  listSelectableImageBackendGroups,
-} from "@/features/image-backend-pool/service";
+import { hasLayeredMeta } from "@/features/psd-export/layered-meta";
 
 const DEFAULT_FORCE_WEB_MIN_PIXELS = 660_000;
 const DEFAULT_FORCE_WEB_MAX_PIXELS = 2_000_000;
@@ -37,26 +38,25 @@ export default async function CreatePage() {
       getUserApiConfig(user.id),
       getUserTimeZone(user.id),
     ]);
-  const [
-    uploadLimits,
-    backendGroups,
-    selectedBackendGroupId,
-    moderationEnabled,
-  ] = await Promise.all([
-    getPlanUploadLimits(plan.plan),
-    listSelectableImageBackendGroups(plan.plan),
-    getUserImageBackendPreference(user.id, plan.plan),
-    isContentModerationEnabled(),
-  ]);
+  const [uploadLimits, activeBackendGroup, moderationEnabled] =
+    await Promise.all([
+      getPlanUploadLimits(plan.plan),
+      getEffectiveImageBackendGroupForUser(user.id, plan.plan),
+      isContentModerationEnabled(),
+    ]);
   const [
     capabilities,
     imageBasePricing,
+    imageModelPricing,
+    imageModerationPricing,
     forceWebMinPixels,
     forceWebMaxPixels,
     videoPricing,
   ] = await Promise.all([
     getPlanCapabilitySnapshot(plan.plan),
     getRuntimeImageBaseCreditPricing(),
+    getRuntimeImageModelCreditPricing(),
+    getRuntimeImageModerationCreditPricing(),
     getRuntimeSettingNumber(
       "IMAGE_FORCE_WEB_MIN_PIXELS",
       DEFAULT_FORCE_WEB_MIN_PIXELS,
@@ -96,18 +96,13 @@ export default async function CreatePage() {
       plan={plan.plan}
       capabilities={capabilities}
       uploadLimits={uploadLimits}
-      backendGroups={backendGroups.map((group) => ({
-        id: group.id,
-        name: group.name,
-        isDefault: group.isDefault,
-        backendType: group.backendType,
-        contentSafetyEnabled: group.contentSafetyEnabled,
-        billingMultiplier: group.billingMultiplier,
-      }))}
-      selectedBackendGroupId={selectedBackendGroupId}
+      backendGroups={activeBackendGroup ? [activeBackendGroup] : []}
+      selectedBackendGroupId={activeBackendGroup?.id ?? null}
       customApiActive={Boolean(userApiConfig)}
       moderationEnabled={moderationEnabled}
       imageBasePricing={imageBasePricing}
+      imageModelPricing={imageModelPricing}
+      imageModerationPricing={imageModerationPricing}
       forceWebPixelRange={forceWebPixelRange}
       timeZone={timeZone}
       videoPricing={videoPricing}

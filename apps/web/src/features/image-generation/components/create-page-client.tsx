@@ -102,10 +102,13 @@ import {
   normalizeImageSize,
   normalizeValidImageSize,
   parseImageSize,
-  roundUpCreditAmount,
   validateImageSize,
 } from "../resolution";
 import type { VideoPricingInfo } from "../video-operations";
+import {
+  type ImageCreditOverrides,
+  resolveImageCreditPricing,
+} from "@repo/shared/image-backend/group-image-pricing";
 import { ImageLightbox, type LightboxGeneration } from "./image-lightbox";
 import { VideoCreatePanel } from "./video-create-panel";
 
@@ -593,7 +596,7 @@ type BackendGroupOption = {
   isDefault: boolean;
   backendType: ImageBackendGroupBackendType;
   contentSafetyEnabled: boolean | null;
-  billingMultiplier: number;
+  imageCreditOverrides: ImageCreditOverrides;
 };
 
 const defaultDimensions = parseImageSize(DEFAULT_IMAGE_SIZE) || {
@@ -1238,7 +1241,13 @@ interface CreatePageClientProps {
   selectedBackendGroupId: string | null;
   customApiActive: boolean;
   moderationEnabled: boolean;
-  imageBasePricing: ImageBaseCreditPricing;
+  imageBasePricing: Required<ImageBaseCreditPricing>;
+  imageModelPricing: ImageCreditOverrides;
+  imageModerationPricing: Required<
+    NonNullable<
+      NonNullable<Parameters<typeof getImageCreditCost>[1]>["moderationPricing"]
+    >
+  >;
   forceWebPixelRange: ForceWebPixelRange;
   timeZone: string;
   videoPricing: VideoPricingInfo;
@@ -1986,6 +1995,8 @@ export function CreatePageClient({
   customApiActive,
   moderationEnabled,
   imageBasePricing,
+  imageModelPricing,
+  imageModerationPricing,
   forceWebPixelRange,
   timeZone,
   videoPricing,
@@ -2004,21 +2015,21 @@ export function CreatePageClient({
     backendGroups.find((group) => group.id === selectedBackendGroupId) ||
     backendGroups.find((group) => group.isDefault) ||
     null;
-  const activeBillingMultiplier = Math.max(
-    0.01,
-    selectedBackendGroup?.billingMultiplier || 1
-  );
-  const applyBillingMultiplier = (credits: number) =>
-    activeBillingMultiplier === 1
-      ? credits
-      : roundUpCreditAmount(credits * activeBillingMultiplier);
+  /** 按当前模型和计费分组合并固定档位价格，并追加运行时审核费用。 */
   const getPricedImageCreditCost = (
+    model: string,
     requestedSize?: string | null,
     options: Parameters<typeof getImageCreditCost>[1] = {}
   ) =>
     getImageCreditCost(requestedSize, {
       ...options,
-      basePricing: imageBasePricing,
+      basePricing: resolveImageCreditPricing({
+        model: model === "default" ? DEFAULT_IMAGE_MODEL : model,
+        fallback: imageBasePricing,
+        global: imageModelPricing,
+        group: selectedBackendGroup?.imageCreditOverrides,
+      }),
+      moderationPricing: imageModerationPricing,
       quality: (options.quality ??
         quality) as ImageQualityLevel | undefined,
       thinking: (options.thinking ??
@@ -2904,12 +2915,10 @@ export function CreatePageClient({
     [width, height]
   );
   const size = useAutoSize ? AUTO_IMAGE_SIZE : manualSize;
-  const textImageCreditCost = useMemo(
-    () =>
-      applyBillingMultiplier(
-        getPricedImageCreditCost(size, moderationCostOptions)
-      ),
-    [activeBillingMultiplier, chatThinking, imageBasePricing, moderationCostOptions, quality, size]
+  const textImageCreditCost = getPricedImageCreditCost(
+    textModel,
+    size,
+    moderationCostOptions
   );
   const textBatchCreditCost = textImageCreditCost * batchCount;
   const linePromptItems = useMemo(
@@ -2964,26 +2973,19 @@ export function CreatePageClient({
     return customEditSize;
   }, [customEditSize, firstImageOutputSize, useEditFirstImageSize]);
   const editImageCreditCost = effectiveEditSize
-    ? applyBillingMultiplier(
-        getPricedImageCreditCost(
-          effectiveEditSize,
-          getModerationCostOptions(editImages.length)
-        )
+    ? getPricedImageCreditCost(
+        editModel,
+        effectiveEditSize,
+        getModerationCostOptions(editImages.length)
       )
-    : applyBillingMultiplier(
-        getPricedImageCreditCost(undefined, moderationCostOptions)
-      );
+    : getPricedImageCreditCost(editModel, undefined, moderationCostOptions);
   const editBatchCreditCost = editImageCreditCost * editBatchCount;
-  const chatRoundCreditCost = applyBillingMultiplier(
-    capabilities.billing.chatRoundCredits
-  );
+  const chatRoundCreditCost = capabilities.billing.chatRoundCredits;
   // chat(web) 选了 PPT/PSD:走可编辑文件生成(固定 gpt-5-5-thinking + 代码解释器),
   // 图像那套控件(模型/思考/背景/透明/高清修复/生成式修复/尺寸/提示词优化)全不适用,隐藏。
   const chatWebFileMode =
     activeMode === "chat-web" && chatWebGenKind !== "image";
-  const agentRoundCreditCost = applyBillingMultiplier(
-    capabilities.billing.agentRoundCredits
-  );
+  const agentRoundCreditCost = capabilities.billing.agentRoundCredits;
   const chatSingleCreditCost =
     activeMode === "agent" ? agentRoundCreditCost : chatRoundCreditCost;
   const batchFallbackSize = hasChatImageAttachments ? chatCustomEditSize : size;
@@ -3053,11 +3055,10 @@ export function CreatePageClient({
         "混合路由优先走 Web 时置灰；这些控制仅在回退到 Codex/Responses 后生效。"
       )
     : undefined;
-  const batchSingleCreditCost = applyBillingMultiplier(
-    getPricedImageCreditCost(
-      batchFallbackSize,
-      getModerationCostOptions(chatImageAttachmentCount)
-    )
+  const batchSingleCreditCost = getPricedImageCreditCost(
+    chatImageModel,
+    batchFallbackSize,
+    getModerationCostOptions(chatImageAttachmentCount)
   );
   const formattedBalance = formatCredits(balance);
   const formattedTextBatchCreditCost = formatCredits(textBatchCreditCost);
@@ -6041,12 +6042,11 @@ export function CreatePageClient({
       sessionCountRef.current = nextCount;
     }
 
-    const creditsPerRequest = applyBillingMultiplier(
-      getPricedImageCreditCost(
-        fallbackSize,
-        getModerationCostOptions(
-          attachments.filter((item) => item.kind === "image").length
-        )
+    const creditsPerRequest = getPricedImageCreditCost(
+      chatImageModel,
+      fallbackSize,
+      getModerationCostOptions(
+        attachments.filter((item) => item.kind === "image").length
       )
     );
     const pendingCredits = batchActiveRequestsRef.current * creditsPerRequest;
