@@ -36,6 +36,7 @@ import {
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { purchasablePlansOutputSchema } from "@repo/shared/subscription/purchase-contract";
+import { subscriptionCheckoutOutputSchema } from "@repo/shared/subscription/checkout-contract";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
 import {
   formatDateInputInTimeZone,
@@ -72,6 +73,12 @@ import {
   getCreditTopUpOrderStatus,
 } from "@/features/payment/credit-top-up";
 import { loadSubscriptionPurchaseOptions } from "@/features/payment/subscription-purchase-options";
+import {
+  createSubscriptionCheckout,
+  selectTrustedSubscriptionCheckoutInput,
+  SubscriptionCheckoutError,
+} from "@/features/payment/subscription-checkout";
+import type { SubscriptionCheckoutInput } from "@repo/shared/subscription/checkout-contract";
 import { databaseUsageLogRepository } from "@/features/usage-log/repository";
 import {
   loadUsageEventDetail,
@@ -454,6 +461,42 @@ bindExecute(
     return purchasablePlansOutputSchema.parse(
       await loadSubscriptionPurchaseOptions(principal.userId)
     );
+  }
+);
+
+/**
+ * subscription.createCheckout - 渠道与回跳只取服务端真相。
+ *
+ * 兼容输入中的 provider/successUrl/cancelUrl 不会下传，防止客户端改写资金路径；
+ * userId 只从已鉴权 user Principal 取得，输出再次经过共享窄 schema。
+ */
+bindExecute(
+  "subscription.createCheckout",
+  async (
+    input: SubscriptionCheckoutInput,
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    if (principal.type !== "user") {
+      throw new OperationError(
+        "unauthenticated",
+        "User session authentication required"
+      );
+    }
+    const trusted = selectTrustedSubscriptionCheckoutInput(
+      principal.userId,
+      input
+    );
+    try {
+      return subscriptionCheckoutOutputSchema.parse(
+        await createSubscriptionCheckout(trusted.userId, trusted.priceId)
+      );
+    } catch (error) {
+      if (error instanceof SubscriptionCheckoutError) {
+        throw new OperationError("validation_error", error.message);
+      }
+      throw error;
+    }
   }
 );
 

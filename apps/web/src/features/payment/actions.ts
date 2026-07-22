@@ -3,26 +3,23 @@
 import { db } from "@repo/database";
 import { subscription } from "@repo/database/schema";
 
-import { getBaseUrl, paymentConfig } from "@repo/shared/config/payment";
-import { findRuntimePlanByPriceId } from "@repo/shared/config/payment-runtime";
+import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { logEvent } from "@repo/shared/logger";
-import {
-  createRuntimeEpayPurchase,
-  getRuntimePaymentProvider,
-  saveEpayOrder,
-} from "@repo/shared/payment/epay";
 import { ActionUserError, protectedAction } from "@repo/shared/safe-action";
+import type { SubscriptionCheckoutOutput } from "@repo/shared/subscription/checkout-contract";
+import { invokeOperation, OperationError } from "@repo/shared/uol";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { PaymentType } from "@/features/payment/types";
+import { ensureUolInitialized } from "@/server/uol-init";
 
-import { assertRuntimeCreemCheckoutConfigured, creem } from "./creem";
-import { createSubscriptionCheckoutQuote } from "./subscription-upgrade";
+import { creem } from "./creem";
 
 /**
- * 创建 Creem Checkout Session
+ * 创建订阅 Checkout Session 的兼容 Action。
  *
- * 支持订阅支付和一次性支付两种模式
+ * 输入和浏览器可见输出保持既有契约；客户端 type/回跳 URL 不参与支付渠道或目标
+ * 决策。Action 只初始化 UOL、构造当前 session Principal 并映射 UOL 输出。
  */
 export const createCheckoutSession = protectedAction
   .metadata({ action: "payment.createCheckoutSession" })
@@ -35,117 +32,40 @@ export const createCheckoutSession = protectedAction
     })
   )
   .action(async ({ parsedInput, ctx }) => {
-    const { priceId, successUrl } = parsedInput;
-    const { userId } = ctx;
-    const paymentProvider = await getRuntimePaymentProvider();
-    if (paymentProvider === "none") {
-      throw new ActionUserError("支付功能当前未启用");
-    }
-    if (paymentProvider === "alipay_f2f") {
-      throw new ActionUserError(
-        "支付宝当面付仅支持按金额充值，暂不支持订阅套餐支付"
+    await ensureUolInitialized();
+    const principal = {
+      type: "user" as const,
+      userId: ctx.userId,
+      role: await getUserRoleById(ctx.userId),
+    };
+    let checkout: SubscriptionCheckoutOutput;
+    try {
+      checkout = await invokeOperation<SubscriptionCheckoutOutput>(
+        "subscription.createCheckout",
+        {
+          priceId: parsedInput.priceId,
+          successUrl: parsedInput.successUrl,
+          cancelUrl: parsedInput.cancelUrl,
+        },
+        principal
       );
-    }
-
-    // 检查是否已有活跃订阅
-    const [existingSub] = await db
-      .select({
-        userId: subscription.userId,
-        priceId: subscription.priceId,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        status: subscription.status,
-      })
-      .from(subscription)
-      .where(eq(subscription.userId, userId))
-      .limit(1);
-
-    // 查找计划和价格信息
-    const { plan, price } = await findRuntimePlanByPriceId(priceId);
-    if (!plan || !price) {
-      throw new Error("无效的价格 ID");
-    }
-
-    const baseUrl = getBaseUrl();
-    const hasActiveSub =
-      existingSub && isSubscriptionCurrentlyActive(existingSub);
-    const upgradeQuote = hasActiveSub
-      ? await createSubscriptionCheckoutQuote(existingSub, priceId)
-      : null;
-    const useEpay = paymentProvider === "epay";
-    if (!useEpay) {
-      try {
-        await assertRuntimeCreemCheckoutConfigured();
-      } catch {
-        throw new ActionUserError(
-          "Creem 支付通道未完整配置，请联系管理员填写 API Key 和 Webhook Secret"
-        );
+    } catch (error) {
+      if (
+        error instanceof OperationError &&
+        error.code === "validation_error"
+      ) {
+        throw new ActionUserError(error.message);
       }
+      throw error;
     }
-
-    logEvent("payment.checkout.started", {
-      userId,
-      priceId,
-      planId: plan.id,
-      provider: paymentProvider,
-      checkoutMode: upgradeQuote ? "upgrade" : "new_subscription",
-      amountDue: upgradeQuote?.amountDue ?? price.amount,
-      prorationCredit: upgradeQuote?.prorationCredit,
-    });
-
-    if (useEpay) {
-      const outTradeNo = `SUB${Date.now()}${crypto.randomUUID().slice(0, 8)}`;
-      const amountDue = upgradeQuote?.amountDue ?? price.amount;
-      const metadata = {
-        type: "subscription" as const,
-        userId,
-        outTradeNo,
-        priceId,
-        planId: plan.id,
-        checkoutMode: upgradeQuote
-          ? ("upgrade" as const)
-          : ("new_subscription" as const),
-        expectedAmount: amountDue,
-        originalAmount: upgradeQuote?.originalAmount ?? price.amount,
-        prorationCredit: upgradeQuote?.prorationCredit ?? 0,
-        remainingDays: upgradeQuote?.remainingDays ?? 0,
-        periodDays: upgradeQuote?.periodDays ?? 0,
-        upgradeFromPriceId: upgradeQuote?.upgradeFromPriceId,
-      };
-      await saveEpayOrder(metadata, amountDue);
-      const checkout = await createRuntimeEpayPurchase({
-        outTradeNo,
-        name: upgradeQuote
-          ? `FluxMedia upgrade to ${plan.name} ${price.interval ?? "subscription"}`
-          : `FluxMedia ${plan.name} ${price.interval ?? "subscription"}`,
-        money: amountDue,
-      });
-
+    if (checkout.kind === "form_post") {
       return {
         url: checkout.url,
-        params: checkout.params,
+        params: checkout.fields,
         method: "POST" as const,
       };
     }
-
-    if (hasActiveSub) {
-      throw new Error("当前支付通道暂不支持自动补差升级，请联系管理员处理");
-    }
-
-    // 创建 Creem Checkout
-    const checkout = await creem.createCheckout({
-      product_id: priceId,
-      success_url:
-        successUrl ??
-        `${baseUrl}${paymentConfig.redirectAfterCheckout}?success=true`,
-      request_id: `${userId}_${Date.now()}`,
-      metadata: {
-        userId,
-        planId: plan?.id ?? "unknown",
-      },
-    });
-
-    return { url: checkout.checkout_url };
+    return { url: checkout.url };
   });
 
 /**

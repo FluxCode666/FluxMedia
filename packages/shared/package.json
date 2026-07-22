@@ -74,6 +74,7 @@
     "./subscription/services/user-plan": "./src/subscription/services/user-plan.ts",
     "./subscription/services/upload-limits": "./src/subscription/services/upload-limits.ts",
     "./subscription/purchase-contract": "./src/subscription/purchase-contract.ts",
+    "./subscription/checkout-contract": "./src/subscription/checkout-contract.ts",
     "./mail/*": "./src/mail/*",
     "./moderation": "./src/moderation/index.ts",
     "./config": "./src/config/index.ts",

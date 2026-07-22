@@ -13,6 +13,10 @@
 
 import { z } from "zod";
 import type { SubscriptionPlan } from "../../config/subscription-plan";
+import {
+  subscriptionCheckoutInputSchema,
+  subscriptionCheckoutOutputSchema,
+} from "../../subscription/checkout-contract";
 import { purchasablePlansOutputSchema } from "../../subscription/purchase-contract";
 import {
   canUsePlanCapability,
@@ -56,19 +60,6 @@ export const listMyPurchasablePlans = defineOperation({
 // 2. subscription.createCheckout
 // ============================================
 
-/** 订阅结账输出兼容浏览器重定向与 Epay POST form 两种既有交互。 */
-export const subscriptionCheckoutOutputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("redirect"),
-    url: z.string().url(),
-  }),
-  z.object({
-    kind: z.literal("form_post"),
-    url: z.string().url(),
-    fields: z.record(z.string(), z.string()),
-  }),
-]);
-
 export const createCheckout = defineOperation({
   name: "subscription.createCheckout",
   domain: "subscription",
@@ -76,17 +67,7 @@ export const createCheckout = defineOperation({
   description:
     "创建订阅结账会话（Creem 或 Epay），返回 checkout URL 供前端跳转",
   access: { kind: "user" },
-  input: z
-    .object({
-      priceId: z.string().trim().min(1).max(512).describe("目标套餐的价格 ID"),
-      successUrl: z.string().url().optional().describe("支付成功后回调 URL"),
-      cancelUrl: z.string().url().optional().describe("取消支付后回调 URL"),
-      provider: z
-        .enum(["creem", "epay"])
-        .optional()
-        .describe("支付渠道，未指定则使用系统默认"),
-    })
-    .strict(),
+  input: subscriptionCheckoutInputSchema,
   output: subscriptionCheckoutOutputSchema,
   readOnly: false,
   destructive: false,
