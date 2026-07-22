@@ -27,6 +27,12 @@ import {
 import { resolveUsageTimeRange } from "@repo/shared/analytics/range";
 import { getAnalyticsMetricUnit } from "@repo/shared/analytics/series";
 import { normalizeSubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import {
+  type UsageEvent,
+  type UsageEventDetail,
+  usageEventDetailSchema,
+  usageEventListOutputSchema,
+} from "@repo/shared/credits/usage-log-contract";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
@@ -64,6 +70,12 @@ import {
   getCreditTopUpOptions,
   getCreditTopUpOrderStatus,
 } from "@/features/payment/credit-top-up";
+import { databaseUsageLogRepository } from "@/features/usage-log/repository";
+import {
+  loadUsageEventDetail,
+  loadUsageEvents,
+  UsageLogServiceError,
+} from "@/features/usage-log/service";
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -177,6 +189,14 @@ function isAnalyticsReadModelReady(state: AnalyticsReadModelState): boolean {
   return state?.version === 1 && state.status === "ready";
 }
 
+/** 将 usage-log 服务稳定错误映射为 UOL 错误，不附带 token 或业务 ID。 */
+function throwUsageLogOperationError(error: unknown): never {
+  if (error instanceof UsageLogServiceError) {
+    throw new OperationError(error.code, error.message);
+  }
+  throw error;
+}
+
 /** 查询统一 analytics readiness，未完成回填时返回相同的暂不可用错误。 */
 async function assertAnalyticsReady(): Promise<void> {
   const states = await readAnalyticsReadModelStates();
@@ -228,6 +248,53 @@ bindExecute(
       today: result.today,
       lifetime: result.lifetime,
     });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// credits 使用日志域
+// ---------------------------------------------------------------------------
+
+/** 绑定本人使用日志列表；userId 只取 Principal，输出再次通过共享 schema。 */
+bindExecute(
+  "credits.listMyUsageEvents",
+  async (input: unknown, principal: Principal) => {
+    if (principal.type !== "user") {
+      throw new OperationError("unauthenticated", "User identity required");
+    }
+    try {
+      const timeZone = await getUserTimeZone(principal.userId);
+      const output = await loadUsageEvents(
+        { userId: principal.userId, timeZone, input },
+        { repository: databaseUsageLogRepository }
+      );
+      return usageEventListOutputSchema.parse(output) as {
+        asOf: string;
+        events: UsageEvent[];
+        nextCursor: string | null;
+      };
+    } catch (error) {
+      throwUsageLogOperationError(error);
+    }
+  }
+);
+
+/** 绑定本人单条使用详情；跨用户、签名错误和不存在统一 not_found。 */
+bindExecute(
+  "credits.getMyUsageEventDetail",
+  async (input: { eventRef: string }, principal: Principal) => {
+    if (principal.type !== "user") {
+      throw new OperationError("unauthenticated", "User identity required");
+    }
+    try {
+      const output = await loadUsageEventDetail(
+        { userId: principal.userId, eventRef: input.eventRef },
+        { repository: databaseUsageLogRepository }
+      );
+      return usageEventDetailSchema.parse(output) as UsageEventDetail;
+    } catch (error) {
+      throwUsageLogOperationError(error);
+    }
   }
 );
 

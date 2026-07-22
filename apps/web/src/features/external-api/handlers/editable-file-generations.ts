@@ -32,6 +32,7 @@ import {
   openAIImageError,
   toOpenAIErrorPayload,
 } from "@/features/external-api/images";
+import { shouldRejectRelayOnly } from "@/features/external-api/relay-policy";
 import type { EditableFileKind } from "@/features/image-generation/chatgpt-web";
 import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
@@ -56,6 +57,19 @@ function makeEditableFileHandler(
         "Invalid or missing API key",
         401,
         "invalid_api_key"
+      );
+    }
+    const relayHandler =
+      kind === "ppt"
+        ? ("pptGenerations" as const)
+        : ("psdGenerations" as const);
+    // PPT/PSD 必须落对象存储才能返回结果，因此无法实现纯中转；入口拒绝确保
+    // 不创建内存任务、不审核、不扣费，也不产生 callback 或存储副作用。
+    if (shouldRejectRelayOnly(auth.relayOnly, relayHandler)) {
+      return openAIImageError(
+        `${label} generation is unavailable in relay-only mode.`,
+        400,
+        "unsupported_relay_mode"
       );
     }
     if (!(await canUsePlanCapability(auth.plan, capability))) {
@@ -158,7 +172,9 @@ function makeEditableFileHandler(
           }
         } catch (error) {
           const errorPayload = toOpenAIErrorPayload(
-            error instanceof Error ? error.message : `${label} generation failed`
+            error instanceof Error
+              ? error.message
+              : `${label} generation failed`
           );
           const completed = completeAsyncImageTask(task.id, {
             completedObject: "editable_file_task",

@@ -174,6 +174,7 @@ export interface ClassifyUsageBusinessTypeInput {
   operationType: string;
   factKind: UsageFactKind;
   hasFinancialFact: boolean;
+  generationMode?: string | null;
 }
 
 /**
@@ -188,7 +189,14 @@ export function classifyUsageBusinessType(
 ): UsageBusinessType | null {
   if (input.factKind === "refund") return "refund";
   const operationType = input.operationType.trim().toLowerCase();
-  if (operationType === "image_generation") return "image";
+  if (operationType === "image_generation") {
+    const generationMode =
+      input.generationMode?.trim().toLowerCase() || "generate";
+    if (generationMode === "generate" || generationMode === "edit") {
+      return "image";
+    }
+    return input.hasFinancialFact ? "historical" : null;
+  }
   if (operationType === "video_generation") return "video";
   if (input.factKind === "financial" && input.hasFinancialFact) {
     return "historical";

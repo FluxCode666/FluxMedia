@@ -31,6 +31,7 @@ import {
   openAIImageError,
   toOpenAIErrorPayload,
 } from "@/features/external-api/images";
+import { shouldRejectRelayOnly } from "@/features/external-api/relay-policy";
 import {
   IMAGE_PROMPT_MAX_CHARACTERS,
   IMAGE_PROMPT_TOO_LONG_MESSAGE,
@@ -77,6 +78,15 @@ export const postExternalVideoGenerations = withApiLogging(
         "Invalid or missing API key",
         401,
         "invalid_api_key"
+      );
+    }
+    // 异步视频必须持久化任务和产物，无法满足纯中转隐私语义；在任何能力查询、
+    // 任务创建、审核、扣费或对象存储前稳定拒绝。
+    if (shouldRejectRelayOnly(auth.relayOnly, "videoGenerations")) {
+      return openAIImageError(
+        "Video generation is unavailable in relay-only mode.",
+        400,
+        "unsupported_relay_mode"
       );
     }
     if (

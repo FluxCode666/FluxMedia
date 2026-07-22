@@ -1904,6 +1904,7 @@ async function runQueuedImageGenerationForUser({
     await db.insert(generation).values({
       id: generationId,
       userId: input.userId,
+      usageLogVisible: true,
       prompt: input.prompt,
       model: recordModel,
       size,
@@ -1934,6 +1935,7 @@ async function runQueuedImageGenerationForUser({
                 : 0,
               moderationBlockingEnabled: moderationEnabled,
               moderationFailureCredits,
+              ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
             }
           : input.mode === "chat"
             ? {
@@ -1959,6 +1961,7 @@ async function runQueuedImageGenerationForUser({
                 ...billingMetadata,
                 moderationBlockingEnabled: moderationEnabled,
                 moderationFailureCredits,
+                ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
               }
             : {
                 mode: "generate",
@@ -1976,6 +1979,7 @@ async function runQueuedImageGenerationForUser({
                 ...billingMetadata,
                 moderationBlockingEnabled: moderationEnabled,
                 moderationFailureCredits,
+                ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
               },
     });
 

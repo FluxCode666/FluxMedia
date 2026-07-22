@@ -379,6 +379,13 @@
       "when": 1784592240000,
       "tag": "0053_user_time_zone",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1784707200000,
+      "tag": "0054_usage_log_keyset_indexes",
+      "breakpoints": true
     }
   ]
 }

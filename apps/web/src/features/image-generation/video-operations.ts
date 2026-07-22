@@ -189,6 +189,7 @@ export async function runAdobeVideoGenerationForUser(
     id: videoId,
     userId: input.userId,
     apiKeyId: input.apiKeyId ?? null,
+    usageLogVisible: true,
     model: input.model,
     family: conf.family,
     prompt: input.prompt,

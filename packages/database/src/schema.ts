@@ -1383,6 +1383,8 @@ export const videoGeneration = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     // 外部 API key（站内创作页为空）。
     apiKeyId: text("api_key_id"),
+    // 新请求写 true；历史 API 行为空时必须 fail closed，不能按当前 key 状态回推。
+    usageLogVisible: boolean("usage_log_visible"),
     // 命中的 adobe 后端（删后端不删历史）。
     adobeId: text("adobe_id").references(() => imageBackendAdobe.id, {
       onDelete: "set null",
@@ -1739,6 +1741,8 @@ export const generation = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // relayOnly 从不落 generation；新非中转任务显式写 true，作为不可变活动证据。
+    usageLogVisible: boolean("usage_log_visible"),
     prompt: text("prompt").notNull(),
     revisedPrompt: text("revised_prompt"),
     model: text("model").notNull(),

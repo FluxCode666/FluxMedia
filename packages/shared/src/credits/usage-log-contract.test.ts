@@ -66,6 +66,25 @@ describe("usage log contract", () => {
     ).toBe("image");
   });
 
+  it("keeps retired image-pipeline modes only when backed by finance", () => {
+    expect(
+      classifyUsageBusinessType({
+        operationType: "image_generation",
+        factKind: "request",
+        hasFinancialFact: false,
+        generationMode: "chat",
+      })
+    ).toBeNull();
+    expect(
+      classifyUsageBusinessType({
+        operationType: "image_generation",
+        factKind: "request",
+        hasFinancialFact: true,
+        generationMode: "agent",
+      })
+    ).toBe("historical");
+  });
+
   it.each([
     ["pending", "processing"],
     ["running", "processing"],
