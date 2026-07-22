@@ -7,6 +7,9 @@
  * 审核策略写入、事务与审计全部由 moderation operation 和 policy service 持有。
  */
 
+import { db } from "@repo/database";
+import { adminAuditLog } from "@repo/database/schema";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AppUserRole } from "../../auth/roles";
@@ -109,7 +112,28 @@ export const getGlobalModerationPolicyAction = superAdminAction
             role: ctx.role,
           })
         );
-      return { policy };
+      // WHY: 策略读取保持由 UOL 统一解析；审计只做固定 action 的只读投影，
+      // 不复用通用设置写入口，也不把无关管理员 metadata 暴露给组件。
+      const recentAudits = await db
+        .select({
+          id: adminAuditLog.id,
+          adminUserId: adminAuditLog.adminUserId,
+          reason: adminAuditLog.reason,
+          before: adminAuditLog.before,
+          after: adminAuditLog.after,
+          metadata: adminAuditLog.metadata,
+          createdAt: adminAuditLog.createdAt,
+        })
+        .from(adminAuditLog)
+        .where(
+          and(
+            eq(adminAuditLog.action, "moderation.setGlobalRiskLevel"),
+            isNull(adminAuditLog.targetUserId)
+          )
+        )
+        .orderBy(desc(adminAuditLog.createdAt))
+        .limit(10);
+      return { policy, recentAudits };
     } catch (error) {
       throwModerationPolicyActionError(error);
     }

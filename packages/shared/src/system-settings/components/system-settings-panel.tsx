@@ -44,6 +44,7 @@ import type {
 } from "../definitions";
 import { SETTING_CATEGORIES } from "../definitions";
 import { DashboardSupportConfigInput } from "./dashboard-support-config-input";
+import { ModerationPolicyCard } from "./moderation-policy-card";
 
 type SettingSnapshotItem = SettingDefinition & {
   value: string;
@@ -1912,6 +1913,13 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
       map.set(category.id, []);
     }
     for (const setting of settings) {
+      // 专用 operation 管理的配置由独立卡片负责，不能进入通用 grid 或批量保存。
+      if (
+        setting.managedByDedicatedOperation ||
+        setting.key === "CONTENT_MODERATION_BLOCK_RISK_LEVEL"
+      ) {
+        continue;
+      }
       // 图像模型固定价格与视频模型每秒积分由 Adobe 后端 tab 的专用表格编辑，系统设置
       // 面板里隐藏，避免同一份财务配置出现两个入口。
       if (
@@ -1933,6 +1941,13 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
     const payload: SettingUpdate[] = [];
     try {
       for (const setting of settings) {
+        // 双重排除专用治理键：即使服务端快照标记缺失，也不能从批量入口提交。
+        if (
+          setting.managedByDedicatedOperation ||
+          setting.key === "CONTENT_MODERATION_BLOCK_RISK_LEVEL"
+        ) {
+          continue;
+        }
         // 见上：专用模型计费配置不在本面板编辑，避免覆盖 Adobe tab 的改动。
         if (
           setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
@@ -2072,6 +2087,10 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
                   {category.description}
                 </p>
               </div>
+
+              {category.id === "moderation" && (
+                <ModerationPolicyCard timeZone={timeZone} />
+              )}
 
               <div className="grid gap-4 lg:grid-cols-2">
                 {categorySettings.map((setting) => (
