@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getImageModelCreditPricing,
+  getGroupImageCreditOverrides,
   imageCreditOverridesSchema,
   parseImageCreditOverrides,
   resolveImageCreditPricing,
@@ -79,5 +80,19 @@ describe("group image pricing", () => {
     expect(
       parseImageCreditOverrides({ version: 1, byModel: { bad: {} } })
     ).toEqual({ version: 1, byModel: {} });
+  });
+
+  it("从分组 metadata 读取版本化覆盖", () => {
+    expect(
+      getGroupImageCreditOverrides({
+        imageCreditOverrides: {
+          version: 1,
+          byModel: { "GPT-IMAGE-2": { base1kCredits: 3 } },
+        },
+      })
+    ).toEqual({
+      version: 1,
+      byModel: { "gpt-image-2": { base1kCredits: 3 } },
+    });
   });
 });

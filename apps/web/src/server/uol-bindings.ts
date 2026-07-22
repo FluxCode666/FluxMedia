@@ -26,7 +26,10 @@ import {
 } from "@repo/shared/analytics/contracts";
 import { resolveUsageTimeRange } from "@repo/shared/analytics/range";
 import { getAnalyticsMetricUnit } from "@repo/shared/analytics/series";
-import { normalizeSubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import {
+  normalizeSubscriptionPlan,
+  type SubscriptionPlan,
+} from "@repo/shared/config/subscription-plan";
 import {
   type UsageEvent,
   type UsageEventDetail,
@@ -34,17 +37,32 @@ import {
   usageEventListOutputSchema,
 } from "@repo/shared/credits/usage-log-contract";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+import {
+  DEFAULT_IMAGE_CREDIT_PRICING,
+  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
+  type ImageCreditOverrides,
+  parseImageCreditOverrides,
+} from "@repo/shared/image-backend/group-image-pricing";
 import { checkRateLimit } from "@repo/shared/rate-limit";
 import { purchasablePlansOutputSchema } from "@repo/shared/subscription/purchase-contract";
 import { subscriptionCheckoutOutputSchema } from "@repo/shared/subscription/checkout-contract";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
+import {
+  getRuntimeSettingJson,
+  getRuntimeSettingNumber,
+  setSystemSettings,
+} from "@repo/shared/system-settings";
 import {
   formatDateInputInTimeZone,
   parseDateInputInTimeZone,
 } from "@repo/shared/time-zone";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import type { OperationContext, Principal } from "@repo/shared/uol";
-import { bindExecute, OperationError } from "@repo/shared/uol";
+import {
+  bindExecute,
+  getPrincipalUserId,
+  OperationError,
+} from "@repo/shared/uol";
 import type { z } from "zod";
 import {
   type AnalyticsReadModelState,
@@ -55,10 +73,12 @@ import {
 import { getExternalModelsForUser } from "@/features/external-api/models";
 import {
   deleteImageBackendParameterMappingTemplate,
+  fromSafetyOverride,
   listAdminImageBackendPool,
   listImageBackendParameterMappingTemplates,
   upsertImageBackendAdobe,
   upsertImageBackendApi,
+  upsertImageBackendGroup,
   upsertImageBackendParameterMappingTemplate,
 } from "@/features/image-backend-pool/service";
 import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
@@ -85,6 +105,24 @@ import {
   loadUsageEvents,
   UsageLogServiceError,
 } from "@/features/usage-log/service";
+
+/** 将未知 JSON 收窄为可用于既有视频计费的正数倍率表。 */
+function parseVideoModelMultipliers(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const multipliers: Record<string, number> = {};
+  for (const [model, multiplier] of Object.entries(value)) {
+    if (
+      model.trim() &&
+      typeof multiplier === "number" &&
+      Number.isFinite(multiplier) &&
+      multiplier > 0 &&
+      multiplier <= 1_000
+    ) {
+      multipliers[model] = multiplier;
+    }
+  }
+  return multipliers;
+}
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -718,10 +756,138 @@ bindExecute(
   }
 );
 
+/**
+ * pool.saveGroup - 保存后端分组和图像模型固定价格覆盖
+ * 源: apps/web/src/features/image-backend-pool/service.ts
+ */
+bindExecute(
+  "pool.saveGroup",
+  async (
+    input: {
+      id?: string;
+      name: string;
+      description?: string;
+      isEnabled: boolean;
+      isDefault: boolean;
+      isUserSelectable: boolean;
+      contentSafety: "inherit" | "enabled" | "disabled";
+      backendType: "mixed" | "web" | "responses";
+      minPlan: SubscriptionPlan;
+      videoBillingMultiplier: number;
+      imageCreditOverrides: ImageCreditOverrides;
+      childGroupIds: string[];
+      priority: number;
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => ({
+    id: await upsertImageBackendGroup({
+      id: input.id,
+      name: input.name,
+      description: input.description ?? null,
+      isEnabled: input.isEnabled,
+      isDefault: input.isDefault,
+      isUserSelectable: input.isUserSelectable,
+      contentSafetyEnabled: fromSafetyOverride(input.contentSafety),
+      backendType: input.backendType,
+      minPlan: input.minPlan,
+      billingMultiplier: input.videoBillingMultiplier,
+      imageCreditOverrides: input.imageCreditOverrides,
+      childGroupIds: input.childGroupIds,
+      priority: input.priority,
+    }),
+  })
+);
+
+/** 读取图像四档固定价格、审核费用与保留的视频倍率配置。 */
+bindExecute(
+  "pool.getImagePricingConfig",
+  async (
+    _input: Record<string, never>,
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    const [imageRaw, videoRaw, base1024, base1k, base2k, base4k, text, image] =
+      await Promise.all([
+        getRuntimeSettingJson("IMAGE_MODEL_CREDIT_PRICES"),
+        getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS"),
+        getRuntimeSettingNumber(
+          "IMAGE_BASE_CREDITS_1024",
+          DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits,
+          { positive: true }
+        ),
+        getRuntimeSettingNumber(
+          "IMAGE_BASE_CREDITS_1K",
+          DEFAULT_IMAGE_CREDIT_PRICING.base1kCredits,
+          { positive: true }
+        ),
+        getRuntimeSettingNumber(
+          "IMAGE_BASE_CREDITS_2K",
+          DEFAULT_IMAGE_CREDIT_PRICING.base2kCredits,
+          { positive: true }
+        ),
+        getRuntimeSettingNumber(
+          "IMAGE_BASE_CREDITS_4K",
+          DEFAULT_IMAGE_CREDIT_PRICING.base4kCredits,
+          { positive: true }
+        ),
+        getRuntimeSettingNumber(
+          "IMAGE_TEXT_MODERATION_CREDITS",
+          DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.textModerationCredits
+        ),
+        getRuntimeSettingNumber(
+          "IMAGE_INPUT_MODERATION_CREDITS",
+          DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits
+        ),
+      ]);
+    return {
+      image: parseImageCreditOverrides(imageRaw),
+      fallback: {
+        base1024Credits: base1024,
+        base1kCredits: base1k,
+        base2kCredits: base2k,
+        base4kCredits: base4k,
+      },
+      moderation: {
+        textModerationCredits:
+          Number.isFinite(text) && text >= 0
+            ? text
+            : DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.textModerationCredits,
+        imageModerationCredits:
+          Number.isFinite(image) && image >= 0
+            ? image
+            : DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits,
+      },
+      video: parseVideoModelMultipliers(videoRaw),
+    };
+  }
+);
+
+/** 保存图像模型固定价格与保留的视频模型倍率。 */
+bindExecute(
+  "pool.updateImagePricingConfig",
+  async (
+    input: {
+      image: ImageCreditOverrides;
+      video: Record<string, number>;
+    },
+    principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    await setSystemSettings(
+      [
+        { key: "IMAGE_MODEL_CREDIT_PRICES", value: input.image },
+        { key: "VIDEO_MODEL_MULTIPLIERS", value: input.video },
+      ],
+      getPrincipalUserId(principal) ?? "system"
+    );
+    return { success: true };
+  }
+);
+
 // TODO: pool.getSelectableGroups - getSelectableImageBackendGroupsAction 逻辑
 // TODO: pool.setPreference - setUserImageBackendPreferenceAction 逻辑
 // TODO: pool.getGroupOptions - getImageBackendGroupOptionsAction 逻辑
-// TODO: pool.saveGroup - saveImageBackendGroupAction 逻辑
 // TODO: pool.deleteGroup - deleteImageBackendGroupAction 逻辑
 // TODO: pool.saveAccount - saveImageBackendAccountAction 逻辑
 // TODO: pool.bulkUpdateAccounts - bulkUpdateImageBackendAccountsAction 逻辑

@@ -6,6 +6,11 @@ import {
 } from "@repo/shared/config/subscription-plan";
 import { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
 import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
+import {
+  type ImageCreditOverrides,
+  imageCreditOverridesSchema,
+  type ResolvedImageCreditPricing,
+} from "@repo/shared/image-backend/group-image-pricing";
 import { supportedModelIdsSchema } from "@repo/shared/image-backend/supported-models";
 
 import {
@@ -38,7 +43,6 @@ import {
   countAvailableWebAccountsInGroup,
   deleteImageBackendMembers,
   deleteSub2ApiAutoSyncTask,
-  fromSafetyOverride,
   getUserImageBackendPreference,
   importImageBackendAccountsFromRefreshTokens,
   importImageBackendWebAccountsFromAccessTokens,
@@ -65,7 +69,6 @@ import {
   syncImageBackendAccountsFromSub2Api,
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
-  upsertImageBackendGroup,
 } from "./service";
 import { ensureUolInitialized } from "@/server/uol-init";
 
@@ -272,26 +275,26 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       backendType: groupBackendTypeSchema.default("mixed"),
       minPlan: subscriptionPlanSchema,
       billingMultiplier: z.coerce.number().min(0.01).max(100).default(1),
+      imageCreditOverrides: imageCreditOverridesSchema.default({
+        version: 1,
+        byModel: {},
+      }),
       childGroupIds: z.array(z.string().trim().min(1)).max(100).default([]),
       priority: z.coerce.number().int().min(0).max(10000).default(50),
     })
   )
-  .action(async ({ parsedInput }) => {
-    const id = await upsertImageBackendGroup({
-      id: parsedInput.id,
-      name: parsedInput.name,
-      description: parsedInput.description || null,
-      isEnabled: parsedInput.isEnabled,
-      isDefault: parsedInput.isDefault,
-      isUserSelectable: parsedInput.isUserSelectable,
-      contentSafetyEnabled: fromSafetyOverride(parsedInput.contentSafety),
-      backendType: parsedInput.backendType,
-      minPlan: parsedInput.minPlan,
-      billingMultiplier: parsedInput.billingMultiplier,
-      childGroupIds: parsedInput.childGroupIds,
-      priority: parsedInput.priority,
-    });
-    return { success: true, id };
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureUolInitialized();
+    const result = await invokeOperation<{ id: string }>(
+      "pool.saveGroup",
+      {
+        ...parsedInput,
+        description: parsedInput.description || undefined,
+        videoBillingMultiplier: parsedInput.billingMultiplier,
+      },
+      { type: "user", userId: ctx.userId, role: ctx.role }
+    );
+    return { success: true, id: result.id };
   });
 
 export const deleteImageBackendGroupAction = withImageBackendPoolAdminAction(
@@ -717,6 +720,45 @@ const modelMultiplierMapSchema = z.record(
   z.string().trim().min(1),
   z.number().finite().positive()
 );
+
+/** 通过 UOL 读取图像固定价格和保留的视频模型倍率。 */
+export const getImagePricingConfigAction = withImageBackendPoolAdminAction(
+  "getImagePricingConfig"
+).action(async ({ ctx }) => {
+  await ensureUolInitialized();
+  return await invokeOperation<{
+    image: ImageCreditOverrides;
+    fallback: ResolvedImageCreditPricing;
+    moderation: {
+      textModerationCredits: number;
+      imageModerationCredits: number;
+    };
+    video: Record<string, number>;
+  }>(
+    "pool.getImagePricingConfig",
+    {},
+    { type: "user", userId: ctx.userId, role: ctx.role }
+  );
+});
+
+/** 通过 UOL 保存图像模型固定价格和保留的视频模型倍率。 */
+export const setImagePricingConfigAction = withImageBackendPoolAdminAction(
+  "updateImagePricingConfig"
+)
+  .schema(
+    z.object({
+      image: imageCreditOverridesSchema,
+      video: modelMultiplierMapSchema,
+    })
+  )
+  .action(async ({ parsedInput, ctx }) => {
+    await ensureUolInitialized();
+    return await invokeOperation<{ success: boolean }>(
+      "pool.updateImagePricingConfig",
+      parsedInput,
+      { type: "user", userId: ctx.userId, role: ctx.role }
+    );
+  });
 
 /**
  * 读取图像/视频两套 per-model 倍率系统设置（管理员可见）。

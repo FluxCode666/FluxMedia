@@ -10,9 +10,15 @@
 import { z } from "zod";
 
 import { adobeEnabledModelIdsSchema } from "../../adobe/enabled-models";
+import { imageCreditOverridesSchema } from "../../image-backend/group-image-pricing";
 import { requestParameterMappingsSchema } from "../../image-backend/request-parameter-mapping";
 import { supportedModelIdsSchema } from "../../image-backend/supported-models";
 import { defineOperation } from "../registry";
+
+const videoModelMultiplierMapSchema = z.record(
+  z.string().trim().min(1).max(120),
+  z.number().finite().positive().max(1_000)
+);
 
 // ---------------------------------------------------------------------------
 // 1. pool.getSelectableGroups - 获取当前用户可选的后端组列表
@@ -124,15 +130,22 @@ export const saveGroup = defineOperation({
   name: "pool.saveGroup",
   domain: "image-backend-pool",
   title: "保存后端组",
-  description: "新建或更新图像后端组（含子组、倍率、isDefault 互斥逻辑）。",
+  description:
+    "新建或更新图像后端组（含子组、视频倍率、图像模型固定价格覆盖与默认组互斥逻辑）。",
   input: z.object({
-    id: z.string().optional(),
-    name: z.string(),
-    description: z.string().optional(),
-    parentId: z.string().nullable().optional(),
-    isDefault: z.boolean().optional(),
-    costMultiplier: z.number().optional(),
-    requiredCapability: z.string().nullable().optional(),
+    id: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(500).optional(),
+    isEnabled: z.boolean(),
+    isDefault: z.boolean(),
+    isUserSelectable: z.boolean(),
+    contentSafety: z.enum(["inherit", "enabled", "disabled"]),
+    backendType: z.enum(["mixed", "web", "responses"]),
+    minPlan: z.enum(["free", "starter", "pro", "ultra", "enterprise"]),
+    videoBillingMultiplier: z.number().finite().min(0.01).max(100),
+    imageCreditOverrides: imageCreditOverridesSchema,
+    childGroupIds: z.array(z.string().trim().min(1)).max(100),
+    priority: z.number().int().min(0).max(10_000),
   }),
   output: z.object({
     id: z.string(),
@@ -144,6 +157,63 @@ export const saveGroup = defineOperation({
   sideEffects: ["audit"],
   execute: async () => {
     throw new Error("Not yet wired: pool.saveGroup");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// pool.getImagePricingConfig - 读取图像固定价格和视频模型倍率
+// ---------------------------------------------------------------------------
+export const getImagePricingConfig = defineOperation({
+  name: "pool.getImagePricingConfig",
+  domain: "image-backend-pool",
+  title: "读取模型计费配置",
+  description:
+    "读取图像模型四档固定价格、通用回退价格、审核费用及视频模型倍率。",
+  input: z.object({}),
+  output: z.object({
+    image: imageCreditOverridesSchema,
+    fallback: z.object({
+      base1024Credits: z.number().positive(),
+      base1kCredits: z.number().positive(),
+      base2kCredits: z.number().positive(),
+      base4kCredits: z.number().positive(),
+    }),
+    moderation: z.object({
+      textModerationCredits: z.number().nonnegative(),
+      imageModerationCredits: z.number().nonnegative(),
+    }),
+    video: videoModelMultiplierMapSchema,
+  }),
+  access: { kind: "admin" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: pool.getImagePricingConfig");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// pool.updateImagePricingConfig - 更新图像固定价格和视频模型倍率
+// ---------------------------------------------------------------------------
+export const updateImagePricingConfig = defineOperation({
+  name: "pool.updateImagePricingConfig",
+  domain: "image-backend-pool",
+  title: "更新模型计费配置",
+  description: "更新图像模型四档固定价格和视频模型倍率。",
+  input: z.object({
+    image: imageCreditOverridesSchema,
+    video: videoModelMultiplierMapSchema,
+  }),
+  output: z.object({ success: z.boolean() }),
+  access: { kind: "admin" },
+  readOnly: false,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: ["cache", "audit"],
+  execute: async () => {
+    throw new Error("Not yet wired: pool.updateImagePricingConfig");
   },
 });
 

@@ -29,6 +29,10 @@ import {
   normalizeSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import {
+  getGroupImageCreditOverrides,
+  type ImageCreditOverrides,
+} from "@repo/shared/image-backend/group-image-pricing";
 import { validateNestedGroupConfig } from "@repo/shared/image-backend/nested-groups";
 import {
   normalizeRequestParameterMappings,
@@ -3149,6 +3153,8 @@ function toResolvedPoolConfig(
   // 目标(主)分组 backendType:供换号重试循环判定 web→codex 回退是否适用(仅 mixed 分组
   // 才"web 先行→轮询完→回退 codex";纯 web/codex 分组各自闭环不跨车道回退)。
   const groupBackendType = getGroupBackendType(billingGroupMetadata);
+  const imageCreditOverrides =
+    getGroupImageCreditOverrides(billingGroupMetadata);
 
   if (member.type === "api") {
     return {
@@ -3174,6 +3180,7 @@ function toResolvedPoolConfig(
             options.accountBackendPreference === "responses",
           adobeSourced: member.adobeSourced,
           billingGroupId: fallbackGroupId,
+          imageCreditOverrides,
           // Adobe 来源 api：组倍率 × 本后端倍率（复用 Adobe 伪账号同一倍率链）；
           // 普通 api 不套成员倍率，仅组倍率。
           billingMultiplier: member.adobeSourced
@@ -3214,6 +3221,7 @@ function toResolvedPoolConfig(
           adobeGptImageQuality: member.gptImageQuality,
           adobeSupportsVideo: member.supportsVideo,
           billingGroupId: fallbackGroupId,
+          imageCreditOverrides,
           // 组倍率 × 本 Adobe 后端倍率（叠加），作用于图像与视频扣费。
           billingMultiplier:
             billingMultiplier * (member.billingMultiplier || 1),
@@ -3265,6 +3273,7 @@ function toResolvedPoolConfig(
         requestKind: options.requestKind,
         accountBackend: implementationMode,
         billingGroupId: fallbackGroupId,
+        imageCreditOverrides,
         billingMultiplier,
         reportResult: true,
         inflightLease: true,
@@ -3963,6 +3972,7 @@ export async function listImageBackendGroupOptions(options?: {
       minPlan: getGroupMinPlan(metadata),
       backendType: getGroupBackendType(metadata),
       billingMultiplier: getGroupBillingMultiplier(metadata),
+      imageCreditOverrides: getGroupImageCreditOverrides(metadata),
       childGroupIds: getGroupChildGroupIds(metadata),
     }));
 }
@@ -4065,6 +4075,7 @@ type UpsertGroupInput = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   billingMultiplier: number;
+  imageCreditOverrides: ImageCreditOverrides;
   childGroupIds?: string[];
   priority: number;
 };
@@ -4115,6 +4126,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       minPlan: input.minPlan,
       backendType: input.backendType,
       billingMultiplier: input.billingMultiplier,
+      imageCreditOverrides: input.imageCreditOverrides,
       childGroupIds,
     };
     await db
@@ -4147,6 +4159,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       minPlan: input.minPlan,
       backendType: input.backendType,
       billingMultiplier: input.billingMultiplier,
+      imageCreditOverrides: input.imageCreditOverrides,
       childGroupIds,
     },
     priority: input.priority,
@@ -7880,6 +7893,7 @@ export async function listAdminImageBackendPool() {
     backendType: getGroupBackendType(group.metadata),
     minPlan: getGroupMinPlan(group.metadata),
     billingMultiplier: getGroupBillingMultiplier(group.metadata),
+    imageCreditOverrides: getGroupImageCreditOverrides(group.metadata),
     childGroupIds: getGroupChildGroupIds(group.metadata),
     priority: group.priority,
     apiCount: apiCountMap.get(group.id) ?? 0,

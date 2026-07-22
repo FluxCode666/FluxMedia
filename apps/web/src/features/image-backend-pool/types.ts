@@ -1,4 +1,5 @@
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
+import type { ImageCreditOverrides } from "@repo/shared/image-backend/group-image-pricing";
 
 export type ImageBackendRequestKind =
   | "image_generation"
@@ -29,6 +30,7 @@ export type ImageBackendGroupSummary = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   billingMultiplier: number;
+  imageCreditOverrides: ImageCreditOverrides;
   childGroupIds: string[];
   priority: number;
   apiCount: number;

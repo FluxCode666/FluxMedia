@@ -5,7 +5,11 @@
  * 同一套尺寸和价格规则；运行时模型价格和审核费用由 pricing-settings 注入。
  */
 
-import type { ImageCreditPricing } from "@repo/shared/image-backend/group-image-pricing";
+import {
+  DEFAULT_IMAGE_CREDIT_PRICING,
+  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
+  type ImageCreditPricing,
+} from "@repo/shared/image-backend/group-image-pricing";
 
 export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const LEGACY_IMAGE_MODEL = "gpt-image-1";
@@ -27,19 +31,23 @@ export const MAX_IMAGE_PIXELS = 3840 * 2160;
 export const IMAGE_1024_BASE_PIXELS = 1024 * 1024;
 export const IMAGE_2K_BASE_EDGE = 2048;
 export const IMAGE_4K_BASE_EDGE = 3840;
-export const DEFAULT_IMAGE_1024_BASE_CREDIT_COST = 1.27;
-export const DEFAULT_IMAGE_1K_BASE_CREDIT_COST = 1.27;
+export const DEFAULT_IMAGE_1024_BASE_CREDIT_COST =
+  DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits;
+export const DEFAULT_IMAGE_1K_BASE_CREDIT_COST =
+  DEFAULT_IMAGE_CREDIT_PRICING.base1kCredits;
 // 保留旧曲线在 2048x2048 的向上取整结果，切换固定档位时避免常用 2K 方图突变。
-export const DEFAULT_IMAGE_2K_BASE_CREDIT_COST = 5.07;
-export const DEFAULT_IMAGE_4K_BASE_CREDIT_COST = 10;
+export const DEFAULT_IMAGE_2K_BASE_CREDIT_COST =
+  DEFAULT_IMAGE_CREDIT_PRICING.base2kCredits;
+export const DEFAULT_IMAGE_4K_BASE_CREDIT_COST =
+  DEFAULT_IMAGE_CREDIT_PRICING.base4kCredits;
 export const IMAGE_4K_BASE_CREDIT_COST = DEFAULT_IMAGE_4K_BASE_CREDIT_COST;
 export const REFERENCE_CREDIT_PRICE_CNY = 0.05;
 export const TEXT_MODERATION_PRICE_CNY = 0.002;
 export const IMAGE_MODERATION_PRICE_CNY = 0.003;
 export const DEFAULT_TEXT_MODERATION_CREDIT_COST =
-  TEXT_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
+  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.textModerationCredits;
 export const DEFAULT_IMAGE_MODERATION_CREDIT_COST =
-  IMAGE_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
+  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits;
 const CREDIT_DECIMAL_PLACES = 2;
 const CREDIT_DECIMAL_FACTOR = 10 ** CREDIT_DECIMAL_PLACES;
 const CREDIT_ROUNDING_EPSILON = 1e-9;

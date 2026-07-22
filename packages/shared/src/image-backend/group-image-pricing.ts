@@ -20,6 +20,18 @@ export type ImageCreditPricing = Partial<
 export type ResolvedImageCreditPricing = Record<ImageCreditPriceField, number>;
 export type ImageModelCreditPricingMap = Record<string, ImageCreditPricing>;
 
+export const DEFAULT_IMAGE_CREDIT_PRICING: ResolvedImageCreditPricing = {
+  base1024Credits: 1.27,
+  base1kCredits: 1.27,
+  base2kCredits: 5.07,
+  base4kCredits: 10,
+};
+
+export const DEFAULT_IMAGE_MODERATION_CREDIT_PRICING = {
+  textModerationCredits: 0.04,
+  imageModerationCredits: 0.06,
+} as const;
+
 const imageCreditValueSchema = z.number().finite().positive().max(100_000);
 
 export const imageCreditPricingSchema = z
@@ -92,6 +104,18 @@ export function parseImageCreditOverrides(
     if (normalizedModel) byModel[normalizedModel] = pricing;
   }
   return { version: 1, byModel };
+}
+
+/**
+ * 从后端组 metadata 读取版本化图像价格覆盖。
+ *
+ * @param metadata - 数据库存储的分组 metadata。
+ * @returns 合法的稀疏覆盖；缺失或非法时返回空配置。
+ */
+export function getGroupImageCreditOverrides(
+  metadata: Record<string, unknown> | null | undefined
+): ImageCreditOverrides {
+  return parseImageCreditOverrides(metadata?.imageCreditOverrides);
 }
 
 /**

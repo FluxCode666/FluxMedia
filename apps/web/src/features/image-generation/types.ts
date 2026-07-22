@@ -1,4 +1,5 @@
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
+import type { ImageCreditOverrides } from "@repo/shared/image-backend/group-image-pricing";
 
 export interface GenerateImageParams {
   prompt: string;
@@ -337,6 +338,7 @@ export interface ApiConfig {
     // gpt-image 质量(系统级,low/medium/high → detailLevel 1/3/5);缺省走 high。
     adobeGptImageQuality?: string;
     billingGroupId?: string | null;
+    imageCreditOverrides?: ImageCreditOverrides;
     billingMultiplier?: number;
     reportResult?: boolean;
     inflightLease?: boolean;
