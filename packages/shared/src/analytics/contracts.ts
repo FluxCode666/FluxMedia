@@ -88,14 +88,42 @@ const usageTotalsSchema = z
   })
   .strict();
 
+export const modelUsageItemSchema = z
+  .object({
+    model: z.string().trim().min(1).max(255),
+    taskCount: nonnegativeIntegerSchema,
+  })
+  .strict();
+
+export const modelUsageDistributionSchema = z
+  .object({
+    models: z.array(modelUsageItemSchema).max(1000),
+    totalTasks: nonnegativeIntegerSchema,
+  })
+  .strict()
+  .superRefine((distribution, context) => {
+    const total = distribution.models.reduce(
+      (sum, item) => sum + item.taskCount,
+      0
+    );
+    if (total !== distribution.totalTasks) {
+      context.addIssue({
+        code: "custom",
+        message: "模型任务数合计必须等于总任务数",
+        path: ["totalTasks"],
+      });
+    }
+  });
+
 export const usageSummaryInputSchema = z.object({}).strict();
 
 export const usageSummaryOutputSchema = z
   .object({
     asOf: isoDateTimeSchema,
     timeZone: z.string().min(1),
-    todayRange: normalizedRangeSchema,
-    today: usageTotalsSchema,
+    last24HoursRange: normalizedRangeSchema,
+    last24Hours: usageTotalsSchema,
+    modelDistribution: modelUsageDistributionSchema,
     lifetime: usageTotalsSchema,
   })
   .strict();
@@ -133,5 +161,8 @@ export type AnalyticsMetric = z.infer<typeof analyticsMetricSchema>;
 export type AnalyticsMetricUnit = z.infer<typeof analyticsMetricUnitSchema>;
 export type UsageTrendsInput = z.infer<typeof usageTrendsInputSchema>;
 export type UsageSummaryOutput = z.infer<typeof usageSummaryOutputSchema>;
+export type ModelUsageDistribution = z.infer<
+  typeof modelUsageDistributionSchema
+>;
 export type UsageSeriesBucket = z.infer<typeof usageSeriesBucketSchema>;
 export type UsageTrendsOutput = z.infer<typeof usageTrendsOutputSchema>;

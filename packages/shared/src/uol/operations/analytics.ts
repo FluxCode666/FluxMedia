@@ -12,13 +12,14 @@ import {
 } from "../../analytics/contracts";
 import { defineOperation } from "../registry";
 
-/** 获取当前用户今日与累计六项用量摘要。 */
+/** 获取当前用户近 24 小时、模型分布与累计用量摘要。 */
 export const getMyUsageSummary = defineOperation({
   name: "analytics.getMyUsageSummary",
   domain: "analytics",
   title: "Get My Usage Summary",
   description:
-    "获取当前用户今日与累计的图片、视频秒数和积分净消耗六项摘要。" +
+    "获取当前用户近 24 小时与累计的图片、视频秒数、积分净消耗，" +
+    "并返回近 24 小时成功任务的模型使用分布。" +
     "用户身份由 Principal 派生，不接受 userId 参数。",
   input: usageSummaryInputSchema,
   output: usageSummaryOutputSchema,

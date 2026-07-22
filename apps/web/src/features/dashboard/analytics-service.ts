@@ -1,19 +1,22 @@
 /**
  * 控制台成功产出统计查询服务。
  *
- * 在线路径只读取窄型产物事件、每用户累计汇总和 readiness；趋势查询以一次有界条件
- * 聚合同时返回所选指标与图片/视频任务分布，再复用 shared 契约补齐连续零桶。
+ * 在线路径只读取窄型产物事件、每用户累计汇总和 readiness；摘要用固定滚动 24 小时
+ * 聚合产出、积分与模型分布，保留的 MCP 趋势查询复用 shared 契约补齐连续零桶。
  */
 import { db } from "@repo/database";
 import {
   analyticsReadModelState,
   creditUsageOperation,
+  generation,
   userOutputUsageEvent,
   userUsageSummary,
+  videoGeneration,
 } from "@repo/database/schema";
 import type {
   AnalyticsGranularity,
   AnalyticsMetric,
+  ModelUsageDistribution,
   UsageSeriesBucket,
 } from "@repo/shared/analytics/contracts";
 import type { ResolvedUsageTimeRange } from "@repo/shared/analytics/range";
@@ -47,14 +50,24 @@ type OutputUsageAggregateRow = {
   videoTasks: number;
 };
 
+type ModelUsageRow = {
+  model: string;
+  taskCount: number;
+};
+
 /** 查询服务依赖的最小仓储，测试可在 DB-free 环境注入。 */
 export interface OutputUsageAnalyticsRepository {
-  readTodayTotals: (input: {
+  readRangeTotals: (input: {
     userId: string;
     start: Date;
     end: Date;
   }) => Promise<OutputUsageTotals | null>;
   readLifetimeTotals: (userId: string) => Promise<OutputUsageTotals | null>;
+  readModelUsage: (input: {
+    userId: string;
+    start: Date;
+    end: Date;
+  }) => Promise<ModelUsageRow[]>;
   readRangeAggregates: (
     input: ReadRangeAggregatesInput
   ) => Promise<OutputUsageAggregateRow[]>;
@@ -62,7 +75,7 @@ export interface OutputUsageAnalyticsRepository {
 
 /** 积分摘要仓储；实现必须限定 userId 并只读 operation/余额窄列。 */
 export interface CreditUsageAnalyticsRepository {
-  readTodayCredits: (input: {
+  readRangeCredits: (input: {
     userId: string;
     start: Date;
     end: Date;
@@ -137,12 +150,12 @@ function buildRangeAggregateFields(metric: AnalyticsMetric) {
 }
 
 /**
- * 从事件窄表查询当日图片数与视频秒数。
+ * 从事件窄表查询指定范围内的图片数与视频秒数。
  *
- * @param input 当前用户和应用时区今日半开区间。
+ * @param input 当前用户和已验证 UTC 半开区间。
  * @returns 无事件时仍返回零聚合；只扫描该用户 `[start,end)`。
  */
-async function readTodayTotals(input: {
+async function readRangeTotals(input: {
   userId: string;
   start: Date;
   end: Date;
@@ -161,6 +174,46 @@ async function readTodayTotals(input: {
     .from(userOutputUsageEvent)
     .where(buildOutputUsageRangePredicate(input));
   return row ?? { imageCount: 0, videoSeconds: 0 };
+}
+
+/**
+ * 在固定范围内按实际模型聚合成功任务。
+ *
+ * @param input 当前 Principal 用户和 UTC 半开区间。
+ * @returns 每个模型的成功任务数；图片和视频使用同一事件范围扫描，缺失源行归为 unknown。
+ */
+async function readModelUsage(input: {
+  userId: string;
+  start: Date;
+  end: Date;
+}): Promise<ModelUsageRow[]> {
+  const model = sql<string>`coalesce(
+    nullif(trim(${generation.model}), ''),
+    nullif(trim(${videoGeneration.model}), ''),
+    'unknown'
+  )`;
+  const taskCount = sql<number>`count(*)`.mapWith(Number);
+  return db
+    .select({ model, taskCount })
+    .from(userOutputUsageEvent)
+    .leftJoin(
+      generation,
+      and(
+        eq(userOutputUsageEvent.outputKind, "image"),
+        eq(userOutputUsageEvent.sourceTaskId, generation.id),
+        eq(userOutputUsageEvent.userId, generation.userId)
+      )
+    )
+    .leftJoin(
+      videoGeneration,
+      and(
+        eq(userOutputUsageEvent.outputKind, "video"),
+        eq(userOutputUsageEvent.sourceTaskId, videoGeneration.id),
+        eq(userOutputUsageEvent.userId, videoGeneration.userId)
+      )
+    )
+    .where(buildOutputUsageRangePredicate(input))
+    .groupBy(sql.raw("1"));
 }
 
 /**
@@ -183,8 +236,8 @@ async function readLifetimeTotals(
   return row ?? null;
 }
 
-/** 读取今日净积分消耗；operation_created_at 是业务操作时间而非退款发生时间。 */
-async function readTodayCredits(input: {
+/** 读取范围内净积分消耗；operation_created_at 是业务操作时间而非退款发生时间。 */
+async function readRangeCredits(input: {
   userId: string;
   start: Date;
   end: Date;
@@ -224,7 +277,7 @@ async function readLifetimeCredits(
 }
 
 const creditDatabaseRepository: CreditUsageAnalyticsRepository = {
-  readTodayCredits,
+  readRangeCredits,
   readLifetimeCredits,
 };
 
@@ -275,8 +328,9 @@ async function readDailyRangeAggregates(
  * 生产仓储：所有查询限定当前用户，范围查询只执行一次聚合扫描。
  */
 const databaseRepository: OutputUsageAnalyticsRepository = {
-  readTodayTotals,
+  readRangeTotals,
   readLifetimeTotals,
+  readModelUsage,
   readRangeAggregates(input) {
     return input.granularity === "hour"
       ? readHourlyRangeAggregates(input)
@@ -302,7 +356,7 @@ function requireNonnegativeInteger(value: number, fieldName: string): number {
 /**
  * 将可空仓储累计规范化为安全非负整数。
  *
- * @param totals 今日或完整历史累计。
+ * @param totals 近 24 小时或完整历史累计。
  * @returns 缺行补零后的图片数与视频秒数。
  */
 function normalizeOutputUsageTotals(
@@ -329,42 +383,81 @@ function normalizeCreditTotals(
 }
 
 /**
- * 加载今日和累计成功产出摘要。
+ * 合并图片与视频可能重复的模型名称，并生成稳定降序分布。
  *
- * @param input 当前用户与今日半开区间。
+ * @param rows 数据库模型聚合行；重复模型会安全相加。
+ * @returns 可直接通过共享契约校验的模型任务分布。
+ * @throws RangeError 当数据库返回负数、非整数或合计超过安全整数。
+ */
+function normalizeModelUsage(
+  rows: readonly ModelUsageRow[]
+): ModelUsageDistribution {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const model = row.model.trim() || "unknown";
+    const taskCount = requireNonnegativeInteger(row.taskCount, "模型任务数");
+    const nextCount = (totals.get(model) ?? 0) + taskCount;
+    totals.set(model, requireNonnegativeInteger(nextCount, "模型任务数合计"));
+  }
+  const models = [...totals.entries()]
+    .map(([model, taskCount]) => ({ model, taskCount }))
+    .sort(
+      (left, right) =>
+        right.taskCount - left.taskCount ||
+        left.model.localeCompare(right.model)
+    );
+  const totalTasks = requireNonnegativeInteger(
+    models.reduce((sum, item) => sum + item.taskCount, 0),
+    "模型总任务数"
+  );
+  return { models, totalTasks };
+}
+
+/**
+ * 加载近 24 小时和累计成功产出摘要。
+ *
+ * @param input 当前用户与滚动 24 小时半开区间。
  * @param repository 可替换仓储；生产默认读取事件窄表和用户汇总单行。
- * @returns 图片数和视频秒数；缺行统一为 0。
+ * @returns 图片数、视频秒数、积分及同范围模型分布；缺行统一为 0。
  */
 export async function loadOutputUsageSummary(
   input: {
     userId: string;
-    todayRange: { start: Date; end: Date };
+    last24HoursRange: { start: Date; end: Date };
   },
   repository: OutputUsageAnalyticsRepository = databaseRepository,
   creditRepository: CreditUsageAnalyticsRepository = creditDatabaseRepository
 ): Promise<{
-  today: OutputUsageTotals & CreditUsageTotals;
+  last24Hours: OutputUsageTotals & CreditUsageTotals;
+  modelDistribution: ModelUsageDistribution;
   lifetime: OutputUsageTotals & CreditUsageTotals;
 }> {
-  const [today, lifetime, todayCredits, lifetimeCredits] = await Promise.all([
-    repository.readTodayTotals({
-      userId: input.userId,
-      start: input.todayRange.start,
-      end: input.todayRange.end,
-    }),
-    repository.readLifetimeTotals(input.userId),
-    creditRepository.readTodayCredits({
-      userId: input.userId,
-      start: input.todayRange.start,
-      end: input.todayRange.end,
-    }),
-    creditRepository.readLifetimeCredits(input.userId),
-  ]);
+  const [recent, lifetime, recentCredits, lifetimeCredits, modelUsage] =
+    await Promise.all([
+      repository.readRangeTotals({
+        userId: input.userId,
+        start: input.last24HoursRange.start,
+        end: input.last24HoursRange.end,
+      }),
+      repository.readLifetimeTotals(input.userId),
+      creditRepository.readRangeCredits({
+        userId: input.userId,
+        start: input.last24HoursRange.start,
+        end: input.last24HoursRange.end,
+      }),
+      creditRepository.readLifetimeCredits(input.userId),
+      repository.readModelUsage({
+        userId: input.userId,
+        start: input.last24HoursRange.start,
+        end: input.last24HoursRange.end,
+      }),
+    ]);
   return {
-    today: {
-      ...normalizeOutputUsageTotals(today),
-      ...normalizeCreditTotals(todayCredits),
+    last24Hours: {
+      ...normalizeOutputUsageTotals(recent),
+      ...normalizeCreditTotals(recentCredits),
     },
+    modelDistribution: normalizeModelUsage(modelUsage),
     lifetime: {
       ...normalizeOutputUsageTotals(lifetime),
       ...normalizeCreditTotals(lifetimeCredits),

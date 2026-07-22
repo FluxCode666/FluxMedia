@@ -56,10 +56,6 @@ import {
   getRuntimeSettingNumber,
   setSystemSettings,
 } from "@repo/shared/system-settings";
-import {
-  formatDateInputInTimeZone,
-  parseDateInputInTimeZone,
-} from "@repo/shared/time-zone";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import type { OperationContext, Principal } from "@repo/shared/uol";
 import {
@@ -296,7 +292,7 @@ async function assertAnalyticsReady(): Promise<void> {
   }
 }
 
-/** 绑定本人摘要 operation，用户 ID 只来自 Principal。 */
+/** 绑定本人近 24 小时摘要 operation，用户 ID 只来自 Principal。 */
 bindExecute(
   "analytics.getMyUsageSummary",
   async (_input: Record<string, never>, principal: Principal) => {
@@ -306,29 +302,23 @@ bindExecute(
     await assertAnalyticsReady();
     const timeZone = await getUserTimeZone(principal.userId);
     const asOf = new Date();
-    const today = formatDateInputInTimeZone(asOf, timeZone);
-    const todayStart = parseDateInputInTimeZone(today, { timeZone });
-    if (!todayStart)
-      throw new OperationError(
-        "internal_error",
-        "Unable to resolve analytics day"
-      );
-    const todayRange = {
-      start: new Date(todayStart.getTime()),
+    const last24HoursRange = {
+      start: new Date(asOf.getTime() - 24 * 60 * 60 * 1000),
       end: asOf,
     };
     const result = await loadOutputUsageSummary({
       userId: principal.userId,
-      todayRange,
+      last24HoursRange,
     });
     return usageSummaryOutputSchema.parse({
       asOf: asOf.toISOString(),
       timeZone,
-      todayRange: {
-        start: todayRange.start.toISOString(),
-        end: todayRange.end.toISOString(),
+      last24HoursRange: {
+        start: last24HoursRange.start.toISOString(),
+        end: last24HoursRange.end.toISOString(),
       },
-      today: result.today,
+      last24Hours: result.last24Hours,
+      modelDistribution: result.modelDistribution,
       lifetime: result.lifetime,
     });
   }

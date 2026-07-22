@@ -1,10 +1,9 @@
 /**
  * 用户控制台首页的服务端入口。
  *
- * 本页只负责会话鉴权、本人 Principal 和首屏快照装配；交互筛选、刷新状态与图表拆包
- * 由 dashboard feature 承担。摘要固定为今日/累计，默认趋势为按小时的近 24 小时。
+ * 本页只负责会话鉴权、本人 Principal 和首屏快照装配；刷新状态与模型占比图表拆包由
+ * dashboard feature 承担。摘要固定为滚动近 24 小时与累计口径。
  */
-import type { UsageTrendsInput } from "@repo/shared/analytics/contracts";
 import { auth } from "@repo/shared/auth";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { logError } from "@repo/shared/logger";
@@ -29,12 +28,6 @@ import {
 } from "@/features/dashboard/dashboard-load-error";
 import { loadDashboardSupportConfiguration } from "@/features/dashboard/dashboard-support-data";
 
-const DEFAULT_TRENDS_INPUT = {
-  granularity: "hour",
-  metric: "imageCount",
-  range: "last24Hours",
-} satisfies UsageTrendsInput;
-
 /** 记录不含 SQL、参数、用户 ID 和会话信息的 Dashboard 降级事件。 */
 function logDashboardLoadFailure(
   reason: Exclude<DashboardLoadFailureReason, "not_ready">,
@@ -58,7 +51,7 @@ function logDashboardLoadFailure(
 /**
  * 渲染已登录用户的分析优先控制台。
  *
- * @returns 今日/累计摘要、默认趋势、活动分布和近期创作；暂不可查询时返回安全状态卡。
+ * @returns 近 24 小时/累计摘要、模型分布和近期创作；暂不可查询时返回安全状态卡。
  */
 export default async function DashboardPage() {
   const locale = await getLocale();
@@ -90,7 +83,6 @@ export default async function DashboardPage() {
     const snapshot: DashboardSnapshot = await loadDashboardSnapshot({
       userId: session.user.id,
       role,
-      trendsInput: DEFAULT_TRENDS_INPUT,
     });
     const supportConfiguration = await supportConfigurationPromise;
 

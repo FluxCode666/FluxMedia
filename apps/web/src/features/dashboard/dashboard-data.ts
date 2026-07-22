@@ -1,8 +1,8 @@
 /**
  * 用户控制台首页的统一服务端数据装配器。
  *
- * 首屏 Server Component 与刷新 Server Action 共用本模块，确保摘要、趋势和近期创作
- * 采用同一用户 Principal；筛选请求仍单独调用趋势 operation，避免重复查询摘要。
+ * 首屏 Server Component 与刷新 Server Action 共用本模块，确保近 24 小时摘要、模型
+ * 分布和近期创作采用同一用户 Principal。
  */
 import { db } from "@repo/database";
 import {
@@ -10,11 +10,7 @@ import {
   sanitizePostgresPoolError,
 } from "@repo/database/pool";
 import { generation } from "@repo/database/schema";
-import type {
-  UsageSummaryOutput,
-  UsageTrendsInput,
-  UsageTrendsOutput,
-} from "@repo/shared/analytics/contracts";
+import type { UsageSummaryOutput } from "@repo/shared/analytics/contracts";
 import type { AppUserRole } from "@repo/shared/auth/roles";
 import { logError } from "@repo/shared/logger";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
@@ -27,7 +23,6 @@ import { ensureUolInitialized } from "@/server/uol-init";
 
 export type DashboardSnapshot = {
   summary: UsageSummaryOutput;
-  trends: UsageTrendsOutput;
   recentCreations: RecentCreation[];
 };
 
@@ -37,11 +32,6 @@ type DashboardSnapshotDependencies = {
     userId: string;
     role: AppUserRole;
   }) => Promise<UsageSummaryOutput>;
-  loadTrends: (input: {
-    userId: string;
-    role: AppUserRole;
-    trendsInput: UsageTrendsInput;
-  }) => Promise<UsageTrendsOutput>;
   loadRecentCreations: (userId: string) => Promise<RecentCreation[]>;
   reportRecentCreationsError: (error: SafePostgresPoolError) => void;
 };
@@ -104,19 +94,6 @@ async function loadSummaryThroughUol(input: {
   );
 }
 
-/** 通过 Analytics UOL 读取本人趋势与活动分布。 */
-async function loadTrendsThroughUol(input: {
-  userId: string;
-  role: AppUserRole;
-  trendsInput: UsageTrendsInput;
-}): Promise<UsageTrendsOutput> {
-  return invokeOperation<UsageTrendsOutput>(
-    "analytics.getMyUsageTrends",
-    input.trendsInput,
-    { type: "user", userId: input.userId, role: input.role }
-  );
-}
-
 /**
  * 从 Drizzle 包装错误中提取安全的数据库根因字段。
  *
@@ -141,7 +118,6 @@ function reportRecentCreationsError(error: SafePostgresPoolError): void {
 const defaultSnapshotDependencies: DashboardSnapshotDependencies = {
   ensureInitialized: ensureUolInitialized,
   loadSummary: loadSummaryThroughUol,
-  loadTrends: loadTrendsThroughUol,
   loadRecentCreations: loadRecentDashboardCreations,
   reportRecentCreationsError,
 };
@@ -149,14 +125,13 @@ const defaultSnapshotDependencies: DashboardSnapshotDependencies = {
 /**
  * 装配控制台首屏或刷新快照。
  *
- * @param input 当前用户、角色和已经过共享 schema 约束的趋势筛选。
- * @returns 摘要、趋势和近期创作；近期创作失败时降级为空，核心统计失败时整体拒绝。
+ * @param input 当前用户与角色；身份只用于构造本人 Principal。
+ * @returns 摘要和近期创作；近期创作失败时降级为空，核心统计失败时整体拒绝。
  */
 export async function loadDashboardSnapshot(
   input: {
     userId: string;
     role: AppUserRole;
-    trendsInput: UsageTrendsInput;
   },
   dependencies: DashboardSnapshotDependencies = defaultSnapshotDependencies
 ): Promise<DashboardSnapshot> {
@@ -169,10 +144,9 @@ export async function loadDashboardSnapshot(
       );
       return [];
     });
-  const [summary, trends, recentCreations] = await Promise.all([
+  const [summary, recentCreations] = await Promise.all([
     dependencies.loadSummary({ userId: input.userId, role: input.role }),
-    dependencies.loadTrends(input),
     recentCreationsPromise,
   ]);
-  return { summary, trends, recentCreations };
+  return { summary, recentCreations };
 }

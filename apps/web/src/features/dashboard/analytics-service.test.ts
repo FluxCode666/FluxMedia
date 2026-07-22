@@ -1,8 +1,8 @@
 /**
  * 控制台产出统计查询服务测试。
  *
- * 通过仓储注入验证空摘要、半开范围、用户隔离、连续补零，以及一次范围读取同时产生
- * 趋势和任务类型分布。
+ * 通过仓储注入验证近 24 小时摘要、模型分布、半开范围、用户隔离、连续补零，以及
+ * 保留给 MCP 的趋势能力。
  */
 
 import { resolveUsageTimeRange } from "@repo/shared/analytics/range";
@@ -50,12 +50,13 @@ describe("output usage analytics service", () => {
 
   it("returns zero summary when the user has no events or summary row", async () => {
     const repository = {
-      readTodayTotals: vi.fn().mockResolvedValue(null),
+      readRangeTotals: vi.fn().mockResolvedValue(null),
       readLifetimeTotals: vi.fn().mockResolvedValue(null),
+      readModelUsage: vi.fn().mockResolvedValue([]),
       readRangeAggregates: vi.fn(),
     } satisfies OutputUsageAnalyticsRepository;
     const creditRepository = {
-      readTodayCredits: vi.fn().mockResolvedValue(null),
+      readRangeCredits: vi.fn().mockResolvedValue(null),
       readLifetimeCredits: vi.fn().mockResolvedValue(null),
     } satisfies CreditUsageAnalyticsRepository;
 
@@ -63,7 +64,7 @@ describe("output usage analytics service", () => {
       loadOutputUsageSummary(
         {
           userId: "user-empty",
-          todayRange: {
+          last24HoursRange: {
             start: new Date("2026-07-20T16:00:00.000Z"),
             end: new Date("2026-07-21T16:00:00.000Z"),
           },
@@ -72,8 +73,75 @@ describe("output usage analytics service", () => {
         creditRepository
       )
     ).resolves.toEqual({
-      today: { imageCount: 0, videoSeconds: 0, creditsConsumed: 0 },
+      last24Hours: { imageCount: 0, videoSeconds: 0, creditsConsumed: 0 },
+      modelDistribution: { models: [], totalTasks: 0 },
       lifetime: { imageCount: 0, videoSeconds: 0, creditsConsumed: 0 },
+    });
+  });
+
+  it("merges and sorts model task counts within the same 24-hour range", async () => {
+    const start = new Date("2026-07-20T05:37:42.123Z");
+    const end = new Date("2026-07-21T05:37:42.123Z");
+    const repository = {
+      readRangeTotals: vi
+        .fn()
+        .mockResolvedValue({ imageCount: 4, videoSeconds: 5 }),
+      readLifetimeTotals: vi
+        .fn()
+        .mockResolvedValue({ imageCount: 10, videoSeconds: 20 }),
+      readModelUsage: vi.fn().mockResolvedValue([
+        { model: "video-model", taskCount: 1 },
+        { model: "image-model", taskCount: 2 },
+        { model: "image-model", taskCount: 1 },
+        { model: " ", taskCount: 1 },
+      ]),
+      readRangeAggregates: vi.fn(),
+    } satisfies OutputUsageAnalyticsRepository;
+    const creditRepository = {
+      readRangeCredits: vi.fn().mockResolvedValue({ creditsConsumed: 1.25 }),
+      readLifetimeCredits: vi.fn().mockResolvedValue({ creditsConsumed: 8 }),
+    } satisfies CreditUsageAnalyticsRepository;
+
+    const result = await loadOutputUsageSummary(
+      { userId: "user-1", last24HoursRange: { start, end } },
+      repository,
+      creditRepository
+    );
+
+    expect(repository.readRangeTotals).toHaveBeenCalledWith({
+      userId: "user-1",
+      start,
+      end,
+    });
+    expect(repository.readModelUsage).toHaveBeenCalledWith({
+      userId: "user-1",
+      start,
+      end,
+    });
+    expect(creditRepository.readRangeCredits).toHaveBeenCalledWith({
+      userId: "user-1",
+      start,
+      end,
+    });
+    expect(result).toEqual({
+      last24Hours: {
+        imageCount: 4,
+        videoSeconds: 5,
+        creditsConsumed: 1.25,
+      },
+      modelDistribution: {
+        models: [
+          { model: "image-model", taskCount: 3 },
+          { model: "unknown", taskCount: 1 },
+          { model: "video-model", taskCount: 1 },
+        ],
+        totalTasks: 5,
+      },
+      lifetime: {
+        imageCount: 10,
+        videoSeconds: 20,
+        creditsConsumed: 8,
+      },
     });
   });
 
@@ -104,8 +172,9 @@ describe("output usage analytics service", () => {
       },
     ]);
     const repository = {
-      readTodayTotals: vi.fn(),
+      readRangeTotals: vi.fn(),
       readLifetimeTotals: vi.fn(),
+      readModelUsage: vi.fn(),
       readRangeAggregates,
     } satisfies OutputUsageAnalyticsRepository;
 
@@ -157,8 +226,9 @@ describe("output usage analytics service", () => {
         }
       );
     const repository = {
-      readTodayTotals: vi.fn(),
+      readRangeTotals: vi.fn(),
       readLifetimeTotals: vi.fn(),
+      readModelUsage: vi.fn(),
       readRangeAggregates,
     } satisfies OutputUsageAnalyticsRepository;
 

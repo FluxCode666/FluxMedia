@@ -131,18 +131,25 @@ describe("usage analytics range contracts", () => {
     ).toBe(false);
   });
 
-  it("accepts fractional credit totals while preserving integer output counts", () => {
+  it("accepts the last-24-hours summary and validates model totals", () => {
     const result = usageSummaryOutputSchema.safeParse({
       asOf: "2026-07-21T05:37:42.123Z",
       timeZone: SHANGHAI,
-      todayRange: {
-        start: "2026-07-20T16:00:00.000Z",
-        end: "2026-07-21T16:00:00.000Z",
+      last24HoursRange: {
+        start: "2026-07-20T05:37:42.123Z",
+        end: "2026-07-21T05:37:42.123Z",
       },
-      today: {
+      last24Hours: {
         imageCount: 4,
         videoSeconds: 5,
         creditsConsumed: 1.25,
+      },
+      modelDistribution: {
+        models: [
+          { model: "gpt-image-1", taskCount: 2 },
+          { model: "firefly-video", taskCount: 1 },
+        ],
+        totalTasks: 3,
       },
       lifetime: {
         imageCount: 10,
@@ -152,23 +159,38 @@ describe("usage analytics range contracts", () => {
     });
 
     expect(result.success).toBe(true);
+    if (!result.success) throw result.error;
     expect(
       usageSummaryOutputSchema.safeParse({
         asOf: "2026-07-21T05:37:42.123Z",
         timeZone: SHANGHAI,
-        todayRange: {
-          start: "2026-07-20T16:00:00.000Z",
-          end: "2026-07-21T16:00:00.000Z",
+        last24HoursRange: {
+          start: "2026-07-20T05:37:42.123Z",
+          end: "2026-07-21T05:37:42.123Z",
         },
-        today: {
+        last24Hours: {
           imageCount: 1.5,
           videoSeconds: 5,
           creditsConsumed: 1,
+        },
+        modelDistribution: {
+          models: [{ model: "gpt-image-1", taskCount: 2 }],
+          totalTasks: 2,
         },
         lifetime: {
           imageCount: 10,
           videoSeconds: 20,
           creditsConsumed: 3,
+        },
+      }).success
+    ).toBe(false);
+
+    expect(
+      usageSummaryOutputSchema.safeParse({
+        ...result.data,
+        modelDistribution: {
+          models: [{ model: "gpt-image-1", taskCount: 2 }],
+          totalTasks: 3,
         },
       }).success
     ).toBe(false);
