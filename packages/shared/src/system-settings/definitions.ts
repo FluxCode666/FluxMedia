@@ -169,7 +169,7 @@ export type SettingKey =
   | "EDITABLE_FILE_PPT_CREDITS"
   | "EDITABLE_FILE_PSD_CREDITS"
   | "VIDEO_BASE_CREDITS_PER_SECOND"
-  | "VIDEO_MODEL_MULTIPLIERS"
+  | "VIDEO_MODEL_CREDITS_PER_SECOND"
   | "NEXT_PUBLIC_GA_ID"
   | "NEXT_PUBLIC_SENTRY_DSN"
   | "SENTRY_AUTH_TOKEN"
@@ -1546,7 +1546,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "VIDEO_BASE_CREDITS_PER_SECOND",
     label: "视频每秒基础积分",
     description:
-      "Adobe Firefly 视频生成的统一基础价格（每秒积分）。一次视频成本 = 每秒基价 × 时长(秒) × 模型族倍率。",
+      "Adobe Firefly 视频生成的通用回退价格（每秒积分）。未配置模型族专属价格时，一次视频成本 = 此每秒基价 × 时长(秒)。",
     category: "credits",
     valueType: "number",
     // WHY: 视频计费基价须为正；上限拦截误填的异常巨大值，避免单次扣费失控。
@@ -1555,13 +1555,13 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 30,
   },
   {
-    key: "VIDEO_MODEL_MULTIPLIERS",
-    label: "视频模型族倍率",
+    key: "VIDEO_MODEL_CREDITS_PER_SECOND",
+    label: "视频模型族每秒积分",
     description:
-      '按视频模型族设置计费倍率的 JSON（family → 倍率，缺省/非正回退 1）。例：{"sora2-pro":2,"veo31-fast":0.5}。',
+      '按视频模型族设置每秒积分的 JSON（family → 积分）。未配置的模型族回退「视频每秒基础积分」。例：{"sora2-pro":60,"veo31-fast":15}。',
     category: "credits",
     valueType: "json",
-    exampleValue: '{"sora2": 1, "sora2-pro": 2, "veo31": 1.5}',
+    exampleValue: '{"sora2": 30, "sora2-pro": 60, "veo31": 45}',
   },
   {
     key: "CREDIT_PACKAGE_MATRIX",

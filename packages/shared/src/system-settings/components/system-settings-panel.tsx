@@ -1912,11 +1912,11 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
       map.set(category.id, []);
     }
     for (const setting of settings) {
-      // 图像模型固定价格与视频模型倍率由 Adobe 后端 tab 的专用表格编辑，系统设置
+      // 图像模型固定价格与视频模型每秒积分由 Adobe 后端 tab 的专用表格编辑，系统设置
       // 面板里隐藏，避免同一份财务配置出现两个入口。
       if (
         setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
-        setting.key === "VIDEO_MODEL_MULTIPLIERS"
+        setting.key === "VIDEO_MODEL_CREDITS_PER_SECOND"
       ) {
         continue;
       }
@@ -1936,7 +1936,7 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
         // 见上：专用模型计费配置不在本面板编辑，避免覆盖 Adobe tab 的改动。
         if (
           setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
-          setting.key === "VIDEO_MODEL_MULTIPLIERS"
+          setting.key === "VIDEO_MODEL_CREDITS_PER_SECOND"
         ) {
           continue;
         }

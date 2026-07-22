@@ -29,7 +29,6 @@ export type ImageBackendGroupSummary = {
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
-  billingMultiplier: number;
   imageCreditOverrides: ImageCreditOverrides;
   childGroupIds: string[];
   priority: number;

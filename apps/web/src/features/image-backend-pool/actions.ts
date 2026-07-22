@@ -1,16 +1,16 @@
 "use server";
 
+import { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
 import {
   isSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
-import { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
-import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
 import {
   type ImageCreditOverrides,
   imageCreditOverridesSchema,
   type ResolvedImageCreditPricing,
 } from "@repo/shared/image-backend/group-image-pricing";
+import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
 import { supportedModelIdsSchema } from "@repo/shared/image-backend/supported-models";
 
 import {
@@ -18,7 +18,6 @@ import {
   imageBackendPoolViewerAction,
   protectedAction,
 } from "@repo/shared/safe-action";
-import { invokeOperation } from "@repo/shared/uol";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
@@ -26,6 +25,7 @@ import {
   getRuntimeSettingString,
   setSystemSettings,
 } from "@repo/shared/system-settings";
+import { invokeOperation } from "@repo/shared/uol";
 import { z } from "zod";
 
 import {
@@ -35,11 +35,11 @@ import {
   listAdobeAccounts,
   setAdobeAccountEnabled,
 } from "@/features/image-generation/adobe-direct";
-
+import { ensureUolInitialized } from "@/server/uol-init";
 import {
   bulkUpdateImageBackendAccounts,
-  deleteImageBackendGroup,
   countAvailableWebAccountsInGroup,
+  deleteImageBackendGroup,
   deleteImageBackendMembers,
   deleteSub2ApiAutoSyncTask,
   getUserImageBackendPreference,
@@ -69,7 +69,6 @@ import {
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
 } from "./service";
-import { ensureUolInitialized } from "@/server/uol-init";
 
 const nullableGroupIdSchema = z
   .string()
@@ -273,7 +272,6 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       contentSafety: safetyOverrideSchema.default("inherit"),
       backendType: groupBackendTypeSchema.default("mixed"),
       minPlan: subscriptionPlanSchema,
-      billingMultiplier: z.coerce.number().min(0.01).max(100).default(1),
       imageCreditOverrides: imageCreditOverridesSchema.default({
         version: 1,
         byModel: {},
@@ -289,7 +287,6 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
       {
         ...parsedInput,
         description: parsedInput.description || undefined,
-        videoBillingMultiplier: parsedInput.billingMultiplier,
       },
       { type: "user", userId: ctx.userId, role: ctx.role }
     );
@@ -573,10 +570,8 @@ export const saveImageBackendApiAction = withImageBackendPoolAdminAction(
       failureCooldownEnabled: z.boolean().default(false),
       priority: z.coerce.number().int().min(0).max(10000).default(50),
       concurrency: z.coerce.number().int().min(1).max(10000).default(10),
-      // Adobe 来源：上游实为 Adobe 的 gpt 格式 api。开启后吃成员倍率并进 firefly 候选。
+      // Adobe 来源：上游实为 Adobe 的 gpt 格式 api，开启后进 firefly 候选。
       adobeSourced: z.boolean().default(false),
-      // 成员计费倍率（仅 adobeSourced 时生效），口径同 Adobe 伪账号。
-      billingMultiplier: z.coerce.number().min(0.01).max(100).default(1),
       status: z.string().trim().max(80).optional(),
     })
   )
@@ -662,7 +657,6 @@ export const saveImageBackendAdobeAction = withImageBackendPoolAdminAction(
         defaultRatio: z.string().trim().max(20).default("1x1"),
         defaultResolution: z.string().trim().max(10).default("2k"),
         gptImageQuality: z.enum(["low", "medium", "high"]).default("high"),
-        billingMultiplier: z.coerce.number().positive().max(1000).default(1),
         supportsVideo: z.boolean().default(false),
         contentSafetyEnabled: z.boolean().default(true),
         isEnabled: z.boolean().default(true),
@@ -711,16 +705,16 @@ export const setImageBackendAdobeAlwaysActiveAction =
       return { success: true };
     });
 
-// ===== 图像模型固定价格与保留的视频 per-model 倍率 =====
+// ===== 图像模型固定价格与视频模型族每秒积分 =====
 
-// family → 正数倍率 的 map。空 map 表示全部回退默认倍率 1。非正/非有限值由前端过滤,
-// 此处再以 schema 兜底,杜绝脏值落库（财务语义键须为正有限数）。
-const modelMultiplierMapSchema = z.record(
+// family → 正数每秒积分的 map。空 map 表示全部回退通用每秒基价。非正/非有限值由前端过滤，
+// 此处再以 schema 兜底，杜绝脏值落库（财务语义键须为正有限数）。
+const modelCreditsPerSecondMapSchema = z.record(
   z.string().trim().min(1),
-  z.number().finite().positive().max(1_000)
+  z.number().finite().positive().max(100_000)
 );
 
-/** 通过 UOL 读取图像固定价格和保留的视频模型倍率。 */
+/** 通过 UOL 读取图像固定价格和视频模型族每秒积分。 */
 export const getImagePricingConfigAction = withImageBackendPoolAdminAction(
   "getImagePricingConfig"
 ).action(async ({ ctx }) => {
@@ -732,7 +726,7 @@ export const getImagePricingConfigAction = withImageBackendPoolAdminAction(
       textModerationCredits: number;
       imageModerationCredits: number;
     };
-    video: Record<string, number>;
+    videoCreditsPerSecond: Record<string, number>;
   }>(
     "pool.getImagePricingConfig",
     {},
@@ -740,14 +734,14 @@ export const getImagePricingConfigAction = withImageBackendPoolAdminAction(
   );
 });
 
-/** 通过 UOL 保存图像模型固定价格和保留的视频模型倍率。 */
+/** 通过 UOL 保存图像模型固定价格和视频模型族每秒积分。 */
 export const setImagePricingConfigAction = withImageBackendPoolAdminAction(
   "updateImagePricingConfig"
 )
   .schema(
     z.object({
       image: imageCreditOverridesSchema,
-      video: modelMultiplierMapSchema,
+      videoCreditsPerSecond: modelCreditsPerSecondMapSchema,
     })
   )
   .action(async ({ parsedInput, ctx }) => {

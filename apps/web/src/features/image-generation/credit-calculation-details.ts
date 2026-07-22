@@ -4,7 +4,6 @@ export type GenerationCreditDetails = {
   baseCredits: number | null;
   billableImageOutputCount: number | null;
   billingGroupId: string | null;
-  billingMultiplier: number;
   chatCredits: number | null;
   chatRoundCount: number | null;
   chatRoundCredits: number | null;
@@ -35,11 +34,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readNumber(value: unknown): number | null {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function readPositiveNumber(value: unknown): number | null {
-  const numeric = readNumber(value);
-  return numeric !== null && numeric > 0 ? numeric : null;
 }
 
 function readString(value: unknown): string | null {
@@ -92,10 +86,6 @@ export function extractGenerationCreditDetails(
   const chatTextOnlyCharge = isRecord(metadata.chatTextOnlyCharge)
     ? metadata.chatTextOnlyCharge
     : null;
-  const billingMultiplier =
-    readPositiveNumber(metadata.billingMultiplier) ??
-    readPositiveNumber(backend.billingMultiplier) ??
-    1;
   const chatRoundCredits =
     readNumber(outputImage.chatRoundCredits) ??
     readNumber(chatTextOnlyCharge?.chatRoundCredits);
@@ -131,7 +121,6 @@ export function extractGenerationCreditDetails(
     billableImageOutputCount: readNumber(outputImage.billableImageOutputCount),
     billingGroupId:
       readString(metadata.billingGroupId) ?? readString(backend.billingGroupId),
-    billingMultiplier,
     chatCredits,
     chatRoundCount,
     chatRoundCredits,

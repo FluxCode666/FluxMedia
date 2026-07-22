@@ -8,6 +8,11 @@
  * 播放产物视频。可选上传一张输入图做图生视频首帧。与图像创作解耦，作为创作页独立 tab。
  */
 
+import {
+  getVideoCreditCost,
+  resolveVideoCreditsPerSecond,
+} from "@repo/shared/adobe";
+import { FIREFLY_VIDEO_FAMILIES } from "@repo/shared/adobe/firefly-direct/video-catalog";
 import { Button } from "@repo/ui/components/button";
 import { Label } from "@repo/ui/components/label";
 import {
@@ -18,12 +23,6 @@ import {
   SelectValue,
 } from "@repo/ui/components/select";
 import { Textarea } from "@repo/ui/components/textarea";
-import {
-  applyVideoBackendMultiplier,
-  getVideoCreditCost,
-  resolveVideoModelMultiplier,
-} from "@repo/shared/adobe";
-import { FIREFLY_VIDEO_FAMILIES } from "@repo/shared/adobe/firefly-direct/video-catalog";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { VideoPricingInfo } from "../video-operations";
@@ -116,46 +115,42 @@ export function VideoCreatePanel({
     }
   };
 
-  // 预估积分：与扣费侧（video-operations）同口径——每秒基价 × 时长 × 模型族倍率，
-  // 再叠加 Adobe 后端倍率。纯函数复用，确保展示价 = 实扣价。必须在任何 early return
+  // 预估积分：与扣费侧（video-operations）同口径——模型族每秒价格 × 时长。
+  // 纯函数复用，确保展示价 = 实扣价。必须在任何 early return
   // 之前无条件调用（React hooks 规则），故对 family 用可选链兜底。
-  const familyMultiplier = resolveVideoModelMultiplier(
+  const creditsPerSecond = resolveVideoCreditsPerSecond(
     family?.family,
-    pricing.multipliers
+    pricing.creditsPerSecond,
+    pricing.basePerSecond
   );
   const estimatedCredits = useMemo(() => {
-    const baseCost = getVideoCreditCost({
+    return getVideoCreditCost({
       durationSeconds: duration,
-      basePerSecond: pricing.basePerSecond,
-      modelMultiplier: familyMultiplier,
+      creditsPerSecond,
     });
-    return applyVideoBackendMultiplier(baseCost, pricing.backendMultiplier);
-  }, [duration, familyMultiplier, pricing]);
+  }, [creditsPerSecond, duration]);
 
   // 各视频模型(族 × 时长)的积分消耗对照表:与上方预估、与扣费侧同口径
-  // (每秒基价 × 时长 × 族倍率,再叠加后端计费倍率),用户选模型前即可比价。
+  // （模型族每秒价格 × 时长）,用户选模型前即可比价。
   // 必须在 early return 之前无条件调用(hooks 规则)。
   const pricingTable = useMemo(
     () =>
       families.map((item) => {
-        const multiplier = resolveVideoModelMultiplier(
+        const creditsPerSecond = resolveVideoCreditsPerSecond(
           item.family,
-          pricing.multipliers
+          pricing.creditsPerSecond,
+          pricing.basePerSecond
         );
         return {
           family: item.family,
           label: item.label,
-          multiplier,
+          creditsPerSecond,
           rows: item.durations.map((seconds) => ({
             seconds,
-            credits: applyVideoBackendMultiplier(
-              getVideoCreditCost({
-                durationSeconds: seconds,
-                basePerSecond: pricing.basePerSecond,
-                modelMultiplier: multiplier,
-              }),
-              pricing.backendMultiplier
-            ),
+            credits: getVideoCreditCost({
+              durationSeconds: seconds,
+              creditsPerSecond,
+            }),
           })),
         };
       }),
@@ -244,7 +239,11 @@ export function VideoCreatePanel({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">模型</Label>
-          <Select value={familyId} onValueChange={onFamilyChange} disabled={busy}>
+          <Select
+            value={familyId}
+            onValueChange={onFamilyChange}
+            disabled={busy}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -394,8 +393,7 @@ export function VideoCreatePanel({
           预计消耗 {estimatedCredits} 积分
         </span>
         <span className="text-xs text-muted-foreground">
-          {duration}s × {pricing.basePerSecond}/秒
-          {familyMultiplier !== 1 ? ` × ${familyMultiplier}倍` : ""}
+          {duration}s × {creditsPerSecond}/秒
         </span>
         <span className="text-xs text-muted-foreground">{model}</span>
       </div>
@@ -417,7 +415,7 @@ export function VideoCreatePanel({
                 <tr key={item.family} className="border-b border-border/30">
                   <td className="whitespace-nowrap py-1 pr-4">
                     {item.label}
-                    {item.multiplier !== 1 ? `（${item.multiplier}倍）` : ""}
+                    {`（${item.creditsPerSecond} 积分/秒）`}
                   </td>
                   <td className="py-1">
                     {item.rows
@@ -429,11 +427,9 @@ export function VideoCreatePanel({
             </tbody>
           </table>
           <p className="mt-1">
-            计费口径：每秒 {pricing.basePerSecond} 积分 × 时长 × 模型倍率
-            {pricing.backendMultiplier !== 1
-              ? ` × 后端 ${pricing.backendMultiplier} 倍`
-              : ""}
-            ，与实际扣费一致；比例 / 分辨率不影响积分。
+            计费口径：模型族每秒积分 × 时长；未配置模型族时使用全局每秒
+            {pricing.basePerSecond} 积分，与实际扣费一致；比例 /
+            分辨率不影响积分。
           </p>
         </div>
       </details>

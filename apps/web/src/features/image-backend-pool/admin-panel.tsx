@@ -1,18 +1,18 @@
 "use client";
 
+import {
+  ADOBE_IMAGE_MODEL_IDS,
+  normalizeAdobeEnabledModelIds,
+} from "@repo/shared/adobe/enabled-models";
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import {
   DEFAULT_IMAGE_CREDIT_PRICING,
   DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
   type ImageCreditOverrides,
-  type ResolvedImageCreditPricing,
   normalizeImagePricingModelId,
+  type ResolvedImageCreditPricing,
   resolveImageCreditPricing,
 } from "@repo/shared/image-backend/group-image-pricing";
-import {
-  ADOBE_IMAGE_MODEL_IDS,
-  normalizeAdobeEnabledModelIds,
-} from "@repo/shared/adobe/enabled-models";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { normalizeSupportedModelIds } from "@repo/shared/image-backend/supported-models";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
@@ -79,9 +79,10 @@ import { toast } from "sonner";
 import {
   bulkDeleteImageBackendAccountsAction,
   bulkUpdateImageBackendAccountsAction,
+  deleteAdobeAccountAction,
   deleteImageBackendGroupAction,
-  deleteImageBackendParameterMappingTemplateAction,
   deleteImageBackendMemberAction,
+  deleteImageBackendParameterMappingTemplateAction,
   deleteSub2ApiAutoSyncTaskAction,
   getAdminImageBackendPoolAction,
   getImageBackendParameterMappingTemplatesAction,
@@ -90,11 +91,10 @@ import {
   getSub2ApiSourceGroupsAction,
   getSub2ApiSyncProgressAction,
   getSub2ApiSyncStatusAction,
-  importImageBackendAccountsFromRefreshTokensAction,
-  importImageBackendWebAccountsFromAccessTokensAction,
-  deleteAdobeAccountAction,
   importAdobeAccountAction,
   importAdobeAccountsAction,
+  importImageBackendAccountsFromRefreshTokensAction,
+  importImageBackendWebAccountsFromAccessTokensAction,
   listAdobeAccountsAction,
   refreshImageBackendAccountInfoAction,
   refreshImageBackendAccountsInfoAction,
@@ -103,15 +103,15 @@ import {
   saveImageBackendAccountAction,
   saveImageBackendAdobeAction,
   saveImageBackendApiAction,
-  saveImageBackendParameterMappingTemplateAction,
-  setImagePricingConfigAction,
   saveImageBackendGroupAction,
+  saveImageBackendParameterMappingTemplateAction,
   setAdobeAccountEnabledAction,
   setImageBackendAccountAlwaysActiveAction,
   setImageBackendAdobeAlwaysActiveAction,
   setImageBackendAdobeEnabledAction,
   setImageBackendApiAlwaysActiveAction,
   setImageBackendApiEnabledAction,
+  setImagePricingConfigAction,
   setSub2ApiAutoSyncTaskEnabledAction,
   setSub2ApiAutoSyncTaskOverwriteLocalUnavailableStateAction,
   testImageBackendApiAction,
@@ -119,8 +119,8 @@ import {
 } from "./actions";
 import { ChatgptRegisterTab } from "./chatgpt-register-tab";
 import {
-  ImageCreditPricingEditor,
   type ImageCreditPricingDraft,
+  ImageCreditPricingEditor,
   imageCreditOverridesToDraft,
   imageCreditPricingDraftToOverrides,
   updateImageCreditPricingDraft,
@@ -142,7 +142,6 @@ type Group = {
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
-  billingMultiplier: number;
   imageCreditOverrides: ImageCreditOverrides;
   childGroupIds: string[];
   priority: number;
@@ -208,7 +207,6 @@ type Api = {
   priority: number;
   concurrency: number;
   adobeSourced: boolean;
-  billingMultiplier: number;
   status: string;
   successCount: number;
   failCount: number;
@@ -263,8 +261,6 @@ type Adobe = {
   defaultRatio: string;
   defaultResolution: string;
   gptImageQuality: string;
-  // list 接口把 numeric 列回传为字符串。
-  billingMultiplier: number | string;
   supportsVideo: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -367,7 +363,7 @@ const DEFAULT_IMAGE_PRICING_MODELS = ADOBE_IMAGE_MODEL_IDS.flatMap(
     return normalized ? [normalized] : [];
   }
 );
-const ADOBE_VIDEO_MULTIPLIER_FAMILIES = [
+const ADOBE_VIDEO_PRICING_FAMILIES = [
   "sora2",
   "sora2-pro",
   "veo31",
@@ -377,8 +373,8 @@ const ADOBE_VIDEO_MULTIPLIER_FAMILIES = [
   "kling3",
 ] as const;
 
-/** 把 family→倍率 的 map 转成"输入框字符串"草稿；缺省/非正显示为空（即默认 1）。 */
-function multipliersToDraft(
+/** 把 family→每秒积分的 map 转成输入框草稿；缺省或非正值显示为空。 */
+function creditsPerSecondToDraft(
   families: readonly string[],
   map: Record<string, number>
 ): Record<string, string> {
@@ -393,8 +389,8 @@ function multipliersToDraft(
   return draft;
 }
 
-/** 把"输入框字符串"草稿收窄回 family→正数 的 map；空白/非正/非法项不写入（回退默认 1）。 */
-function draftToMultipliers(
+/** 把输入框草稿收窄为 family→正数每秒积分；非法项不写入并回退通用基价。 */
+function draftToCreditsPerSecond(
   draft: Record<string, string>
 ): Record<string, number> {
   const map: Record<string, number> = {};
@@ -893,7 +889,6 @@ export function ImageBackendPoolAdminPanel({
     contentSafety: "inherit" as ContentSafetyFormValue,
     backendType: "mixed" as GroupBackendTypeFormValue,
     minPlan: "free" as SubscriptionPlan,
-    billingMultiplier: 1,
     childGroupIds: [] as string[],
     priority: 50,
   });
@@ -936,10 +931,8 @@ export function ImageBackendPoolAdminPanel({
     failureCooldownEnabled: false,
     priority: 50,
     concurrency: 10,
-    // Adobe 来源：上游实为 Adobe 的 gpt 格式 api（计费吃成员倍率 + 进 firefly 候选）。
+    // Adobe 来源：上游实为 Adobe 的 gpt 格式 api，可进入 firefly 候选。
     adobeSourced: false,
-    // 旧 Adobe 来源成员倍率；图像固定价格接线完成后不再参与图像扣费。
-    billingMultiplier: "1",
   });
   const [adobeForm, setAdobeForm] = useState({
     id: "",
@@ -954,7 +947,6 @@ export function ImageBackendPoolAdminPanel({
     defaultRatio: "1x1",
     defaultResolution: "2k",
     gptImageQuality: "high" as "low" | "medium" | "high",
-    billingMultiplier: "1",
     supportsVideo: false,
     contentSafetyEnabled: true,
     isEnabled: true,
@@ -1219,7 +1211,6 @@ export function ImageBackendPoolAdminPanel({
       contentSafety: "inherit" as ContentSafetyFormValue,
       backendType: "mixed" as GroupBackendTypeFormValue,
       minPlan: "free" as SubscriptionPlan,
-      billingMultiplier: 1,
       childGroupIds: [] as string[],
       priority: 50,
     });
@@ -1267,7 +1258,6 @@ export function ImageBackendPoolAdminPanel({
       priority: 50,
       concurrency: 10,
       adobeSourced: false,
-      billingMultiplier: "1",
     });
 
   const resetManualImportForm = () => {
@@ -1328,7 +1318,6 @@ export function ImageBackendPoolAdminPanel({
       contentSafety: safetyValue(group.contentSafetyEnabled),
       backendType: group.backendType || "mixed",
       minPlan: group.minPlan || "free",
-      billingMultiplier: group.billingMultiplier || 1,
       childGroupIds: group.childGroupIds || [],
       priority: group.priority,
     });
@@ -1462,7 +1451,6 @@ export function ImageBackendPoolAdminPanel({
       priority: api.priority,
       concurrency: api.concurrency,
       adobeSourced: api.adobeSourced ?? false,
-      billingMultiplier: String(api.billingMultiplier ?? "1"),
     });
   };
 
@@ -1479,7 +1467,6 @@ export function ImageBackendPoolAdminPanel({
       defaultRatio: "1x1",
       defaultResolution: "2k",
       gptImageQuality: "high",
-      billingMultiplier: "1",
       supportsVideo: false,
       contentSafetyEnabled: true,
       isEnabled: true,
@@ -1534,7 +1521,6 @@ export function ImageBackendPoolAdminPanel({
       defaultResolution: adobe.defaultResolution || "2k",
       gptImageQuality:
         (adobe.gptImageQuality as "low" | "medium" | "high") || "high",
-      billingMultiplier: String(adobe.billingMultiplier ?? "1"),
       supportsVideo: adobe.supportsVideo,
       contentSafetyEnabled: adobe.contentSafetyEnabled,
       isEnabled: adobe.isEnabled,
@@ -1814,7 +1800,7 @@ export function ImageBackendPoolAdminPanel({
   const [adobeAccounts, setAdobeAccounts] = useState<AdobeAccountRow[]>([]);
   const [adobeCookieInput, setAdobeCookieInput] = useState("");
 
-  // ===== 图像模型固定价格与保留的视频模型倍率 =====
+  // ===== 图像模型固定价格与视频模型族每秒积分 =====
   const [imagePricingDraft, setImagePricingDraft] =
     useState<ImageCreditPricingDraft>({});
   const [imagePricingFallback, setImagePricingFallback] =
@@ -1823,9 +1809,9 @@ export function ImageBackendPoolAdminPanel({
     textModerationCredits: number;
     imageModerationCredits: number;
   }>({ ...DEFAULT_IMAGE_MODERATION_CREDIT_PRICING });
-  const [videoMultiplierDraft, setVideoMultiplierDraft] = useState<
+  const [videoCreditsPerSecondDraft, setVideoCreditsPerSecondDraft] = useState<
     Record<string, string>
-  >(() => multipliersToDraft(ADOBE_VIDEO_MULTIPLIER_FAMILIES, {}));
+  >(() => creditsPerSecondToDraft(ADOBE_VIDEO_PRICING_FAMILIES, {}));
 
   const { execute: loadImagePricingConfig } = useAction(
     getImagePricingConfigAction,
@@ -1840,8 +1826,11 @@ export function ImageBackendPoolAdminPanel({
         setImageModerationPricing(
           data?.moderation ?? DEFAULT_IMAGE_MODERATION_CREDIT_PRICING
         );
-        setVideoMultiplierDraft(
-          multipliersToDraft(ADOBE_VIDEO_MULTIPLIER_FAMILIES, data?.video ?? {})
+        setVideoCreditsPerSecondDraft(
+          creditsPerSecondToDraft(
+            ADOBE_VIDEO_PRICING_FAMILIES,
+            data?.videoCreditsPerSecond ?? {}
+          )
         );
       },
       onError: ({ error }) =>
@@ -2834,26 +2823,6 @@ export function ImageBackendPoolAdminPanel({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>视频分组倍率</Label>
-                  <Input
-                    type="number"
-                    min={0.01}
-                    max={100}
-                    step={0.01}
-                    value={groupForm.billingMultiplier}
-                    onChange={(event) =>
-                      setGroupForm((current) => ({
-                        ...current,
-                        billingMultiplier: Number(event.target.value),
-                      }))
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    仅保留给视频计费；图像固定价格和审核费用不乘此值。mixed
-                    父分组调度到子分组成员时，父分组倍率和实际命中的子分组倍率会相乘生效。
-                  </p>
-                </div>
-                <div className="space-y-1.5">
                   <Label>分组优先级</Label>
                   <Input
                     type="number"
@@ -2920,11 +2889,6 @@ export function ImageBackendPoolAdminPanel({
                       <Badge variant="outline">
                         {groupBackendTypeLabel(group.backendType)}
                       </Badge>
-                      {group.billingMultiplier !== 1 && (
-                        <Badge variant="secondary">
-                          视频 x{group.billingMultiplier}
-                        </Badge>
-                      )}
                       {group.childGroupIds.length > 0 && (
                         <Badge variant="secondary">
                           子分组 {group.childGroupIds.length}
@@ -2942,8 +2906,7 @@ export function ImageBackendPoolAdminPanel({
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {group.description || "无说明"} · 优先级 {group.priority}{" "}
-                      · 视频倍率 x{group.billingMultiplier} · 账号{" "}
-                      {group.accountCount} · API {group.apiCount}
+                      · 账号 {group.accountCount} · API {group.apiCount}
                     </p>
                     {group.childGroupIds.length > 0 && (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -4834,27 +4797,6 @@ export function ImageBackendPoolAdminPanel({
                     则按用户的来。
                   </p>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">
-                    视频计费倍率（整个 Adobe 后端）
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    value={adobeForm.billingMultiplier}
-                    onChange={(event) =>
-                      setAdobeForm((current) => ({
-                        ...current,
-                        billingMultiplier: event.target.value,
-                      }))
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    仅作用于 Adobe 视频积分，并与视频分组倍率叠加；
-                    图像固定价格与审核费用不乘此值。
-                  </p>
-                </div>
                 <div className="space-y-2 rounded-md border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <Label>所属分组</Label>
@@ -5302,10 +5244,13 @@ export function ImageBackendPoolAdminPanel({
 
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground">
-                      视频模型倍率
+                      视频模型族每秒积分
                     </Label>
+                    <p className="text-xs text-muted-foreground">
+                      按模型族设置每生成一秒视频的积分。留空时回退系统设置中的视频每秒基础积分。
+                    </p>
                     <div className="space-y-2">
-                      {ADOBE_VIDEO_MULTIPLIER_FAMILIES.map((family) => (
+                      {ADOBE_VIDEO_PRICING_FAMILIES.map((family) => (
                         <div
                           key={family}
                           className="grid grid-cols-[1fr_120px] items-center gap-2"
@@ -5314,12 +5259,13 @@ export function ImageBackendPoolAdminPanel({
                           <Input
                             type="number"
                             inputMode="decimal"
-                            min="0"
+                            min="0.01"
+                            max="100000"
                             step="0.01"
-                            placeholder="1"
-                            value={videoMultiplierDraft[family] ?? ""}
+                            placeholder="回退基础价"
+                            value={videoCreditsPerSecondDraft[family] ?? ""}
                             onChange={(event) =>
-                              setVideoMultiplierDraft((current) => ({
+                              setVideoCreditsPerSecondDraft((current) => ({
                                 ...current,
                                 [family]: event.target.value,
                               }))
@@ -5337,7 +5283,9 @@ export function ImageBackendPoolAdminPanel({
                       saveImagePricingConfig({
                         image:
                           imageCreditPricingDraftToOverrides(imagePricingDraft),
-                        video: draftToMultipliers(videoMultiplierDraft),
+                        videoCreditsPerSecond: draftToCreditsPerSecond(
+                          videoCreditsPerSecondDraft
+                        ),
                       })
                     }
                   >

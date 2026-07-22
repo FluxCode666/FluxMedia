@@ -1,90 +1,50 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyVideoBackendMultiplier,
   DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND,
   getVideoCreditCost,
-  resolveVideoModelMultiplier,
+  resolveVideoCreditsPerSecond,
 } from "./video-pricing";
 
+describe("resolveVideoCreditsPerSecond", () => {
+  it("读取模型族配置的每秒积分", () => {
+    const prices = { sora2: 42, "veo31-fast": 12.5 };
+    expect(resolveVideoCreditsPerSecond("sora2", prices, 30)).toBe(42);
+    expect(resolveVideoCreditsPerSecond("veo31-fast", prices, 30)).toBe(12.5);
+  });
+
+  it("未配置或非法模型族回退统一每秒基价", () => {
+    const prices = { bad: -3, huge: 100_001, zero: 0 };
+    expect(resolveVideoCreditsPerSecond("unknown", prices, 25)).toBe(25);
+    expect(resolveVideoCreditsPerSecond("bad", prices, 25)).toBe(25);
+    expect(resolveVideoCreditsPerSecond("zero", prices, 25)).toBe(25);
+    expect(resolveVideoCreditsPerSecond("huge", prices, 25)).toBe(25);
+    expect(resolveVideoCreditsPerSecond(null, prices, 25)).toBe(25);
+    expect(resolveVideoCreditsPerSecond("sora2", null, 0)).toBe(
+      DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
+    );
+  });
+});
+
 describe("getVideoCreditCost", () => {
-  it("默认 30/秒", () => {
-    expect(DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND).toBe(30);
-    expect(getVideoCreditCost({ durationSeconds: 8 })).toBe(240);
-    expect(getVideoCreditCost({ durationSeconds: 5 })).toBe(150);
+  it("按模型族每秒价格乘时长", () => {
+    expect(
+      getVideoCreditCost({ durationSeconds: 8, creditsPerSecond: 42 })
+    ).toBe(336);
+    expect(
+      getVideoCreditCost({ durationSeconds: 4, creditsPerSecond: 12.5 })
+    ).toBe(50);
   });
 
-  it("自定义基价 + 模型倍率", () => {
+  it("向上取两位小数并回退默认价格", () => {
     expect(
-      getVideoCreditCost({
-        durationSeconds: 10,
-        basePerSecond: 30,
-        modelMultiplier: 1.5,
-      })
-    ).toBe(450);
+      getVideoCreditCost({ durationSeconds: 5, creditsPerSecond: 1.333 })
+    ).toBe(6.67);
     expect(
-      getVideoCreditCost({
-        durationSeconds: 4,
-        basePerSecond: 25,
-        modelMultiplier: 2,
-      })
-    ).toBe(200);
-  });
-
-  it("向上取 2 位小数", () => {
+      getVideoCreditCost({ durationSeconds: 8, creditsPerSecond: 0 })
+    ).toBe(240);
     expect(
-      getVideoCreditCost({
-        durationSeconds: 5,
-        basePerSecond: 30,
-        modelMultiplier: 1.333,
-      })
-    ).toBe(199.95);
-  });
-
-  it("非法/缺省回退默认", () => {
-    expect(
-      getVideoCreditCost({
-        durationSeconds: 8,
-        basePerSecond: 0,
-        modelMultiplier: -1,
-      })
+      getVideoCreditCost({ durationSeconds: 8, creditsPerSecond: 100_001 })
     ).toBe(240);
     expect(getVideoCreditCost({ durationSeconds: 0 })).toBe(0);
-  });
-});
-
-describe("applyVideoBackendMultiplier", () => {
-  it("叠加后端倍率,向上取整,缺省/非法回退 1", () => {
-    // 倍率 1：仅把 2 位小数向上取整成整数。
-    expect(applyVideoBackendMultiplier(240, 1)).toBe(240);
-    expect(applyVideoBackendMultiplier(199.95, 1)).toBe(200);
-    // 正常倍率。
-    expect(applyVideoBackendMultiplier(240, 1.5)).toBe(360);
-    // 缺省/非法/非正数回退 1。
-    expect(applyVideoBackendMultiplier(240, null)).toBe(240);
-    expect(applyVideoBackendMultiplier(240, 0)).toBe(240);
-    expect(applyVideoBackendMultiplier(240, -2)).toBe(240);
-    // 非负下限。
-    expect(applyVideoBackendMultiplier(0, 2)).toBe(0);
-  });
-
-  it("与扣费侧口径一致(getVideoCreditCost → applyVideoBackendMultiplier)", () => {
-    const base = getVideoCreditCost({
-      durationSeconds: 8,
-      basePerSecond: 30,
-      modelMultiplier: 1.5,
-    });
-    expect(applyVideoBackendMultiplier(base, 2)).toBe(720);
-  });
-});
-
-describe("resolveVideoModelMultiplier", () => {
-  it("从配置取倍率,缺省/非法回退 1", () => {
-    const map = { sora2: 2, "veo31-fast": 0.5, bad: -3 };
-    expect(resolveVideoModelMultiplier("sora2", map)).toBe(2);
-    expect(resolveVideoModelMultiplier("veo31-fast", map)).toBe(0.5);
-    expect(resolveVideoModelMultiplier("bad", map)).toBe(1);
-    expect(resolveVideoModelMultiplier("unknown", map)).toBe(1);
-    expect(resolveVideoModelMultiplier("sora2", null)).toBe(1);
-    expect(resolveVideoModelMultiplier(null, map)).toBe(1);
   });
 });

@@ -1,5 +1,5 @@
-import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import type { ImageCreditOverrides } from "@repo/shared/image-backend/group-image-pricing";
+import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 
 export interface GenerateImageParams {
   prompt: string;
@@ -320,8 +320,8 @@ export interface ApiConfig {
     // 仅 pool-api 使用：发送前把标准请求字段复制或重命名为上游字段。
     parameterMappings?: RequestParameterMapping[];
     apiForceResponsesEndpoint?: boolean;
-    // pool-api 专属：该 api 后端上游实为 Adobe（adobe-sourced）。为真时计费吃成员倍率
-    // （见 service.ts），且 firefly-* 请求经反向转换（截家族名 + 推 size）后由本后端服务。
+    // pool-api 专属：该 api 后端上游实为 Adobe（adobe-sourced）。为真时 firefly-* 请求
+    // 经反向转换（截家族名 + 推 size）后由本后端服务；计费仍使用模型固定价格。
     adobeSourced?: boolean;
     // 本次请求是否为 firefly 意图（firefly-* 模型或 force_firefly）。解析时按请求口径盖在
     // config 上，使后端失败换号重试能保持「只走 Adobe（pool-adobe / adobe_sourced api）」，
@@ -339,8 +339,6 @@ export interface ApiConfig {
     adobeGptImageQuality?: string;
     billingGroupId?: string | null;
     imageCreditOverrides?: ImageCreditOverrides;
-    /** 仅 Adobe 视频计费使用；图像固定价格不读取此倍率。 */
-    billingMultiplier?: number;
     reportResult?: boolean;
     inflightLease?: boolean;
     inflightLeaseId?: string | null;

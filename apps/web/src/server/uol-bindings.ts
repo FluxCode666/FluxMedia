@@ -111,22 +111,24 @@ import {
   UsageLogServiceError,
 } from "@/features/usage-log/service";
 
-/** 将未知 JSON 收窄为可用于既有视频计费的正数倍率表。 */
-function parseVideoModelMultipliers(value: unknown): Record<string, number> {
+/** 将未知 JSON 收窄为可用于视频计费的正数每秒积分表。 */
+function parseVideoModelCreditsPerSecond(
+  value: unknown
+): Record<string, number> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const multipliers: Record<string, number> = {};
-  for (const [model, multiplier] of Object.entries(value)) {
+  const creditsPerSecond: Record<string, number> = {};
+  for (const [model, credits] of Object.entries(value)) {
     if (
       model.trim() &&
-      typeof multiplier === "number" &&
-      Number.isFinite(multiplier) &&
-      multiplier > 0 &&
-      multiplier <= 1_000
+      typeof credits === "number" &&
+      Number.isFinite(credits) &&
+      credits > 0 &&
+      credits <= 100_000
     ) {
-      multipliers[model] = multiplier;
+      creditsPerSecond[model] = credits;
     }
   }
-  return multipliers;
+  return creditsPerSecond;
 }
 
 // ---------------------------------------------------------------------------
@@ -612,7 +614,6 @@ bindExecute(
       priority: number;
       concurrency: number;
       adobeSourced: boolean;
-      billingMultiplier: number;
       status: string;
     },
     _principal: Principal,
@@ -647,7 +648,6 @@ bindExecute(
       defaultRatio: string;
       defaultResolution: string;
       gptImageQuality: "low" | "medium" | "high";
-      billingMultiplier: number;
       supportsVideo: boolean;
       contentSafetyEnabled: boolean;
       isEnabled: boolean;
@@ -799,7 +799,6 @@ bindExecute(
       contentSafety: "inherit" | "enabled" | "disabled";
       backendType: "mixed" | "web" | "responses";
       minPlan: SubscriptionPlan;
-      videoBillingMultiplier: number;
       imageCreditOverrides: ImageCreditOverrides;
       childGroupIds: string[];
       priority: number;
@@ -817,7 +816,6 @@ bindExecute(
       contentSafetyEnabled: fromSafetyOverride(input.contentSafety),
       backendType: input.backendType,
       minPlan: input.minPlan,
-      billingMultiplier: input.videoBillingMultiplier,
       imageCreditOverrides: input.imageCreditOverrides,
       childGroupIds: input.childGroupIds,
       priority: input.priority,
@@ -825,7 +823,7 @@ bindExecute(
   })
 );
 
-/** 读取图像四档固定价格、审核费用与保留的视频倍率配置。 */
+/** 读取图像四档固定价格、审核费用与视频模型族每秒积分。 */
 bindExecute(
   "pool.getImagePricingConfig",
   async (
@@ -836,7 +834,7 @@ bindExecute(
     const [imageRaw, videoRaw, base1024, base1k, base2k, base4k, text, image] =
       await Promise.all([
         getRuntimeSettingJson("IMAGE_MODEL_CREDIT_PRICES"),
-        getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS"),
+        getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND"),
         getRuntimeSettingNumber(
           "IMAGE_BASE_CREDITS_1024",
           DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits,
@@ -884,18 +882,18 @@ bindExecute(
             ? image
             : DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits,
       },
-      video: parseVideoModelMultipliers(videoRaw),
+      videoCreditsPerSecond: parseVideoModelCreditsPerSecond(videoRaw),
     };
   }
 );
 
-/** 保存图像模型固定价格与保留的视频模型倍率。 */
+/** 保存图像模型固定价格与视频模型族每秒积分。 */
 bindExecute(
   "pool.updateImagePricingConfig",
   async (
     input: {
       image: ImageCreditOverrides;
-      video: Record<string, number>;
+      videoCreditsPerSecond: Record<string, number>;
     },
     principal: Principal,
     _ctx: OperationContext
@@ -903,7 +901,10 @@ bindExecute(
     await setSystemSettings(
       [
         { key: "IMAGE_MODEL_CREDIT_PRICES", value: input.image },
-        { key: "VIDEO_MODEL_MULTIPLIERS", value: input.video },
+        {
+          key: "VIDEO_MODEL_CREDITS_PER_SECOND",
+          value: input.videoCreditsPerSecond,
+        },
       ],
       getPrincipalUserId(principal) ?? "system"
     );

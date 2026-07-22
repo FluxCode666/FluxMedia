@@ -1144,14 +1144,10 @@ export const imageBackendApi = pgTable("image_backend_api", {
     .$type<Array<{ source: string; target: string; mode: "copy" | "move" }>>()
     .notNull()
     .default([]),
-  // Adobe 来源：此 api 后端虽是 OpenAI/gpt 格式，但上游实际来自 Adobe。开启后：
-  // 计费按 Adobe 口径（套用下方 billing_multiplier，与分组倍率相乘，复用伪账号倍率链）；
-  // 调度上参与 firefly 候选（含 force_firefly 与显式 firefly-* 模型，后者经反向转换成
-  // gpt 请求后由本后端处理）。默认关闭，关闭时按普通 api（不套成员倍率、不进 firefly 候选）。
+  // Adobe 来源：此 api 后端虽是 OpenAI/gpt 格式，但上游实际来自 Adobe。开启后参与
+  // firefly 候选（含 force_firefly 与显式 firefly-* 模型，后者经反向转换成 gpt 请求后
+  // 由本后端处理）。图片和视频价格均由模型固定价格配置决定。
   adobeSourced: boolean("adobe_sourced").notNull().default(false),
-  // 计费倍率（与 image_backend_adobe.billing_multiplier 同义）；仅当 adobeSourced 为真时
-  // 生效，与分组倍率相乘汇入 config.backend.billingMultiplier，作用于图像扣费。默认 1。
-  billingMultiplier: numeric("billing_multiplier").notNull().default("1"),
   contentSafetyEnabled: boolean("content_safety_enabled")
     .notNull()
     .default(true),
@@ -1250,8 +1246,6 @@ export const imageBackendAdobe = pgTable("image_backend_adobe", {
   defaultResolution: text("default_resolution").notNull().default("2k"),
   // 用户 GPT Image 质量选 auto/未指定时映射到的质量（low/medium/high）；默认 high。
   gptImageQuality: text("gpt_image_quality").notNull().default("high"),
-  // 本 Adobe 后端的计费倍率（图像+视频统一）；与分组倍率相乘。默认 1（不改变）。
-  billingMultiplier: numeric("billing_multiplier").notNull().default("1"),
   // 是否允许走视频模型（Phase 3）；默认关闭。
   supportsVideo: boolean("supports_video").notNull().default(false),
   contentSafetyEnabled: boolean("content_safety_enabled")
@@ -1372,8 +1366,9 @@ export const adobeToken = pgTable(
 );
 
 // Adobe Firefly 视频生成（异步）：与图像 generation 解耦——视频是新产物类型，有自己的
-// 状态机、轮询恢复、按时长×倍率计费。提交后置 running 并保存 pollUrl，定时/请求侧轮询到
-// 完成再 re-host 到对象存储。financially 真相仍在 credits_transaction，本表仅记录产物与状态。
+// 状态机、轮询恢复、按模型族每秒固定积分×时长计费。提交后置 running 并保存 pollUrl，
+// 定时/请求侧轮询到完成再 re-host 到对象存储。financially 真相仍在 credits_transaction，
+// 本表仅记录产物与状态。
 export const videoGeneration = pgTable(
   "video_generation",
   {

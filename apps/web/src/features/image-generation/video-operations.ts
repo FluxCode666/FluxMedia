@@ -1,7 +1,7 @@
 /**
  * Adobe Firefly 视频生成 operation（财务闭环）。
  *
- * 职责：校验视频模型 → 从系统设置算价（每秒基价 × 时长 × 模型族倍率）→ 落 video_generation
+ * 职责：校验视频模型 → 从系统设置算价（模型族每秒价格 × 时长）→ 落 video_generation
  * (pending) → 按模型前缀解析 Adobe 直连后端 → 幂等扣费（consumeCredits，sourceRef）→
  * 派发 runAdobeDirectVideoRequest → 视频 re-host 到对象存储 → 标记 completed；任一阶段失败
  * 退款（refundGenerationCredits，幂等）并标记 failed。
@@ -14,10 +14,9 @@
 import { db } from "@repo/database";
 import { videoGeneration } from "@repo/database/schema";
 import {
-  applyVideoBackendMultiplier,
   DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND,
   getVideoCreditCost,
-  resolveVideoModelMultiplier,
+  resolveVideoCreditsPerSecond,
 } from "@repo/shared/adobe";
 import { resolveFireflyVideoModel } from "@repo/shared/adobe/firefly-direct";
 import { consumeCredits } from "@repo/shared/credits/core";
@@ -68,8 +67,8 @@ export type VideoGenerationResult =
     }
   | { error: string; videoGenerationId?: string };
 
-/** 把系统设置里的倍率 JSON 收窄成 family→正数 的 map。 */
-function parseMultipliers(value: unknown): Record<string, number> {
+/** 把系统设置里的每秒积分 JSON 收窄成 family→正数 的 map。 */
+function parseCreditsPerSecond(value: unknown): Record<string, number> {
   if (!value || typeof value !== "object") return {};
   const out: Record<string, number> = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
@@ -82,51 +81,30 @@ function parseMultipliers(value: unknown): Record<string, number> {
 export type VideoPricingInfo = {
   /** 每秒基价（VIDEO_BASE_CREDITS_PER_SECOND，缺省 30）。 */
   basePerSecond: number;
-  /** 模型族倍率 map（VIDEO_MODEL_MULTIPLIERS）。 */
-  multipliers: Record<string, number>;
-  /** Adobe 后端计费倍率（含组倍率）；解析不到回退 1。 */
-  backendMultiplier: number;
+  /** 模型族每秒积分 map（VIDEO_MODEL_CREDITS_PER_SECOND）。 */
+  creditsPerSecond: Record<string, number>;
 };
 
-// 解析后端倍率用的代表性 firefly 视频 model：倍率随 Adobe 成员/组而定、与具体族无关，
-// 故任取一个 firefly 视频模型即可路由到 Adobe direct 后端。
-const REPRESENTATIVE_VIDEO_MODEL_ID = "firefly-sora2-8s-16x9";
-
 /**
- * 取某用户的视频定价输入（基价 + 模型族倍率 + Adobe 后端倍率），供创作页前端实时预估。
- * 与扣费侧 runAdobeVideoGenerationForUser 共用同一组系统设置与 applyVideoBackendMultiplier
- * 口径，保证展示价与实扣价一致。后端倍率解析失败（无 Adobe 后端等）优雅回退 1。
+ * 取视频定价输入（模型族每秒积分 + 全局回退基价），供创作页前端实时预估。
+ * 与扣费侧 runAdobeVideoGenerationForUser 共用系统设置和纯计算口径，保证展示价与实扣价一致。
  */
 export async function getVideoPricingForUser(input: {
   userId: string;
   apiKeyId?: string | null;
 }): Promise<VideoPricingInfo> {
-  const [basePerSecond, multipliersJson] = await Promise.all([
+  void input;
+  const [basePerSecond, creditsPerSecondJson] = await Promise.all([
     getRuntimeSettingNumber(
       "VIDEO_BASE_CREDITS_PER_SECOND",
       DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
     ),
-    getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS"),
+    getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND"),
   ]);
-  const multipliers = parseMultipliers(multipliersJson);
-
-  let backendMultiplier = 1;
-  try {
-    const effective = await getEffectiveConfig(null, {
-      userId: input.userId,
-      ...(input.apiKeyId ? { apiKeyId: input.apiKeyId } : {}),
-      requestKind: "image_generation",
-      requestedModel: REPRESENTATIVE_VIDEO_MODEL_ID,
-      ignoreUserConfig: true,
-    });
-    if (effective.config.backend?.type === "pool-adobe") {
-      backendMultiplier = effective.config.backend.billingMultiplier ?? 1;
-    }
-  } catch {
-    backendMultiplier = 1;
-  }
-
-  return { basePerSecond, multipliers, backendMultiplier };
+  return {
+    basePerSecond,
+    creditsPerSecond: parseCreditsPerSecond(creditsPerSecondJson),
+  };
 }
 
 /**
@@ -165,18 +143,21 @@ export async function runAdobeVideoGenerationForUser(
     return { error: `不支持的视频模型: ${input.model}` };
   }
 
-  // 算价：每秒基价 × 时长 × 模型族倍率（从系统设置取）。
+  // 算价：模型族每秒积分 × 时长；未配置模型族回退全局每秒基价。
   const basePerSecond = await getRuntimeSettingNumber(
     "VIDEO_BASE_CREDITS_PER_SECOND",
     DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
   );
-  const multipliers = parseMultipliers(
-    await getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS")
+  const creditsPerSecond = parseCreditsPerSecond(
+    await getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND")
   );
-  const cost = getVideoCreditCost({
+  const billedCost = getVideoCreditCost({
     durationSeconds: conf.duration,
-    basePerSecond,
-    modelMultiplier: resolveVideoModelMultiplier(conf.family, multipliers),
+    creditsPerSecond: resolveVideoCreditsPerSecond(
+      conf.family,
+      creditsPerSecond,
+      basePerSecond
+    ),
   });
 
   const videoId = input.videoGenerationId || nanoid();
@@ -255,14 +236,6 @@ export async function runAdobeVideoGenerationForUser(
       videoGenerationId: videoId,
     };
   }
-
-  // 实际计费成本 = 基价 × 后端计费倍率（组倍率已在池解析时合入 billingMultiplier）。
-  // 向上取整并非负；扣费/退款/落库一律用 billedCost，杜绝少扣/少退。与前端预估共用
-  // applyVideoBackendMultiplier，确保展示价与实扣价一致。
-  const billedCost = applyVideoBackendMultiplier(
-    cost,
-    config.backend?.billingMultiplier
-  );
 
   // 预扣积分（幂等 sourceRef）。不足/失败 → 标记 failed 返回。
   try {

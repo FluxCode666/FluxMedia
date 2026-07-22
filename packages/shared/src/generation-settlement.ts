@@ -40,7 +40,10 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function applyBillingMultiplier(value: number, multiplier: number) {
+/**
+ * 仅按旧 generation metadata 还原历史扣费，保证失败退款不因新计费规则而漂移。
+ */
+function applyLegacyBillingMultiplier(value: number, multiplier: number) {
   if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier === 1) {
     return value;
   }
@@ -55,15 +58,16 @@ export function getFailedGenerationTargetCreditsFromMetadata(params: {
   const metadata = params.metadata ?? {};
   const creditCost = readRecord(metadata.creditCost);
   const chargedCredits = Math.max(0, params.chargedCredits);
-  const billingMultiplier = readNumber(metadata.billingMultiplier) ?? 1;
+  // 兼容切换固定价格前已扣费、但切换后才失败的历史任务；新任务不再写入此字段。
+  const legacyBillingMultiplier = readNumber(metadata.billingMultiplier) ?? 1;
   const moderationFailureCredits =
     readNumber(metadata.moderationFailureCredits) ?? chargedCredits;
   const moderationOnlyCredits =
     readNumber(creditCost?.moderationOnlyCredits) ??
     (readNumber(creditCost?.moderationCredits) !== undefined
-      ? applyBillingMultiplier(
+      ? applyLegacyBillingMultiplier(
           readNumber(creditCost?.moderationCredits) ?? 0,
-          billingMultiplier
+          legacyBillingMultiplier
         )
       : undefined);
   const settlementParams: Parameters<typeof getFailedGenerationTargetCredits>[0] =

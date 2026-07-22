@@ -73,7 +73,6 @@ export const historyCreditDetailsSchema = z
     baseCredits: z.number().finite().nullable(),
     billableImageOutputCount: z.number().finite().nullable(),
     billingGroupId: z.string().nullable(),
-    billingMultiplier: z.number().finite().positive(),
     chatCredits: z.number().finite().nullable(),
     chatRoundCount: z.number().finite().nullable(),
     chatRoundCredits: z.number().finite().nullable(),

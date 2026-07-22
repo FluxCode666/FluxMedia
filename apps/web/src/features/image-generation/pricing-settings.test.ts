@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
       (
         key: string,
         fallback: number,
-        options?: { positive?: boolean }
+        options?: { positive?: boolean; nonNegative?: boolean }
       ) => Promise<number>
     >(),
   getRuntimeSettingJson: vi.fn<(key: string) => Promise<unknown>>(),
@@ -87,5 +87,15 @@ describe("runtime image base credit pricing", () => {
         imageModerationCredits: 0,
       },
     });
+    expect(mocks.getRuntimeSettingNumber).toHaveBeenCalledWith(
+      "IMAGE_TEXT_MODERATION_CREDITS",
+      expect.any(Number),
+      { nonNegative: true }
+    );
+    expect(mocks.getRuntimeSettingNumber).toHaveBeenCalledWith(
+      "IMAGE_INPUT_MODERATION_CREDITS",
+      expect.any(Number),
+      { nonNegative: true }
+    );
   });
 });

@@ -356,6 +356,7 @@ export async function initializeMissingSystemSettingsDefaults(options?: {
   const now = new Date();
   await migrateLegacyModerationSettings(now, options?.updatedBy);
   await migrateLegacySub2ApiAutoSyncSettings(now, options?.updatedBy);
+  await migrateLegacyVideoModelPricing(now, options?.updatedBy);
 
   const rows = await db
     .select({
@@ -394,6 +395,79 @@ export async function initializeMissingSystemSettingsDefaults(options?: {
 
   await invalidateSystemSettingsCache();
   return values.map((value) => value.key);
+}
+
+/**
+ * 将旧的“通用每秒价 × 模型倍率”配置迁移为每模型固定每秒价格。
+ *
+ * @param now - 本次迁移统一使用的更新时间。
+ * @param updatedBy - 可选的管理员用户 ID。
+ * @returns 无返回值；新键已存在时只删除旧倍率键，不覆盖管理员的新价格。
+ */
+async function migrateLegacyVideoModelPricing(now: Date, updatedBy?: string) {
+  const legacyKey = "VIDEO_MODEL_MULTIPLIERS";
+  const targetKey = "VIDEO_MODEL_CREDITS_PER_SECOND";
+  const rows = await db
+    .select({
+      key: systemSetting.key,
+      value: systemSetting.value,
+    })
+    .from(systemSetting)
+    .where(
+      inArray(systemSetting.key, [
+        "VIDEO_BASE_CREDITS_PER_SECOND",
+        legacyKey,
+        targetKey,
+      ])
+    );
+  const stored = new Map(
+    rows
+      .map((row) => [row.key, normalizeStoredValue(row.value)] as const)
+      .filter(([, value]) => value !== undefined)
+  );
+  if (!stored.has(legacyKey)) return;
+
+  const rawBasePrice = stored.get("VIDEO_BASE_CREDITS_PER_SECOND");
+  const basePrice =
+    typeof rawBasePrice === "number" &&
+    Number.isFinite(rawBasePrice) &&
+    rawBasePrice > 0
+      ? rawBasePrice
+      : 30;
+  const rawMultipliers = stored.get(legacyKey);
+  const perSecondPrices: Record<string, number> = {};
+  if (
+    rawMultipliers &&
+    typeof rawMultipliers === "object" &&
+    !Array.isArray(rawMultipliers)
+  ) {
+    for (const [family, rawMultiplier] of Object.entries(rawMultipliers)) {
+      if (
+        typeof rawMultiplier === "number" &&
+        Number.isFinite(rawMultiplier) &&
+        rawMultiplier > 0
+      ) {
+        perSecondPrices[family] = basePrice * rawMultiplier;
+      }
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    if (!stored.has(targetKey)) {
+      await tx
+        .insert(systemSetting)
+        .values({
+          key: targetKey,
+          value: perSecondPrices,
+          isSecret: false,
+          ...(updatedBy ? { updatedBy } : {}),
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: systemSetting.key });
+    }
+    await tx.delete(systemSetting).where(inArray(systemSetting.key, [legacyKey]));
+  });
+  await invalidateSystemSettingsCache();
 }
 
 async function migrateLegacyModerationSettings(now: Date, updatedBy?: string) {

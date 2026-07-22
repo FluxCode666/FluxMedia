@@ -15,9 +15,9 @@ import { requestParameterMappingsSchema } from "../../image-backend/request-para
 import { supportedModelIdsSchema } from "../../image-backend/supported-models";
 import { defineOperation } from "../registry";
 
-const videoModelMultiplierMapSchema = z.record(
+const videoModelCreditsPerSecondMapSchema = z.record(
   z.string().trim().min(1).max(120),
-  z.number().finite().positive().max(1_000)
+  z.number().finite().positive().max(100_000)
 );
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ export const saveGroup = defineOperation({
   domain: "image-backend-pool",
   title: "保存后端组",
   description:
-    "新建或更新图像后端组（含子组、视频倍率、图像模型固定价格覆盖与默认组互斥逻辑）。",
+    "新建或更新图像后端组（含子组、图像模型固定价格覆盖与默认组互斥逻辑）。",
   input: z.object({
     id: z.string().trim().min(1).optional(),
     name: z.string().trim().min(1).max(80),
@@ -142,7 +142,6 @@ export const saveGroup = defineOperation({
     contentSafety: z.enum(["inherit", "enabled", "disabled"]),
     backendType: z.enum(["mixed", "web", "responses"]),
     minPlan: z.enum(["free", "starter", "pro", "ultra", "enterprise"]),
-    videoBillingMultiplier: z.number().finite().min(0.01).max(100),
     imageCreditOverrides: imageCreditOverridesSchema,
     childGroupIds: z.array(z.string().trim().min(1)).max(100),
     priority: z.number().int().min(0).max(10_000),
@@ -161,14 +160,14 @@ export const saveGroup = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// pool.getImagePricingConfig - 读取图像固定价格和视频模型倍率
+// pool.getImagePricingConfig - 读取图像固定价格和视频模型每秒积分
 // ---------------------------------------------------------------------------
 export const getImagePricingConfig = defineOperation({
   name: "pool.getImagePricingConfig",
   domain: "image-backend-pool",
   title: "读取模型计费配置",
   description:
-    "读取图像模型四档固定价格、通用回退价格、审核费用及视频模型倍率。",
+    "读取图像模型四档固定价格、通用回退价格、审核费用及视频模型每秒积分。",
   input: z.object({}),
   output: z.object({
     image: imageCreditOverridesSchema,
@@ -182,7 +181,7 @@ export const getImagePricingConfig = defineOperation({
       textModerationCredits: z.number().nonnegative(),
       imageModerationCredits: z.number().nonnegative(),
     }),
-    video: videoModelMultiplierMapSchema,
+    videoCreditsPerSecond: videoModelCreditsPerSecondMapSchema,
   }),
   access: { kind: "admin" },
   readOnly: true,
@@ -195,16 +194,16 @@ export const getImagePricingConfig = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// pool.updateImagePricingConfig - 更新图像固定价格和视频模型倍率
+// pool.updateImagePricingConfig - 更新图像固定价格和视频模型每秒积分
 // ---------------------------------------------------------------------------
 export const updateImagePricingConfig = defineOperation({
   name: "pool.updateImagePricingConfig",
   domain: "image-backend-pool",
   title: "更新模型计费配置",
-  description: "更新图像模型四档固定价格和视频模型倍率。",
+  description: "更新图像模型四档固定价格和视频模型每秒积分。",
   input: z.object({
     image: imageCreditOverridesSchema,
-    video: videoModelMultiplierMapSchema,
+    videoCreditsPerSecond: videoModelCreditsPerSecondMapSchema,
   }),
   output: z.object({ success: z.boolean() }),
   access: { kind: "admin" },
@@ -376,7 +375,6 @@ export const saveApi = defineOperation({
     priority: z.number().int().min(0).max(10000),
     concurrency: z.number().int().min(1).max(10000),
     adobeSourced: z.boolean(),
-    billingMultiplier: z.number().min(0.01).max(100),
     status: z.string().min(1).max(80),
   }),
   output: z.object({
@@ -414,7 +412,6 @@ export const saveAdobe = defineOperation({
       defaultRatio: z.string().trim().min(1).max(20),
       defaultResolution: z.string().trim().min(1).max(10),
       gptImageQuality: z.enum(["low", "medium", "high"]),
-      billingMultiplier: z.number().positive().max(1000),
       supportsVideo: z.boolean(),
       contentSafetyEnabled: z.boolean(),
       isEnabled: z.boolean(),

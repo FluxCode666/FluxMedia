@@ -145,11 +145,9 @@ export function buildHistoryListSql(input: HistoryListQuery): SQL {
   const imageHistoryMetadata = sql`case
     when g.metadata is null then null
     else jsonb_build_object(
-      'billingMultiplier', (g.metadata::jsonb)->'billingMultiplier',
       'billingGroupId', (g.metadata::jsonb)->'billingGroupId',
       'mode', (g.metadata::jsonb)->'mode',
       'backend', jsonb_build_object(
-        'billingMultiplier', (g.metadata::jsonb)->'backend'->'billingMultiplier',
         'billingGroupId', (g.metadata::jsonb)->'backend'->'billingGroupId'
       ),
       'creditCost', (g.metadata::jsonb)->'creditCost',

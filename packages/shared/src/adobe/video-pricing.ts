@@ -1,80 +1,66 @@
 /**
- * Adobe Firefly 视频计费（纯函数，DB-free，可单测）。
+ * Adobe Firefly 视频固定每秒积分计算（纯函数，DB-free，可单测）。
  *
- * 口径：统一基价 = 每秒 N 积分（默认 30），按模型族倍率缩放：
- *   credits = ceil2(basePerSecond × durationSeconds × modelMultiplier)
- * basePerSecond 与 per-model 倍率由系统设置提供（VIDEO_BASE_CREDITS_PER_SECOND /
- * VIDEO_MODEL_MULTIPLIERS）；本模块只做纯计算与倍率解析，不读 DB。
- * 使用方：视频生成扣费（operations 侧），扣费须带幂等 sourceRef。
+ * 使用方：视频生成扣费与创作页预估。每个模型族可配置自己的每秒价格；未配置族回退
+ * 全局每秒基价。模块不读取 DB 或运行时设置，确保预估和实扣共用同一计算口径。
  */
 
 export const DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND = 30;
+export const MAX_VIDEO_CREDITS_PER_SECOND = 100_000;
 
-// 向上取到 2 位小数，避免计费下溢（与积分 decimal(2) 一致）。先把 value×100 四舍五入
-// 到整数分以消除浮点噪声（如 199.95000000000002），再向上取整，避免噪声把恰好 2 位的
-// 金额误抬一分。
+/** 判断每秒积分是否可安全参与计费。 */
+function isValidCreditsPerSecond(value: number): boolean {
+  return (
+    Number.isFinite(value) && value > 0 && value <= MAX_VIDEO_CREDITS_PER_SECOND
+  );
+}
+
+/** 向上取到两位小数，避免积分计费下溢和浮点噪声。 */
 function ceil2(value: number): number {
-  const cents = Math.round(value * 1_000_000) / 10_000; // = value×100，去噪
+  const cents = Math.round(value * 1_000_000) / 10_000;
   const result = Math.ceil(cents - 1e-9) / 100;
   return Object.is(result, -0) ? 0 : result;
 }
 
 /**
- * 解析某模型族的倍率：从配置 map 取，缺省/非法/非正数回退 1。
+ * 解析视频模型族的每秒积分价格。
+ *
+ * @param family - 视频模型族。
+ * @param prices - `VIDEO_MODEL_CREDITS_PER_SECOND` 的 family → 每秒积分 map。
+ * @param fallback - 未配置模型族时使用的统一每秒基价。
+ * @returns 正数配置值，或有效的回退基价。
  */
-export function resolveVideoModelMultiplier(
+export function resolveVideoCreditsPerSecond(
   family: string | null | undefined,
-  multipliers: Record<string, number> | null | undefined
+  prices: Record<string, number> | null | undefined,
+  fallback: number = DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
 ): number {
-  if (!family || !multipliers) return 1;
-  const value = multipliers[family];
-  return typeof value === "number" && Number.isFinite(value) && value > 0
+  const safeFallback = isValidCreditsPerSecond(fallback)
+    ? fallback
+    : DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND;
+  if (!family || !prices) return safeFallback;
+  const value = prices[family];
+  return typeof value === "number" && isValidCreditsPerSecond(value)
     ? value
-    : 1;
+    : safeFallback;
 }
 
 /**
  * 计算一次视频生成的积分成本。
- * @param durationSeconds 视频时长（秒）。
- * @param basePerSecond 每秒基价（缺省 30）。
- * @param modelMultiplier 模型族倍率（缺省 1）。
+ *
+ * @param durationSeconds - 视频时长（秒）。
+ * @param creditsPerSecond - 已按模型族解析的每秒积分价格。
+ * @returns 向上取到两位小数的总积分。
  */
 export function getVideoCreditCost(params: {
   durationSeconds: number;
-  basePerSecond?: number | null;
-  modelMultiplier?: number | null;
+  creditsPerSecond?: number | null;
 }): number {
-  const base =
-    typeof params.basePerSecond === "number" &&
-    Number.isFinite(params.basePerSecond) &&
-    params.basePerSecond > 0
-      ? params.basePerSecond
+  const creditsPerSecond =
+    typeof params.creditsPerSecond === "number" &&
+    isValidCreditsPerSecond(params.creditsPerSecond)
+      ? params.creditsPerSecond
       : DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND;
-  const multiplier =
-    typeof params.modelMultiplier === "number" &&
-    Number.isFinite(params.modelMultiplier) &&
-    params.modelMultiplier > 0
-      ? params.modelMultiplier
-      : 1;
   const duration = Math.max(0, params.durationSeconds || 0);
-  return ceil2(base * duration * multiplier);
-}
-
-/**
- * 把基础视频成本叠加 Adobe 后端计费倍率（组倍率已合入该值），向上取整并非负。
- * 与扣费侧（video-operations）共用同一口径，确保前端预估与实际扣费完全一致。
- * @param baseCost getVideoCreditCost 的产物。
- * @param backendMultiplier config.backend.billingMultiplier（缺省 1）。
- */
-export function applyVideoBackendMultiplier(
-  baseCost: number,
-  backendMultiplier?: number | null
-): number {
-  const multiplier =
-    typeof backendMultiplier === "number" &&
-    Number.isFinite(backendMultiplier) &&
-    backendMultiplier > 0
-      ? backendMultiplier
-      : 1;
-  return Math.max(0, Math.ceil(baseCost * multiplier));
+  return ceil2(creditsPerSecond * duration);
 }

@@ -86,10 +86,6 @@ import {
   normalizeImagesUpstreamMode,
 } from "./api-interface-mode";
 import {
-  getEffectiveBillingMultiplierForSelectedGroup,
-  getGroupBillingMultiplier,
-} from "./group-billing";
-import {
   checkImageBackendApiHealth,
   type ImageApiHealthResult,
 } from "./health-check";
@@ -204,10 +200,8 @@ type PoolMember =
       parameterMappings: RequestParameterMapping[];
       useStream: boolean;
       // Adobe 来源：上游实为 Adobe 的 gpt 格式 api。开启后参与 firefly 候选
-      // （含反向转换）；billingMultiplier 仅保留给视频倍率链。
+      // （含反向转换）。
       adobeSourced: boolean;
-      // 视频计费倍率（仅当 adobeSourced 时生效）。
-      billingMultiplier: number;
       contentSafetyEnabled: boolean;
       priority: number;
       concurrency: number;
@@ -263,8 +257,6 @@ type PoolMember =
       defaultRatio: string;
       defaultResolution: string;
       gptImageQuality: string;
-      // 本 Adobe 后端的视频计费倍率；图片使用模型四档固定价，不读取该字段。
-      billingMultiplier: number;
       supportsVideo: boolean;
       contentSafetyEnabled: boolean;
       priority: number;
@@ -336,9 +328,6 @@ type ImageBackendGroupMetadata = Record<string, unknown> & {
   minPlan?: unknown;
   backendType?: unknown;
   childGroupIds?: unknown;
-  billingMultiplier?: unknown;
-  creditMultiplier?: unknown;
-  costMultiplier?: unknown;
 };
 
 type SelectableGroupContext = {
@@ -528,6 +517,22 @@ function asGroupMetadata(
   metadata: Record<string, unknown> | null | undefined
 ): ImageBackendGroupMetadata {
   return metadata && typeof metadata === "object" ? metadata : {};
+}
+
+/**
+ * 删除旧计费倍率键，同时保留分组的其他扩展配置。
+ *
+ * @param metadata - 数据库中的分组 metadata。
+ * @returns 不再包含任何历史计费倍率别名的新对象。
+ */
+function withoutLegacyGroupBillingMetadata(
+  metadata: Record<string, unknown> | null | undefined
+) {
+  const normalized = { ...asGroupMetadata(metadata) };
+  delete normalized.billingMultiplier;
+  delete normalized.creditMultiplier;
+  delete normalized.costMultiplier;
+  return normalized;
 }
 
 function getGroupMinPlan(
@@ -2547,7 +2552,6 @@ async function selectPoolMember(
           parameterMappings: imageBackendApi.parameterMappings,
           useStream: imageBackendApi.useStream,
           adobeSourced: imageBackendApi.adobeSourced,
-          billingMultiplier: imageBackendApi.billingMultiplier,
           contentSafetyEnabled: imageBackendApi.contentSafetyEnabled,
           priority: imageBackendApi.priority,
           concurrency: imageBackendApi.concurrency,
@@ -2587,7 +2591,6 @@ async function selectPoolMember(
           parameterMappings: imageBackendApi.parameterMappings,
           useStream: imageBackendApi.useStream,
           adobeSourced: imageBackendApi.adobeSourced,
-          billingMultiplier: imageBackendApi.billingMultiplier,
           contentSafetyEnabled: imageBackendApi.contentSafetyEnabled,
           priority: imageBackendApi.priority,
           concurrency: imageBackendApi.concurrency,
@@ -2644,7 +2647,6 @@ async function selectPoolMember(
     defaultRatio: imageBackendAdobe.defaultRatio,
     defaultResolution: imageBackendAdobe.defaultResolution,
     gptImageQuality: imageBackendAdobe.gptImageQuality,
-    billingMultiplier: imageBackendAdobe.billingMultiplier,
     supportsVideo: imageBackendAdobe.supportsVideo,
     contentSafetyEnabled: imageBackendAdobe.contentSafetyEnabled,
     priority: imageBackendAdobe.priority,
@@ -2754,7 +2756,6 @@ async function selectPoolMember(
         ),
         useStream: row.useStream,
         adobeSourced: row.adobeSourced,
-        billingMultiplier: Number(row.billingMultiplier) || 1,
         contentSafetyEnabled: row.contentSafetyEnabled,
         priority: row.priority,
         concurrency: row.concurrency,
@@ -2880,8 +2881,6 @@ async function selectPoolMember(
         defaultRatio: row.defaultRatio,
         defaultResolution: row.defaultResolution,
         gptImageQuality: row.gptImageQuality,
-        // DB numeric 取回为字符串，强转并兜底 1。
-        billingMultiplier: Number(row.billingMultiplier) || 1,
         supportsVideo: row.supportsVideo,
         contentSafetyEnabled: row.contentSafetyEnabled,
         priority: row.priority,
@@ -3140,12 +3139,6 @@ function toResolvedPoolConfig(
   billingGroupMetadata?: Record<string, unknown> | null
 ): ResolvedImageBackendPoolConfig {
   const groupId = member.groupId || fallbackGroupId;
-  const billingMultiplier = getEffectiveBillingMultiplierForSelectedGroup({
-    selectedGroupId: fallbackGroupId,
-    selectedGroupMetadata: billingGroupMetadata,
-    selectedMemberGroupId: member.groupId,
-    selectedMemberGroupMetadata: member.groupMetadata,
-  });
   const contentSafetyEnabled = effectiveContentSafety(
     member.groupContentSafetyEnabled,
     member.contentSafetyEnabled
@@ -3217,9 +3210,6 @@ function toResolvedPoolConfig(
           adobeSupportsVideo: member.supportsVideo,
           billingGroupId: fallbackGroupId,
           imageCreditOverrides,
-          // 仅视频保留组倍率 × Adobe 后端倍率；图像固定价格不读取此值。
-          billingMultiplier:
-            billingMultiplier * (member.billingMultiplier || 1),
           reportResult: true,
           inflightLease: true,
           inflightLeaseId: member.leaseId,
@@ -3965,7 +3955,6 @@ export async function listImageBackendGroupOptions(options?: {
       ...group,
       minPlan: getGroupMinPlan(metadata),
       backendType: getGroupBackendType(metadata),
-      billingMultiplier: getGroupBillingMultiplier(metadata),
       imageCreditOverrides: getGroupImageCreditOverrides(metadata),
       childGroupIds: getGroupChildGroupIds(metadata),
     }));
@@ -4097,7 +4086,6 @@ type UpsertGroupInput = {
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
-  billingMultiplier: number;
   imageCreditOverrides: ImageCreditOverrides;
   childGroupIds?: string[];
   priority: number;
@@ -4145,10 +4133,9 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       .where(eq(imageBackendGroup.id, input.id))
       .limit(1);
     const metadata = {
-      ...asGroupMetadata(existing?.metadata),
+      ...withoutLegacyGroupBillingMetadata(existing?.metadata),
       minPlan: input.minPlan,
       backendType: input.backendType,
-      billingMultiplier: input.billingMultiplier,
       imageCreditOverrides: input.imageCreditOverrides,
       childGroupIds,
     };
@@ -4181,7 +4168,6 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
     metadata: {
       minPlan: input.minPlan,
       backendType: input.backendType,
-      billingMultiplier: input.billingMultiplier,
       imageCreditOverrides: input.imageCreditOverrides,
       childGroupIds,
     },
@@ -7234,9 +7220,8 @@ type UpsertApiInput = {
   failureCooldownEnabled: boolean;
   priority: number;
   concurrency: number;
-  // Adobe 来源标记 + 成员计费倍率（仅 adobeSourced 时生效）。
+  // Adobe 来源标记：开启后参与 Firefly 候选。
   adobeSourced?: boolean;
-  billingMultiplier?: number;
   status?: string;
 };
 
@@ -7310,8 +7295,6 @@ export async function upsertImageBackendApi(input: UpsertApiInput) {
     priority: input.priority,
     concurrency: Math.max(1, Math.min(10000, input.concurrency)),
     adobeSourced: input.adobeSourced ?? false,
-    // numeric 列以字符串写入（与 image_backend_adobe.billing_multiplier 一致）。
-    billingMultiplier: String(input.billingMultiplier ?? 1),
     status: input.status || "active",
     updatedAt: new Date(),
   };
@@ -7471,7 +7454,6 @@ export type UpsertAdobeInput = {
   defaultRatio: string;
   defaultResolution: string;
   gptImageQuality: string;
-  billingMultiplier: number;
   supportsVideo: boolean;
   contentSafetyEnabled: boolean;
   isEnabled: boolean;
@@ -7512,8 +7494,6 @@ export async function upsertImageBackendAdobe(input: UpsertAdobeInput) {
     defaultRatio: input.defaultRatio,
     defaultResolution: input.defaultResolution,
     gptImageQuality: input.gptImageQuality,
-    // numeric 列要求字符串。
-    billingMultiplier: String(input.billingMultiplier),
     supportsVideo: input.supportsVideo,
     contentSafetyEnabled: input.contentSafetyEnabled,
     isEnabled: input.isEnabled,
@@ -7915,7 +7895,6 @@ export async function listAdminImageBackendPool() {
     contentSafetyEnabled: group.contentSafetyEnabled,
     backendType: getGroupBackendType(group.metadata),
     minPlan: getGroupMinPlan(group.metadata),
-    billingMultiplier: getGroupBillingMultiplier(group.metadata),
     imageCreditOverrides: getGroupImageCreditOverrides(group.metadata),
     childGroupIds: getGroupChildGroupIds(group.metadata),
     priority: group.priority,
@@ -7992,7 +7971,6 @@ export async function listAdminImageBackendPool() {
       priority: imageBackendApi.priority,
       concurrency: imageBackendApi.concurrency,
       adobeSourced: imageBackendApi.adobeSourced,
-      billingMultiplier: imageBackendApi.billingMultiplier,
       status: imageBackendApi.status,
       successCount: imageBackendApi.successCount,
       failCount: imageBackendApi.failCount,
@@ -8036,7 +8014,6 @@ export async function listAdminImageBackendPool() {
       defaultRatio: imageBackendAdobe.defaultRatio,
       defaultResolution: imageBackendAdobe.defaultResolution,
       gptImageQuality: imageBackendAdobe.gptImageQuality,
-      billingMultiplier: imageBackendAdobe.billingMultiplier,
       supportsVideo: imageBackendAdobe.supportsVideo,
       contentSafetyEnabled: imageBackendAdobe.contentSafetyEnabled,
       isEnabled: imageBackendAdobe.isEnabled,
@@ -8093,8 +8070,6 @@ export async function listAdminImageBackendPool() {
       parameterMappings: normalizeRequestParameterMappings(
         api.parameterMappings
       ),
-      // numeric 列回库为字符串，转成数值供前端展示/编辑。
-      billingMultiplier: Number(api.billingMultiplier) || 1,
       groupIds:
         apiGroupIdMap.get(api.id) ||
         normalizeAccountGroupIds(api.groupId ? [api.groupId] : []),

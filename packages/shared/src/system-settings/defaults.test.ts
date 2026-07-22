@@ -177,6 +177,47 @@ describe("system setting default initialization", () => {
     expect(store.get("CREEM_API_KEY")).toBeUndefined();
   });
 
+  it("migrates video model multipliers to fixed per-second prices", async () => {
+    store.set("VIDEO_BASE_CREDITS_PER_SECOND", {
+      key: "VIDEO_BASE_CREDITS_PER_SECOND",
+      value: 30,
+    });
+    store.set("VIDEO_MODEL_MULTIPLIERS", {
+      key: "VIDEO_MODEL_MULTIPLIERS",
+      value: {
+        "sora2-pro": 2,
+        "veo31-fast": 0.5,
+        invalid: 0,
+      },
+    });
+
+    await initializeMissingSystemSettingsDefaults({ updatedBy: "admin-1" });
+
+    expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")?.value).toEqual({
+      "sora2-pro": 60,
+      "veo31-fast": 15,
+    });
+    expect(store.has("VIDEO_MODEL_MULTIPLIERS")).toBe(false);
+  });
+
+  it("does not overwrite explicit video model per-second prices", async () => {
+    store.set("VIDEO_MODEL_MULTIPLIERS", {
+      key: "VIDEO_MODEL_MULTIPLIERS",
+      value: { sora2: 2 },
+    });
+    store.set("VIDEO_MODEL_CREDITS_PER_SECOND", {
+      key: "VIDEO_MODEL_CREDITS_PER_SECOND",
+      value: { sora2: 48 },
+    });
+
+    await initializeMissingSystemSettingsDefaults();
+
+    expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")?.value).toEqual({
+      sora2: 48,
+    });
+    expect(store.has("VIDEO_MODEL_MULTIPLIERS")).toBe(false);
+  });
+
   it("migrates legacy moderation public URL and removes legacy Aliyun controls", async () => {
     store.set("ALIYUN_MODERATION_PUBLIC_BASE_URL", {
       key: "ALIYUN_MODERATION_PUBLIC_BASE_URL",

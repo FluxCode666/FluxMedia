@@ -7,8 +7,8 @@
 
 import {
   type ImageCreditOverrides,
-  type ResolvedImageCreditPricing,
   parseImageCreditOverrides,
+  type ResolvedImageCreditPricing,
   resolveImageCreditPricing,
 } from "@repo/shared/image-backend/group-image-pricing";
 import {
@@ -26,9 +26,7 @@ import {
   type ResolvedImageModerationCreditPricing,
 } from "./resolution";
 
-export async function getRuntimeImageBaseCreditPricing(): Promise<
-  ResolvedImageCreditPricing
-> {
+export async function getRuntimeImageBaseCreditPricing(): Promise<ResolvedImageCreditPricing> {
   const [base1024Credits, base1kCredits, base2kCredits, base4kCredits] =
     await Promise.all([
       getRuntimeSettingNumber(
@@ -61,11 +59,13 @@ export async function getRuntimeImageModerationCreditPricing(): Promise<Resolved
   const [textModerationCredits, imageModerationCredits] = await Promise.all([
     getRuntimeSettingNumber(
       "IMAGE_TEXT_MODERATION_CREDITS",
-      DEFAULT_TEXT_MODERATION_CREDIT_COST
+      DEFAULT_TEXT_MODERATION_CREDIT_COST,
+      { nonNegative: true }
     ),
     getRuntimeSettingNumber(
       "IMAGE_INPUT_MODERATION_CREDITS",
-      DEFAULT_IMAGE_MODERATION_CREDIT_COST
+      DEFAULT_IMAGE_MODERATION_CREDIT_COST,
+      { nonNegative: true }
     ),
   ]);
   return { textModerationCredits, imageModerationCredits };

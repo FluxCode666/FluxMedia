@@ -96,10 +96,6 @@ function formatDate(iso: string, locale: string, timeZone?: string): string {
   }
 }
 
-function formatMultiplier(value: number) {
-  return Number(value.toFixed(4)).toString();
-}
-
 export function ImageLightbox({
   generation,
   imageUrl,
@@ -174,12 +170,6 @@ export function ImageLightbox({
                     )}`
                   : ""
               }`,
-            }
-          : null,
-        creditDetails.billingMultiplier !== 1
-          ? {
-              label: copy("Legacy multiplier", "历史倍率"),
-              value: `x${formatMultiplier(creditDetails.billingMultiplier)}`,
             }
           : null,
         creditDetails.billableImageOutputCount !== null
@@ -617,8 +607,8 @@ export function ImageLightbox({
                     </dl>
                     <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
                       {copy(
-                        "Displayed components follow the recorded settlement; older records may include a legacy multiplier.",
-                        "上方明细以记录时的实际结算为准；旧记录可能包含历史倍率。"
+                        "Displayed components follow the recorded settlement.",
+                        "上方明细以记录时的实际结算为准。"
                       )}
                     </p>
                   </div>
