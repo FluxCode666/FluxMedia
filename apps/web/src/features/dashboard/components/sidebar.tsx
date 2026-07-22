@@ -104,7 +104,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
       Create: t("nav.create"),
       Dashboard: t("nav.dashboard"),
       Gallery: t("nav.gallery"),
-      History: t("nav.history"),
+      "Usage records": t("nav.history"),
       "System Docs": t("nav.backendHelp"),
       "External API": t("nav.externalApi"),
       Wallet: t("nav.wallet"),

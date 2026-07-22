@@ -404,7 +404,7 @@ export function CreditPaymentResultView({
                 onClick={() => router.push("/dashboard/history")}
               >
                 <ExternalLink className="mr-2 h-4 w-4" />
-                {copy("View history", "查看历史记录")}
+                {copy("View usage records", "查看使用记录")}
               </Button>
             </>
           )}

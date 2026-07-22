@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * 图片与视频历史记录的响应式列表容器。
+ * 图片与视频使用记录的响应式列表容器。
  *
- * 使用方：历史记录服务端页面。组件负责筛选、稳定 keyset 导航和详情弹层；
+ * 使用方：使用记录服务端页面。组件负责筛选、稳定 keyset 导航和详情弹层；
  * 数据读取与用户归属校验由服务端 UOL 查询完成。
  */
 
@@ -174,7 +174,7 @@ function toLightboxGeneration(record: HistoryImageRecord): LightboxGeneration {
 /**
  * 渲染筛选、图片/视频混合记录和对应详情。
  *
- * @param props 已在服务端校验并序列化的一页历史记录与 keyset 状态。
+ * @param props 已在服务端校验并序列化的一页使用记录与 keyset 状态。
  * @returns 日期优先、移动端完整显示时间的混合记录列表。
  * @sideEffects 删除图片成功后仅从当前客户端页移除对应记录。
  */
@@ -238,7 +238,7 @@ export function HistoryClient({
           <h2 className="mt-5 font-serif text-lg font-medium text-foreground">
             {hasActiveHistoryFilters(queryState)
               ? copy("No matching records", "没有匹配的记录")
-              : copy("No history yet", "还没有历史记录")}
+              : copy("No usage records yet", "还没有使用记录")}
           </h2>
           <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
             {hasActiveHistoryFilters(queryState)
@@ -400,7 +400,7 @@ export function HistoryClient({
 
       {hasPreviousPage || hasNextPage ? (
         <nav
-          aria-label={copy("History pagination", "历史记录分页")}
+          aria-label={copy("Usage records pagination", "使用记录分页")}
           className="flex items-center justify-between gap-3 pt-1"
         >
           <p className="text-xs text-muted-foreground">

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 历史记录页面的 URL 驱动筛选栏。
+ * 使用记录页面的 URL 驱动筛选栏。
  *
  * 使用方：HistoryClient。组件只维护尚未提交的控件值，应用或清空时通过国际化
  * router 更新白名单 URL，并同时清除当前签名 cursor。
@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { useRouter } from "@/i18n/routing";
 
+import { HistoryDateRangePicker } from "./history-date-range-picker";
 import {
   buildHistoryHref,
   type HistoryQueryState,
@@ -34,7 +35,6 @@ import {
   type HistoryTypeFilter,
   hasActiveHistoryFilters,
 } from "./history-query";
-import { HistoryDateRangePicker } from "./history-date-range-picker";
 
 type HistoryFiltersProps = {
   modelOptions: string[];
@@ -129,7 +129,7 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
     navigateWithFilters({ createdFrom, createdTo, model, status, type });
   }
 
-  /** 清空全部业务筛选并返回历史记录首屏。 */
+  /** 清空全部业务筛选并返回使用记录首屏。 */
   function clearFilters(): void {
     setCreatedFrom("");
     setCreatedTo("");
@@ -148,7 +148,7 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
 
   return (
     <section
-      aria-label={copy("History filters", "历史记录筛选")}
+      aria-label={copy("Usage records filters", "使用记录筛选")}
       className="rounded-lg border border-border bg-background p-4"
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.4fr)_minmax(190px,1fr)_150px_140px_auto] xl:items-end">

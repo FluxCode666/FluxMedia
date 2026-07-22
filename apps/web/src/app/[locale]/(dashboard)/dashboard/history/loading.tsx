@@ -1,15 +1,15 @@
 /**
- * 历史记录路由的加载骨架。
+ * 使用记录路由的加载骨架。
  *
  * 结构与最终页面的标题、筛选栏和日期优先混合记录列表一致，不虚构业务数据。
  */
 
-/** 返回尊重减弱动态设置的历史记录加载状态。 */
+/** 返回尊重减弱动态设置的使用记录加载状态。 */
 export default function HistoryLoading() {
   return (
     <div
       aria-busy="true"
-      aria-label="Loading history"
+      aria-label="Loading usage records"
       className="container mx-auto space-y-8 px-4 py-6 md:px-6"
       role="status"
     >
