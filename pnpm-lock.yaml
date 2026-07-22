@@ -194,6 +194,31 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  packages/integration-tests:
+    dependencies:
+      '@repo/database':
+        specifier: workspace:*
+        version: link:../database
+      '@repo/shared':
+        specifier: workspace:*
+        version: link:../shared
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/node':
+        specifier: 20.19.43
+        version: 20.19.43
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(jsdom@27.4.0(@noble/hashes@2.2.0))(vite@7.3.1(@types/node@20.19.43)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.8.2))
+
   packages/shared:
     dependencies:
       '@alicloud/green20220302':

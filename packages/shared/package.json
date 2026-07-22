@@ -80,6 +80,8 @@
     "./subscription/checkout-contract": "./src/subscription/checkout-contract.ts",
     "./mail/*": "./src/mail/*",
     "./moderation": "./src/moderation/index.ts",
+    "./moderation/policy-contract": "./src/moderation/policy-contract.ts",
+    "./moderation/policy-service": "./src/moderation/policy-service.ts",
     "./config": "./src/config/index.ts",
     "./config/nav": "./src/config/nav.ts",
     "./config/payment": "./src/config/payment.ts",
