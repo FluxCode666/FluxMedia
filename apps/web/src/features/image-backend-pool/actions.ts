@@ -22,7 +22,6 @@ import { invokeOperation } from "@repo/shared/uol";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
-  getRuntimeSettingJson,
   getRuntimeSettingNumber,
   getRuntimeSettingString,
   setSystemSettings,
@@ -712,13 +711,13 @@ export const setImageBackendAdobeAlwaysActiveAction =
       return { success: true };
     });
 
-// ===== Adobe 模型计费倍率（图像 / 视频 per-model 倍率，复用系统设置）=====
+// ===== 图像模型固定价格与保留的视频 per-model 倍率 =====
 
 // family → 正数倍率 的 map。空 map 表示全部回退默认倍率 1。非正/非有限值由前端过滤,
 // 此处再以 schema 兜底,杜绝脏值落库（财务语义键须为正有限数）。
 const modelMultiplierMapSchema = z.record(
   z.string().trim().min(1),
-  z.number().finite().positive()
+  z.number().finite().positive().max(1_000)
 );
 
 /** 通过 UOL 读取图像固定价格和保留的视频模型倍率。 */
@@ -758,46 +757,6 @@ export const setImagePricingConfigAction = withImageBackendPoolAdminAction(
       parsedInput,
       { type: "user", userId: ctx.userId, role: ctx.role }
     );
-  });
-
-/**
- * 读取图像/视频两套 per-model 倍率系统设置（管理员可见）。
- * 复用系统设置存储（IMAGE_MODEL_MULTIPLIERS / VIDEO_MODEL_MULTIPLIERS），不新建 infra。
- */
-export const getAdobeModelMultipliersAction = withImageBackendPoolAdminAction(
-  "getModelMultipliers"
-).action(async () => {
-  const [imageRaw, videoRaw] = await Promise.all([
-    getRuntimeSettingJson("IMAGE_MODEL_MULTIPLIERS"),
-    getRuntimeSettingJson("VIDEO_MODEL_MULTIPLIERS"),
-  ]);
-  const image = modelMultiplierMapSchema.catch({}).parse(imageRaw ?? {});
-  const video = modelMultiplierMapSchema.catch({}).parse(videoRaw ?? {});
-  return { success: true, image, video };
-});
-
-/**
- * 写回图像/视频两套 per-model 倍率系统设置（管理员）。空 map 即清空(回退默认倍率 1)。
- * 复用 setSystemSettings 的 json 校验与缓存失效;两个 JSON 键非 env 变量,无需同步 env。
- */
-export const setAdobeModelMultipliersAction = withImageBackendPoolAdminAction(
-  "setModelMultipliers"
-)
-  .schema(
-    z.object({
-      image: modelMultiplierMapSchema,
-      video: modelMultiplierMapSchema,
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    await setSystemSettings(
-      [
-        { key: "IMAGE_MODEL_MULTIPLIERS", value: parsedInput.image },
-        { key: "VIDEO_MODEL_MULTIPLIERS", value: parsedInput.video },
-      ],
-      ctx.userId
-    );
-    return { success: true };
   });
 
 // ===== Adobe 直连账号管理（mode=direct）=====

@@ -2,6 +2,14 @@
 
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import {
+  DEFAULT_IMAGE_CREDIT_PRICING,
+  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
+  type ImageCreditOverrides,
+  type ResolvedImageCreditPricing,
+  normalizeImagePricingModelId,
+  resolveImageCreditPricing,
+} from "@repo/shared/image-backend/group-image-pricing";
+import {
   ADOBE_IMAGE_MODEL_IDS,
   normalizeAdobeEnabledModelIds,
 } from "@repo/shared/adobe/enabled-models";
@@ -77,7 +85,7 @@ import {
   deleteSub2ApiAutoSyncTaskAction,
   getAdminImageBackendPoolAction,
   getImageBackendParameterMappingTemplatesAction,
-  getAdobeModelMultipliersAction,
+  getImagePricingConfigAction,
   getSub2ApiAutoSyncTasksAction,
   getSub2ApiSourceGroupsAction,
   getSub2ApiSyncProgressAction,
@@ -96,7 +104,7 @@ import {
   saveImageBackendAdobeAction,
   saveImageBackendApiAction,
   saveImageBackendParameterMappingTemplateAction,
-  setAdobeModelMultipliersAction,
+  setImagePricingConfigAction,
   saveImageBackendGroupAction,
   setAdobeAccountEnabledAction,
   setImageBackendAccountAlwaysActiveAction,
@@ -110,6 +118,13 @@ import {
   updateSub2ApiAutoSyncTaskOptionsAction,
 } from "./actions";
 import { ChatgptRegisterTab } from "./chatgpt-register-tab";
+import {
+  ImageCreditPricingEditor,
+  type ImageCreditPricingDraft,
+  imageCreditOverridesToDraft,
+  imageCreditPricingDraftToOverrides,
+  updateImageCreditPricingDraft,
+} from "./image-credit-pricing-editor";
 import { parseImportTokensText } from "./import-token-parser";
 import type {
   ImageBackendApiInterfaceMode,
@@ -128,6 +143,7 @@ type Group = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   billingMultiplier: number;
+  imageCreditOverrides: ImageCreditOverrides;
   childGroupIds: string[];
   priority: number;
   apiCount: number;
@@ -344,14 +360,13 @@ type SyncProgressState = {
 const MANUAL_TOKEN_IMPORT_LIMIT = 10_000;
 const MANUAL_RT_IMPORT_BATCH_SIZE = 50;
 
-// Adobe per-model 计费倍率：图像/视频两套模型族行（与后端 family 枚举一一对应）。
-const ADOBE_IMAGE_MULTIPLIER_FAMILIES = [
-  "gpt-image-2",
-  "gpt-image-1.5",
-  "nano-banana",
-  "nano-banana2",
-  "nano-banana-pro",
-] as const;
+// 图像固定价格按规范模型族展示；API 后端声明的自定义模型会在运行时追加。
+const DEFAULT_IMAGE_PRICING_MODELS = ADOBE_IMAGE_MODEL_IDS.flatMap(
+  (modelId) => {
+    const normalized = normalizeImagePricingModelId(modelId);
+    return normalized ? [normalized] : [];
+  }
+);
 const ADOBE_VIDEO_MULTIPLIER_FAMILIES = [
   "sora2",
   "sora2-pro",
@@ -882,6 +897,8 @@ export function ImageBackendPoolAdminPanel({
     childGroupIds: [] as string[],
     priority: 50,
   });
+  const [groupImagePricingDraft, setGroupImagePricingDraft] =
+    useState<ImageCreditPricingDraft>({});
   const [accountForm, setAccountForm] = useState({
     id: "",
     groupId: "default",
@@ -921,7 +938,7 @@ export function ImageBackendPoolAdminPanel({
     concurrency: 10,
     // Adobe 来源：上游实为 Adobe 的 gpt 格式 api（计费吃成员倍率 + 进 firefly 候选）。
     adobeSourced: false,
-    // 成员计费倍率（仅 adobeSourced 时生效），字符串便于输入框编辑。
+    // 旧 Adobe 来源成员倍率；图像固定价格接线完成后不再参与图像扣费。
     billingMultiplier: "1",
   });
   const [adobeForm, setAdobeForm] = useState({
@@ -1191,7 +1208,7 @@ export function ImageBackendPoolAdminPanel({
       : "正在检查 Sub2API 连接配置。";
   const authSessionUrl = "https://chatgpt.com/api/auth/session";
 
-  const resetGroupForm = () =>
+  const resetGroupForm = () => {
     setGroupForm({
       id: "",
       name: "",
@@ -1206,6 +1223,8 @@ export function ImageBackendPoolAdminPanel({
       childGroupIds: [] as string[],
       priority: 50,
     });
+    setGroupImagePricingDraft({});
+  };
 
   const resetAccountForm = () =>
     setAccountForm({
@@ -1313,6 +1332,9 @@ export function ImageBackendPoolAdminPanel({
       childGroupIds: group.childGroupIds || [],
       priority: group.priority,
     });
+    setGroupImagePricingDraft(
+      imageCreditOverridesToDraft(group.imageCreditOverrides)
+    );
   };
 
   const editAccount = (account: Account) => {
@@ -1792,40 +1814,73 @@ export function ImageBackendPoolAdminPanel({
   const [adobeAccounts, setAdobeAccounts] = useState<AdobeAccountRow[]>([]);
   const [adobeCookieInput, setAdobeCookieInput] = useState("");
 
-  // ===== Adobe 模型计费倍率（图像/视频 per-model）=====
-  // 草稿态用字符串保存输入框原始值（含空白），保存时再收窄成 family→正数 的 map。
-  const [imageMultiplierDraft, setImageMultiplierDraft] = useState<
-    Record<string, string>
-  >(() => multipliersToDraft(ADOBE_IMAGE_MULTIPLIER_FAMILIES, {}));
+  // ===== 图像模型固定价格与保留的视频模型倍率 =====
+  const [imagePricingDraft, setImagePricingDraft] =
+    useState<ImageCreditPricingDraft>({});
+  const [imagePricingFallback, setImagePricingFallback] =
+    useState<ResolvedImageCreditPricing>(DEFAULT_IMAGE_CREDIT_PRICING);
+  const [imageModerationPricing, setImageModerationPricing] = useState<{
+    textModerationCredits: number;
+    imageModerationCredits: number;
+  }>({ ...DEFAULT_IMAGE_MODERATION_CREDIT_PRICING });
   const [videoMultiplierDraft, setVideoMultiplierDraft] = useState<
     Record<string, string>
   >(() => multipliersToDraft(ADOBE_VIDEO_MULTIPLIER_FAMILIES, {}));
 
-  const { execute: loadModelMultipliers } = useAction(
-    getAdobeModelMultipliersAction,
+  const { execute: loadImagePricingConfig } = useAction(
+    getImagePricingConfigAction,
     {
       onSuccess: ({ data }) => {
-        setImageMultiplierDraft(
-          multipliersToDraft(ADOBE_IMAGE_MULTIPLIER_FAMILIES, data?.image ?? {})
+        setImagePricingDraft(
+          imageCreditOverridesToDraft(
+            data?.image ?? { version: 1, byModel: {} }
+          )
+        );
+        setImagePricingFallback(data?.fallback ?? DEFAULT_IMAGE_CREDIT_PRICING);
+        setImageModerationPricing(
+          data?.moderation ?? DEFAULT_IMAGE_MODERATION_CREDIT_PRICING
         );
         setVideoMultiplierDraft(
           multipliersToDraft(ADOBE_VIDEO_MULTIPLIER_FAMILIES, data?.video ?? {})
         );
       },
       onError: ({ error }) =>
-        toast.error(error.serverError || "加载模型计费倍率失败"),
+        toast.error(error.serverError || "加载模型计费配置失败"),
     }
   );
 
-  const { execute: saveModelMultipliers, isPending: isSavingMultipliers } =
-    useAction(setAdobeModelMultipliersAction, {
+  const { execute: saveImagePricingConfig, isPending: isSavingImagePricing } =
+    useAction(setImagePricingConfigAction, {
       onSuccess: () => {
-        toast.success("模型计费倍率已保存");
-        loadModelMultipliers();
+        toast.success("模型计费配置已保存");
+        loadImagePricingConfig();
       },
       onError: ({ error }) =>
-        toast.error(error.serverError || "保存模型计费倍率失败"),
+        toast.error(error.serverError || "保存模型计费配置失败"),
     });
+  const globalImageCreditOverrides = useMemo(
+    () => imageCreditPricingDraftToOverrides(imagePricingDraft),
+    [imagePricingDraft]
+  );
+  const imagePricingModels = useMemo(() => {
+    const knownModels = new Set(DEFAULT_IMAGE_PRICING_MODELS);
+    const extraModels = new Set<string>();
+    const addModel = (value: string | null | undefined) => {
+      const model = normalizeImagePricingModelId(value);
+      if (model && !knownModels.has(model)) extraModels.add(model);
+    };
+
+    for (const model of Object.keys(imagePricingDraft)) addModel(model);
+    for (const model of Object.keys(groupImagePricingDraft)) addModel(model);
+    for (const api of apis) {
+      addModel(api.model);
+      for (const model of api.supportedModelIds) addModel(model);
+    }
+    for (const adobe of adobes) {
+      for (const model of adobe.enabledModels ?? []) addModel(model);
+    }
+    return [...knownModels, ...Array.from(extraModels).sort()];
+  }, [adobes, apis, groupImagePricingDraft, imagePricingDraft]);
   const [adobeAccountName, setAdobeAccountName] = useState("");
 
   const { execute: loadAdobeAccounts } = useAction(listAdobeAccountsAction, {
@@ -2447,14 +2502,14 @@ export function ImageBackendPoolAdminPanel({
     if (!readOnly) {
       loadSub2ApiSyncStatus();
       loadSub2ApiSyncTasks();
-      loadModelMultipliers();
+      loadImagePricingConfig();
       loadParameterMappingTemplates();
     }
   }, [
     loadPool,
     loadSub2ApiSyncStatus,
     loadSub2ApiSyncTasks,
-    loadModelMultipliers,
+    loadImagePricingConfig,
     loadParameterMappingTemplates,
     readOnly,
   ]);
@@ -2749,7 +2804,37 @@ export function ImageBackendPoolAdminPanel({
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>计费倍率</Label>
+                  <Label>图像模型固定价格覆盖</Label>
+                  <p className="text-xs text-muted-foreground">
+                    按实际输出像素归入
+                    1024、1K、2K、4K。空白档位继承全局模型价格，
+                    不再使用图像分组倍率。
+                  </p>
+                  <ImageCreditPricingEditor
+                    models={imagePricingModels}
+                    draft={groupImagePricingDraft}
+                    inheritanceLabel="继承全局模型价格"
+                    resolveInheritedPricing={(model) =>
+                      resolveImageCreditPricing({
+                        model,
+                        fallback: imagePricingFallback,
+                        global: globalImageCreditOverrides,
+                      })
+                    }
+                    onChange={(model, field, value) =>
+                      setGroupImagePricingDraft((current) =>
+                        updateImageCreditPricingDraft(
+                          current,
+                          model,
+                          field,
+                          value
+                        )
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>视频分组倍率</Label>
                   <Input
                     type="number"
                     min={0.01}
@@ -2764,7 +2849,7 @@ export function ImageBackendPoolAdminPanel({
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    该分组被用户选中或设为默认时，本站积分按此倍率结算；mixed
+                    仅保留给视频计费；图像固定价格和审核费用不乘此值。mixed
                     父分组调度到子分组成员时，父分组倍率和实际命中的子分组倍率会相乘生效。
                   </p>
                 </div>
@@ -2787,7 +2872,14 @@ export function ImageBackendPoolAdminPanel({
                 </div>
                 <Button
                   className="w-full"
-                  onClick={() => saveGroup(groupForm)}
+                  onClick={() =>
+                    saveGroup({
+                      ...groupForm,
+                      imageCreditOverrides: imageCreditPricingDraftToOverrides(
+                        groupImagePricingDraft
+                      ),
+                    })
+                  }
                   disabled={isSavingGroup || !groupForm.name}
                 >
                   {isSavingGroup && (
@@ -2830,7 +2922,7 @@ export function ImageBackendPoolAdminPanel({
                       </Badge>
                       {group.billingMultiplier !== 1 && (
                         <Badge variant="secondary">
-                          计费 x{group.billingMultiplier}
+                          视频 x{group.billingMultiplier}
                         </Badge>
                       )}
                       {group.childGroupIds.length > 0 && (
@@ -2850,7 +2942,7 @@ export function ImageBackendPoolAdminPanel({
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {group.description || "无说明"} · 优先级 {group.priority}{" "}
-                      · 计费倍率 x{group.billingMultiplier} · 账号{" "}
+                      · 视频倍率 x{group.billingMultiplier} · 账号{" "}
                       {group.accountCount} · API {group.apiCount}
                     </p>
                     {group.childGroupIds.length > 0 && (
@@ -4321,12 +4413,11 @@ export function ImageBackendPoolAdminPanel({
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-md border p-3">
                   <div>
-                    <Label>Adobe 来源（按 Adobe 计费 + 进 firefly 调度）</Label>
+                    <Label>Adobe 来源（进入 firefly 调度）</Label>
                     <p className="text-xs text-muted-foreground">
-                      上游实为 Adobe 的 gpt 格式 api。开启后：计费吃下方成员倍率
-                      （命中组倍率 × 成员倍率，与 Adobe
-                      伪账号同口径）；调度上参与 firefly 候选，firefly-*
-                      请求自动反向转换成 gpt 请求后由本后端处理。
+                      上游实为 Adobe 的 gpt 格式 api。开启后参与 firefly
+                      候选，firefly-* 请求自动反向转换成 gpt
+                      请求后由本后端处理。图像计费仍使用模型固定价格。
                     </p>
                   </div>
                   <Switch
@@ -4339,67 +4430,6 @@ export function ImageBackendPoolAdminPanel({
                     }
                   />
                 </div>
-                {apiForm.adobeSourced && (
-                  <div className="space-y-1.5">
-                    <Label>计费倍率（成员）</Label>
-                    <Input
-                      type="number"
-                      min={0.01}
-                      max={100}
-                      step={0.01}
-                      value={apiForm.billingMultiplier}
-                      onChange={(event) =>
-                        setApiForm((current) => ({
-                          ...current,
-                          billingMultiplier: event.target.value,
-                        }))
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      仅「Adobe 来源」开启时生效。最终扣费 =
-                      向上保留两位(向上保留两位 (基础价 + 审核附加) × 模型倍率 ×
-                      命中组倍率 × 本成员倍率)。
-                    </p>
-                    {(() => {
-                      // 实时算例：以 nano-banana-pro · 1024×1024 为例，套上方输入的成员
-                      // 倍率，与"含分组倍率示例"同口径（基础价 6 + 审核附加 0.04 + 嵌套
-                      // ceil2），再叠模型倍率（线上 IMAGE_MODEL_MULTIPLIERS：
-                      // nano-banana-pro x1.5）与示例组倍率。香蕉 pro 是"多一些乘数"的典型。
-                      const member = Number(apiForm.billingMultiplier) || 1;
-                      const sampleGroup = 1.2;
-                      const modelMultiplier = 1.5;
-                      const ceil2 = (v: number) =>
-                        Math.ceil(v * 100 - 1e-9) / 100;
-                      const final = ceil2(
-                        ceil2(6.04) * modelMultiplier * sampleGroup * member
-                      );
-                      return (
-                        <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-xs">
-                          <div className="font-medium">
-                            算例：nano-banana-pro · 1024×1024
-                          </div>
-                          <div className="text-muted-foreground">
-                            模型 x{modelMultiplier} · 组 x{sampleGroup}（示例）
-                            · 成员 x{member}
-                          </div>
-                          <div className="text-muted-foreground">
-                            向上保留两位(向上保留两位(6 基础价 + 0.04 审核附加)
-                            x {modelMultiplier} x {sampleGroup} x {member})
-                          </div>
-                          <div className="font-medium text-foreground">
-                            = {final} 积分/张
-                          </div>
-                          <p className="text-muted-foreground">
-                            模型倍率（如 nano-banana-pro x1.5）按
-                            IMAGE_MODEL_MULTIPLIERS
-                            配置、与本成员倍率叠乘；关闭「Adobe 来源」则成员
-                            x1（同普通 api）。
-                          </p>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
                 <Button
                   className="w-full"
                   onClick={() =>
@@ -4806,7 +4836,7 @@ export function ImageBackendPoolAdminPanel({
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">
-                    计费倍率（整个 Adobe 后端，图像+视频）
+                    视频计费倍率（整个 Adobe 后端）
                   </Label>
                   <Input
                     type="number"
@@ -4821,7 +4851,8 @@ export function ImageBackendPoolAdminPanel({
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    对 adobe 图像与视频积分成本统一乘以此倍率;与分组倍率叠加。
+                    仅作用于 Adobe 视频积分，并与视频分组倍率叠加；
+                    图像固定价格与审核费用不乘此值。
                   </p>
                 </div>
                 <div className="space-y-2 rounded-md border p-3">
@@ -5232,41 +5263,40 @@ export function ImageBackendPoolAdminPanel({
             {!readOnly && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">模型计费倍率</CardTitle>
+                  <CardTitle className="text-base">模型计费价格</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    最终积分 = 基础(图像按尺寸/视频按秒) × 模型倍率 × 整个 Adobe
-                    倍率 × 分组倍率。留空表示该模型不加倍率（默认 1）。
+                    图像最终积分 = 按实际输出像素命中的模型固定价格 + 审核费用。
+                    图像模型、分组和后端倍率不再参与图像扣费。
                   </p>
 
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground">
-                      图像模型倍率
+                      图像模型 1024 / 1K / 2K / 4K 固定价格
                     </Label>
-                    <div className="space-y-2">
-                      {ADOBE_IMAGE_MULTIPLIER_FAMILIES.map((family) => (
-                        <div
-                          key={family}
-                          className="grid grid-cols-[1fr_120px] items-center gap-2"
-                        >
-                          <span className="truncate text-sm">{family}</span>
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            placeholder="1"
-                            value={imageMultiplierDraft[family] ?? ""}
-                            onChange={(event) =>
-                              setImageMultiplierDraft((current) => ({
-                                ...current,
-                                [family]: event.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      ))}
+                    <ImageCreditPricingEditor
+                      models={imagePricingModels}
+                      draft={imagePricingDraft}
+                      inheritanceLabel="使用通用档位价格"
+                      resolveInheritedPricing={() => imagePricingFallback}
+                      onChange={(model, field, value) =>
+                        setImagePricingDraft((current) =>
+                          updateImageCreditPricingDraft(
+                            current,
+                            model,
+                            field,
+                            value
+                          )
+                        )
+                      }
+                    />
+                    <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      当前审核附加：文本{" "}
+                      {imageModerationPricing.textModerationCredits} 积分/次，
+                      输入图片 {imageModerationPricing.imageModerationCredits}{" "}
+                      积分/张。两项均可在系统设置的内容审核分类设为 0；
+                      关闭内容审核总开关后不执行审核且不收费。
                     </div>
                   </div>
 
@@ -5302,15 +5332,16 @@ export function ImageBackendPoolAdminPanel({
 
                   <Button
                     size="sm"
-                    disabled={isSavingMultipliers}
+                    disabled={isSavingImagePricing}
                     onClick={() =>
-                      saveModelMultipliers({
-                        image: draftToMultipliers(imageMultiplierDraft),
+                      saveImagePricingConfig({
+                        image:
+                          imageCreditPricingDraftToOverrides(imagePricingDraft),
                         video: draftToMultipliers(videoMultiplierDraft),
                       })
                     }
                   >
-                    {isSavingMultipliers ? "保存中…" : "保存模型倍率"}
+                    {isSavingImagePricing ? "保存中…" : "保存模型计费配置"}
                   </Button>
                 </CardContent>
               </Card>
