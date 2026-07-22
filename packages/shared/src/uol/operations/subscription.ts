@@ -12,54 +12,113 @@
  */
 
 import { z } from "zod";
-import { defineOperation } from "../registry";
-import { getPrincipalUserId } from "../principal";
+import type { SubscriptionPlan } from "../../config/subscription-plan";
 import {
-  getPlanCapabilitySnapshot,
   canUsePlanCapability,
-  getPlanLimits,
   getPlanCapabilityMatrix,
+  getPlanCapabilitySnapshot,
+  getPlanLimits,
   type PlanCapabilityKey,
 } from "../../subscription/services/plan-capabilities";
 import {
-  getUserPlan,
   checkFileSizePrivilege,
+  getUserPlan,
 } from "../../subscription/services/user-plan";
-import type { SubscriptionPlan } from "../../config/subscription-plan";
+import { getPrincipalUserId } from "../principal";
+import { defineOperation } from "../registry";
 
 // ============================================
-// 1. subscription.createCheckout
+// 1. subscription.listMyPurchasablePlans
 // ============================================
 
-defineOperation({
+/** 本人可购买套餐的窄输出契约；资格码由 U3 的购买服务实现。 */
+export const purchasablePlansOutputSchema = z.object({
+  enabled: z.boolean(),
+  currentPlan: z.enum(["free", "starter", "pro", "ultra", "enterprise"]),
+  currency: z.string().trim().min(1).max(12),
+  plans: z.array(
+    z.object({
+      id: z.enum(["starter", "pro", "ultra", "enterprise"]),
+      name: z.string().trim().min(1).max(120),
+      description: z.string().trim().max(500),
+      features: z.array(z.string().trim().min(1).max(240)).max(32),
+      popular: z.boolean(),
+      highlighted: z.boolean(),
+      eligible: z.boolean(),
+      eligibilityCode: z
+        .enum(["available", "current_plan", "downgrade", "unavailable"])
+        .nullable(),
+      prices: z.array(
+        z.object({
+          priceId: z.string().trim().min(1).max(512),
+          amount: z.number().finite().nonnegative(),
+          interval: z.enum(["monthly", "yearly"]),
+        })
+      ),
+    })
+  ),
+});
+
+export const listMyPurchasablePlans = defineOperation({
+  name: "subscription.listMyPurchasablePlans",
+  domain: "subscription",
+  title: "List My Purchasable Subscription Plans",
+  description: "读取当前会话用户可结账的运行时订阅套餐及资格，不创建结账会话。",
+  access: { kind: "user" },
+  input: z.object({}).strict(),
+  output: purchasablePlansOutputSchema,
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: subscription.listMyPurchasablePlans");
+  },
+});
+
+// ============================================
+// 2. subscription.createCheckout
+// ============================================
+
+/** 订阅结账输出兼容浏览器重定向与 Epay POST form 两种既有交互。 */
+export const subscriptionCheckoutOutputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("redirect"),
+    url: z.string().url(),
+  }),
+  z.object({
+    kind: z.literal("form_post"),
+    url: z.string().url(),
+    fields: z.record(z.string(), z.string()),
+  }),
+]);
+
+export const createCheckout = defineOperation({
   name: "subscription.createCheckout",
   domain: "subscription",
   title: "Create Subscription Checkout",
   description:
     "创建订阅结账会话（Creem 或 Epay），返回 checkout URL 供前端跳转",
-  access: { kind: "protected" },
-  input: z.object({
-    priceId: z.string().describe("目标套餐的价格 ID"),
-    successUrl: z.string().url().optional().describe("支付成功后回调 URL"),
-    cancelUrl: z.string().url().optional().describe("取消支付后回调 URL"),
-    provider: z
-      .enum(["creem", "epay"])
-      .optional()
-      .describe("支付渠道，未指定则使用系统默认"),
-  }),
-  output: z.object({
-    checkoutUrl: z.string().url().describe("重定向用户完成支付的 URL"),
-    sessionId: z.string().optional().describe("结账会话 ID"),
-  }),
+  access: { kind: "user" },
+  input: z
+    .object({
+      priceId: z.string().trim().min(1).max(512).describe("目标套餐的价格 ID"),
+      successUrl: z.string().url().optional().describe("支付成功后回调 URL"),
+      cancelUrl: z.string().url().optional().describe("取消支付后回调 URL"),
+      provider: z
+        .enum(["creem", "epay"])
+        .optional()
+        .describe("支付渠道，未指定则使用系统默认"),
+    })
+    .strict(),
+  output: subscriptionCheckoutOutputSchema,
   readOnly: false,
   destructive: false,
   idempotency: { kind: "none" },
   sideEffects: ["external-call"],
   // Bound at app level - see apps/web/src/server/uol-bindings.ts
   execute: async () => {
-    throw new Error(
-      "subscription.createCheckout must be bound at app level",
-    );
+    throw new Error("subscription.createCheckout must be bound at app level");
   },
 });
 

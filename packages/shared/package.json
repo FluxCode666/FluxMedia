@@ -34,6 +34,8 @@
     "./credits/actions": "./src/credits/actions.ts",
     "./credits/core": "./src/credits/core.ts",
     "./credits/usage-read-model": "./src/credits/usage-read-model.ts",
+    "./credits/usage-log-contract": "./src/credits/usage-log-contract.ts",
+    "./credits/usage-log-token": "./src/credits/usage-log-token.ts",
     "./credits/config": "./src/credits/config.ts",
     "./credits/packages": "./src/credits/packages.ts",
     "./credits/top-up": "./src/credits/top-up.ts",

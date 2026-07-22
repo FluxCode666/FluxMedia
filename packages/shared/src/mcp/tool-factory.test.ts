@@ -134,4 +134,22 @@ describe("MCP tool factories", () => {
       )
     ).toEqual({ userId: "user-1", page: 2 });
   });
+
+  it.each([
+    "credits.getMyBalance",
+    "credits.listMyUsageEvents",
+    "credits.getMyUsageEventDetail",
+    "subscription.listMyPurchasablePlans",
+    "subscription.createCheckout",
+  ])("does not add wallet operation %s to the User MCP allowlist", (name) => {
+    registerOperation({
+      name,
+      domain: name.startsWith("credits.") ? "credits" : "subscription",
+      access: { kind: "protected" },
+      readOnly: true,
+    });
+    bindExecute(name, async () => ({ ok: true }));
+
+    expect(buildUserMcpTools(apiKeyPrincipal)).toHaveLength(0);
+  });
 });

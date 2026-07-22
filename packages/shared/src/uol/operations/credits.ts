@@ -10,24 +10,39 @@
  * ../../generation-maintenance（退款 service-fn）
  */
 import { z } from "zod";
-
-import { defineOperation } from "../registry";
-import { getPrincipalUserId } from "../principal";
 import {
-  getCreditsBalance,
-  grantCredits,
   consumeCredits,
+  ensureRegistrationBonus,
   freezeCreditsAccount,
-  unfreezeCreditsAccount,
-  processExpiredBatches,
+  getCreditsBalance,
   getUserActiveBatches as fetchUserActiveBatches,
   getUserTransactions as fetchUserTransactions,
   getUserTransactionsCount,
+  grantCredits,
+  processExpiredBatches,
+  unfreezeCreditsAccount,
   voidActiveSubscriptionCreditsForUpgrade,
-  ensureRegistrationBonus,
 } from "../../credits/core";
+import {
+  usageEventDetailSchema,
+  usageEventListOutputSchema,
+  usageLogDetailInputSchema,
+  usageLogListInputSchema,
+} from "../../credits/usage-log-contract";
 import { refundGenerationCredits } from "../../generation-maintenance";
 import { getRuntimeSettingNumber } from "../../system-settings";
+import { getPrincipalUserId } from "../principal";
+import { defineOperation } from "../registry";
+
+/** 钱包余额概览的窄输出；运行时 parse 防止账户对象敏感字段外泄。 */
+export const myBalanceOutputSchema = z.object({
+  balance: z.number().finite(),
+  totalSpent: z.number().finite().nonnegative(),
+  totalRefunded: z.number().finite().nonnegative(),
+  totalNetSpent: z.number().finite().nonnegative(),
+  status: z.enum(["active", "frozen"]),
+  asOf: z.string().datetime({ offset: true }),
+});
 
 // ---------------------------------------------------------------------------
 // 1. credits.getBalance - 获取指定用户积分余额（含过期处理副作用）
@@ -67,11 +82,9 @@ export const getMyBalance = defineOperation({
   description:
     "获取当前登录用户的积分余额。首次调用时会触发注册奖励发放" +
     "（ensureRegistrationBonus），由 sourceRef 唯一索引保证只发一次。",
-  input: z.object({}),
-  output: z.object({
-    balance: z.number().describe("当前可用积分余额"),
-  }),
-  access: { kind: "protected" },
+  input: z.object({}).strict(),
+  output: myBalanceOutputSchema,
+  access: { kind: "user" },
   readOnly: false,
   destructive: false,
   idempotency: { kind: "natural" },
@@ -90,7 +103,58 @@ export const getMyBalance = defineOperation({
     await ensureRegistrationBonus(userId, bonusAmount);
 
     const account = await getCreditsBalance(userId);
-    return { balance: account.balance };
+    return myBalanceOutputSchema.parse({
+      balance: account.balance,
+      totalSpent: account.totalSpent,
+      totalRefunded: account.totalRefunded,
+      totalNetSpent: Math.max(0, account.totalSpent - account.totalRefunded),
+      status: account.status,
+      asOf: new Date().toISOString(),
+    });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2a. credits.listMyUsageEvents - 当前用户有界使用日志（U2 绑定查询）
+// ---------------------------------------------------------------------------
+export const listMyUsageEvents = defineOperation({
+  name: "credits.listMyUsageEvents",
+  domain: "credits",
+  title: "List My Usage Events",
+  description:
+    "按自然日范围、业务类型和状态读取当前会话用户的有界使用日志。" +
+    "返回请求与退款的安全摘要以及稳定 keyset cursor。",
+  input: usageLogListInputSchema,
+  output: usageEventListOutputSchema,
+  access: { kind: "user" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: credits.listMyUsageEvents");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 2b. credits.getMyUsageEventDetail - 当前用户单条使用详情（U2 绑定查询）
+// ---------------------------------------------------------------------------
+export const getMyUsageEventDetail = defineOperation({
+  name: "credits.getMyUsageEventDetail",
+  domain: "credits",
+  title: "Get My Usage Event Detail",
+  description:
+    "使用主体绑定的 eventRef 按需读取单条请求或退款详情。" +
+    "不存在和不属于当前用户的事件由绑定层统一返回 not_found。",
+  input: usageLogDetailInputSchema,
+  output: usageEventDetailSchema,
+  access: { kind: "user" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: credits.getMyUsageEventDetail");
   },
 });
 
