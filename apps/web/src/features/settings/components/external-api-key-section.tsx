@@ -58,7 +58,6 @@ type ImageBackendGroupOption = {
   isEnabled: boolean;
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
-  billingMultiplier?: number;
 };
 
 type ExternalApiKeySummary = {
@@ -89,12 +88,6 @@ function formatDate(
   }, timeZone);
 }
 
-function formatBillingMultiplier(value: number | null | undefined) {
-  const multiplier = Number(value ?? 1);
-  if (!Number.isFinite(multiplier) || multiplier <= 0) return "1";
-  return Number(multiplier.toFixed(4)).toString();
-}
-
 function groupOptionLabel(group: ImageBackendGroupOption) {
   const backend =
     group.backendType === "web"
@@ -108,9 +101,7 @@ function groupOptionLabel(group: ImageBackendGroupOption) {
       : group.contentSafetyEnabled === false
         ? "内容审核关闭"
         : "内容审核按成员配置";
-  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backend} · ${safety} · 计费 x${formatBillingMultiplier(
-    group.billingMultiplier
-  )}`;
+  return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backend} · ${safety}`;
 }
 
 export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {

@@ -117,7 +117,7 @@ function creditSummary(
   }
   if (details.billingMultiplier !== 1) {
     parts.push(
-      `${copy("multiplier", "倍率")} x${Number(
+      `${copy("legacy multiplier", "历史倍率")} x${Number(
         details.billingMultiplier.toFixed(4)
       )}`
     );

@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
 import { Label } from "@repo/ui/components/label";
 import {
@@ -28,7 +27,6 @@ type GroupOption = {
   isDefault: boolean;
   contentSafetyEnabled: boolean | null;
   backendType: ImageBackendGroupBackendType;
-  billingMultiplier: number;
 };
 
 function safetyLabel(value: boolean | null) {
@@ -43,18 +41,10 @@ function backendTypeLabel(value: ImageBackendGroupBackendType) {
   return "混合";
 }
 
-function formatBillingMultiplier(value: number | null | undefined) {
-  const multiplier = Number(value ?? 1);
-  if (!Number.isFinite(multiplier) || multiplier <= 0) return "1";
-  return Number(multiplier.toFixed(4)).toString();
-}
-
 function groupOptionLabel(group: GroupOption) {
   return `${group.name}${group.isDefault ? "（默认）" : ""} · ${backendTypeLabel(
     group.backendType
-  )} · ${safetyLabel(group.contentSafetyEnabled)} · 计费 x${formatBillingMultiplier(
-    group.billingMultiplier
-  )}`;
+  )} · ${safetyLabel(group.contentSafetyEnabled)}`;
 }
 
 export function ImageBackendPreferenceSection() {
@@ -64,7 +54,7 @@ export function ImageBackendPreferenceSection() {
   const selectedGroup =
     selectedGroupId === "default"
       ? defaultGroup
-      : groups.find((group) => group.id === selectedGroupId) ?? null;
+      : (groups.find((group) => group.id === selectedGroupId) ?? null);
 
   const { execute: loadGroups, isPending: isLoading } = useAction(
     getSelectableImageBackendGroupsAction,
@@ -73,7 +63,8 @@ export function ImageBackendPreferenceSection() {
         setGroups((data?.groups || []) as GroupOption[]);
         setSelectedGroupId(data?.selectedGroupId || "default");
       },
-      onError: ({ error }) => toast.error(error.serverError || "加载生图分组失败"),
+      onError: ({ error }) =>
+        toast.error(error.serverError || "加载生图分组失败"),
     }
   );
 
@@ -81,7 +72,8 @@ export function ImageBackendPreferenceSection() {
     setUserImageBackendPreferenceAction,
     {
       onSuccess: () => toast.success("生图后端分组已保存"),
-      onError: ({ error }) => toast.error(error.serverError || "保存生图分组失败"),
+      onError: ({ error }) =>
+        toast.error(error.serverError || "保存生图分组失败"),
     }
   );
 
@@ -95,7 +87,8 @@ export function ImageBackendPreferenceSection() {
         <div>
           <h4 className="text-sm font-medium">生图后端分组</h4>
           <p className="text-xs text-muted-foreground">
-            只影响网页端创作；外接 API Key 在 API Key 列表中单独选择分组，Key 未绑定时使用平台默认分组。
+            只影响网页端创作；外接 API Key 在 API Key 列表中单独选择分组，Key
+            未绑定时使用平台默认分组。
           </p>
         </div>
         <Button
@@ -143,9 +136,6 @@ export function ImageBackendPreferenceSection() {
           {selectedGroup && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>{groupOptionLabel(selectedGroup)}</span>
-              <Badge variant="outline" className="rounded-full">
-                计费 x{formatBillingMultiplier(selectedGroup.billingMultiplier)}
-              </Badge>
             </div>
           )}
         </div>

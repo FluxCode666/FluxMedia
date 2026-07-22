@@ -203,10 +203,10 @@ type PoolMember =
       imagesUpstreamMode: ImagesUpstreamMode;
       parameterMappings: RequestParameterMapping[];
       useStream: boolean;
-      // Adobe 来源：上游实为 Adobe 的 gpt 格式 api。开启后计费套用下方 billingMultiplier
-      // （与分组倍率相乘，复用 Adobe 伪账号倍率链），并参与 firefly 候选（含反向转换）。
+      // Adobe 来源：上游实为 Adobe 的 gpt 格式 api。开启后参与 firefly 候选
+      // （含反向转换）；billingMultiplier 仅保留给视频倍率链。
       adobeSourced: boolean;
-      // 计费倍率（仅当 adobeSourced 时生效）。
+      // 视频计费倍率（仅当 adobeSourced 时生效）。
       billingMultiplier: number;
       contentSafetyEnabled: boolean;
       priority: number;
@@ -263,7 +263,7 @@ type PoolMember =
       defaultRatio: string;
       defaultResolution: string;
       gptImageQuality: string;
-      // 本 Adobe 后端的计费倍率（图像+视频统一）；与分组倍率相乘。
+      // 本 Adobe 后端的视频计费倍率；图片使用模型四档固定价，不读取该字段。
       billingMultiplier: number;
       supportsVideo: boolean;
       contentSafetyEnabled: boolean;
@@ -4008,6 +4008,35 @@ export async function getUserImageBackendPreference(
     (!plan || canUseBackendGroupForPlan(group.metadata, plan))
     ? preference.groupId
     : null;
+}
+
+/**
+ * 取得站内创作实际使用的计费分组上下文。
+ *
+ * @param userId - 当前登录用户 ID。
+ * @param plan - 当前套餐，用于过滤无权使用的分组。
+ * @returns 用户偏好分组；未设置偏好时返回平台默认分组；无可用分组时返回 null。
+ *
+ * WHY: 创作页预估必须与调度器使用同一个“偏好分组，否则默认分组”规则，否则
+ * 默认分组不可由用户选择时，前端会漏掉该分组的模型固定价格和审核开关。
+ */
+export async function getEffectiveImageBackendGroupForUser(
+  userId: string,
+  plan: SubscriptionPlan
+) {
+  const preferenceGroupId = await getUserImageBackendPreference(userId, plan);
+  const groupId = preferenceGroupId ?? (await getDefaultGroupId());
+  const group = await ensureGroupUsable(groupId, plan);
+  if (!group) return null;
+
+  return {
+    id: group.id,
+    name: group.name,
+    isDefault: group.isDefault,
+    backendType: getGroupBackendType(group.metadata),
+    contentSafetyEnabled: group.contentSafetyEnabled,
+    imageCreditOverrides: getGroupImageCreditOverrides(group.metadata),
+  };
 }
 
 export async function setUserImageBackendPreference(
