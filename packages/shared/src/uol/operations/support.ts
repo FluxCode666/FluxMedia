@@ -1,7 +1,7 @@
 /**
  * UOL Operations - Support & Announcements Domain
  *
- * 职责：注册客服工单与公告相关的全部操作定义（19 个）。
+ * 职责：注册控制台支持配置、客服工单与公告相关的全部操作定义。
  * 使用方：UOL registry 全局注册表，经 invokeOperation 网关调用。
  * 关键依赖：registry.ts (defineOperation)、zod (schema 校验)
  *
@@ -18,8 +18,59 @@ import {
   listAnnouncementsForAdmin,
   markAnnouncementIdsReadForUser,
 } from "../../announcements/actions";
+import { logError } from "../../logger";
+import {
+  DEFAULT_DASHBOARD_SUPPORT_CONFIG,
+  dashboardSupportConfigSchema,
+} from "../../support/dashboard-config";
+import { getRuntimeSettingJson } from "../../system-settings/index";
 import { getPrincipalUserId } from "../principal";
 import { defineOperation } from "../registry";
+
+// ---------------------------------------------------------------------------
+// Dashboard support configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * support.getDashboardConfiguration - 获取控制台支持区配置
+ *
+ * 权限：仅站内登录用户。返回值已经过共享 Zod 契约收窄，不暴露其他系统设置。
+ * 历史脏值不会拖垮控制台，但会记录不包含配置正文的服务端错误并回退安全默认值。
+ */
+export const getDashboardConfiguration = defineOperation({
+  name: "support.getDashboardConfiguration",
+  domain: "support",
+  title: "Get Dashboard Support Configuration",
+  description:
+    "获取控制台官方支持渠道和 Service & Support 入口的安全公开配置。",
+  input: z.object({}),
+  output: dashboardSupportConfigSchema,
+  access: { kind: "user" },
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    let value: unknown;
+    try {
+      value = await getRuntimeSettingJson("DASHBOARD_SUPPORT_CONFIG");
+    } catch {
+      logError(new Error("Dashboard support configuration cannot be read"), {
+        source: "uol.support.get-dashboard-configuration",
+      });
+      return DEFAULT_DASHBOARD_SUPPORT_CONFIG;
+    }
+    if (value === undefined) return DEFAULT_DASHBOARD_SUPPORT_CONFIG;
+
+    const parsed = dashboardSupportConfigSchema.safeParse(value);
+    if (parsed.success) return parsed.data;
+
+    logError(new Error("Dashboard support configuration is invalid"), {
+      source: "uol.support.get-dashboard-configuration",
+    });
+    return DEFAULT_DASHBOARD_SUPPORT_CONFIG;
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Tickets

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_DASHBOARD_SUPPORT_CONFIG } from "../support/dashboard-config";
 import {
   clearSystemSettingsCache,
   getAdminSystemSettingsSnapshot,
@@ -346,6 +347,27 @@ describe("setSystemSettings", () => {
         "admin"
       )
     ).rejects.toThrow(/取值无效/);
+  });
+
+  it("validates dashboard support structure and safe links before writing", async () => {
+    const configured = structuredClone(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
+    configured.officialSupport.qrCodeUrl =
+      "https://assets.example.com/support.png";
+
+    await setSystemSettings(
+      [{ key: "DASHBOARD_SUPPORT_CONFIG", value: configured }],
+      "admin"
+    );
+    expect(store.get("DASHBOARD_SUPPORT_CONFIG")?.value).toEqual(configured);
+
+    const unsafe = structuredClone(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
+    unsafe.officialSupport.actionUrl = "javascript:alert(1)";
+    await expect(
+      setSystemSettings(
+        [{ key: "DASHBOARD_SUPPORT_CONFIG", value: unsafe }],
+        "admin"
+      )
+    ).rejects.toThrow(/字段或链接格式无效/);
   });
 });
 

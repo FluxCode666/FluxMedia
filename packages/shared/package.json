@@ -65,6 +65,7 @@
     "./support/actions/ticket": "./src/support/actions/ticket.ts",
     "./support/actions/admin-users": "./src/support/actions/admin-users.ts",
     "./support/schemas": "./src/support/schemas/index.ts",
+    "./support/dashboard-config": "./src/support/dashboard-config.ts",
     "./support/components": "./src/support/components/index.ts",
     "./support/components/admin-ticket-reply-form": "./src/support/components/admin-ticket-reply-form.tsx",
     "./support/components/admin-ticket-status-select": "./src/support/components/admin-ticket-status-select.tsx",

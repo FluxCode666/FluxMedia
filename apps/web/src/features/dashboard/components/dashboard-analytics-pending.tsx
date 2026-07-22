@@ -9,6 +9,7 @@
 import { Button } from "@repo/ui/components/button";
 import { Card, CardContent } from "@repo/ui/components/card";
 import { ChartNoAxesCombined, Clock3, RefreshCw } from "lucide-react";
+import type { ReactNode } from "react";
 import { useTransition } from "react";
 
 import type { DashboardLoadFailureReason } from "@/features/dashboard/dashboard-load-error";
@@ -17,12 +18,14 @@ import { useRouter } from "@/i18n/routing";
 type DashboardAnalyticsUnavailableProps = {
   isZh: boolean;
   reason: DashboardLoadFailureReason;
+  accountSupport?: ReactNode;
 };
 
 /** 渲染统计准备或查询超时状态，并允许用户重新发起安全读取。 */
 export function DashboardAnalyticsUnavailable({
   isZh,
   reason,
+  accountSupport,
 }: DashboardAnalyticsUnavailableProps) {
   const router = useRouter();
   const [isRefreshing, startTransition] = useTransition();
@@ -47,6 +50,8 @@ export function DashboardAnalyticsUnavailable({
             {copy("Usage overview", "用量概览")}
           </h1>
         </header>
+
+        {accountSupport}
 
         <Card>
           <CardContent className="flex min-h-[320px] flex-col items-center justify-center px-6 py-12 text-center">

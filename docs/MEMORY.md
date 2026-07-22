@@ -24,6 +24,7 @@
 
 ## 功能
 
+- [控制台账户与支持区](memory/dashboard-account-support.md) — Your Account 使用当前会话；Official Support 与 Service & Support 通过版本化双语配置、专用系统设置表单和只读 UOL operation 动态展示。
 - [纯中转 API Key](plan/2026-05-30-relay-only-api-key.md) — relay_only key：不记录/不存储/仍扣费仍审核；附带修复 consumeCredits 幂等（dev: 7c6da21→e957f48）
 - [积分充值与 Adobe 模型开放范围](plan/2026-07-18-credits-top-up-and-adobe-models.md) — 按金额充值、兑换比例、多币种配置、支付宝当面付及 Adobe 后端模型限制的实施与验证约束。
 - [统一积分支付结果流程](memory/credit-payment-result-flow.md) — 三类积分支付共用服务端订单状态页；浏览器回跳不履约，Creem / 易支付套餐订单与积分账本双重幂等。

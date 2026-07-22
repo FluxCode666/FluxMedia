@@ -28,6 +28,7 @@ import {
 } from "@repo/ui/components/select";
 import { cn } from "@repo/ui/utils";
 import { Coins, Image as ImageIcon, RefreshCw, Video } from "lucide-react";
+import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -54,6 +55,7 @@ type DashboardAnalyticsPanelProps = {
   initialSnapshot: DashboardSnapshot;
   isZh: boolean;
   userName: string;
+  accountSupport: ReactNode;
 };
 
 const sectionEnterClass =
@@ -79,6 +81,7 @@ export function DashboardAnalyticsPanel({
   initialSnapshot,
   isZh,
   userName,
+  accountSupport,
 }: DashboardAnalyticsPanelProps) {
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const locale = isZh ? "zh-CN" : "en-US";
@@ -363,6 +366,8 @@ export function DashboardAnalyticsPanel({
           {copy("Refresh", "刷新")}
         </Button>
       </header>
+
+      {accountSupport}
 
       {[
         {

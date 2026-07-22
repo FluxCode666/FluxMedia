@@ -43,6 +43,7 @@ import type {
   SettingKey,
 } from "../definitions";
 import { SETTING_CATEGORIES } from "../definitions";
+import { DashboardSupportConfigInput } from "./dashboard-support-config-input";
 
 type SettingSnapshotItem = SettingDefinition & {
   value: string;
@@ -833,6 +834,17 @@ function SettingInput({
   disabled: boolean;
   onChange: (value: DraftValue) => void;
 }) {
+  if (setting.key === "DASHBOARD_SUPPORT_CONFIG") {
+    return (
+      <DashboardSupportConfigInput
+        disabled={disabled}
+        fallbackValue={setting.exampleValue ?? setting.defaultValue}
+        onChange={(nextValue) => onChange(nextValue)}
+        value={value}
+      />
+    );
+  }
+
   if (setting.key === "PLAN_CAPABILITY_MATRIX") {
     return (
       <PlanCapabilityMatrixInput
@@ -1978,7 +1990,7 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
             系统设置
           </h2>
           <p className="text-sm text-muted-foreground">
-            管理审核、登录、支付、套餐、模型、存储和邮件等全局配置。动态配置由
+            管理支持、审核、登录、支付、套餐、模型、存储和邮件等全局配置。动态配置由
             Redis 跨实例缓存，密钥不会在页面回显。
           </p>
         </div>
@@ -2068,7 +2080,8 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
                     className={
                       setting.key === "PLAN_CAPABILITY_MATRIX" ||
                       setting.key === "CREDIT_PACKAGE_MATRIX" ||
-                      setting.key === "CREDIT_TOP_UP_CONFIG"
+                      setting.key === "CREDIT_TOP_UP_CONFIG" ||
+                      setting.key === "DASHBOARD_SUPPORT_CONFIG"
                         ? "rounded-lg lg:col-span-2"
                         : "rounded-lg"
                     }

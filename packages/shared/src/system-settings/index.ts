@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { db } from "@repo/database";
 import { systemSetting } from "@repo/database/schema";
 import { eq, inArray, sql } from "drizzle-orm";
+import { dashboardSupportConfigSchema } from "../support/dashboard-config";
 import {
   clearLocalSystemSettingsCache,
   invalidateSystemSettingsCache,
@@ -252,16 +253,24 @@ function coerceValue(definition: SettingDefinition, value: unknown) {
 
   if (definition.valueType === "json") {
     if (value === undefined || value === null) return "";
+    let parsedValue: unknown = value;
     if (typeof value === "string") {
       const trimmed = value.trim();
       if (!trimmed) return "";
       try {
-        return JSON.parse(trimmed) as unknown;
+        parsedValue = JSON.parse(trimmed) as unknown;
       } catch {
         throw new Error(`${definition.label} 必须是有效 JSON`);
       }
     }
-    return value;
+    if (definition.key === "DASHBOARD_SUPPORT_CONFIG") {
+      const parsed = dashboardSupportConfigSchema.safeParse(parsedValue);
+      if (!parsed.success) {
+        throw new Error(`${definition.label} 的字段或链接格式无效`);
+      }
+      return parsed.data;
+    }
+    return parsedValue;
   }
 
   const text = typeof value === "string" ? value.trim() : String(value ?? "");

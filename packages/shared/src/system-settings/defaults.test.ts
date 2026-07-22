@@ -5,6 +5,7 @@ import {
   getRuntimeCreditPackages,
 } from "../credits/packages";
 import { DEFAULT_PLAN_CAPABILITY_MATRIX } from "../subscription/services/plan-capabilities";
+import { DEFAULT_DASHBOARD_SUPPORT_CONFIG } from "../support/dashboard-config";
 import {
   clearSystemSettingsCache,
   getRuntimeSettingNumber,
@@ -122,6 +123,7 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("BILLING_YEARLY_ENABLED");
     expect(initializedKeys).not.toContain("APP_TIME_ZONE");
     expect(initializedKeys).toContain("MARKETING_SLA_STATUS_ENABLED");
+    expect(initializedKeys).toContain("DASHBOARD_SUPPORT_CONFIG");
     expect(initializedKeys).toContain("SELF_USE_MODE_ENABLED");
     expect(initializedKeys).toContain("GENERATION_IMAGE_RETENTION_HOURS");
     expect(initializedKeys).toContain("GENERATION_IMAGE_RETENTION_MODE");
@@ -144,6 +146,9 @@ describe("system setting default initialization", () => {
     expect(store.get("BILLING_YEARLY_ENABLED")?.value).toBe(true);
     expect(store.get("APP_TIME_ZONE")).toBeUndefined();
     expect(store.get("MARKETING_SLA_STATUS_ENABLED")?.value).toBe(true);
+    expect(store.get("DASHBOARD_SUPPORT_CONFIG")?.value).toEqual(
+      DEFAULT_DASHBOARD_SUPPORT_CONFIG
+    );
     expect(store.get("SELF_USE_MODE_ENABLED")?.value).toBe(true);
     expect(store.get("GENERATION_IMAGE_RETENTION_HOURS")?.value).toBe(0);
     // 默认清理模式 off=永久保存（fail-safe）；最大张数默认 10000。
