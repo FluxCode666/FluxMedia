@@ -152,9 +152,13 @@ export type SettingKey =
   | "FREE_CREDITS_EXPIRY_DAYS"
   | "CREDITS_EXPIRY_DAYS"
   | "IMAGE_BASE_CREDITS_1024"
+  | "IMAGE_BASE_CREDITS_1K"
   | "IMAGE_BASE_CREDITS_2K"
   | "IMAGE_BASE_CREDITS_4K"
+  | "IMAGE_MODEL_CREDIT_PRICES"
   | "IMAGE_MODEL_MULTIPLIERS"
+  | "IMAGE_TEXT_MODERATION_CREDITS"
+  | "IMAGE_INPUT_MODERATION_CREDITS"
   | "IMAGE_SUPER_RESOLUTION_ENABLED"
   | "IMAGE_RESTORATION_ENABLED"
   | "IMAGE_BLOCK_REPAIR_ENABLED"
@@ -1390,13 +1394,24 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "IMAGE_BASE_CREDITS_1024",
-    label: "1K 档基础生图积分",
+    label: "1024 档基础生图积分",
     description:
-      "不含文本/图片审核成本的 1K 档生图基础价格。最长边小于 2048px 的输出均按此固定价格计费。",
+      "未配置模型价格时使用的 1024 档基础价格。输出最长边小于 1248px 时归入此档，不含审核费用。",
     category: "credits",
     valueType: "number",
     // WHY: 生图基础积分价格直接决定每次扣费，必须为正；上限拦截误填的异常巨大值，
     // 避免单次扣费失控。
+    min: 0.01,
+    max: 100_000,
+    defaultValue: 1.27,
+  },
+  {
+    key: "IMAGE_BASE_CREDITS_1K",
+    label: "1K 档基础生图积分",
+    description:
+      "未配置模型价格时使用的 1K 档基础价格。输出最长边达到 1248px、但小于 2048px 时归入此档，不含审核费用。",
+    category: "credits",
+    valueType: "number",
     min: 0.01,
     max: 100_000,
     defaultValue: 1.27,
@@ -1484,13 +1499,35 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     defaultValue: 25,
   },
   {
-    key: "IMAGE_MODEL_MULTIPLIERS",
-    label: "图像模型族倍率",
+    key: "IMAGE_MODEL_CREDIT_PRICES",
+    label: "图像模型固定价格",
     description:
-      '按 firefly 图像模型族设置计费倍率的 JSON（family → 倍率，缺省/非正回退 1）。键为 firefly 图像族：gpt-image-2、gpt-image-1.5、nano-banana、nano-banana2、nano-banana-pro。例：{"gpt-image-2":2,"nano-banana-pro":1.5}。',
+      "按模型配置 1024、1K、2K、4K 固定基础积分。分组可逐档覆盖，未配置时回退本配置，再回退通用档位价格。请优先在生图后端池的模型定价表中编辑。",
     category: "credits",
     valueType: "json",
-    exampleValue: '{"gpt-image-2": 1, "nano-banana-pro": 1.5}',
+    defaultValue: { version: 1, byModel: {} },
+  },
+  {
+    key: "IMAGE_TEXT_MODERATION_CREDITS",
+    label: "文本审核积分",
+    description:
+      "每次文本审核附加的积分费用。允许设为 0；关闭内容审核总开关后不执行审核且不收费。",
+    category: "moderation",
+    valueType: "number",
+    min: 0,
+    max: 100_000,
+    defaultValue: 0.04,
+  },
+  {
+    key: "IMAGE_INPUT_MODERATION_CREDITS",
+    label: "输入图片审核积分",
+    description:
+      "每张输入图片审核附加的积分费用。允许设为 0；关闭内容审核总开关后不执行审核且不收费。",
+    category: "moderation",
+    valueType: "number",
+    min: 0,
+    max: 100_000,
+    defaultValue: 0.06,
   },
   {
     key: "VIDEO_BASE_CREDITS_PER_SECOND",

@@ -1900,10 +1900,10 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
       map.set(category.id, []);
     }
     for (const setting of settings) {
-      // 模型计费倍率由 Adobe 后端 tab 的「模型计费倍率」表格编辑,系统设置面板里隐藏,
-      // 避免同一份数据出现两个入口造成"重复倍率"的误解。
+      // 图像模型固定价格与视频模型倍率由 Adobe 后端 tab 的专用表格编辑，系统设置
+      // 面板里隐藏，避免同一份财务配置出现两个入口。
       if (
-        setting.key === "IMAGE_MODEL_MULTIPLIERS" ||
+        setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
         setting.key === "VIDEO_MODEL_MULTIPLIERS"
       ) {
         continue;
@@ -1921,9 +1921,9 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
     const payload: SettingUpdate[] = [];
     try {
       for (const setting of settings) {
-        // 见上:模型计费倍率不在本面板编辑,跳过,避免覆盖 Adobe tab 的改动。
+        // 见上：专用模型计费配置不在本面板编辑，避免覆盖 Adobe tab 的改动。
         if (
-          setting.key === "IMAGE_MODEL_MULTIPLIERS" ||
+          setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
           setting.key === "VIDEO_MODEL_MULTIPLIERS"
         ) {
           continue;

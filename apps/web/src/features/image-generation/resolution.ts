@@ -2,9 +2,10 @@
  * 图像尺寸校验、分辨率档位和积分计算的纯函数。
  *
  * 创作页、统一生图管线、营销页与账单页共同依赖本模块，确保预估与最终结算使用
- * 同一套尺寸和价格规则；运行时价格由 pricing-settings 注入，模型和后端倍率由
- * operations 在此模块计算出基础价后叠加。
+ * 同一套尺寸和价格规则；运行时模型价格和审核费用由 pricing-settings 注入。
  */
+
+import type { ImageCreditPricing } from "@repo/shared/image-backend/group-image-pricing";
 
 export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const LEGACY_IMAGE_MODEL = "gpt-image-1";
@@ -27,6 +28,7 @@ export const IMAGE_1024_BASE_PIXELS = 1024 * 1024;
 export const IMAGE_2K_BASE_EDGE = 2048;
 export const IMAGE_4K_BASE_EDGE = 3840;
 export const DEFAULT_IMAGE_1024_BASE_CREDIT_COST = 1.27;
+export const DEFAULT_IMAGE_1K_BASE_CREDIT_COST = 1.27;
 // 保留旧曲线在 2048x2048 的向上取整结果，切换固定档位时避免常用 2K 方图突变。
 export const DEFAULT_IMAGE_2K_BASE_CREDIT_COST = 5.07;
 export const DEFAULT_IMAGE_4K_BASE_CREDIT_COST = 10;
@@ -34,6 +36,10 @@ export const IMAGE_4K_BASE_CREDIT_COST = DEFAULT_IMAGE_4K_BASE_CREDIT_COST;
 export const REFERENCE_CREDIT_PRICE_CNY = 0.05;
 export const TEXT_MODERATION_PRICE_CNY = 0.002;
 export const IMAGE_MODERATION_PRICE_CNY = 0.003;
+export const DEFAULT_TEXT_MODERATION_CREDIT_COST =
+  TEXT_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
+export const DEFAULT_IMAGE_MODERATION_CREDIT_COST =
+  IMAGE_MODERATION_PRICE_CNY / REFERENCE_CREDIT_PRICE_CNY;
 const CREDIT_DECIMAL_PLACES = 2;
 const CREDIT_DECIMAL_FACTOR = 10 ** CREDIT_DECIMAL_PLACES;
 const CREDIT_ROUNDING_EPSILON = 1e-9;
@@ -145,16 +151,18 @@ export type ImageCreditCostOptions = {
   textModerationCount?: number;
   imageModerationCount?: number;
   basePricing?: ImageBaseCreditPricing;
+  moderationPricing?: ImageModerationCreditPricing;
   /** 图像质量等级，仅用于保留计价明细兼容字段，不影响积分。 */
   quality?: ImageQualityLevel | null;
   /** 思考/推理等级，仅用于保留计价明细兼容字段，不影响积分。 */
   thinking?: ImageThinkingLevel | null;
 };
 
-export type ImageBaseCreditPricing = {
-  base1024Credits?: number;
-  base2kCredits?: number;
-  base4kCredits?: number;
+export type ImageBaseCreditPricing = ImageCreditPricing;
+
+export type ImageModerationCreditPricing = {
+  textModerationCredits?: number;
+  imageModerationCredits?: number;
 };
 
 export function roundCreditAmount(value: number) {
@@ -182,6 +190,18 @@ function normalizeBaseCreditPrice(value: unknown, fallback: number) {
   return parsed;
 }
 
+/** 将审核积分收窄为非负有限数；非法值回退默认费用。 */
+function normalizeModerationCreditPrice(value: unknown, fallback: number) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
 export function getImageBaseCreditPricing(
   pricing?: ImageBaseCreditPricing | null
 ) {
@@ -189,6 +209,10 @@ export function getImageBaseCreditPricing(
     base1024Credits: normalizeBaseCreditPrice(
       pricing?.base1024Credits,
       DEFAULT_IMAGE_1024_BASE_CREDIT_COST
+    ),
+    base1kCredits: normalizeBaseCreditPrice(
+      pricing?.base1kCredits,
+      DEFAULT_IMAGE_1K_BASE_CREDIT_COST
     ),
     base2kCredits: normalizeBaseCreditPrice(
       pricing?.base2kCredits,
@@ -202,11 +226,32 @@ export function getImageBaseCreditPricing(
 }
 
 /**
+ * 取得文本与输入图片审核的单次积分费用。
+ *
+ * @param pricing - 管理员运行时配置；允许显式设为 0。
+ * @returns 可直接按审核次数相加的非负积分价格。
+ */
+export function getImageModerationCreditPricing(
+  pricing?: ImageModerationCreditPricing | null
+) {
+  return {
+    textModerationCredits: normalizeModerationCreditPrice(
+      pricing?.textModerationCredits,
+      DEFAULT_TEXT_MODERATION_CREDIT_COST
+    ),
+    imageModerationCredits: normalizeModerationCreditPrice(
+      pricing?.imageModerationCredits,
+      DEFAULT_IMAGE_MODERATION_CREDIT_COST
+    ),
+  };
+}
+
+/**
  * 按输出最长边取得固定的图像基础积分。
  *
  * @param dimensions - 已解析的输出宽高；缺失或非法时按 4K 价格 fail-closed。
- * @param pricing - 管理员配置的 1K、2K、4K 基础价格。
- * @returns 未叠加审核、模型或后端倍率的基础积分。
+ * @param pricing - 管理员配置的 1024、1K、2K、4K 基础价格。
+ * @returns 未叠加审核费用的模型基础积分。
  */
 export function getImageBaseCredits(
   dimensions: ImageDimensions | null | undefined,
@@ -216,7 +261,7 @@ export function getImageBaseCredits(
     dimensions?.width ?? Number.NaN,
     dimensions?.height ?? Number.NaN
   );
-  const { base1024Credits, base2kCredits, base4kCredits } =
+  const { base1024Credits, base1kCredits, base2kCredits, base4kCredits } =
     getImageBaseCreditPricing(pricing);
 
   // WHY: 分辨率等级由最长边定义，才能让 2048x1152 和 2048x2048 等同属 2K
@@ -226,6 +271,7 @@ export function getImageBaseCredits(
   }
   if (longestEdge >= IMAGE_4K_BASE_EDGE) return base4kCredits;
   if (longestEdge >= IMAGE_2K_BASE_EDGE) return base2kCredits;
+  if (longestEdge >= IMAGE_1K_BASE_EDGE) return base1kCredits;
   return base1024Credits;
 }
 
@@ -267,26 +313,33 @@ export function getImageCreditCostBreakdown(
 
   const textModerationCount = options.textModerationCount ?? 1;
   const imageModerationCount = options.imageModerationCount ?? 0;
-  const moderationCny =
-    textModerationCount * TEXT_MODERATION_PRICE_CNY +
-    imageModerationCount * IMAGE_MODERATION_PRICE_CNY;
-  const moderationCredits = moderationCny / REFERENCE_CREDIT_PRICE_CNY;
+  const moderationPricing = getImageModerationCreditPricing(
+    options.moderationPricing
+  );
+  const textModerationCredits =
+    textModerationCount * moderationPricing.textModerationCredits;
+  const imageModerationCredits =
+    imageModerationCount * moderationPricing.imageModerationCredits;
+  const moderationCredits = textModerationCredits + imageModerationCredits;
+  const moderationCny = moderationCredits * REFERENCE_CREDIT_PRICE_CNY;
   const totalCredits = roundUpCreditAmount(
     effectiveBaseCredits + moderationCredits
   );
   const moderationOnlyCredits =
-    moderationCny > 0 ? roundUpCreditAmount(moderationCredits) : 0;
+    moderationCredits > 0 ? roundUpCreditAmount(moderationCredits) : 0;
 
   return {
     baseCredits: roundUpCreditAmount(effectiveBaseCredits),
     effectiveBaseCredits: roundUpCreditAmount(effectiveBaseCredits),
     imageModerationCount,
+    imageModerationCredits: roundCreditAmount(imageModerationCredits),
     moderationCny,
     moderationCredits: roundCreditAmount(moderationCredits),
     moderationOnlyCredits,
     pixels,
     qualityMultiplier,
     textModerationCount,
+    textModerationCredits: roundCreditAmount(textModerationCredits),
     thinkingMultiplier,
     totalCredits,
   };

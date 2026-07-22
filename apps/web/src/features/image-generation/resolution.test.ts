@@ -25,9 +25,14 @@ import {
 } from "./resolution";
 
 describe("image resolution credit pricing", () => {
-  it("keeps the default fixed prices for 1K, 2K, and 4K tiers", () => {
+  it("keeps separate default fixed prices for 1024, 1K, 2K, and 4K tiers", () => {
     expect(
       getImageCreditCostBreakdown("1024x1024", {
+        textModerationCount: 0,
+      }).baseCredits
+    ).toBe(1.27);
+    expect(
+      getImageCreditCostBreakdown("1248x1248", {
         textModerationCount: 0,
       }).baseCredits
     ).toBe(1.27);
@@ -46,6 +51,7 @@ describe("image resolution credit pricing", () => {
   it("uses the fixed tier of the longest edge instead of interpolating pixels", () => {
     const pricing = {
       base1024Credits: 2,
+      base1kCredits: 3,
       base2kCredits: 8,
       base4kCredits: 20,
     };
@@ -55,7 +61,10 @@ describe("image resolution credit pricing", () => {
         textModerationCount: 0,
       }).baseCredits;
 
-    expect(baseCreditsFor("1536x1024")).toBe(2);
+    expect(baseCreditsFor("1024x1024")).toBe(2);
+    expect(baseCreditsFor("1247x1024")).toBe(2);
+    expect(baseCreditsFor("1248x1024")).toBe(3);
+    expect(baseCreditsFor("1536x1024")).toBe(3);
     expect(baseCreditsFor("2048x1152")).toBe(8);
     expect(baseCreditsFor("3072x1728")).toBe(8);
     expect(baseCreditsFor("3839x2160")).toBe(8);
@@ -66,6 +75,7 @@ describe("image resolution credit pricing", () => {
   it("charges the 1K price for the legal lower-bound size", () => {
     const pricing = {
       base1024Credits: 2,
+      base1kCredits: 3,
       base2kCredits: 8,
       base4kCredits: 20,
     };
@@ -82,6 +92,43 @@ describe("image resolution credit pricing", () => {
         textModerationCount: 0,
       }).baseCredits
     ).toBe(2);
+  });
+
+  it("allows moderation prices to be configured as zero", () => {
+    const breakdown = getImageCreditCostBreakdown("1024x1024", {
+      textModerationCount: 1,
+      imageModerationCount: 2,
+      moderationPricing: {
+        textModerationCredits: 0,
+        imageModerationCredits: 0,
+      },
+    });
+
+    expect(breakdown.moderationCredits).toBe(0);
+    expect(breakdown.moderationOnlyCredits).toBe(0);
+    expect(breakdown.totalCredits).toBe(breakdown.baseCredits);
+  });
+
+  it("adds configured text and image moderation fees after the fixed price", () => {
+    const breakdown = getImageCreditCostBreakdown("1248x1248", {
+      basePricing: {
+        base1024Credits: 2,
+        base1kCredits: 3,
+        base2kCredits: 8,
+        base4kCredits: 20,
+      },
+      textModerationCount: 1,
+      imageModerationCount: 2,
+      moderationPricing: {
+        textModerationCredits: 0.1,
+        imageModerationCredits: 0.2,
+      },
+    });
+
+    expect(breakdown.baseCredits).toBe(3);
+    expect(breakdown.textModerationCredits).toBe(0.1);
+    expect(breakdown.imageModerationCredits).toBe(0.4);
+    expect(breakdown.totalCredits).toBe(3.5);
   });
 
   it("defaults to multiplier 1.0 when quality/thinking not specified", () => {

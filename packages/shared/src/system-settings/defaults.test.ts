@@ -128,8 +128,12 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("GENERATION_IMAGE_MAX_COUNT");
     expect(initializedKeys).toContain("IMAGE_GENERATION_GLOBAL_CONCURRENCY");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1024");
+    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1K");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_2K");
     expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_4K");
+    expect(initializedKeys).toContain("IMAGE_MODEL_CREDIT_PRICES");
+    expect(initializedKeys).toContain("IMAGE_TEXT_MODERATION_CREDITS");
+    expect(initializedKeys).toContain("IMAGE_INPUT_MODERATION_CREDITS");
     expect(initializedKeys).toContain("RATE_LIMIT_AI_REQUESTS_PER_MINUTE");
     expect(initializedKeys).not.toContain("BETTER_AUTH_SECRET");
     expect(initializedKeys).not.toContain("CREEM_API_KEY");
@@ -148,8 +152,15 @@ describe("system setting default initialization", () => {
     expect(store.get("CREDITS_EXPIRY_DAYS")?.value).toBe(0);
     expect(store.get("IMAGE_GENERATION_GLOBAL_CONCURRENCY")?.value).toBe(500);
     expect(store.get("IMAGE_BASE_CREDITS_1024")?.value).toBe(1.27);
+    expect(store.get("IMAGE_BASE_CREDITS_1K")?.value).toBe(1.27);
     expect(store.get("IMAGE_BASE_CREDITS_2K")?.value).toBe(5.07);
     expect(store.get("IMAGE_BASE_CREDITS_4K")?.value).toBe(10);
+    expect(store.get("IMAGE_MODEL_CREDIT_PRICES")?.value).toEqual({
+      version: 1,
+      byModel: {},
+    });
+    expect(store.get("IMAGE_TEXT_MODERATION_CREDITS")?.value).toBe(0.04);
+    expect(store.get("IMAGE_INPUT_MODERATION_CREDITS")?.value).toBe(0.06);
     expect(store.get("RATE_LIMIT_GLOBAL_REQUESTS_PER_MINUTE")?.value).toBe(100);
     expect(store.get("RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE")?.value).toBe(5);
     expect(store.get("RATE_LIMIT_AI_REQUESTS_PER_MINUTE")?.value).toBe(20);

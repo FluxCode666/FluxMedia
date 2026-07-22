@@ -15,22 +15,29 @@ const mocks = vi.hoisted(() => ({
         options?: { positive?: boolean }
       ) => Promise<number>
     >(),
+  getRuntimeSettingJson: vi.fn<(key: string) => Promise<unknown>>(),
 }));
 
 vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingJson: mocks.getRuntimeSettingJson,
   getRuntimeSettingNumber: mocks.getRuntimeSettingNumber,
 }));
 
-import { getRuntimeImageBaseCreditPricing } from "./pricing-settings";
+import {
+  getRuntimeImageBaseCreditPricing,
+  getRuntimeImageCreditPricing,
+} from "./pricing-settings";
 
 describe("runtime image base credit pricing", () => {
   beforeEach(() => {
     mocks.getRuntimeSettingNumber.mockReset();
+    mocks.getRuntimeSettingJson.mockReset();
   });
 
   it("maps every fixed-tier setting to the matching return field", async () => {
     const values: Record<string, number> = {
       IMAGE_BASE_CREDITS_1024: 2,
+      IMAGE_BASE_CREDITS_1K: 3,
       IMAGE_BASE_CREDITS_2K: 8,
       IMAGE_BASE_CREDITS_4K: 20,
     };
@@ -40,8 +47,45 @@ describe("runtime image base credit pricing", () => {
 
     await expect(getRuntimeImageBaseCreditPricing()).resolves.toEqual({
       base1024Credits: 2,
+      base1kCredits: 3,
       base2kCredits: 8,
       base4kCredits: 20,
+    });
+  });
+
+  it("merges group and global model prices and keeps zero moderation fees", async () => {
+    const values: Record<string, number> = {
+      IMAGE_BASE_CREDITS_1024: 1,
+      IMAGE_BASE_CREDITS_1K: 2,
+      IMAGE_BASE_CREDITS_2K: 4,
+      IMAGE_BASE_CREDITS_4K: 8,
+      IMAGE_TEXT_MODERATION_CREDITS: 0,
+      IMAGE_INPUT_MODERATION_CREDITS: 0,
+    };
+    mocks.getRuntimeSettingNumber.mockImplementation(
+      async (key, fallback) => values[key] ?? fallback
+    );
+    mocks.getRuntimeSettingJson.mockResolvedValue({
+      version: 1,
+      byModel: { "gpt-image-2": { base2kCredits: 6 } },
+    });
+
+    await expect(
+      getRuntimeImageCreditPricing("gpt-image-2", {
+        version: 1,
+        byModel: { "gpt-image-2": { base4kCredits: 7 } },
+      })
+    ).resolves.toEqual({
+      basePricing: {
+        base1024Credits: 1,
+        base1kCredits: 2,
+        base2kCredits: 6,
+        base4kCredits: 7,
+      },
+      moderationPricing: {
+        textModerationCredits: 0,
+        imageModerationCredits: 0,
+      },
     });
   });
 });
