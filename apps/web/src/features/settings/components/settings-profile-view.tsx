@@ -206,19 +206,23 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
-    if (requestedTab === "billing" || requestedTab === "usage") {
-      router.replace(`/${locale}/dashboard/billing`);
+    if (requestedTab === "billing") {
+      router.replace("/dashboard/wallet");
+      return;
+    }
+    if (requestedTab === "usage") {
+      router.replace("/dashboard/usage-log");
       return;
     }
     if (requestedTab === "external-api") {
-      router.replace(`/${locale}/dashboard/external-api`);
+      router.replace("/dashboard/external-api");
       return;
     }
     if (requestedTab === lastAppliedTabParamRef.current) return;
     lastAppliedTabParamRef.current = requestedTab;
     if (!requestedTab) return;
     setActiveTab(normalizeTab(requestedTab));
-  }, [searchParams, normalizeTab, router, locale]);
+  }, [searchParams, normalizeTab, router]);
 
   const { execute: executeUpdateProfile, isPending } = useAction(
     updateProfileAction,

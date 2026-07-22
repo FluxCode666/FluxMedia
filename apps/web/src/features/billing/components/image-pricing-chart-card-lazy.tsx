@@ -7,8 +7,8 @@
  * `next/dynamic`(ssr:false)按需加载,使用量页的初始 bundle 不含 recharts——
  * 图表在客户端挂载后再异步拉取,首屏更轻。占位用等高骨架避免布局跳动。
  *
- * 使用方:服务端的账单用量页(`dashboard/billing/page.tsx`)。Server Component 不能直接用
- * `dynamic({ ssr: false })`,故经此 'use client' 包装器中转。
+ * 使用方：使用日志页默认折叠的价格趋势卡。Server Component 不能直接使用
+ * `dynamic({ ssr: false })`，因此经此 Client Component 包装器中转。
  */
 
 import dynamic from "next/dynamic";

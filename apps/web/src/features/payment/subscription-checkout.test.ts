@@ -93,7 +93,7 @@ describe("createSubscriptionCheckout", () => {
     });
     mocks.createWalletCheckoutRedirects.mockReturnValue({
       successUrl: "https://app.example.test/dashboard/wallet?pay=success",
-      cancelUrl: "https://app.example.test/dashboard/wallet?pay=cancel",
+      cancelUrl: "https://app.example.test/dashboard/wallet?pay=canceled",
       returnUrl: "https://app.example.test/api/payments/epay/return",
     });
   });
@@ -121,8 +121,7 @@ describe("createSubscriptionCheckout", () => {
     expect(mocks.createCreemCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         product_id: "pro_monthly",
-        success_url:
-          "https://app.example.test/dashboard/wallet?pay=success",
+        success_url: "https://app.example.test/dashboard/wallet?pay=success",
         metadata: { userId: "user-1", planId: "pro" },
       })
     );
@@ -148,10 +147,7 @@ describe("createSubscriptionCheckout", () => {
 
   it.each([
     ["none", "支付功能当前未启用"],
-    [
-      "alipay_f2f",
-      "支付宝当面付仅支持按金额充值，暂不支持订阅套餐支付",
-    ],
+    ["alipay_f2f", "支付宝当面付仅支持按金额充值，暂不支持订阅套餐支付"],
   ] as const)("provider=%s 时在查询和副作用前拒绝", async (provider, error) => {
     mocks.getRuntimePaymentProvider.mockResolvedValue(provider);
 

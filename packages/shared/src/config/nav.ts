@@ -13,8 +13,10 @@ import {
   Megaphone,
   type LucideIcon,
   Settings,
+  ReceiptText,
   Ticket,
   Users,
+  WalletCards,
 } from "lucide-react";
 
 /**
@@ -181,9 +183,14 @@ export const dashboardNav: NavGroup[] = [
         icon: KeyRound,
       },
       {
-        title: "Billing & Usage",
-        href: "/dashboard/billing",
-        icon: Coins,
+        title: "Wallet",
+        href: "/dashboard/wallet",
+        icon: WalletCards,
+      },
+      {
+        title: "Usage Log",
+        href: "/dashboard/usage-log",
+        icon: ReceiptText,
       },
       {
         title: "Announcements",

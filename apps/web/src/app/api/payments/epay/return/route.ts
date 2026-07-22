@@ -1,5 +1,12 @@
-import { NextResponse } from "next/server";
+/**
+ * Epay 浏览器同步回跳适配器。
+ *
+ * 使用方：Epay 支付完成后的浏览器跳转。此处只验证签名并读取本地履约状态，订阅
+ * 回钱包、按量充值回订单结果页；绝不发放积分或改变订单状态。
+ */
+
 import { getBaseUrl } from "@repo/shared/config/payment";
+import { logger } from "@repo/shared/logger";
 import {
   decodeEpayMetadata,
   EPAY_TRADE_SUCCESS,
@@ -9,12 +16,15 @@ import {
   parseEpayRequestParams,
   verifyRuntimeEpayParams,
 } from "@repo/shared/payment/epay";
-import { logger } from "@repo/shared/logger";
+import { NextResponse } from "next/server";
+import { createWalletPaymentResultUrl } from "@/features/wallet/redirects";
 
+/** 处理 Epay GET 同步回跳。 */
 export async function GET(req: Request) {
   return handleReturn(req);
 }
 
+/** 处理部分 Epay 网关使用的 POST 同步回跳。 */
 export async function POST(req: Request) {
   return handleReturn(req);
 }
@@ -31,7 +41,7 @@ async function handleReturn(req: Request) {
   const baseUrl = getBaseUrl();
 
   if (!(await isRuntimeEpayConfigured())) {
-    return NextResponse.redirect(`${baseUrl}/dashboard/billing?pay=fail`);
+    return NextResponse.redirect(createWalletPaymentResultUrl("fail", baseUrl));
   }
 
   const params = await parseEpayRequestParams(req);
@@ -44,19 +54,12 @@ async function handleReturn(req: Request) {
     metadata?.type === "credit_purchase" && metadata.paymentOrderId
       ? `/${metadata.locale === "zh" ? "zh" : "en"}/dashboard/credits/payment/${encodeURIComponent(metadata.paymentOrderId)}`
       : null;
-  const redirectPath =
-    creditResultPath ??
-    (metadata?.type === "subscription" ? "/dashboard" : "/dashboard/billing");
-  const separator = redirectPath.includes("?") ? "&" : "?";
-
   if (!verifyInfo.verifyStatus) {
     logger.warn(
       { source: "epay-return", outTradeNo: verifyInfo.outTradeNo },
       "Invalid Epay return signature"
     );
-    return NextResponse.redirect(
-      `${baseUrl}${redirectPath}${separator}pay=fail`
-    );
+    return NextResponse.redirect(createWalletPaymentResultUrl("fail", baseUrl));
   }
 
   // 仅读取本地订单状态以反映履约进度，不在此触发履约。
@@ -75,6 +78,8 @@ async function handleReturn(req: Request) {
   }
 
   return NextResponse.redirect(
-    `${baseUrl}${redirectPath}${separator}pay=${payStatus}`
+    creditResultPath
+      ? `${baseUrl}${creditResultPath}?pay=${payStatus}`
+      : createWalletPaymentResultUrl(payStatus, baseUrl)
   );
 }

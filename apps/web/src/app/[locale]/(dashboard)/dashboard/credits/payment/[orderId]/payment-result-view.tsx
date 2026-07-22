@@ -262,7 +262,7 @@ export function CreditPaymentResultView({
         variant="ghost"
         size="sm"
         className="mb-5 gap-2 text-muted-foreground"
-        onClick={() => router.push("/dashboard/credits/buy")}
+        onClick={() => router.push("/dashboard/wallet?purchase=top-up")}
       >
         <ArrowLeft className="h-4 w-4" />
         {copy("Back to buy credits", "返回购买积分")}
@@ -401,10 +401,10 @@ export function CreditPaymentResultView({
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => router.push("/dashboard/billing")}
+                onClick={() => router.push("/dashboard/usage-log")}
               >
                 <ExternalLink className="mr-2 h-4 w-4" />
-                {copy("View billing & usage", "查看账单与用量")}
+                {copy("View usage log", "查看使用日志")}
               </Button>
             </>
           )}
@@ -412,7 +412,7 @@ export function CreditPaymentResultView({
             <Button
               type="button"
               className="w-full"
-              onClick={() => router.push("/dashboard/credits/buy")}
+              onClick={() => router.push("/dashboard/wallet?purchase=top-up")}
             >
               {copy("Buy credits again", "重新发起充值")}
             </Button>

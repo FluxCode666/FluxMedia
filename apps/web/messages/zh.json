@@ -606,7 +606,8 @@
       "history": "历史记录",
       "backendHelp": "系统文档",
       "externalApi": "外接 API",
-      "billing": "账单与用量",
+      "wallet": "钱包",
+      "usageLog": "使用日志",
       "announcements": "公告",
       "settings": "设置",
       "userManagement": "用户管理",
@@ -641,6 +642,8 @@
       "profile": "个人资料",
       "security": "安全",
       "billing": "账单与用量",
+      "wallet": "钱包",
+      "usageLog": "使用日志",
       "notifications": "通知",
       "ticketDetails": "工单详情",
       "advanced": "高级"

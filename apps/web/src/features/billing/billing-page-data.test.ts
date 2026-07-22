@@ -1,55 +1,48 @@
-/**
- * 账单与用量页服务端数据选择测试。
- *
- * 验证 URL 页签回退，以及隐藏 Usage 内容不会产生价格数据查询。
- */
+/** 旧 billing 重定向矩阵测试：锁定页面职责拆分与支付上下文白名单。 */
+import { describe, expect, it } from "vitest";
 
-import { describe, expect, it, vi } from "vitest";
-import { loadBillingPageData, resolveBillingTab } from "./billing-page-data";
-import type { ImagePricingCardData } from "./image-pricing-card-data";
+import { resolveLegacyBillingRedirect } from "./billing-page-data";
 
-const PRICING_CARD_DATA: ImagePricingCardData = {
-  billing: {
-    agentRoundCredits: 1,
-    chatRoundCredits: 1,
-    groupMultiplier: 1,
-    groupName: null,
-    moderationBlockingEnabled: false,
-    monthlyCredits: 100,
-    planName: "Free",
-  },
-  pricing: {
-    base1024Credits: 1,
-    base4kCredits: 4,
-  },
-};
-
-describe("billing page data", () => {
-  it("falls back invalid tab values to billing", () => {
-    expect(resolveBillingTab(undefined)).toBe("billing");
-    expect(resolveBillingTab("unknown")).toBe("billing");
-    expect(resolveBillingTab("usage")).toBe("usage");
+describe("resolveLegacyBillingRedirect", () => {
+  it.each([
+    [{}, "/dashboard/wallet"],
+    [{ tab: "billing" }, "/dashboard/wallet"],
+    [{ tab: "unknown" }, "/dashboard/wallet"],
+    [{ tab: "usage" }, "/dashboard/usage-log"],
+  ])("把旧页面参数 %o 迁移到 %s", (searchParams, expected) => {
+    expect(resolveLegacyBillingRedirect(searchParams)).toBe(expected);
   });
 
-  it("does not load pricing data for the default billing tab", async () => {
-    const loadPricingCardData = vi.fn().mockResolvedValue(PRICING_CARD_DATA);
-
-    await expect(
-      loadBillingPageData(undefined, "user-1", loadPricingCardData)
-    ).resolves.toEqual({ activeTab: "billing", pricingCardData: null });
-    expect(loadPricingCardData).not.toHaveBeenCalled();
+  it("支付上下文优先进入钱包并只透传白名单", () => {
+    expect(
+      resolveLegacyBillingRedirect({
+        tab: "usage",
+        pay: "processing",
+        purchase: "subscription",
+        ignored: "secret",
+      })
+    ).toBe("/dashboard/wallet?pay=processing&purchase=subscription");
   });
 
-  it("loads pricing data exactly once for the usage tab", async () => {
-    const loadPricingCardData = vi.fn().mockResolvedValue(PRICING_CARD_DATA);
+  it("兼容旧 cancel 并丢弃数组、HTML 与跨站载荷", () => {
+    expect(resolveLegacyBillingRedirect({ pay: "cancel" })).toBe(
+      "/dashboard/wallet?pay=canceled"
+    );
+    expect(
+      resolveLegacyBillingRedirect({
+        pay: "<script>alert(1)</script>",
+        purchase: ["top-up", "subscription"],
+        success: "https://evil.example",
+      })
+    ).toBe("/dashboard/wallet");
+  });
 
-    await expect(
-      loadBillingPageData("usage", "user-1", loadPricingCardData)
-    ).resolves.toEqual({
-      activeTab: "usage",
-      pricingCardData: PRICING_CARD_DATA,
-    });
-    expect(loadPricingCardData).toHaveBeenCalledOnce();
-    expect(loadPricingCardData).toHaveBeenCalledWith("user-1");
+  it("只接受明确的旧 success=true", () => {
+    expect(resolveLegacyBillingRedirect({ success: "true" })).toBe(
+      "/dashboard/wallet?success=true"
+    );
+    expect(resolveLegacyBillingRedirect({ success: "false" })).toBe(
+      "/dashboard/wallet"
+    );
   });
 });

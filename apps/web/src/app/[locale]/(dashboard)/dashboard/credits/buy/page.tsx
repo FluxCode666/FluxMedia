@@ -1,22 +1,17 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
+/**
+ * 旧积分购买入口的兼容重定向页。
+ *
+ * 使用方：历史书签和尚未迁移的余额不足 CTA。购买能力已集中到钱包，本页不再
+ * 挂载旧购买组件，也不触发订单或支付副作用。
+ */
+import { redirect } from "next/navigation";
 
-import { BuyCreditPackagesView } from "./buy-credits-view";
-
-export const metadata: Metadata = {
-  title: "Buy Credits",
-  description: "Purchase credit packages for FluxMedia",
+type BuyCreditsPageProps = {
+  params: Promise<{ locale: string }>;
 };
 
-/**
- * 购买积分页面
- *
- * 展示积分套餐供用户选择并购买
- */
-export default function BuyCreditsPage() {
-  return (
-    <Suspense fallback={null}>
-      <BuyCreditPackagesView />
-    </Suspense>
-  );
+/** 保留当前 locale，并把旧购买入口定位到钱包按量充值模块。 */
+export default async function BuyCreditsPage({ params }: BuyCreditsPageProps) {
+  const { locale } = await params;
+  redirect(`/${locale}/dashboard/wallet?purchase=top-up`);
 }

@@ -1,55 +1,60 @@
 /**
- * 账单与用量页的服务端分支数据选择器。
+ * 旧“账单与用量”入口的纯重定向解析器。
  *
- * Billing 路由使用本模块把不可信 URL 页签收窄为固定联合类型，并保证只有 Usage
- * 分支调用生图计价 loader。依赖通过参数注入，便于在 DB-free 测试中验证调用次数。
+ * 使用方：旧 billing 路由。只保留安全支付展示上下文；不会加载账本、价格趋势
+ * 或触发支付履约。非法参数直接丢弃，支付上下文优先于旧 usage 页签。
  */
 
-import type { ImagePricingCardData } from "./image-pricing-card-data";
+import { isWalletPaymentResultStatus } from "@/features/wallet/redirects";
 
-export type BillingTab = "billing" | "usage";
+const PURCHASE_VALUES = ["top-up", "subscription"] as const;
 
-type ImagePricingCardLoader = (userId: string) => Promise<ImagePricingCardData>;
+type LegacyBillingSearchParams = Record<string, string | string[] | undefined>;
 
-export type BillingPageData =
-  | {
-      activeTab: "billing";
-      pricingCardData: null;
-    }
-  | {
-      activeTab: "usage";
-      pricingCardData: ImagePricingCardData;
-    };
+/** 从 Next.js 查询参数中提取唯一字符串，数组值按不可信输入丢弃。 */
+function getSingleSearchParam(
+  searchParams: LegacyBillingSearchParams,
+  key: string
+): string | undefined {
+  const value = searchParams[key];
+  return typeof value === "string" ? value : undefined;
+}
 
-/**
- * 将外部 URL 参数收窄为受支持的页签。
- *
- * @param value URL 中未信任的 `tab` 值。
- * @returns 仅包含 billing 或 usage 的安全页签；非法值回退到 billing。
- */
-export function resolveBillingTab(value: string | undefined): BillingTab {
-  return value === "usage" ? "usage" : "billing";
+/** 判断字符串是否属于固定白名单，并为 TypeScript 收窄字面量类型。 */
+function isAllowedValue<const T extends readonly string[]>(
+  values: T,
+  value: string | undefined
+): value is T[number] {
+  return Boolean(value && values.some((candidate) => candidate === value));
 }
 
 /**
- * 为当前页签加载最小服务端数据。
+ * 解析旧 billing 入口的新页面目标。
  *
- * @param tab URL 中未信任的 `tab` 值。
- * @param userId 已鉴权会话的用户 ID。
- * @param loadPricingCardData Usage 分支的生图计价 loader。
- * @returns 活动页签和可选计价卡数据；Billing 分支不调用 loader，Usage 失败则原样上抛。
+ * @param searchParams 未信任的旧路由查询参数。
+ * @returns dashboard 内相对目标；只携带 pay、success、purchase 白名单值。
  */
-export async function loadBillingPageData(
-  tab: string | undefined,
-  userId: string,
-  loadPricingCardData: ImagePricingCardLoader
-): Promise<BillingPageData> {
-  const activeTab = resolveBillingTab(tab);
-  if (activeTab === "billing") {
-    return { activeTab, pricingCardData: null };
+export function resolveLegacyBillingRedirect(
+  searchParams: LegacyBillingSearchParams
+): string {
+  const tab = getSingleSearchParam(searchParams, "tab");
+  const rawPay = getSingleSearchParam(searchParams, "pay");
+  const normalizedPay = rawPay === "cancel" ? "canceled" : rawPay;
+  const success = getSingleSearchParam(searchParams, "success");
+  const purchase = getSingleSearchParam(searchParams, "purchase");
+  const walletParams = new URLSearchParams();
+
+  if (isWalletPaymentResultStatus(normalizedPay)) {
+    walletParams.set("pay", normalizedPay);
   }
-  return {
-    activeTab,
-    pricingCardData: await loadPricingCardData(userId),
-  };
+  if (success === "true") walletParams.set("success", "true");
+  if (isAllowedValue(PURCHASE_VALUES, purchase)) {
+    walletParams.set("purchase", purchase);
+  }
+
+  if (walletParams.size === 0 && tab === "usage") {
+    return "/dashboard/usage-log";
+  }
+  const query = walletParams.toString();
+  return query ? `/dashboard/wallet?${query}` : "/dashboard/wallet";
 }

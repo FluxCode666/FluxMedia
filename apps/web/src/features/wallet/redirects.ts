@@ -10,7 +10,7 @@ const WALLET_PATH = "/dashboard/wallet";
 const EPAY_RETURN_PATH = "/api/payments/epay/return";
 const PAYMENT_RESULT_STATUSES = [
   "success",
-  "cancel",
+  "canceled",
   "processing",
   "pending",
   "fail",
@@ -18,6 +18,16 @@ const PAYMENT_RESULT_STATUSES = [
 
 export type WalletPaymentResultStatus =
   (typeof PAYMENT_RESULT_STATUSES)[number];
+
+/** 判断不可信值是否属于钱包允许展示的支付结果。 */
+export function isWalletPaymentResultStatus(
+  value: unknown
+): value is WalletPaymentResultStatus {
+  return (
+    typeof value === "string" &&
+    PAYMENT_RESULT_STATUSES.some((allowed) => allowed === value)
+  );
+}
 
 /**
  * 解析可信应用源并丢弃 base URL 中的路径、查询与片段。
@@ -44,7 +54,7 @@ export function createWalletCheckoutRedirects(baseUrl = getBaseUrl()) {
   const origin = resolveApplicationOrigin(baseUrl);
   return {
     successUrl: new URL(`${WALLET_PATH}?pay=success`, origin).toString(),
-    cancelUrl: new URL(`${WALLET_PATH}?pay=cancel`, origin).toString(),
+    cancelUrl: new URL(`${WALLET_PATH}?pay=canceled`, origin).toString(),
     returnUrl: new URL(EPAY_RETURN_PATH, origin).toString(),
   };
 }
@@ -62,10 +72,7 @@ export function createWalletPaymentResultUrl(
 ): string {
   const origin = resolveApplicationOrigin(baseUrl);
   const url = new URL(WALLET_PATH, origin);
-  if (
-    typeof status === "string" &&
-    PAYMENT_RESULT_STATUSES.some((allowed) => allowed === status)
-  ) {
+  if (isWalletPaymentResultStatus(status)) {
     url.searchParams.set("pay", status);
   }
   return url.toString();

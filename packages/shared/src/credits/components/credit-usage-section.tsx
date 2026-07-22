@@ -165,7 +165,7 @@ export function CreditUsageSection({ timeZone }: { timeZone: string }) {
 
         <div className="flex gap-3">
           <Button asChild>
-            <Link href={`/${locale}/dashboard/credits/buy`}>
+            <Link href={`/${locale}/dashboard/wallet?purchase=top-up`}>
               {t("getMoreCredits.buyCredits")}
             </Link>
           </Button>

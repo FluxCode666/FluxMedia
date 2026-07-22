@@ -1,11 +1,10 @@
 "use client";
 
+import { cn } from "@repo/ui/utils";
 import { Menu, PanelLeft, PanelLeftClose } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-
 import { useSidebar } from "@/features/dashboard/context";
-import { cn } from "@repo/ui/utils";
 
 /**
  * 从路径名获取页面标题翻译键
@@ -27,6 +26,8 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/backend-help": "backendHelp",
     "/dashboard/external-api": "externalApi",
     "/dashboard/billing": "billing",
+    "/dashboard/wallet": "wallet",
+    "/dashboard/usage-log": "usageLog",
     "/dashboard/settings": "settings",
     "/dashboard/admin/users": "userManagement",
     "/dashboard/admin/announcements": "announcementManagement",

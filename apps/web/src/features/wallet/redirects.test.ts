@@ -10,7 +10,7 @@ describe("wallet payment redirects", () => {
   it("生成同源钱包 success/cancel 与 Epay return 目标", () => {
     expect(createWalletCheckoutRedirects("https://flux.example/base")).toEqual({
       successUrl: "https://flux.example/dashboard/wallet?pay=success",
-      cancelUrl: "https://flux.example/dashboard/wallet?pay=cancel",
+      cancelUrl: "https://flux.example/dashboard/wallet?pay=canceled",
       returnUrl: "https://flux.example/api/payments/epay/return",
     });
   });

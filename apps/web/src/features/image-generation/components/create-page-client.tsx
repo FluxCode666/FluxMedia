@@ -77,6 +77,7 @@ import {
   type ReferenceHandoffMode,
 } from "@/features/image-generation/reference-handoff";
 import type { ImageBackendGroupBackendType } from "@/features/image-backend-pool/types";
+import { useRouter as useIntlRouter } from "@/i18n/routing";
 import {
   agentEventToImageUrl,
   appendAgentRunEvent,
@@ -1991,6 +1992,7 @@ export function CreatePageClient({
 }: CreatePageClientProps) {
   const locale = useLocale();
   const router = useRouter();
+  const intlRouter = useIntlRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isZh = locale === "zh";
@@ -4882,7 +4884,7 @@ export function CreatePageClient({
         action: {
           label: copy("Top up", "去充值"),
           onClick: () => {
-            window.location.href = `/${locale}/dashboard/credits/buy`;
+            intlRouter.push("/dashboard/wallet?purchase=top-up");
           },
         },
       });

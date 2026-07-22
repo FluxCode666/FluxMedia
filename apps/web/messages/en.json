@@ -606,7 +606,8 @@
       "history": "History",
       "backendHelp": "System Docs",
       "externalApi": "External API",
-      "billing": "Billing & Usage",
+      "wallet": "Wallet",
+      "usageLog": "Usage Log",
       "announcements": "Announcements",
       "settings": "Settings",
       "userManagement": "User Management",
@@ -641,6 +642,8 @@
       "profile": "Profile",
       "security": "Security",
       "billing": "Billing & Usage",
+      "wallet": "Wallet",
+      "usageLog": "Usage Log",
       "notifications": "Notifications",
       "ticketDetails": "Ticket Details",
       "advanced": "Advanced"

@@ -1,0 +1,66 @@
+/** 钱包页面的中英文文案契约，由服务端按 locale 生成后传给交互组件。 */
+
+export type WalletCopy = ReturnType<typeof createWalletCopy>;
+
+/** 按当前语言创建钱包可见文案；不读取运行时配置或用户数据。 */
+export function createWalletCopy(isZh: boolean) {
+  const copy = (en: string, zh: string) => (isZh ? zh : en);
+  return {
+    title: copy("Wallet", "钱包"),
+    description: copy(
+      "Review your credit balance and choose an available purchase option.",
+      "查看积分资产，并选择当前可用的购买方式。"
+    ),
+    balance: copy("Current balance", "当前余额"),
+    netSpent: copy("Total consumed", "总消耗"),
+    overviewError: copy(
+      "Balance information is temporarily unavailable. No value has been replaced with zero.",
+      "余额信息暂时不可用，页面不会用 0 替代真实数据。"
+    ),
+    purchaseTitle: copy("Add credits", "补充积分"),
+    purchaseDescription: copy(
+      "Choose pay as you go or a subscription plan.",
+      "选择按量充值或订阅套餐。"
+    ),
+    topUpTab: copy("Pay as you go", "按量充值"),
+    subscriptionTab: copy("Subscription plans", "订阅套餐"),
+    purchaseError: copy(
+      "This purchase option could not be loaded. Please refresh and try again.",
+      "该购买方式加载失败，请刷新后重试。"
+    ),
+    amount: copy("Amount", "充值金额"),
+    creditsEstimate: copy("Estimated credits", "预计获得积分"),
+    pay: copy("Continue to payment", "前往支付"),
+    invalidAmount: copy(
+      "Enter an amount within the allowed range.",
+      "请输入允许范围内的金额。"
+    ),
+    topUpFailed: copy("Unable to create top-up order", "创建充值订单失败"),
+    monthly: copy("Monthly", "月付"),
+    yearly: copy("Yearly", "年付"),
+    subscribe: copy("Choose plan", "选择套餐"),
+    checkoutFailed: copy(
+      "Unable to start subscription checkout",
+      "无法发起订阅支付"
+    ),
+    unavailable: copy("Currently unavailable", "当前不可购买"),
+    currentPlan: copy("Current plan", "当前套餐"),
+    popular: copy("Popular", "推荐"),
+    paymentNotice: {
+      success: copy(
+        "Payment completed. Your balance or plan may take a moment to update.",
+        "支付已完成，余额或套餐状态可能需要片刻更新。"
+      ),
+      processing: copy(
+        "Payment confirmed and is being processed.",
+        "支付已确认，正在处理中。"
+      ),
+      pending: copy("Payment is still pending.", "支付仍在等待确认。"),
+      fail: copy(
+        "Payment was not completed. No wallet change was made here.",
+        "支付未完成，本页不会据此修改钱包资产。"
+      ),
+      canceled: copy("Payment was canceled.", "支付已取消。"),
+    },
+  };
+}
