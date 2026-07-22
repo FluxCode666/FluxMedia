@@ -32,6 +32,7 @@ packages/ui/       Shadcn/UI 组件（@repo/ui/components/<name>）
 - 不留死代码、被注释掉的代码、墓碑注释或 TODO 假完成；删除即彻底删除。
 - 格式由 Biome 统一（双引号、分号、2 空格、行宽 80）；提交前 `biome lint` 无 error（告警级如 `noNonNullAssertion` 不阻断）。
 - Server Components 优先，`'use client'` 仅在必要处；跨包用 `@repo/*`，包内用 `@/*`；i18n 导航从 `@/i18n/routing` 取。
+- UI 优先复用 `@repo/ui` 中的 shadcn/ui 组件；现有组件无法满足时，先按 shadcn/ui 模式沉淀至 `packages/ui`，禁止在业务页面重复实现或优先引入其他 UI 组件库。
 
 **注释（人类与 LLM 皆可轻易理解）**
 - 每个文件：文件级注释说明职责、使用方、关键依赖。
