@@ -1,3 +1,9 @@
+/**
+ * MCP 工具工厂测试。
+ *
+ * 职责：验证 Admin/User MCP 的注册、schema、白名单与 human-only
+ * 暴露边界，确保人工会话专属 operation 不会进入 Agent 工具列表。
+ */
 import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -8,6 +14,10 @@ import type { AccessRequirement, OperationDefinition } from "../uol/types";
 import { buildAdminMcpTools } from "./tool-factory";
 import { enrichUserMcpToolArguments } from "./user-tool-arguments";
 import { buildUserMcpTools } from "./user-tool-factory";
+
+type TestOperationDefinition = OperationDefinition & {
+  agentExposure?: "human-only";
+};
 
 const apiKeyPrincipal = {
   type: "apiKey",
@@ -24,12 +34,12 @@ const adminPrincipal = {
 } satisfies Principal;
 
 function registerOperation(
-  overrides: Partial<OperationDefinition> & {
+  overrides: Partial<TestOperationDefinition> & {
     name: string;
     access: AccessRequirement;
   }
 ) {
-  return defineOperation({
+  const definition: TestOperationDefinition = {
     name: overrides.name,
     domain: overrides.domain ?? "image-generation",
     title: overrides.title ?? "Test Operation",
@@ -41,12 +51,16 @@ function registerOperation(
     destructive: overrides.destructive ?? false,
     idempotency: overrides.idempotency ?? { kind: "natural" },
     sideEffects: overrides.sideEffects ?? [],
+    ...(overrides.agentExposure
+      ? { agentExposure: overrides.agentExposure }
+      : {}),
     execute:
       overrides.execute ??
       (async () => {
         throw new Error(`Not yet wired: ${overrides.name}`);
       }),
-  });
+  };
+  return defineOperation(definition);
 }
 
 describe("MCP tool factories", () => {
@@ -86,6 +100,29 @@ describe("MCP tool factories", () => {
     expect(buildAdminMcpTools(adminPrincipal).map((tool) => tool.name)).toEqual(
       ["pool_getAdminPool"]
     );
+  });
+
+  it("hides human-only operations from Admin MCP", () => {
+    registerOperation({
+      name: "moderation.setGlobalRiskLevel",
+      domain: "moderation",
+      access: { kind: "admin" },
+      agentExposure: "human-only",
+    });
+    bindExecute("moderation.setGlobalRiskLevel", async () => ({ ok: true }));
+
+    expect(buildAdminMcpTools(adminPrincipal)).toHaveLength(0);
+  });
+
+  it("hides human-only operations from User MCP", () => {
+    registerOperation({
+      name: "image.generate",
+      access: { kind: "protected" },
+      agentExposure: "human-only",
+    });
+    bindExecute("image.generate", async () => ({ ok: true }));
+
+    expect(buildUserMcpTools(apiKeyPrincipal)).toHaveLength(0);
   });
 
   it("preserves analytics unions, enums, defaults, and user-only exposure", () => {

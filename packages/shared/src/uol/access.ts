@@ -8,14 +8,16 @@
  * 关键依赖：types.ts（AccessRequirement）、principal.ts（Principal）、errors.ts
  *
  * 设计决策：
- * - system Principal 始终放行（系统内部调用不受限制）
+ * - 既有 access 类型继续允许 system Principal 兼容内部调用
+ * - roles 类型只接受明确列出的真实 user Principal，system 不得绕过
  * - owner 类操作此处仅验证调用者具有身份（userId），
  *   实际归属校验延迟到 execute 内通过 ctx.assertOwnership 执行
  *   （因为此处尚无资源信息）
  */
-import type { AccessRequirement } from "./types";
-import type { Principal } from "./principal";
+
 import { OperationError } from "./errors";
+import type { Principal } from "./principal";
+import type { AccessRequirement } from "./types";
 
 /**
  * 断言调用者 Principal 满足操作的 AccessRequirement。
@@ -54,6 +56,15 @@ export function assertAccess(
         throw new OperationError(
           "forbidden",
           "This operation requires user authentication"
+        );
+      }
+      return;
+
+    case "roles":
+      if (principal.type !== "user" || !access.roles.includes(principal.role)) {
+        throw new OperationError(
+          "forbidden",
+          "This operation requires an allowed user role"
         );
       }
       return;

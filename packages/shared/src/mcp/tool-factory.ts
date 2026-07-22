@@ -18,6 +18,7 @@
 import type { Principal } from "../uol/principal";
 import { isOperationBound, listOperations } from "../uol/registry";
 import type { AccessRequirement, OperationDefinition } from "../uol/types";
+import { isOperationAgentExposable } from "./agent-exposure";
 import { getMcpDeniedOps, getMcpReadOnlyMode } from "./config";
 import { zodToMcpJsonSchema } from "./json-schema";
 
@@ -81,16 +82,19 @@ export function toolNameToOperationName(toolName: string): string {
  * 判断操作是否可通过 MCP Admin 暴露。
  *
  * 过滤条件：
- * 1. access.kind 在白名单中
- * 2. domain 不在排除列表中
- * 3. 不在 denied ops 列表中
- * 4. 只读模式下仅暴露 readOnly=true 的操作
+ * 1. operation 未标记为 human-only
+ * 2. access.kind 在白名单中
+ * 3. domain 不在排除列表中
+ * 4. 不在 denied ops 列表中
+ * 5. 只读模式下仅暴露 readOnly=true 的操作
  */
 function isOperationExposable(
   op: OperationDefinition,
   deniedOps: string[],
   readOnlyMode: boolean
 ): boolean {
+  if (!isOperationAgentExposable(op)) return false;
+
   // 权限白名单过滤
   if (!ALLOWED_ACCESS_KINDS.has(op.access.kind)) return false;
 

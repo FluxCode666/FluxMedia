@@ -16,6 +16,7 @@
 import type { Principal } from "../uol/principal";
 import { getOperation, isOperationBound } from "../uol/registry";
 import type { OperationDefinition } from "../uol/types";
+import { isOperationAgentExposable } from "./agent-exposure";
 import { zodToMcpJsonSchema } from "./json-schema";
 
 /**
@@ -92,6 +93,7 @@ export function buildUserMcpTools(principal: Principal): McpToolDescriptor[] {
   for (const opName of USER_MCP_ALLOWED_OPERATIONS) {
     const def: OperationDefinition | undefined = getOperation(opName);
     if (!def) continue;
+    if (!isOperationAgentExposable(def)) continue;
     if (!isOperationBound(opName)) continue;
 
     // 基本 access 校验：apiKey 和 protected 类型操作对 MCP user 均可

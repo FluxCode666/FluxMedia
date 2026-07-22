@@ -1,9 +1,15 @@
-import { describe, it, expect } from "vitest";
+/**
+ * UOL 访问控制测试。
+ *
+ * 职责：覆盖每种 AccessRequirement 与 Principal 的允许/拒绝矩阵，
+ * 尤其验证角色集合只接受真实用户会话，不能被 system 或 API Key 绕过。
+ */
+import { describe, expect, it } from "vitest";
 
 import { assertAccess } from "../access";
 import { OperationError } from "../errors";
-import type { AccessRequirement } from "../types";
 import type { Principal } from "../principal";
+import type { AccessRequirement } from "../types";
 
 /** 各类型 Principal 的测试固定值 */
 const principals = {
@@ -112,6 +118,50 @@ describe("UOL Access Control (assertAccess)", () => {
       expect(() => assertAccess(access, principals.system)).toThrow(
         OperationError
       );
+    });
+  });
+
+  describe("roles", () => {
+    const readAccess: AccessRequirement = {
+      kind: "roles",
+      roles: ["observer_admin", "admin", "super_admin"],
+    };
+    const writeAccess: AccessRequirement = {
+      kind: "roles",
+      roles: ["admin", "super_admin"],
+    };
+
+    it("allows only listed user roles", () => {
+      expect(() =>
+        assertAccess(readAccess, principals.observerAdmin)
+      ).not.toThrow();
+      expect(() => assertAccess(writeAccess, principals.admin)).not.toThrow();
+      expect(() =>
+        assertAccess(writeAccess, principals.superAdmin)
+      ).not.toThrow();
+    });
+
+    it("rejects user roles outside the list", () => {
+      expect(() => assertAccess(writeAccess, principals.user)).toThrow(
+        OperationError
+      );
+      expect(() => assertAccess(writeAccess, principals.observerAdmin)).toThrow(
+        OperationError
+      );
+    });
+
+    it("rejects every non-user principal, including system", () => {
+      for (const principal of [
+        principals.apiKey,
+        principals.system,
+        principals.cron,
+        principals.webhookCreem,
+        principals.proxy,
+      ]) {
+        expect(() => assertAccess(writeAccess, principal)).toThrow(
+          OperationError
+        );
+      }
     });
   });
 
@@ -384,7 +434,7 @@ describe("UOL Access Control (assertAccess)", () => {
     });
   });
 
-  describe("system principal bypasses all access checks", () => {
+  describe("system principal keeps legacy access bypasses", () => {
     const allAccessKinds: AccessRequirement[] = [
       { kind: "public" },
       { kind: "protected" },

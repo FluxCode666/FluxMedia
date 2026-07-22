@@ -102,6 +102,7 @@ describe("POST /api/mcp/user wallet isolation", () => {
     expect(names).toEqual(["externalApi.getModels"]);
     expect(names).not.toEqual(
       expect.arrayContaining([
+        "externalApi.createKey",
         "credits.getMyBalance",
         "credits.listMyUsageEvents",
         "credits.getMyUsageEventDetail",
@@ -109,6 +110,20 @@ describe("POST /api/mcp/user wallet isolation", () => {
         "subscription.createCheckout",
       ])
     );
+  });
+
+  it("rejects direct calls to a human-only API key operation", async () => {
+    const name = "externalApi.createKey";
+    const response = await POST(
+      createRpcRequest("tools/call", { name, arguments: {} })
+    );
+    const body = await response.json();
+
+    expect(body.error).toMatchObject({
+      code: -32601,
+      message: `Tool not available: ${name}`,
+    });
+    expect(mocks.invokeOperation).not.toHaveBeenCalled();
   });
 
   it.each([

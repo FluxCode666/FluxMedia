@@ -9,6 +9,7 @@
  */
 import type { z } from "zod";
 
+import type { AppUserRole } from "../auth/roles";
 import type { Principal } from "./principal";
 
 /**
@@ -35,6 +36,7 @@ export type OperationDomain =
  * - public: 无需身份
  * - protected: 需登录用户或 API key
  * - owner: 需资源归属校验（延迟到 execute 内由 ctx.assertOwnership 执行）
+ * - roles: 仅允许明确列出的真实用户角色，不接受任何非用户 Principal
  * - admin / superAdmin / imageBackendPoolViewer: 管理角色要求
  * - apiKey: 仅 API key 可调用（plan capability 进一步细化在 capabilities 字段）
  * - cron / webhook / proxySecret / system: 非用户身份的内部/外部调用者
@@ -44,6 +46,7 @@ export type AccessRequirement =
   | { kind: "user" }
   | { kind: "protected" }
   | { kind: "owner"; resource: string }
+  | { kind: "roles"; roles: AppUserRole[] }
   | { kind: "admin" }
   | { kind: "superAdmin" }
   | { kind: "imageBackendPoolViewer" }
@@ -113,6 +116,7 @@ export interface OperationContext {
  * - description: 详细描述（面向 agent / 文档）
  * - input / output: Zod schema 提供运行时校验与类型推导
  * - access: 声明式权限要求
+ * - agentExposure: human-only 表示仅供站内人工会话，禁止投影为 Agent 工具
  * - capabilities: 可选套餐能力位要求
  * - readOnly: true 表示纯读操作（GET 语义），不改变系统状态
  * - destructive: true 表示不可逆操作（删除、封禁等），agent 应二次确认
@@ -130,6 +134,7 @@ export interface OperationDefinition<TInput = unknown, TOutput = unknown> {
   input: z.ZodType<TInput>;
   output: z.ZodType<TOutput>;
   access: AccessRequirement;
+  agentExposure?: "human-only";
   capabilities?: CapabilityRequirement[];
   readOnly: boolean;
   destructive: boolean;
