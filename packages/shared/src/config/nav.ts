@@ -7,7 +7,6 @@ import {
   GalleryHorizontalEnd,
   Headset,
   Image,
-  ImagePlus,
   Layers,
   LayoutDashboard,
   Megaphone,
@@ -156,11 +155,6 @@ export const dashboardNav: NavGroup[] = [
         title: "Dashboard",
         href: "/dashboard",
         icon: LayoutDashboard,
-      },
-      {
-        title: "Create",
-        href: "/dashboard/create",
-        icon: ImagePlus,
       },
       {
         title: "Gallery",
