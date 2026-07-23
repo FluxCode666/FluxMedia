@@ -153,22 +153,25 @@ bindExecute(
       count?: number;
       generationId?: string;
       backendGroupId?: string;
-      relayOnly?: boolean;
       extra?: Record<string, unknown>;
     },
-    _principal: Principal,
+    principal: Principal,
     _ctx: OperationContext
   ) => {
+    const userId = getPrincipalUserId(principal);
+    if (!userId) {
+      throw new OperationError("forbidden", "User identity required");
+    }
+
     const result = await runImageGenerationForUser({
       mode: "generate",
-      userId: input.userId,
+      userId,
       prompt: input.prompt,
       model: input.model,
       size: input.size,
       quality: input.quality as ImageQuality | undefined,
       n: input.count,
       generationId: input.generationId,
-      relayOnly: input.relayOnly,
     });
 
     if (result.error) {

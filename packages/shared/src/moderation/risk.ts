@@ -1,14 +1,18 @@
-// 内容审核的纯逻辑工具：阿里云风险等级判定与文本分块。
-// 职责：把不依赖运行时设置（即不 import '../system-settings' → @repo/database）
-// 的纯函数集中于此，使其可在 DB-free 的 vitest 中直接单测。
-// 使用方：moderation/index.ts（re-export 并在阿里云审核分支调用）。
+/**
+ * 内容审核的纯逻辑工具。
+ *
+ * 职责：集中阿里云风险等级判定与文本分块，使其可在 DB-free 测试中验证。
+ * 使用方：moderation/index.ts 的阿里云审核分支。
+ * 关键依赖：policy-contract 提供管理员策略允许的拦截阈值类型。
+ */
+import type { ModerationBlockRiskLevel } from "./policy-contract";
 
 export type AliyunRiskLevel = "none" | "low" | "medium" | "high";
 
 // 阿里云单次内容审核的最大字符数，超出需分块提交。
 export const ALIYUN_MAX_CONTENT_LENGTH = 2000;
 
-// 风险等级权重，数值越大风险越高，用于与套餐拦截阈值比较。
+// 风险等级权重，数值越大风险越高，用于与可信生效阈值比较。
 export const ALIYUN_RISK_ORDER: Record<AliyunRiskLevel, number> = {
   none: 0,
   low: 1,
@@ -16,17 +20,14 @@ export const ALIYUN_RISK_ORDER: Record<AliyunRiskLevel, number> = {
   high: 3,
 };
 
-// 未显式提供套餐时的默认拦截阈值。
-export const DEFAULT_MODERATION_BLOCK_RISK_LEVEL: AliyunRiskLevel = "low";
-
 // 判断某条阿里云审核结果是否应拦截。
 // 边界与失败模式：
 // - riskLevel 非 string 视为无效，返回 false（不拦截，由上层错误处理兜底）。
 // - 未知标签按"非 pass 即拦截"处理（fail-closed：默认拦截未识别的风险）。
-// - 已知标签按 ALIYUN_RISK_ORDER 与套餐 blockRiskLevel 阈值比较，达到即拦截。
+// - 已知标签按 ALIYUN_RISK_ORDER 与管理员生效阈值比较，达到即拦截。
 export function shouldBlockAliyunRisk(
   riskLevel: unknown,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): boolean {
   if (typeof riskLevel !== "string") return false;
   const normalized = riskLevel.toLowerCase();

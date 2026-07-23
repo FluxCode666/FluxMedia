@@ -58,7 +58,6 @@ describe("external models handler", () => {
       userId: "user_1",
       apiKeyId: "key_1",
       plan: "starter",
-      relayOnly: false,
     });
     mocks.ensureUolInitialized.mockResolvedValue(undefined);
     mocks.invokeOperation.mockResolvedValue({
@@ -99,7 +98,6 @@ describe("external models handler", () => {
         userId: "user_1",
         apiKeyId: "key_1",
         plan: "starter",
-        relayOnly: false,
       }
     );
   });

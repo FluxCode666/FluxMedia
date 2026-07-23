@@ -146,7 +146,6 @@ export function createOutputUsageEventStore(
 
 type CompleteImageGenerationInput = {
   generationId: string;
-  relayOnly: boolean;
   update: Omit<PgUpdateSetSource<typeof generation>, "status">;
   output:
     | { kind: "image"; imageCount: number }
@@ -159,16 +158,13 @@ type CompleteImageGenerationInput = {
 /**
  * 完成一条图片 generation，并在有持久化图片时写入用量事件。
  *
- * @param input completed 字段、明确图片计数或合法零产物原因，以及 relay-only 边界。
+ * @param input completed 字段、明确图片计数或合法零产物原因。
  * @returns 是否首次从 pending 完成，以及是否插入事件。
- * @throws 权威更新或读模型写入失败；事务整体回滚。relay-only 不访问数据库。
+ * @throws 权威更新或读模型写入失败；事务整体回滚。
  */
 export async function completeImageGenerationWithUsage(
   input: CompleteImageGenerationInput
 ): Promise<OutputUsageCompletionResult> {
-  if (input.relayOnly) {
-    return { completed: false, eventInserted: false };
-  }
   return db.transaction(async (tx) => {
     const [completed] = await tx
       .update(generation)

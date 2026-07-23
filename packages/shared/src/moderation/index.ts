@@ -6,11 +6,6 @@ import Green20220302Module, {
 import { Config as AliyunOpenApiConfig } from "@alicloud/openapi-client";
 import { RuntimeOptions as AliyunRuntimeOptions } from "@alicloud/tea-util";
 import OpenAI from "openai";
-import type {
-  ModerationBlockRiskLevel,
-  SubscriptionPlan,
-} from "../config/subscription-plan";
-import { normalizePlanModerationBlockRiskLevel } from "../subscription/services/plan-capabilities";
 import { logError, logWarn } from "../logger";
 import {
   getRuntimeSettingBoolean,
@@ -18,17 +13,18 @@ import {
   getRuntimeSettingString,
 } from "../system-settings";
 import {
-  type AliyunRiskLevel,
-  DEFAULT_MODERATION_BLOCK_RISK_LEVEL,
   getContentChunks,
   shouldBlockAliyunRisk,
 } from "./risk";
+import {
+  type ModerationBlockRiskLevel,
+  moderationBlockRiskLevelSchema,
+} from "./policy-contract";
 
 // 纯逻辑工具从 ./risk re-export，便于在 DB-free 单测中直接引用。
 export {
   ALIYUN_MAX_CONTENT_LENGTH,
   ALIYUN_RISK_ORDER,
-  DEFAULT_MODERATION_BLOCK_RISK_LEVEL,
   getContentChunks,
   shouldBlockAliyunRisk,
 } from "./risk";
@@ -57,8 +53,7 @@ export interface ModerateContentInput {
   images?: ModerationImageInput[];
   mode?: ModerationMode;
   userId?: string;
-  userPlan?: SubscriptionPlan;
-  userModerationBlockRiskLevel?: ModerationBlockRiskLevel;
+  effectiveBlockRiskLevel: ModerationBlockRiskLevel;
   generationId?: string;
   skipProxy?: boolean;
 }
@@ -182,20 +177,6 @@ async function getProviderTimeoutMs() {
     "CONTENT_MODERATION_PROVIDER_TIMEOUT_MS",
     10_000,
     { positive: true }
-  );
-}
-
-async function getEffectiveAliyunBlockRiskLevel(
-  userPlan?: SubscriptionPlan,
-  userModerationBlockRiskLevel?: ModerationBlockRiskLevel
-): Promise<AliyunRiskLevel> {
-  if (!userPlan) {
-    return DEFAULT_MODERATION_BLOCK_RISK_LEVEL;
-  }
-
-  return await normalizePlanModerationBlockRiskLevel(
-    userPlan,
-    userModerationBlockRiskLevel
   );
 }
 
@@ -341,7 +322,7 @@ async function moderateWithAliyunAgent(
   input: ModerateContentInput,
   content: string,
   imageUrl: string | undefined,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): Promise<ModerationResult> {
   const response = await client.multiModalAgentWithOptions(
     new MultiModalAgentRequest({
@@ -377,7 +358,7 @@ async function moderateWithAliyunTextAgent(
   config: AliyunConfig,
   appId: string,
   input: ModerateContentInput,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): Promise<ModerationResult> {
   for (const content of getContentChunks(input.prompt)) {
     const result = await moderateWithAliyunAgent(
@@ -402,7 +383,7 @@ async function moderateWithAliyunTextPlus(
   config: AliyunConfig,
   service: string,
   input: ModerateContentInput,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): Promise<ModerationResult> {
   for (const content of getContentChunks(input.prompt)) {
     const response = await client.textModerationPlusWithOptions(
@@ -448,7 +429,7 @@ async function moderateWithAliyunImageAgent(
   config: AliyunConfig,
   appId: string,
   input: ModerateContentInput,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): Promise<ModerationResult> {
   if (!input.images?.length) {
     throw new Error("Aliyun image moderation requires an image");
@@ -483,7 +464,7 @@ async function moderateWithAliyunImageModeration(
   config: AliyunConfig,
   service: string,
   input: ModerateContentInput,
-  blockRiskLevel: AliyunRiskLevel
+  blockRiskLevel: ModerationBlockRiskLevel
 ): Promise<ModerationResult> {
   if (!input.images?.length) {
     throw new Error("Aliyun image moderation requires an image");
@@ -535,10 +516,7 @@ async function moderateWithAliyun(
   }
 
   const isImageMode = input.mode === "image" || Boolean(input.images?.length);
-  const blockRiskLevel = await getEffectiveAliyunBlockRiskLevel(
-    input.userPlan,
-    input.userModerationBlockRiskLevel
-  );
+  const blockRiskLevel = input.effectiveBlockRiskLevel;
 
   if (!isImageMode && config.textService) {
     return moderateWithAliyunTextPlus(
@@ -654,8 +632,7 @@ async function moderateWithProxy(
         prompt: input.prompt,
         mode: input.mode,
         userId: input.userId,
-        userPlan: input.userPlan,
-        userModerationBlockRiskLevel: input.userModerationBlockRiskLevel,
+        effectiveBlockRiskLevel: input.effectiveBlockRiskLevel,
         generationId: input.generationId,
         images: (input.images || []).map((image) => ({
           name: image.name,
@@ -690,6 +667,8 @@ async function moderateWithProxy(
 export async function moderateContent(
   input: ModerateContentInput
 ): Promise<ModerationResult> {
+  moderationBlockRiskLevelSchema.parse(input.effectiveBlockRiskLevel);
+
   if (!(await isContentModerationEnabled())) {
     return { decision: "skipped" };
   }

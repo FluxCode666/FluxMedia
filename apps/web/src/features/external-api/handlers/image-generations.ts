@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { withApiLogging } from "@repo/shared/api-logger";
 import {
-  MAX_PLAN_BATCH_COUNT,
   canUsePlanCapability,
   getPlanLimits,
+  MAX_PLAN_BATCH_COUNT,
 } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import type { NextRequest } from "next/server";
@@ -17,6 +17,7 @@ import {
   validateCallbackUrl,
 } from "@/features/external-api/async-image-tasks";
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
+import { createDeprecatedGovernanceFieldResponse } from "@/features/external-api/deprecated-governance-fields";
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
@@ -184,6 +185,12 @@ export const postExternalImageGenerations = withApiLogging(
       return openAIImageError("Invalid JSON body");
     }
 
+    const deprecatedFieldResponse =
+      createDeprecatedGovernanceFieldResponse(body);
+    if (deprecatedFieldResponse) {
+      return deprecatedFieldResponse;
+    }
+
     const parsed = externalImageGenerationSchema.safeParse(body);
     if (!parsed.success) {
       return openAIImageError(
@@ -252,14 +259,12 @@ export const postExternalImageGenerations = withApiLogging(
       mode: "generate" as const,
       userId: auth.userId,
       apiKeyId: auth.apiKeyId,
-      relayOnly: auth.relayOnly,
       backendRequestKind: "image_generation" as const,
       prompt: parsed.data.prompt,
       promptOptimization:
         parsed.data.promptOptimization ?? parsed.data.prompt_optimization,
       moderationPromptRepair:
         parsed.data.promptRepair ?? parsed.data.prompt_repair,
-      moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
       model: imageModel,
       gptModel: parsed.data.gptModel || parsed.data.gpt_model,

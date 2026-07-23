@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   authenticateMcpUserKey: vi.fn(),
   bindMcpUserAuth: vi.fn(),
   buildUserMcpTools: vi.fn(),
+  enrichUserMcpToolArguments: vi.fn(),
   ensureUolInitialized: vi.fn(),
   invokeOperation: vi.fn(),
 }));
@@ -23,8 +24,7 @@ vi.mock("@repo/shared/mcp", () => ({
   authenticateMcpUserKey: mocks.authenticateMcpUserKey,
   bindMcpUserAuth: mocks.bindMcpUserAuth,
   buildUserMcpTools: mocks.buildUserMcpTools,
-  enrichUserMcpToolArguments: (_name: string, args: Record<string, unknown>) =>
-    args,
+  enrichUserMcpToolArguments: mocks.enrichUserMcpToolArguments,
   isMcpUserEnabled: () => true,
   McpAuthError: class McpAuthError extends Error {
     readonly httpStatus = 401;
@@ -55,7 +55,6 @@ const principal = {
   userId: "user-1",
   apiKeyId: "mcp-key-1",
   plan: "pro",
-  relayOnly: false,
 };
 
 /** 构造已鉴权 JSON-RPC 请求；鉴权结果由测试替身提供。 */
@@ -91,6 +90,21 @@ describe("POST /api/mcp/user wallet isolation", () => {
     ]);
     mocks.ensureUolInitialized.mockReset().mockResolvedValue(undefined);
     mocks.invokeOperation.mockReset();
+    mocks.enrichUserMcpToolArguments
+      .mockReset()
+      .mockImplementation(
+        (
+          name: string,
+          args: Record<string, unknown>,
+          authenticatedPrincipal: typeof principal
+        ) => {
+          if (name === "image.generate") {
+            const { userId: _discardedUserId, ...identityFreeArgs } = args;
+            return identityFreeArgs;
+          }
+          return { ...args, userId: authenticatedPrincipal.userId };
+        }
+      );
   });
 
   it("omits session-only wallet and usage operations from tools/list", async () => {
@@ -124,6 +138,49 @@ describe("POST /api/mcp/user wallet isolation", () => {
       message: `Tool not available: ${name}`,
     });
     expect(mocks.invokeOperation).not.toHaveBeenCalled();
+  });
+
+  it("passes image.generate identity only through Principal", async () => {
+    mocks.buildUserMcpTools.mockReturnValue([
+      {
+        name: "image.generate",
+        description: "generate",
+        inputSchema: {
+          type: "object",
+          properties: { prompt: { type: "string" } },
+        },
+        annotations: {
+          readOnly: false,
+          destructive: false,
+          sideEffects: ["billing", "storage", "external-call"],
+          domain: "image-generation",
+        },
+      },
+    ]);
+    mocks.invokeOperation.mockResolvedValue({ generationId: "generation-1" });
+
+    const response = await POST(
+      createRpcRequest("tools/call", {
+        name: "image.generate",
+        arguments: {
+          userId: "another-user",
+          prompt: "a test image",
+          relayOnly: true,
+          moderationBlockRiskLevel: "low",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.invokeOperation).toHaveBeenCalledWith(
+      "image.generate",
+      {
+        prompt: "a test image",
+        relayOnly: true,
+        moderationBlockRiskLevel: "low",
+      },
+      principal
+    );
   });
 
   it.each([

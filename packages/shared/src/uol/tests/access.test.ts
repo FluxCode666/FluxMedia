@@ -38,7 +38,6 @@ const principals = {
     userId: "u5",
     apiKeyId: "k1",
     plan: "pro",
-    relayOnly: false,
   } as Principal,
   system: {
     type: "system",

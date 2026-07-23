@@ -28,18 +28,8 @@ const imageEvent = {
 } satisfies OutputUsageEvent;
 
 describe("output usage read model", () => {
-  it("keeps relay-only outside the database and fixes completed status internally", async () => {
+  it("always completes image generation inside a database transaction", async () => {
     databaseMocks.transaction.mockClear();
-    await expect(
-      completeImageGenerationWithUsage({
-        generationId: "relay-1",
-        relayOnly: true,
-        output: { kind: "image", imageCount: 1 },
-        update: { storageKey: "not-persisted.png" },
-      })
-    ).resolves.toEqual({ completed: false, eventInserted: false });
-    expect(databaseMocks.transaction).not.toHaveBeenCalled();
-
     const returning = vi.fn().mockResolvedValue([
       {
         id: "chat-1",
@@ -59,11 +49,11 @@ describe("output usage read model", () => {
     await expect(
       completeImageGenerationWithUsage({
         generationId: "chat-1",
-        relayOnly: false,
         output: { kind: "none", reason: "chatTextOnly" },
         update: { completedAt: new Date("2026-07-21T00:20:00.000Z") },
       })
     ).resolves.toEqual({ completed: true, eventInserted: false });
+    expect(databaseMocks.transaction).toHaveBeenCalledOnce();
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ status: "completed" })
     );

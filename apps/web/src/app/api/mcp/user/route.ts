@@ -106,7 +106,6 @@ bindMcpUserAuth(async (authHeader: string): Promise<Principal> => {
     userId: record.userId,
     apiKeyId: record.id,
     plan: plan.plan,
-    relayOnly: false,
   };
 });
 

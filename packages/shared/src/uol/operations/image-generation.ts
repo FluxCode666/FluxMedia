@@ -21,6 +21,24 @@ import {
 } from "../../image-generation/history-contract";
 import { defineOperation } from "../registry";
 
+/** image.generate 的传输无关输入契约；身份和治理策略均不由客户端提供。 */
+export const imageGenerateInputSchema = z
+  .object({
+    prompt: z.string(),
+    negativePrompt: z.string().optional(),
+    model: z.string().optional(),
+    size: z.string().optional(),
+    quality: z.string().optional(),
+    style: z.string().optional(),
+    count: z.number().int().positive().optional(),
+    generationId: z.string().optional(),
+    /** 后端组偏好 */
+    backendGroupId: z.string().optional(),
+    /** 不透明扩展参数（edit/chat 模式附加字段） */
+    extra: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // 1. image.generate - 统一管线核心（runImageGenerationForUser）
 // 5 个 v1 handler + 3 个 web 路由汇入的单一生图入口
@@ -33,23 +51,7 @@ defineOperation({
     "统一图像生成管线核心。接受 prompt/参数，执行扣费、外呼生图后端、" +
     "存储结果、审核。所有传输层（v1 API / Server Action / Web 路由）" +
     "最终汇入此操作。",
-  input: z.object({
-    userId: z.string(),
-    prompt: z.string(),
-    negativePrompt: z.string().optional(),
-    model: z.string().optional(),
-    size: z.string().optional(),
-    quality: z.string().optional(),
-    style: z.string().optional(),
-    count: z.number().int().positive().optional(),
-    generationId: z.string().optional(),
-    /** 后端组偏好 */
-    backendGroupId: z.string().optional(),
-    /** 纯中转模式（不落库用户数据） */
-    relayOnly: z.boolean().optional(),
-    /** 不透明扩展参数（edit/chat 模式附加字段） */
-    extra: z.record(z.string(), z.unknown()).optional(),
-  }),
+  input: imageGenerateInputSchema,
   output: z.object({
     generationId: z.string(),
     images: z.array(

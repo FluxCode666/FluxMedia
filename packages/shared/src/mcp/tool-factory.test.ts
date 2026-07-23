@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { usageTrendsInputSchema } from "../analytics/contracts";
+import { imageGenerateInputSchema } from "../uol/operations/image-generation";
 import type { Principal } from "../uol/principal";
 import { bindExecute, clearRegistry, defineOperation } from "../uol/registry";
 import type { AccessRequirement, OperationDefinition } from "../uol/types";
@@ -24,7 +25,6 @@ const apiKeyPrincipal = {
   userId: "user-1",
   apiKeyId: "key-1",
   plan: "pro",
-  relayOnly: false,
 } satisfies Principal;
 
 const adminPrincipal = {
@@ -170,6 +170,47 @@ describe("MCP tool factories", () => {
         apiKeyPrincipal
       )
     ).toEqual({ userId: "user-1", page: 2 });
+  });
+
+  it("keeps image.generate identity principal-only without dropping governance fields", () => {
+    expect(
+      enrichUserMcpToolArguments(
+        "image.generate",
+        {
+          userId: "another-user",
+          prompt: "a test image",
+          relayOnly: true,
+          moderationBlockRiskLevel: "low",
+        },
+        apiKeyPrincipal
+      )
+    ).toEqual({
+      prompt: "a test image",
+      relayOnly: true,
+      moderationBlockRiskLevel: "low",
+    });
+  });
+
+  it("projects image.generate schema without identity or governance overrides", () => {
+    registerOperation({
+      name: "image.generate",
+      access: { kind: "protected" },
+      input: imageGenerateInputSchema,
+    });
+    bindExecute("image.generate", async () => ({ ok: true }));
+
+    const [tool] = buildUserMcpTools(apiKeyPrincipal);
+    const properties = tool?.inputSchema.properties as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(properties).toBeDefined();
+    expect(Object.hasOwn(properties ?? {}, "userId")).toBe(false);
+    expect(Object.hasOwn(properties ?? {}, "relayOnly")).toBe(false);
+    expect(Object.hasOwn(properties ?? {}, "relay_only")).toBe(false);
+    expect(Object.hasOwn(properties ?? {}, "moderationBlockRiskLevel")).toBe(
+      false
+    );
   });
 
   it.each([

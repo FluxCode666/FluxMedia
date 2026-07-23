@@ -1,30 +1,31 @@
 import { withApiLogging } from "@repo/shared/api-logger";
 import {
-  MAX_PLAN_BATCH_COUNT,
   canUsePlanCapability,
   getPlanLimits,
+  MAX_PLAN_BATCH_COUNT,
 } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
-import {
-  fetchPublicImage,
-  readResponseBytesWithLimit,
-} from "@/features/external-api/safe-image-fetch";
+import { createDeprecatedGovernanceFieldResponse } from "@/features/external-api/deprecated-governance-fields";
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
-  toExternalErrorStreamData,
   getExternalFinalImageOutputs,
   getImageBase64,
   getPublicImageUrl,
   openAIImageError,
+  toExternalErrorStreamData,
   toExternalGenerationUsage,
   toLoggedOpenAIErrorPayload,
   wantsImageStreamResponse,
 } from "@/features/external-api/images";
+import {
+  fetchPublicImage,
+  readResponseBytesWithLimit,
+} from "@/features/external-api/safe-image-fetch";
 import { runBatchImageGeneration } from "@/features/image-generation/batch-runner";
 import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import {
@@ -48,8 +49,8 @@ import type {
 
 import {
   buildChatCompletionAssistantContent,
-  chatCompletionMessagesToChatParams,
   type ChatCompletionImageData,
+  chatCompletionMessagesToChatParams,
 } from "./chat-completions-utils";
 
 const chatCompletionContentPartSchema = z
@@ -375,6 +376,12 @@ export const postExternalChatCompletions = withApiLogging(
       return openAIImageError("Invalid JSON body");
     }
 
+    const deprecatedFieldResponse =
+      createDeprecatedGovernanceFieldResponse(body);
+    if (deprecatedFieldResponse) {
+      return deprecatedFieldResponse;
+    }
+
     const parsed = chatCompletionSchema.safeParse(body);
     if (!parsed.success) {
       return openAIImageError(
@@ -466,7 +473,6 @@ export const postExternalChatCompletions = withApiLogging(
       mode: "chat" as const,
       userId: auth.userId,
       apiKeyId: auth.apiKeyId,
-      relayOnly: auth.relayOnly,
       backendRequestKind: "chat" as const,
       prompt,
       apiPrompt,
@@ -478,7 +484,6 @@ export const postExternalChatCompletions = withApiLogging(
       history,
       maxChatContextChars: limits.maxChatContextChars,
       images,
-      moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
       model: topLevelModelIsImage ? undefined : parsed.data.model,
       imageModel: imageModel || undefined,

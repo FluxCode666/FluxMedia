@@ -18,6 +18,7 @@ import {
   validateCallbackUrl,
 } from "@/features/external-api/async-image-tasks";
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
+import { createDeprecatedGovernanceFieldResponse } from "@/features/external-api/deprecated-governance-fields";
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
@@ -551,6 +552,11 @@ export const postExternalImageEdits = withApiLogging(
       const contentType = request.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         const body = (await request.json()) as unknown;
+        const deprecatedFieldResponse =
+          createDeprecatedGovernanceFieldResponse(body);
+        if (deprecatedFieldResponse) {
+          return deprecatedFieldResponse;
+        }
         if (!isPlainRecord(body)) {
           return openAIImageError("Request body must be a JSON object.");
         }
@@ -559,6 +565,11 @@ export const postExternalImageEdits = withApiLogging(
         maskReference = getJsonMaskReference(body);
       } else {
         formData = await request.formData();
+        const deprecatedFieldResponse =
+          createDeprecatedGovernanceFieldResponse(formData);
+        if (deprecatedFieldResponse) {
+          return deprecatedFieldResponse;
+        }
         imageReferences = getFormImageReferences(formData);
         maskReference = getFormMaskReference(formData);
       }
@@ -782,12 +793,10 @@ export const postExternalImageEdits = withApiLogging(
             userId: auth.userId,
             generationId,
             apiKeyId: auth.apiKeyId,
-            relayOnly: auth.relayOnly,
             backendRequestKind: "image_edit" as const,
             prompt,
             promptOptimization,
             moderationPromptRepair,
-            moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
             size,
             model,
             gptModel,

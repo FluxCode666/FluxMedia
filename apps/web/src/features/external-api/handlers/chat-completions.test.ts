@@ -59,7 +59,6 @@ describe("external chat completions handler streaming bridge", () => {
     mocks.authenticateExternalApiRequest.mockResolvedValue({
       userId: "user_1",
       apiKeyId: "key_1",
-      moderationBlockRiskLevel: undefined,
     });
     mocks.getUserPlan.mockResolvedValue({ plan: "ultra" });
     mocks.canUsePlanCapability.mockResolvedValue(true);

@@ -12,6 +12,7 @@ import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import type { NextRequest } from "next/server";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
+import { createDeprecatedGovernanceFieldResponse } from "@/features/external-api/deprecated-governance-fields";
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
@@ -899,6 +900,11 @@ export const postExternalAgentImages = withApiLogging(
         } catch {
           return openAIImageError("Invalid JSON body.");
         }
+        const deprecatedFieldResponse =
+          createDeprecatedGovernanceFieldResponse(body);
+        if (deprecatedFieldResponse) {
+          return deprecatedFieldResponse;
+        }
         if (!isRecord(body)) {
           return openAIImageError("Request body must be a JSON object.");
         }
@@ -906,6 +912,11 @@ export const postExternalAgentImages = withApiLogging(
         imageReferences = getJsonImageReferences(body);
       } else {
         formData = await request.formData();
+        const deprecatedFieldResponse =
+          createDeprecatedGovernanceFieldResponse(formData);
+        if (deprecatedFieldResponse) {
+          return deprecatedFieldResponse;
+        }
         imageReferences = getFormImageReferences(formData);
       }
     } catch (error) {
@@ -1061,7 +1072,8 @@ export const postExternalAgentImages = withApiLogging(
       return openAIImageError("history must be valid JSON.");
     }
     const preferredBackendMember = getPreferredBackendMember(history);
-    const stickyPreviousResponseId = getLatestResponsesPreviousResponseId(history);
+    const stickyPreviousResponseId =
+      getLatestResponsesPreviousResponseId(history);
 
     const attachmentFiles = getAttachmentFiles(formData);
     if (
@@ -1159,7 +1171,6 @@ export const postExternalAgentImages = withApiLogging(
             userId: auth.userId,
             generationId: randomUUID(),
             apiKeyId: auth.apiKeyId,
-            relayOnly: auth.relayOnly,
             prompt,
             apiPrompt,
             fileContext,

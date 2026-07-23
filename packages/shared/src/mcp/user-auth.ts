@@ -32,7 +32,7 @@ export class McpAuthError extends Error {
  * MCP User 鉴权函数签名。
  *
  * @param authHeader - 完整的 Authorization 头值（如 "Bearer mcp_xxx..."）
- * @returns Principal（type: "apiKey"，relayOnly 始终为 false）
+ * @returns Principal（type: "apiKey"，不携带客户端可控治理字段）
  * @throws McpAuthError 鉴权失败时
  */
 export type AuthenticateMcpUserKeyFn = (
@@ -69,7 +69,7 @@ export function bindMcpUserAuth(fn: AuthenticateMcpUserKeyFn): void {
  * 验证 key 有效性与用户状态，返回 Principal。
  *
  * @param authHeader - 完整的 Authorization 头值
- * @returns Principal { type: "apiKey", userId, apiKeyId, plan, relayOnly: false }
+ * @returns Principal { type: "apiKey", userId, apiKeyId, plan }
  * @throws McpAuthError 无效 token / key 已禁用 / 用户被封禁
  */
 export async function authenticateMcpUserKey(

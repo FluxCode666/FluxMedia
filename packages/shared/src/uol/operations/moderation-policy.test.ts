@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { moderateContent as moderateContentFn } from "../../moderation/index";
 import type { ResolvedModerationPolicyValues } from "../../moderation/policy-contract";
 import {
   ModerationPolicyServiceError,
@@ -21,6 +22,8 @@ import type { Principal } from "../principal";
 import {
   getGlobalRiskPolicy,
   getUserRiskPolicy,
+  moderateContent as moderateContentOperation,
+  proxyModerate,
   resolveEffectiveRiskLevel,
   setGlobalRiskLevel,
   setUserRiskLevelOverride,
@@ -80,7 +83,6 @@ const principals = {
     userId: "user-1",
     apiKeyId: "key-1",
     plan: "pro",
-    relayOnly: false,
   },
   system: { type: "system", reason: "generation" },
 } satisfies Record<string, Principal>;
@@ -134,6 +136,7 @@ async function expectOperationError(
 }
 
 beforeEach(() => {
+  vi.mocked(moderateContentFn).mockClear();
   vi.mocked(moderationPolicyService.getGlobalPolicy).mockReset();
   vi.mocked(moderationPolicyService.getUserPolicy).mockReset();
   vi.mocked(moderationPolicyService.resolveEffectivePolicy).mockReset();
@@ -155,6 +158,60 @@ beforeEach(() => {
   vi.mocked(moderationPolicyService.setUserRiskLevelOverride).mockResolvedValue(
     userWriteResult
   );
+});
+
+describe("moderation execution input schemas", () => {
+  it("accepts only a legal trusted effective level", () => {
+    const validInput = { prompt: "hi", effectiveBlockRiskLevel: "medium" };
+    expect(moderateContentOperation.input.safeParse(validInput).success).toBe(
+      true
+    );
+    expect(proxyModerate.input.safeParse(validInput).success).toBe(true);
+
+    for (const operation of [moderateContentOperation, proxyModerate]) {
+      expect(operation.input.safeParse({ prompt: "hi" }).success).toBe(false);
+      expect(
+        operation.input.safeParse({
+          prompt: "hi",
+          effectiveBlockRiskLevel: "invalid",
+        }).success
+      ).toBe(false);
+    }
+  });
+
+  it("strictly rejects legacy plan and user-level governance fields", () => {
+    for (const operation of [moderateContentOperation, proxyModerate]) {
+      expect(
+        operation.input.safeParse({
+          prompt: "hi",
+          effectiveBlockRiskLevel: "high",
+          userPlan: "free",
+        }).success
+      ).toBe(false);
+      expect(
+        operation.input.safeParse({
+          prompt: "hi",
+          effectiveBlockRiskLevel: "high",
+          userModerationBlockRiskLevel: "low",
+        }).success
+      ).toBe(false);
+    }
+  });
+
+  it("passes the trusted effective level to the moderation orchestrator", async () => {
+    await expect(
+      invokeOperation(
+        "moderation.moderateContent",
+        { prompt: "hi", effectiveBlockRiskLevel: "medium" },
+        principals.system
+      )
+    ).resolves.toEqual({ decision: "allow" });
+
+    expect(moderateContentFn).toHaveBeenCalledWith({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "medium",
+    });
+  });
 });
 
 describe("moderation policy operation metadata", () => {

@@ -115,18 +115,47 @@ describe("getConfiguredModerationProviders", () => {
 });
 
 describe("moderateContent orchestration", () => {
+  it("rejects a missing effective level before reading settings or providers", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      moderateContent({ prompt: "hi" } as Parameters<typeof moderateContent>[0])
+    ).rejects.toThrow();
+
+    expect(runtimeSettingsMock.getRuntimeSettingBoolean).not.toHaveBeenCalled();
+    expect(runtimeSettingsMock.getRuntimeSettingString).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid effective level before reading settings or providers", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      moderateContent({
+        prompt: "hi",
+        effectiveBlockRiskLevel: "invalid",
+      } as unknown as Parameters<typeof moderateContent>[0])
+    ).rejects.toThrow();
+
+    expect(runtimeSettingsMock.getRuntimeSettingBoolean).not.toHaveBeenCalled();
+    expect(runtimeSettingsMock.getRuntimeSettingString).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("skips when moderation is disabled", async () => {
     runtimeSettingsMock.booleanValues.set("CONTENT_MODERATION_ENABLED", false);
 
-    await expect(moderateContent({ prompt: "hi" })).resolves.toEqual({
-      decision: "skipped",
-    });
+    await expect(
+      moderateContent({ prompt: "hi", effectiveBlockRiskLevel: "high" })
+    ).resolves.toEqual({ decision: "skipped" });
   });
 
   it("skips when no provider and no proxy are configured", async () => {
-    await expect(moderateContent({ prompt: "hi" })).resolves.toEqual({
-      decision: "skipped",
-    });
+    await expect(
+      moderateContent({ prompt: "hi", effectiveBlockRiskLevel: "high" })
+    ).resolves.toEqual({ decision: "skipped" });
   });
 
   it("returns the proxy block decision and short-circuits providers", async () => {
@@ -144,10 +173,9 @@ describe("moderateContent orchestration", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(moderateContent({ prompt: "bad" })).resolves.toMatchObject({
-      decision: "block",
-      reason: "blocked",
-    });
+    await expect(
+      moderateContent({ prompt: "bad", effectiveBlockRiskLevel: "high" })
+    ).resolves.toMatchObject({ decision: "block", reason: "blocked" });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
@@ -161,7 +189,10 @@ describe("moderateContent orchestration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await moderateContent({ prompt: "hi" });
+    const result = await moderateContent({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "high",
+    });
 
     expect(result.decision).toBe("error");
     expect(result.reason).toContain("connection refused");
@@ -182,7 +213,10 @@ describe("moderateContent orchestration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await moderateContent({ prompt: "hi" });
+    const result = await moderateContent({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "high",
+    });
 
     expect(result.decision).toBe("allow");
     expect(loggerMock.logWarn).toHaveBeenCalledOnce();
@@ -200,7 +234,10 @@ describe("moderateContent orchestration", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await moderateContent({ prompt: "hi" });
+    const result = await moderateContent({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "high",
+    });
 
     expect(result.decision).toBe("error");
     expect(result.reason).toContain("502");
@@ -217,7 +254,10 @@ describe("moderateContent orchestration", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await moderateContent({ prompt: "hi" });
+    const result = await moderateContent({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "high",
+    });
 
     expect(result.decision).toBe("error");
     expect(result.reason).toContain("invalid decision");
@@ -240,10 +280,37 @@ describe("moderateContent orchestration", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await moderateContent({ prompt: "hi" });
+    await moderateContent({ prompt: "hi", effectiveBlockRiskLevel: "high" });
 
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.headers.authorization).toBe("Bearer top-secret");
     expect(init?.headers["x-moderation-proxy-secret"]).toBe("top-secret");
+  });
+
+  it("sends only the trusted effective level in the proxy governance fields", async () => {
+    runtimeSettingsMock.stringValues.set(
+      "CONTENT_MODERATION_PROXY_URL",
+      PROXY_URL
+    );
+    const fetchMock = vi.fn(
+      async (_url: string, _init: { body: string }) => ({
+        ok: true,
+        json: async () => ({ decision: "allow" }),
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await moderateContent({
+      prompt: "hi",
+      effectiveBlockRiskLevel: "medium",
+      userPlan: "free",
+      userModerationBlockRiskLevel: "low",
+    } as unknown as Parameters<typeof moderateContent>[0]);
+
+    const rawBody = fetchMock.mock.calls[0]?.[1].body;
+    const body = JSON.parse(rawBody ?? "{}") as Record<string, unknown>;
+    expect(body.effectiveBlockRiskLevel).toBe("medium");
+    expect(body).not.toHaveProperty("userPlan");
+    expect(body).not.toHaveProperty("userModerationBlockRiskLevel");
   });
 });

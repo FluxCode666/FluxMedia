@@ -101,7 +101,6 @@ describe("wallet and usage log UOL contracts", () => {
       userId: "user-1",
       apiKeyId: "key-1",
       plan: "pro",
-      relayOnly: false,
     } satisfies Principal;
     await expect(
       invokeOperation(name, {}, apiKeyPrincipal)

@@ -267,16 +267,17 @@ export const moderateContent = defineOperation({
     "核心内容审核编排器。接收文本与可选图片输入，依次尝试代理、" +
     "Aliyun、OpenAI 提供者执行审核，返回 allow/block/skipped/error 决策。" +
     "由图像生成管线在生成前调用，fail-closed 策略。",
-  input: z.object({
-    prompt: z.string(),
-    images: z.array(moderationImageInputSchema).optional(),
-    mode: z.enum(["text", "image"]).optional(),
-    userId: z.string().optional(),
-    userPlan: z.string().optional(),
-    userModerationBlockRiskLevel: z.string().optional(),
-    generationId: z.string().optional(),
-    skipProxy: z.boolean().optional(),
-  }),
+  input: z
+    .object({
+      prompt: z.string(),
+      images: z.array(moderationImageInputSchema).optional(),
+      mode: z.enum(["text", "image"]).optional(),
+      userId: z.string().optional(),
+      effectiveBlockRiskLevel: moderationBlockRiskLevelSchema,
+      generationId: z.string().optional(),
+      skipProxy: z.boolean().optional(),
+    })
+    .strict(),
   output: moderationResultSchema,
   access: { kind: "system" },
   readOnly: false,
@@ -288,25 +289,17 @@ export const moderateContent = defineOperation({
     // Zod schema 是序列化格式（images.data 为 base64 string），
     // 而 moderateContentFn 期望 ModerateContentInput（images.data 为 Buffer）。
     // UOL 作为传输边界，此处用 type assertion 桥接。
-    // 使用 Partial 构建后断言，避免 exactOptionalPropertyTypes 冲突。
-    const params = { prompt: input.prompt } as ModerateContentInput;
+    // 必填的可信档位直接进入领域输入；可选字段逐项赋值以满足精确可选类型。
+    const params: ModerateContentInput = {
+      prompt: input.prompt,
+      effectiveBlockRiskLevel: input.effectiveBlockRiskLevel,
+    };
     if (input.mode != null) params.mode = input.mode;
     if (input.userId != null) params.userId = input.userId;
     if (input.images != null) {
       params.images = input.images as unknown as NonNullable<
         ModerateContentInput["images"]
       >;
-    }
-    if (input.userPlan != null) {
-      params.userPlan = input.userPlan as unknown as NonNullable<
-        ModerateContentInput["userPlan"]
-      >;
-    }
-    if (input.userModerationBlockRiskLevel != null) {
-      params.userModerationBlockRiskLevel =
-        input.userModerationBlockRiskLevel as unknown as NonNullable<
-          ModerateContentInput["userModerationBlockRiskLevel"]
-        >;
     }
     if (input.generationId != null) params.generationId = input.generationId;
     if (input.skipProxy != null) params.skipProxy = input.skipProxy;
@@ -388,15 +381,16 @@ export const proxyModerate = defineOperation({
     "审核代理入站端点（对应 POST /moderate）。接受携带 proxySecret 鉴权的外部请求，" +
     "在本地执行实际审核逻辑（skipProxy=true 避免循环调用）并返回结果。" +
     "用于多实例部署中的审核能力中心化。",
-  input: z.object({
-    prompt: z.string(),
-    images: z.array(moderationImageInputSchema).optional(),
-    mode: z.enum(["text", "image"]).optional(),
-    userId: z.string().optional(),
-    userPlan: z.string().optional(),
-    userModerationBlockRiskLevel: z.string().optional(),
-    generationId: z.string().optional(),
-  }),
+  input: z
+    .object({
+      prompt: z.string(),
+      images: z.array(moderationImageInputSchema).optional(),
+      mode: z.enum(["text", "image"]).optional(),
+      userId: z.string().optional(),
+      effectiveBlockRiskLevel: moderationBlockRiskLevelSchema,
+      generationId: z.string().optional(),
+    })
+    .strict(),
   output: moderationResultSchema,
   access: { kind: "proxySecret" },
   readOnly: false,

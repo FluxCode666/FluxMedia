@@ -35,7 +35,6 @@ export const getExternalModels = withApiLogging(
           userId: auth.userId,
           apiKeyId: auth.apiKeyId,
           plan: auth.plan,
-          relayOnly: auth.relayOnly,
         }
       );
       return NextResponse.json(models, {

@@ -7,13 +7,13 @@ import {
 } from "./risk";
 
 describe("shouldBlockAliyunRisk", () => {
-  it("blocks when risk level meets or exceeds the plan threshold", () => {
+  it("blocks when risk level meets or exceeds the effective threshold", () => {
     expect(shouldBlockAliyunRisk("high", "low")).toBe(true);
     expect(shouldBlockAliyunRisk("low", "low")).toBe(true);
     expect(shouldBlockAliyunRisk("medium", "medium")).toBe(true);
   });
 
-  it("allows when risk level is below the plan threshold", () => {
+  it("allows when risk level is below the effective threshold", () => {
     expect(shouldBlockAliyunRisk("low", "medium")).toBe(false);
     expect(shouldBlockAliyunRisk("none", "low")).toBe(false);
   });

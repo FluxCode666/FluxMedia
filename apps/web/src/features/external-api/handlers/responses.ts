@@ -1,21 +1,18 @@
 import { db } from "@repo/database";
 import { generation } from "@repo/database/schema";
 import { withApiLogging } from "@repo/shared/api-logger";
+import { logError } from "@repo/shared/logger";
 import {
   canUsePlanCapability,
   getPlanLimits,
 } from "@repo/shared/subscription/services/plan-capabilities";
-import { logError } from "@repo/shared/logger";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { authenticateExternalApiRequest } from "@/features/external-api/auth";
-import {
-  fetchPublicImage,
-  readResponseBytesWithLimit,
-} from "@/features/external-api/safe-image-fetch";
+import { createDeprecatedGovernanceFieldResponse } from "@/features/external-api/deprecated-governance-fields";
 import {
   createExternalImageStreamResponse,
   createJsonKeepAliveResponse,
@@ -26,20 +23,24 @@ import {
   toOpenAIResponseTextItem,
   wantsImageStreamResponse,
 } from "@/features/external-api/images";
-import { runImageGenerationForUser } from "@/features/image-generation/operations";
+import {
+  fetchPublicImage,
+  readResponseBytesWithLimit,
+} from "@/features/external-api/safe-image-fetch";
 import { bindImageBackendStickyMember } from "@/features/image-backend-pool/service";
+import { runImageGenerationForUser } from "@/features/image-generation/operations";
 import {
   normalizeOutputCompression,
   normalizeOutputFormat,
 } from "@/features/image-generation/output-format";
 import {
-  DEFAULT_IMAGE_SIZE,
-  validateImageSize,
-} from "@/features/image-generation/resolution";
-import {
   DEFAULT_MAX_IMAGE_BYTES,
   uploadTemporaryImageUrls,
 } from "@/features/image-generation/request-utils";
+import {
+  DEFAULT_IMAGE_SIZE,
+  validateImageSize,
+} from "@/features/image-generation/resolution";
 import type {
   ChatGptWebConversationState,
   ChatHistoryMessage,
@@ -785,6 +786,12 @@ export const postExternalResponses = withApiLogging(
       return openAIImageError("Invalid JSON body");
     }
 
+    const deprecatedFieldResponse =
+      createDeprecatedGovernanceFieldResponse(body);
+    if (deprecatedFieldResponse) {
+      return deprecatedFieldResponse;
+    }
+
     const parsed = responseSchema.safeParse(body);
     if (!parsed.success) {
       return openAIImageError(
@@ -877,7 +884,6 @@ export const postExternalResponses = withApiLogging(
       mode: "chat" as const,
       userId: auth.userId,
       apiKeyId: auth.apiKeyId,
-      relayOnly: auth.relayOnly,
       backendRequestKind: "responses" as const,
       preferredBackendMemberId: preferredBackendMember?.id,
       preferredBackendMemberType: preferredBackendMember?.type,
@@ -887,7 +893,6 @@ export const postExternalResponses = withApiLogging(
       history: requestHistory,
       maxChatContextChars: limits.maxChatContextChars,
       images,
-      moderationBlockRiskLevel: auth.moderationBlockRiskLevel,
       size: parsed.data.size || DEFAULT_IMAGE_SIZE,
       model: parsed.data.model,
       imageModel: getRequestedToolImageModel(parsed.data.tools),
@@ -988,34 +993,31 @@ export const postExternalResponses = withApiLogging(
           promptImageUrls,
           result,
         });
-        // 纯中转：不持久化续承（不写 generation.metadata / 不入会话缓存）。
-        if (!auth.relayOnly) {
-          await bindImageBackendStickyMember({
-            layer: "previous_response_id",
-            key: requestId,
-            member:
-              result.responsesPreviousResponse?.backendMember ||
-              result.backendMember,
-            metadata: { source: "external-responses" },
-          });
-          await bindImageBackendStickyMember({
-            layer: "session_hash",
-            key: parsed.data.prompt_cache_key,
-            member:
-              result.responsesPreviousResponse?.backendMember ||
-              result.backendMember,
-            metadata: { source: "external-responses" },
-          });
-          await storeResponsesContinuation({
-            userId: auth.userId,
-            apiKeyId: auth.apiKeyId,
-            responseId: requestId,
-            previousResponseId,
-            promptCacheKey: parsed.data.prompt_cache_key,
-            result,
-            fallbackHistory,
-          });
-        }
+        await bindImageBackendStickyMember({
+          layer: "previous_response_id",
+          key: requestId,
+          member:
+            result.responsesPreviousResponse?.backendMember ||
+            result.backendMember,
+          metadata: { source: "external-responses" },
+        });
+        await bindImageBackendStickyMember({
+          layer: "session_hash",
+          key: parsed.data.prompt_cache_key,
+          member:
+            result.responsesPreviousResponse?.backendMember ||
+            result.backendMember,
+          metadata: { source: "external-responses" },
+        });
+        await storeResponsesContinuation({
+          userId: auth.userId,
+          apiKeyId: auth.apiKeyId,
+          responseId: requestId,
+          previousResponseId,
+          promptCacheKey: parsed.data.prompt_cache_key,
+          result,
+          fallbackHistory,
+        });
         const response = toResponsePayload({
           requestId,
           model: parsed.data.model,
@@ -1086,34 +1088,31 @@ export const postExternalResponses = withApiLogging(
         promptImageUrls,
         result,
       });
-      // 纯中转：不持久化续承（不写 generation.metadata / 不入会话缓存）。
-      if (!auth.relayOnly) {
-        await bindImageBackendStickyMember({
-          layer: "previous_response_id",
-          key: requestId,
-          member:
-            result.responsesPreviousResponse?.backendMember ||
-            result.backendMember,
-          metadata: { source: "external-responses" },
-        });
-        await bindImageBackendStickyMember({
-          layer: "session_hash",
-          key: parsed.data.prompt_cache_key,
-          member:
-            result.responsesPreviousResponse?.backendMember ||
-            result.backendMember,
-          metadata: { source: "external-responses" },
-        });
-        await storeResponsesContinuation({
-          userId: auth.userId,
-          apiKeyId: auth.apiKeyId,
-          responseId: requestId,
-          previousResponseId,
-          promptCacheKey: parsed.data.prompt_cache_key,
-          result,
-          fallbackHistory,
-        });
-      }
+      await bindImageBackendStickyMember({
+        layer: "previous_response_id",
+        key: requestId,
+        member:
+          result.responsesPreviousResponse?.backendMember ||
+          result.backendMember,
+        metadata: { source: "external-responses" },
+      });
+      await bindImageBackendStickyMember({
+        layer: "session_hash",
+        key: parsed.data.prompt_cache_key,
+        member:
+          result.responsesPreviousResponse?.backendMember ||
+          result.backendMember,
+        metadata: { source: "external-responses" },
+      });
+      await storeResponsesContinuation({
+        userId: auth.userId,
+        apiKeyId: auth.apiKeyId,
+        responseId: requestId,
+        previousResponseId,
+        promptCacheKey: parsed.data.prompt_cache_key,
+        result,
+        fallbackHistory,
+      });
 
       return toResponsePayload({
         requestId,

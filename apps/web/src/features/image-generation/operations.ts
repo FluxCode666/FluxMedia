@@ -6,7 +6,7 @@
  */
 
 import { db } from "@repo/database";
-import { generation, user } from "@repo/database/schema";
+import { generation } from "@repo/database/schema";
 import { isAdobeImageFamilyModelId } from "@repo/shared/adobe";
 import { resolveImageOutputCount } from "@repo/shared/analytics/output-count";
 import { GPT55_CHAT_MODEL } from "@repo/shared/config/subscription-plan";
@@ -19,16 +19,12 @@ import {
 } from "@repo/shared/generation-maintenance";
 import { getFailedGenerationTargetCredits } from "@repo/shared/generation-settlement";
 import { logWarn } from "@repo/shared/logger";
-import {
-  isContentModerationEnabled,
-  moderateContent,
-} from "@repo/shared/moderation";
+import { isContentModerationEnabled } from "@repo/shared/moderation";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import { buildSignedStorageImageUrl } from "@repo/shared/storage/signed-url";
 import {
   getPlanCapabilitySnapshot,
   getPlanQueueSettings,
-  normalizePlanModerationBlockRiskLevel,
 } from "@repo/shared/subscription/services/plan-capabilities";
 import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
@@ -62,6 +58,10 @@ import { buildInputImagesMetadata } from "./generation-metadata";
 import { generativeRepairImage } from "./generative-repair";
 import { restoreImage } from "./image-restoration";
 import { maskedOutpaintImage } from "./masked-outpaint";
+import {
+  createGenerationModerationContext,
+  type GenerationModerationContext,
+} from "./moderation-policy";
 import {
   detectImageOutputFormatFromBuffer,
   getOutputFormatContentType,
@@ -117,7 +117,6 @@ import type {
   GenerateImageResult,
   ImageGenerationCallbacks,
   ImageInputFile,
-  ModerationBlockRiskLevel,
   PartialImageResult,
 } from "./types";
 
@@ -127,7 +126,6 @@ type RunImageGenerationInput =
       userId: string;
       generationId?: string;
       apiKeyId?: string;
-      relayOnly?: boolean;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
       preferredBackendMemberType?: "api" | "account" | "adobe";
@@ -143,7 +141,6 @@ type RunImageGenerationInput =
       userId: string;
       generationId?: string;
       apiKeyId?: string;
-      relayOnly?: boolean;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
       preferredBackendMemberType?: "api" | "account" | "adobe";
@@ -159,7 +156,6 @@ type RunImageGenerationInput =
       userId: string;
       generationId?: string;
       apiKeyId?: string;
-      relayOnly?: boolean;
       backendRequestKind?: ImageBackendRequestKind;
       preferredBackendMemberId?: string;
       preferredBackendMemberType?: "api" | "account" | "adobe";
@@ -314,7 +310,7 @@ export type ImageGenerationOperationResult = {
   error?: string;
   generationId?: string;
   imageUrl?: string;
-  /** 纯中转模式下携带的内联 base64，使响应层无需回源即可产出 b64_json。 */
+  /** 可选的内联 base64，供响应层直接产出 b64_json。 */
   imageBase64?: string;
   imageFileId?: string;
   imageOutputs?: GenerateImageResult["imageOutputs"];
@@ -471,12 +467,11 @@ async function uploadResponsesImageFile(params: {
 type StoredGeneratedImageOutput = {
   generationId: string;
   imageUrl: string;
-  /** 纯中转模式下直接携带的上游 base64，避免回源我方存储。 */
+  /** 可选的内联图片数据。 */
   imageBase64?: string;
   imageFileId?: string;
   webImageMessageId?: string;
   webImageGroupId?: string;
-  /** 纯中转模式下为空串（未落对象存储）。 */
   storageKey: string;
   fileSize: number;
   size: string;
@@ -1289,27 +1284,6 @@ function buildModelMetadata(params: {
   };
 }
 
-async function getUserModerationBlockRiskLevel(
-  userId: string,
-  plan: Awaited<ReturnType<typeof getUserPlan>>["plan"],
-  requested?: ModerationBlockRiskLevel
-) {
-  if (requested) {
-    return await normalizePlanModerationBlockRiskLevel(plan, requested);
-  }
-
-  const [row] = await db
-    .select({ moderationBlockRiskLevel: user.moderationBlockRiskLevel })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-
-  return await normalizePlanModerationBlockRiskLevel(
-    plan,
-    row?.moderationBlockRiskLevel
-  );
-}
-
 export async function runImageGenerationForUser(
   input: RunImageGenerationInput,
   callbacks?: ImageGenerationCallbacks
@@ -1346,11 +1320,6 @@ export async function runImageGenerationForUser(
   const userPlan = await getUserPlan(input.userId);
   const planCapabilities = await getPlanCapabilitySnapshot(userPlan.plan);
   const queueSettings = await getPlanQueueSettings(userPlan.plan);
-  const moderationBlockRiskLevel = await getUserModerationBlockRiskLevel(
-    input.userId,
-    userPlan.plan,
-    input.moderationBlockRiskLevel
-  );
   const moderationBlockingEnabled =
     planCapabilities.features["moderation.blocking"];
   const promptOptimizationAllowed =
@@ -1482,6 +1451,9 @@ export async function runImageGenerationForUser(
       : input.mode === "edit"
         ? "image_edit"
         : "chat");
+  const moderationContext = await createGenerationModerationContext(
+    input.userId
+  );
 
   try {
     return await withImageGenerationQueue(
@@ -1684,8 +1656,7 @@ export async function runImageGenerationForUser(
             initialCreditCharge,
             chatRoundCredits,
             bucket,
-            userPlan,
-            moderationBlockRiskLevel,
+            moderationContext,
             moderationFailureCredits,
             promptOptimization,
             apiPrompt,
@@ -1736,8 +1707,7 @@ async function runQueuedImageGenerationForUser({
   initialCreditCharge,
   chatRoundCredits,
   bucket,
-  userPlan,
-  moderationBlockRiskLevel,
+  moderationContext,
   moderationFailureCredits,
   promptOptimization,
   apiPrompt,
@@ -1768,8 +1738,7 @@ async function runQueuedImageGenerationForUser({
   initialCreditCharge: number;
   chatRoundCredits: number;
   bucket: string;
-  userPlan: Awaited<ReturnType<typeof getUserPlan>>;
-  moderationBlockRiskLevel: ModerationBlockRiskLevel;
+  moderationContext: GenerationModerationContext;
   moderationFailureCredits: number;
   promptOptimization: boolean;
   apiPrompt: string;
@@ -1788,9 +1757,6 @@ async function runQueuedImageGenerationForUser({
   forceWebBackend: boolean;
 }): Promise<ImageGenerationOperationResult> {
   const startedAt = Date.now();
-  // 纯中转模式只影响历史与对象存储；计费按实际使用的本站资源和审核独立判断。
-  // generationId 仍生成，用作扣费/退款的幂等 sourceRef 前缀。
-  const relayOnly = input.relayOnly === true;
   const promptOptimizationMetadata = buildPromptOptimizationMetadata({
     input,
     promptOptimization,
@@ -1823,30 +1789,75 @@ async function runQueuedImageGenerationForUser({
     upstreamStream: streamTelemetry.snapshot(),
   });
 
-  // 纯中转：不落生成历史。其余 db.update(generation) 在无行时天然 no-op。
-  if (!relayOnly)
-    await db.insert(generation).values({
-      id: generationId,
-      userId: input.userId,
-      usageLogVisible: true,
-      prompt: input.prompt,
-      model: recordModel,
-      size,
-      status: "pending",
-      creditsConsumed: initialCreditCharge,
-      storageBucket: bucket,
-      createdAt: operationCreatedAt,
-      metadata:
-        input.mode === "edit"
+  await db.insert(generation).values({
+    id: generationId,
+    userId: input.userId,
+    usageLogVisible: true,
+    prompt: input.prompt,
+    model: recordModel,
+    size,
+    status: "pending",
+    creditsConsumed: initialCreditCharge,
+    storageBucket: bucket,
+    createdAt: operationCreatedAt,
+    metadata:
+      input.mode === "edit"
+        ? {
+            mode: "edit",
+            ...backendMetadata,
+            ...modelMetadata,
+            ...promptOptimizationMetadata,
+            ...inputImagesMetadata,
+            imageCount: input.images.length,
+            hasMask: Boolean(input.mask),
+            quality: input.quality || "auto",
+            outputFormat: input.outputFormat || null,
+            outputCompression: input.outputCompression ?? null,
+            background: input.background || null,
+            batchCount: input.n || 1,
+            forceWebBackend,
+            creditCost,
+            ...billingMetadata,
+            chatRoundCredits: billingPolicy.chargeImageCredits
+              ? chatRoundCredits
+              : 0,
+            moderationBlockingEnabled: moderationEnabled,
+            moderationFailureCredits,
+            ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
+          }
+        : input.mode === "chat"
           ? {
-              mode: "edit",
+              mode: input.agentMode
+                ? "agent"
+                : input.waterfallMode
+                  ? "waterfall"
+                  : "chat",
+              action: "auto",
               ...backendMetadata,
               ...modelMetadata,
               ...promptOptimizationMetadata,
               ...inputImagesMetadata,
-              imageCount: input.images.length,
-              hasMask: Boolean(input.mask),
+              imageCount: input.images?.length || 0,
+              fileContextChars: input.fileContext?.length || 0,
               quality: input.quality || "auto",
+              moderation: input.moderation || "auto",
+              outputFormat: input.outputFormat || null,
+              outputCompression: input.outputCompression ?? null,
+              batchCount: input.n || 1,
+              forceWebBackend,
+              creditCost,
+              ...billingMetadata,
+              moderationBlockingEnabled: moderationEnabled,
+              moderationFailureCredits,
+              ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
+            }
+          : {
+              mode: "generate",
+              ...backendMetadata,
+              ...modelMetadata,
+              ...promptOptimizationMetadata,
+              quality: input.quality || "auto",
+              moderation: input.moderation || "auto",
               outputFormat: input.outputFormat || null,
               outputCompression: input.outputCompression ?? null,
               background: input.background || null,
@@ -1854,58 +1865,11 @@ async function runQueuedImageGenerationForUser({
               forceWebBackend,
               creditCost,
               ...billingMetadata,
-              chatRoundCredits: billingPolicy.chargeImageCredits
-                ? chatRoundCredits
-                : 0,
               moderationBlockingEnabled: moderationEnabled,
               moderationFailureCredits,
               ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
-            }
-          : input.mode === "chat"
-            ? {
-                mode: input.agentMode
-                  ? "agent"
-                  : input.waterfallMode
-                    ? "waterfall"
-                    : "chat",
-                action: "auto",
-                ...backendMetadata,
-                ...modelMetadata,
-                ...promptOptimizationMetadata,
-                ...inputImagesMetadata,
-                imageCount: input.images?.length || 0,
-                fileContextChars: input.fileContext?.length || 0,
-                quality: input.quality || "auto",
-                moderation: input.moderation || "auto",
-                outputFormat: input.outputFormat || null,
-                outputCompression: input.outputCompression ?? null,
-                batchCount: input.n || 1,
-                forceWebBackend,
-                creditCost,
-                ...billingMetadata,
-                moderationBlockingEnabled: moderationEnabled,
-                moderationFailureCredits,
-                ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
-              }
-            : {
-                mode: "generate",
-                ...backendMetadata,
-                ...modelMetadata,
-                ...promptOptimizationMetadata,
-                quality: input.quality || "auto",
-                moderation: input.moderation || "auto",
-                outputFormat: input.outputFormat || null,
-                outputCompression: input.outputCompression ?? null,
-                background: input.background || null,
-                batchCount: input.n || 1,
-                forceWebBackend,
-                creditCost,
-                ...billingMetadata,
-                moderationBlockingEnabled: moderationEnabled,
-                moderationFailureCredits,
-                ...(input.apiKeyId ? { externalApiKeyId: input.apiKeyId } : {}),
-              },
-    });
+            },
+  });
 
   let chargedCredits = 0;
   const refundChargedCredits = async (
@@ -2085,8 +2049,7 @@ async function runQueuedImageGenerationForUser({
         .where(isPendingGeneration(generationId))
         .returning({ id: generation.id });
 
-      // 中转模式无 generation 行，UPDATE 返回空；退款仍须照常执行。
-      if ((updated || relayOnly) && creditsToRefund > 0) {
+      if (updated && creditsToRefund > 0) {
         try {
           await refundChargedCredits(
             creditsToRefund,
@@ -2346,13 +2309,11 @@ async function runQueuedImageGenerationForUser({
   while (true) {
     const moderation = !moderationEnabled
       ? ({ decision: "skipped" } as const)
-      : await moderateContent({
+      : await moderationContext.moderate({
           prompt: currentModerationPrompt,
           images: inputImages,
           mode: inputImages.length > 0 ? "image" : "text",
           userId: input.userId,
-          userPlan: userPlan.plan,
-          userModerationBlockRiskLevel: moderationBlockRiskLevel,
           generationId,
         });
 
@@ -2661,7 +2622,6 @@ async function runQueuedImageGenerationForUser({
 
     await completeImageGenerationWithUsage({
       generationId,
-      relayOnly,
       output: { kind: "none", reason: "chatTextOnly" },
       update: {
         revisedPrompt: result.revisedPrompt,
@@ -2737,90 +2697,55 @@ async function runQueuedImageGenerationForUser({
       });
     }
     storedOutputs = [];
-    if (relayOnly) {
-      // 纯中转：不落对象存储，直接透传上游图片（base64 / 上游 URL）。
-      // 不做实际尺寸/格式检测（无 buffer），按请求尺寸计费。
-      storedOutputs = imageOutputs.map((output, index) => ({
-        generationId: resolveOutputGenerationId(
-          generationId,
-          index,
-          imageOutputs.length
-        ),
-        imageUrl: output.imageUrl ?? "",
-        imageBase64: output.imageBase64,
-        imageFileId: output.imageFileId,
-        webImageMessageId: output.webImageMessageId,
-        webImageGroupId: output.webImageGroupId,
-        storageKey: "",
-        fileSize: 0,
-        size,
-        revisedPrompt: output.revisedPrompt || output.upstreamRevisedPrompt,
-        upstreamRevisedPrompt: output.upstreamRevisedPrompt,
-        actualSizeDetected: false,
-        actualOutputFormat: null,
-        actualOutputFormatDetected: false,
-        outputRole: output.outputRole,
-      }));
+    for (const [index, output] of imageOutputs.entries()) {
+      const outputGenerationId = resolveOutputGenerationId(
+        generationId,
+        index,
+        imageOutputs.length
+      );
+      storedOutputs.push(
+        await storeGeneratedImageOutput({
+          output,
+          config,
+          userId: input.userId,
+          generationId: outputGenerationId,
+          bucket,
+          requestedSize: size,
+          requestedFormat: input.outputFormat,
+          hdRepair: input.hdRepair,
+          blockRepair: input.blockRepair,
+          repairPrompt: input.repairPrompt,
+          // 生成式修复计费:重绘一次按尺寸扣一次,幂等 sourceRef 防重试重复扣。
+          chargeTile: async (tileSize, tileIndex) => {
+            const tileCost = getImageCreditCostBreakdown(tileSize, {
+              textModerationCount: 0,
+              imageModerationCount: 0,
+              basePricing: imageBasePricing,
+              moderationPricing: imageModerationPricing,
+              quality: input.quality as ImageQualityLevel | undefined,
+              thinking: input.thinking as ImageThinkingLevel | undefined,
+            }).totalCredits;
+            await chargeAdditionalCredits(
+              tileCost,
+              "image-generation",
+              `生成式修复 (${tileSize})`,
+              { blockRepair: true, tileSize, index: tileIndex },
+              `${outputGenerationId}:blockrepair-${tileIndex}`
+            );
+          },
+        })
+      );
       if (isAgentChatInput) {
         await emitAgentOperationEvent(callbacks, {
           kind: "tool",
-          status: "completed",
-          title: "图片就绪",
-          detail: `已就绪 ${storedOutputs.length} 张图片（纯中转，未留存）`,
+          status: index === imageOutputs.length - 1 ? "completed" : "running",
+          title:
+            index === imageOutputs.length - 1
+              ? "图片保存完成"
+              : "保存生成图片",
+          detail: `已保存 ${index + 1}/${imageOutputs.length} 张图片`,
           toolType: "image_storage",
         });
-      }
-    } else {
-      for (const [index, output] of imageOutputs.entries()) {
-        const outputGenerationId = resolveOutputGenerationId(
-          generationId,
-          index,
-          imageOutputs.length
-        );
-        storedOutputs.push(
-          await storeGeneratedImageOutput({
-            output,
-            config,
-            userId: input.userId,
-            generationId: outputGenerationId,
-            bucket,
-            requestedSize: size,
-            requestedFormat: input.outputFormat,
-            hdRepair: input.hdRepair,
-            blockRepair: input.blockRepair,
-            repairPrompt: input.repairPrompt,
-            // 生成式修复计费:重绘一次按尺寸扣一次,幂等 sourceRef 防重试重复扣。
-            chargeTile: async (tileSize, tileIndex) => {
-              const tileCost = getImageCreditCostBreakdown(tileSize, {
-                textModerationCount: 0,
-                imageModerationCount: 0,
-                basePricing: imageBasePricing,
-                moderationPricing: imageModerationPricing,
-                quality: input.quality as ImageQualityLevel | undefined,
-                thinking: input.thinking as ImageThinkingLevel | undefined,
-              }).totalCredits;
-              await chargeAdditionalCredits(
-                tileCost,
-                "image-generation",
-                `生成式修复 (${tileSize})`,
-                { blockRepair: true, tileSize, index: tileIndex },
-                `${outputGenerationId}:blockrepair-${tileIndex}`
-              );
-            },
-          })
-        );
-        if (isAgentChatInput) {
-          await emitAgentOperationEvent(callbacks, {
-            kind: "tool",
-            status: index === imageOutputs.length - 1 ? "completed" : "running",
-            title:
-              index === imageOutputs.length - 1
-                ? "图片保存完成"
-                : "保存生成图片",
-            detail: `已保存 ${index + 1}/${imageOutputs.length} 张图片`,
-            toolType: "image_storage",
-          });
-        }
       }
     }
   } catch (storageError: unknown) {
@@ -3073,7 +2998,6 @@ async function runQueuedImageGenerationForUser({
   }
   await completeImageGenerationWithUsage({
     generationId,
-    relayOnly,
     output:
       resolvedOutputCount.status === "counted"
         ? { kind: "image", imageCount: resolvedOutputCount.count }
