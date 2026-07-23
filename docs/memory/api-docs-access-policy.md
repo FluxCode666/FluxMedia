@@ -12,17 +12,20 @@
 
 ## 公开内容边界
 
-公开页只包含以下五个端点：
+公开页当前只包含以下三个图像端点：
 
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`
-- `POST /v1/videos/generations`
 - `GET /v1/images/{task_id}`
-- `GET /v1/videos/{id}`
 
-请求参数、响应字段和示例不展示 `custom: true` 或其他明确的 FluxMedia 扩展字段。两个
-GET 端点的 `task_id` / `id` 虽在旧系统文档中被标成扩展，但属于路径契约不可缺少的
-参数，公开页显式保留。契约由 `api-integration-docs-data.test.ts` 防回归。
+请求参数、响应字段和示例不展示 `custom: true` 或其他明确的 FluxMedia 扩展字段。图片
+任务 GET 端点的 `task_id` 虽在旧系统文档中被标成扩展，但属于路径契约不可缺少的参数，
+公开页显式保留。视频生成与视频任务端点暂时只保留在管理员系统文档和原始双语数据中，
+由公开数据出口统一过滤，恢复时只需调整隐藏端点集合。契约由
+`api-integration-docs-data.test.ts` 防回归。
+
+公开页的接口区使用响应式滚动电梯：桌面端显示粘性侧栏，窄屏显示粘性横向导航；活动
+章节随滚动位置更新，并通过文字、背景和 `aria-current` 同时表达。
 
 ## 代码块
 

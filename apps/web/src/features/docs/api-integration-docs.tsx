@@ -1,14 +1,15 @@
 /**
  * 公开 API 接入文档的展示层。
  *
- * 使用 @repo/ui 原语渲染端点总览、参数表、响应表和代码示例；数据与视图分离，
- * 便于管理员系统文档继续独立演进，同时确保公开页不会意外展示扩展字段。
+ * 使用 @repo/ui 原语渲染参数表、响应表和代码示例，并把滚动高亮交给独立客户端
+ * 电梯；数据与视图分离，确保公开页不会意外展示扩展字段。
  */
 import { Badge } from "@repo/ui/components/badge";
 import { Card, CardContent } from "@repo/ui/components/card";
 import { CodeBlock } from "@repo/ui/components/code-block";
-import { ArrowDown, KeyRound, Link2 } from "lucide-react";
+import { KeyRound, Link2 } from "lucide-react";
 
+import { ApiDocsElevator } from "./api-docs-elevator";
 import {
   type ApiIntegrationDocsContent,
   type ApiIntegrationEndpoint,
@@ -16,49 +17,6 @@ import {
   type ApiIntegrationResponseField,
   getApiIntegrationDocs,
 } from "./api-integration-docs-data";
-
-/** 渲染五个端点的快速跳转，链接只改变当前页面锚点。 */
-function EndpointOverview({ content }: { content: ApiIntegrationDocsContent }) {
-  return (
-    <Card className="rounded-lg">
-      <CardContent className="p-0">
-        <div className="border-b border-border p-5 md:p-6">
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            {content.overviewLabel}
-          </p>
-          <h2 className="mt-2 font-serif text-xl font-medium tracking-tight md:text-2xl">
-            {content.overviewTitle}
-          </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-            {content.overviewDescription}
-          </p>
-        </div>
-        <nav aria-label={content.overviewTitle} className="divide-y">
-          {content.endpoints.map((endpoint, index) => (
-            <a
-              className="group grid gap-3 p-4 transition-colors duration-150 hover:bg-muted/50 sm:grid-cols-[2rem_1fr_auto] sm:items-center md:px-6"
-              href={`#${endpoint.id}`}
-              key={endpoint.id}
-            >
-              <span className="font-mono text-xs text-muted-foreground/70">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">
-                  {endpoint.category}
-                </span>
-                <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
-                  {endpoint.method} {endpoint.path}
-                </span>
-              </span>
-              <ArrowDown className="hidden size-4 text-muted-foreground transition-transform duration-150 group-hover:translate-y-0.5 sm:block" />
-            </a>
-          ))}
-        </nav>
-      </CardContent>
-    </Card>
-  );
-}
 
 /** 渲染响应式请求参数表；窄屏退化为逐字段卡片。 */
 function ParameterTable({
@@ -148,7 +106,7 @@ function EndpointSection({
   index: number;
 }) {
   return (
-    <section className="scroll-mt-24" id={endpoint.id}>
+    <section className="scroll-mt-32" id={endpoint.id}>
       <Card className="overflow-hidden rounded-lg">
         <div className="border-b border-border bg-muted/20 p-5 md:p-6">
           <div className="flex flex-wrap items-center gap-2">
@@ -183,7 +141,7 @@ function EndpointSection({
         </div>
         <CardContent className="space-y-6 p-5 md:p-6">
           <div className="grid gap-5 xl:grid-cols-2">
-            <div>
+            <div className="min-w-0">
               <h4 className="text-sm font-medium">
                 {content.requestExampleTitle}
               </h4>
@@ -194,7 +152,7 @@ function EndpointSection({
                 language="bash"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <h4 className="text-sm font-medium">
                 {content.responseExampleTitle}
               </h4>
@@ -235,7 +193,7 @@ export function ApiIntegrationDocs({ locale }: { locale?: string }) {
   const content = getApiIntegrationDocs(locale);
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
+    <div className="container mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
       <header className="max-w-4xl animate-in fade-in slide-in-from-bottom-2 duration-400 motion-reduce:animate-none">
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
           {content.eyebrow}
@@ -249,7 +207,7 @@ export function ApiIntegrationDocs({ locale }: { locale?: string }) {
       </header>
 
       <div className="mt-8 grid gap-3 md:grid-cols-2">
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 shadow-whisper">
+        <div className="flex min-w-0 items-start gap-3 rounded-lg border border-border bg-card p-4 shadow-whisper">
           <Link2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">
@@ -260,7 +218,7 @@ export function ApiIntegrationDocs({ locale }: { locale?: string }) {
             </code>
           </div>
         </div>
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 shadow-whisper">
+        <div className="flex min-w-0 items-start gap-3 rounded-lg border border-border bg-card p-4 shadow-whisper">
           <KeyRound className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">{content.authLabel}</p>
@@ -271,23 +229,25 @@ export function ApiIntegrationDocs({ locale }: { locale?: string }) {
         </div>
       </div>
 
-      <div className="mt-8">
-        <EndpointOverview content={content} />
-      </div>
-
-      <div className="mt-14">
-        <h2 className="font-serif text-2xl font-medium tracking-tight md:text-3xl">
-          {content.endpointsTitle}
-        </h2>
-        <div className="mt-6 space-y-8">
-          {content.endpoints.map((endpoint, index) => (
-            <EndpointSection
-              content={content}
-              endpoint={endpoint}
-              index={index}
-              key={endpoint.id}
-            />
-          ))}
+      <div className="mt-12 lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <ApiDocsElevator
+          ariaLabel={content.endpointsTitle}
+          endpoints={content.endpoints}
+        />
+        <div className="mt-10 min-w-0 lg:mt-0">
+          <h2 className="font-serif text-2xl font-medium tracking-tight md:text-3xl">
+            {content.endpointsTitle}
+          </h2>
+          <div className="mt-6 space-y-8">
+            {content.endpoints.map((endpoint, index) => (
+              <EndpointSection
+                content={content}
+                endpoint={endpoint}
+                index={index}
+                key={endpoint.id}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>

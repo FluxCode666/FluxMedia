@@ -11,9 +11,7 @@ import { getApiIntegrationDocs } from "./api-integration-docs-data";
 const EXPECTED_PATHS = [
   "/v1/images/generations",
   "/v1/images/edits",
-  "/v1/videos/generations",
   "/v1/images/{task_id}",
-  "/v1/videos/{id}",
 ] as const;
 
 const FORBIDDEN_EXTENSION_NAMES = [
@@ -52,12 +50,19 @@ const FORBIDDEN_EXTENSION_NAMES = [
 ] as const;
 
 describe("API integration docs data", () => {
-  it.each(["zh", "en"])("%s 仅公开指定的五个端点", (locale) => {
+  it.each(["zh", "en"])("%s 仅公开指定的三个图像端点", (locale) => {
     const content = getApiIntegrationDocs(locale);
 
     expect(content.endpoints.map((endpoint) => endpoint.path)).toEqual(
       EXPECTED_PATHS
     );
+    expect(
+      content.endpoints.some(
+        (endpoint) =>
+          endpoint.operation === "video" ||
+          endpoint.path.startsWith("/v1/videos")
+      )
+    ).toBe(false);
   });
 
   it.each(["zh", "en"])("%s 不展示站点扩展字段或示例", (locale) => {
@@ -79,20 +84,14 @@ describe("API integration docs data", () => {
     }
   });
 
-  it("保留两个任务查询端点不可缺少的路径参数", () => {
+  it("保留图片任务查询端点不可缺少的路径参数", () => {
     const endpoints = getApiIntegrationDocs("zh").endpoints;
     const imageTask = endpoints.find(
       (endpoint) => endpoint.path === "/v1/images/{task_id}"
     );
-    const videoTask = endpoints.find(
-      (endpoint) => endpoint.path === "/v1/videos/{id}"
-    );
 
     expect(imageTask?.parameters.map((parameter) => parameter.name)).toContain(
       "task_id"
-    );
-    expect(videoTask?.parameters.map((parameter) => parameter.name)).toContain(
-      "id"
     );
   });
 });

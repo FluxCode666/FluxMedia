@@ -1,8 +1,8 @@
 /**
  * 公开 API 接入文档的数据源。
  *
- * 内容从管理员系统文档的外接 API 章节提炼，仅保留指定的五个端点和非“本站扩展”
- * 字段。两个任务查询端点的路径 ID 是完成请求所必需的端点契约，因此显式保留。
+ * 内容从管理员系统文档的外接 API 章节提炼。数据源保留五个已整理端点，公开读取时
+ * 统一过滤暂不展示的视频端点；图片任务的路径 ID 属于必要契约，因此显式保留。
  */
 
 export type ApiIntegrationParameter = {
@@ -39,9 +39,6 @@ export type ApiIntegrationDocsContent = {
   baseUrlLabel: string;
   authLabel: string;
   authValue: string;
-  overviewLabel: string;
-  overviewTitle: string;
-  overviewDescription: string;
   endpointsTitle: string;
   parametersTitle: string;
   responsesTitle: string;
@@ -62,14 +59,10 @@ const zhContent = {
   eyebrow: "FluxMedia External API",
   title: "API 接入文档",
   subtitle:
-    "面向服务端集成的图像与视频接口参考。这里仅展示通用兼容参数，不包含 FluxMedia 站点扩展参数。",
+    "面向服务端集成的图像接口参考。这里仅展示通用兼容参数，不包含 FluxMedia 站点扩展参数。",
   baseUrlLabel: "Base URL",
   authLabel: "鉴权",
   authValue: "Authorization: Bearer <API_KEY>",
-  overviewLabel: "快速总览",
-  overviewTitle: "五个接入端点",
-  overviewDescription:
-    "生成与编辑请求使用同一把 API 密钥；任务查询端点只返回当前密钥所属用户创建的任务。",
   endpointsTitle: "接口详情",
   parametersTitle: "请求参数",
   responsesTitle: "响应字段",
@@ -515,14 +508,10 @@ const enContent = {
   eyebrow: "FluxMedia External API",
   title: "API Integration Guide",
   subtitle:
-    "Image and video API reference for server-side integrations. This page lists only compatible parameters and omits FluxMedia-specific extension parameters.",
+    "Image API reference for server-side integrations. This page lists only compatible parameters and omits FluxMedia-specific extension parameters.",
   baseUrlLabel: "Base URL",
   authLabel: "Authentication",
   authValue: "Authorization: Bearer <API_KEY>",
-  overviewLabel: "Quick overview",
-  overviewTitle: "Five integration endpoints",
-  overviewDescription:
-    "Generation and editing requests use the same API key. Task endpoints only return tasks created by the user who owns that key.",
   endpointsTitle: "Endpoint reference",
   parametersTitle: "Request parameters",
   responsesTitle: "Response fields",
@@ -851,6 +840,13 @@ const enContent = {
   ],
 } satisfies ApiIntegrationDocsContent;
 
+// 视频能力仍在内部系统文档和真实 API 中保留；公开接入页按当前产品决策临时隐藏。
+// 恢复展示时只需从本集合移除对应 ID，避免复制或删除已经校对过的双语契约。
+const TEMPORARILY_HIDDEN_ENDPOINT_IDS = new Set([
+  "video-generations",
+  "video-task",
+]);
+
 /**
  * 按路由语言返回公开接入文档。
  *
@@ -860,5 +856,11 @@ const enContent = {
 export function getApiIntegrationDocs(
   locale?: string
 ): ApiIntegrationDocsContent {
-  return locale === "zh" ? zhContent : enContent;
+  const content = locale === "zh" ? zhContent : enContent;
+  return {
+    ...content,
+    endpoints: content.endpoints.filter(
+      (endpoint) => !TEMPORARILY_HIDDEN_ENDPOINT_IDS.has(endpoint.id)
+    ),
+  };
 }
