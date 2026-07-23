@@ -34,6 +34,10 @@ const SERVICE_ICON_OPTIONS: Array<{
 }> = [
   { value: "discord", label: "Discord" },
   { value: "telegram", label: "Telegram" },
+  { value: "qq", label: "QQ" },
+  { value: "wechat", label: "微信" },
+  { value: "twitter", label: "推特" },
+  { value: "team", label: "团队介绍" },
   { value: "documentation", label: "文档" },
   { value: "models", label: "模型" },
   { value: "support", label: "客服" },
@@ -338,7 +342,9 @@ export function DashboardSupportConfigInput({
           <div>
             <h3 className="font-medium">Service &amp; Support</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              服务项按当前顺序展示，最多十二项；关闭后保留配置但不在控制台显示。
+              可选
+              QQ、微信、推特和团队介绍等入口；团队介绍请选择对应类型并填写团队页
+              URL。服务项按当前顺序展示，最多十二项；关闭后保留配置但不在控制台显示。
             </p>
           </div>
           <Button
@@ -447,7 +453,9 @@ export function DashboardSupportConfigInput({
                 value={service.actionLabel}
               />
               <div className="space-y-2">
-                <Label htmlFor={`service-url-${index}`}>目标链接</Label>
+                <Label htmlFor={`service-url-${index}`}>
+                  目标链接（团队介绍填写团队页 URL）
+                </Label>
                 <Input
                   disabled={disabled}
                   id={`service-url-${index}`}

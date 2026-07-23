@@ -2,7 +2,8 @@
  * 控制台账户支持区的可配置内容契约。
  *
  * 系统设置写入、UOL 读取和 Web 控制台共用本文件，确保多语言文案、链接协议与
- * 服务项数量在进入渲染层前已经收窄。这里不依赖数据库，可由 Vitest 直接验证。
+ * 服务项数量、社交渠道和团队介绍链接在进入渲染层前已经收窄。这里不依赖数据库，
+ * 可由 Vitest 直接验证。
  */
 import { z } from "zod";
 
@@ -49,6 +50,10 @@ const dashboardSupportHrefSchema = z
 export const dashboardSupportServiceIconSchema = z.enum([
   "discord",
   "telegram",
+  "qq",
+  "wechat",
+  "twitter",
+  "team",
   "documentation",
   "models",
   "support",

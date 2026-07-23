@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DASHBOARD_SUPPORT_CONFIG,
   dashboardSupportConfigSchema,
+  dashboardSupportServiceIconSchema,
   normalizeDashboardSupportConfig,
 } from "./dashboard-config";
 
@@ -30,6 +31,26 @@ describe("dashboard support config", () => {
     expect(dashboardSupportConfigSchema.safeParse(candidate).success).toBe(
       true
     );
+  });
+
+  it("accepts QQ, WeChat, Twitter, and team introduction service types", () => {
+    const additionalTypes = ["qq", "wechat", "twitter", "team"] as const;
+
+    for (const icon of additionalTypes) {
+      const candidate = structuredClone(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
+      const firstService = candidate.services[0];
+      if (!firstService) {
+        throw new Error("Default support services are missing");
+      }
+      firstService.icon = icon;
+      firstService.url =
+        icon === "team" ? "/about/team" : "https://community.example.com";
+
+      expect(dashboardSupportServiceIconSchema.parse(icon)).toBe(icon);
+      expect(dashboardSupportConfigSchema.safeParse(candidate).success).toBe(
+        true
+      );
+    }
   });
 
   it("rejects executable, protocol-relative, and backslash links", () => {

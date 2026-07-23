@@ -29,10 +29,14 @@ import {
   Headphones,
   type LucideIcon,
   Megaphone,
+  MessageCircle,
   MessageCircleMore,
+  MessagesSquare,
   QrCode,
   Send,
   Settings2,
+  Twitter,
+  UsersRound,
 } from "lucide-react";
 
 import {
@@ -63,6 +67,10 @@ type SupportActionProps = {
 const SERVICE_ICONS: Record<DashboardSupportServiceIcon, LucideIcon> = {
   discord: MessageCircleMore,
   telegram: Send,
+  qq: MessageCircle,
+  wechat: MessagesSquare,
+  twitter: Twitter,
+  team: UsersRound,
   documentation: BookOpenText,
   models: Boxes,
   support: Headphones,
