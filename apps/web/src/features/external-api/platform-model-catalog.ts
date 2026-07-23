@@ -103,7 +103,14 @@ const CONVERSATION_MODEL_IDS = new Set<string>(
 );
 const NON_EXECUTABLE_IMAGE_MODEL_IDS = new Set(["auto", "default", "unknown"]);
 
-/** 判断一个套餐是否达到动态能力门槛。 */
+/**
+ * 判断一个套餐是否达到动态能力门槛。
+ *
+ * @param plan - 待判断的套餐。
+ * @param minimumPlan - 能力要求的最低套餐。
+ * @returns 套餐等级达到门槛时返回 true。
+ * @remarks 纯函数，无副作用；套餐排序由共享能力模块决定，非法值由类型层阻止。
+ */
 function planAllows(
   plan: SubscriptionPlan,
   minimumPlan: SubscriptionPlan
@@ -111,7 +118,14 @@ function planAllows(
   return isPlanAtLeast(plan, minimumPlan);
 }
 
-/** 判断分组是否对指定套餐开放。 */
+/**
+ * 判断分组是否对指定套餐开放。
+ *
+ * @param group - 待检查的后端分组。
+ * @param plan - 请求访问分组的套餐。
+ * @returns 分组已启用且套餐达到分组门槛时返回 true。
+ * @remarks 纯函数，无副作用；停用分组始终拒绝，不执行额外回退。
+ */
 function groupAllowsPlan(
   group: PlatformModelCatalogGroup,
   plan: SubscriptionPlan
@@ -124,6 +138,10 @@ function groupAllowsPlan(
  *
  * 默认路径只取调度器会选择的首个默认组（无默认时取首个启用组）；可选路径必须同时
  * 满足分组开关、套餐门槛和动态 `backendGroups.select` 能力。mixed 仅展开一层有效叶子。
+ *
+ * @param source - 已收窄的套餐能力、分组和成员事实。
+ * @returns 每个可达成员分组对应的套餐集合；没有启用分组时返回空映射。
+ * @remarks 仅创建本地集合，无外部副作用；缺失、嵌套或非法 mixed 子组会被保守跳过。
  */
 function buildReachablePlansByMemberGroup(
   source: PlatformModelCatalogSource
@@ -133,7 +151,15 @@ function buildReachablePlansByMemberGroup(
     enabledGroups.find((group) => group.isDefault) ?? enabledGroups[0];
   const groupsById = new Map(source.groups.map((group) => [group.id, group]));
   const plansByGroupId = new Map<string, Set<SubscriptionPlan>>();
-  const addPlan = (groupId: string, plan: SubscriptionPlan) => {
+  /**
+   * 把套餐加入指定分组的本地可达集合。
+   *
+   * @param groupId - 已确认可达的分组 ID。
+   * @param plan - 可访问该分组的套餐。
+   * @returns 无返回值。
+   * @remarks 仅修改本函数创建的映射；重复套餐由 Set 安全去重。
+   */
+  const addPlan = (groupId: string, plan: SubscriptionPlan): void => {
     const plans = plansByGroupId.get(groupId) ?? new Set<SubscriptionPlan>();
     plans.add(plan);
     plansByGroupId.set(groupId, plans);
@@ -176,13 +202,56 @@ function buildReachablePlansByMemberGroup(
   return plansByGroupId;
 }
 
-/** 汇总成员经直接或一层 mixed 路径可被哪些套餐承接。 */
+/**
+ * 将账号实现模式规范化为调度器使用的 web 或 responses 车道。
+ *
+ * @param value - 数据库提供的账号实现模式。
+ * @returns 精确的 responses 保持原值，其余值保守回退为 web。
+ * @remarks 纯函数，无副作用；该回退与账号调度器的兼容行为一致。
+ */
+function normalizeAccountImplementationMode(
+  value: string
+): Exclude<PlatformModelCatalogGroup["backendType"], "mixed"> {
+  return value === "responses" ? "responses" : "web";
+}
+
+/**
+ * 判断成员是否能从所属分组贡献目录能力。
+ *
+ * @param member - 待聚合套餐的成员。
+ * @param group - 成员直接所属且已存在的分组。
+ * @returns 非账号成员始终返回 true；账号仅在 mixed 或同车道分组返回 true。
+ * @remarks 纯函数，无副作用；未知账号实现模式按 web 处理，避免误入 responses 车道。
+ */
+function memberMatchesGroupBackend(
+  member: PlatformModelCatalogMember,
+  group: PlatformModelCatalogGroup
+): boolean {
+  if (member.type !== "account" || group.backendType === "mixed") return true;
+  return (
+    group.backendType ===
+    normalizeAccountImplementationMode(member.implementationMode)
+  );
+}
+
+/**
+ * 汇总成员经直接或一层 mixed 路径可被哪些套餐承接。
+ *
+ * @param member - 待计算可达套餐的成员。
+ * @param plansByGroupId - 分组到可达套餐的预计算映射。
+ * @param groupsById - 分组 ID 到分组事实的映射。
+ * @returns 去重后的可达套餐集合；无有效或兼容分组时返回空集合。
+ * @remarks 仅创建本地 Set，无外部副作用；缺失分组会被跳过，API 与 Adobe 不做车道过滤。
+ */
 function getMemberPlans(
   member: PlatformModelCatalogMember,
-  plansByGroupId: ReadonlyMap<string, ReadonlySet<SubscriptionPlan>>
+  plansByGroupId: ReadonlyMap<string, ReadonlySet<SubscriptionPlan>>,
+  groupsById: ReadonlyMap<string, PlatformModelCatalogGroup>
 ): Set<SubscriptionPlan> {
   const plans = new Set<SubscriptionPlan>();
   for (const groupId of member.groupIds) {
+    const group = groupsById.get(groupId);
+    if (!group || !memberMatchesGroupBackend(member, group)) continue;
     for (const plan of plansByGroupId.get(groupId) ?? []) {
       plans.add(plan);
     }
@@ -190,14 +259,27 @@ function getMemberPlans(
   return plans;
 }
 
-/** 判断成员是否表达稳定的平台支持，而不是瞬时调度可用性。 */
+/**
+ * 判断成员是否表达稳定的平台支持，而不是瞬时调度可用性。
+ *
+ * @param member - 待检查的运行时成员事实。
+ * @returns 成员启用且未处于终态 error 时返回 true。
+ * @remarks 纯函数，无副作用；limited 与 cooldown 属于瞬时状态，仍视为受支持。
+ */
 function isPlatformSupportedMember(
   member: PlatformModelCatalogMember
 ): boolean {
   return member.isEnabled && member.status !== "error";
 }
 
-/** 判断至少一个可达套餐允许外部图像能力。 */
+/**
+ * 判断至少一个可达套餐是否允许外部图像能力。
+ *
+ * @param plans - 成员可达的套餐集合。
+ * @param minimums - 当前动态能力门槛。
+ * @returns 任一套餐达到图像生成门槛时返回 true；空集合返回 false。
+ * @remarks 纯函数，无副作用；能力门槛异常由上游事实加载失败处理。
+ */
 function hasImagePlan(
   plans: ReadonlySet<SubscriptionPlan>,
   minimums: PlatformModelCapabilityMinimums
@@ -207,7 +289,16 @@ function hasImagePlan(
   );
 }
 
-/** 判断指定成员和模型在至少一个可达套餐上有对话承接能力。 */
+/**
+ * 判断指定成员和模型在至少一个可达套餐上是否有对话承接能力。
+ *
+ * @param member - API 或账号成员的接口事实。
+ * @param modelId - 待分类的模型 ID。
+ * @param plans - 成员可达的套餐集合。
+ * @param minimums - 当前动态能力门槛。
+ * @returns 任一套餐及接口路径可承接该模型时返回 true。
+ * @remarks 纯函数，无副作用；空套餐返回 false，GPT-5.5 还需满足专属能力门槛。
+ */
 function hasConversationPlan(
   member: PlatformModelCatalogApiMember | PlatformModelCatalogAccountMember,
   modelId: string,
@@ -242,7 +333,15 @@ function hasConversationPlan(
   });
 }
 
-/** 向分类集合加入规范化后的模型 ID，大小写重复保留首次权威写法。 */
+/**
+ * 向分类集合加入规范化后的模型 ID。
+ *
+ * @param modelsByCategory - 本次构建使用的可变分类集合。
+ * @param category - 模型要加入的公开分类。
+ * @param value - 待校验的未知模型 ID。
+ * @returns 无返回值。
+ * @remarks 会修改传入 Map；非字符串、空值和超过 120 字符的值被跳过，大小写重复保留首次写法。
+ */
 function addCatalogModel(
   modelsByCategory: Record<CatalogCategory, Map<string, string>>,
   category: CatalogCategory,
@@ -257,7 +356,13 @@ function addCatalogModel(
   }
 }
 
-/** 将模型集合按大小写无关 ID 稳定排序并转为公开 DTO。 */
+/**
+ * 将模型集合按大小写无关 ID 稳定排序并转为公开 DTO。
+ *
+ * @param models - 已按规范化 ID 去重的只读模型集合。
+ * @returns 仅含模型 ID 的新数组；空集合返回空数组。
+ * @remarks 纯转换，无外部副作用；相同规范化 ID 的兜底排序使用原始写法。
+ */
 function toSortedCatalogItems(
   models: ReadonlyMap<string, string>
 ): PlatformModelCatalogItem[] {
@@ -270,7 +375,16 @@ function toSortedCatalogItems(
     .map(({ id }) => ({ id }));
 }
 
-/** 将 API 供应商成员按权威目录和接口模式收窄到公开分类。 */
+/**
+ * 将 API 供应商成员按权威目录和接口模式收窄到公开分类。
+ *
+ * @param member - API 成员的非敏感模型与接口事实。
+ * @param plans - 该成员可达的套餐集合。
+ * @param source - 动态能力门槛与分组事实。
+ * @param modelsByCategory - 本次构建使用的可变分类集合。
+ * @returns 无返回值。
+ * @remarks 会写入分类 Map；非法声明由权威收集器忽略，Firefly 视频一律留给 Adobe direct 成员。
+ */
 function addApiMemberModels(
   member: PlatformModelCatalogApiMember,
   plans: ReadonlySet<SubscriptionPlan>,
@@ -290,9 +404,6 @@ function addApiMemberModels(
 
   for (const modelId of modelIds) {
     if (isFireflyVideoModelId(modelId)) {
-      if (imageAllowed && member.adobeSourced) {
-        addCatalogModel(modelsByCategory, "video", modelId);
-      }
       continue;
     }
     if (CONVERSATION_MODEL_IDS.has(modelId.toLowerCase())) {
@@ -314,7 +425,16 @@ function addApiMemberModels(
   }
 }
 
-/** 将账号成员的默认图像能力和权威对话常量加入公开分类。 */
+/**
+ * 将账号成员的默认图像能力和权威对话常量加入公开分类。
+ *
+ * @param member - 已通过分组车道校验的账号成员。
+ * @param plans - 该成员可达的套餐集合。
+ * @param source - 动态能力门槛与分组事实。
+ * @param modelsByCategory - 本次构建使用的可变分类集合。
+ * @returns 无返回值。
+ * @remarks 会写入分类 Map；无图像或对话能力时保持不变，未知实现模式已在分组聚合阶段回退为 web。
+ */
 function addAccountMemberModels(
   member: PlatformModelCatalogAccountMember,
   plans: ReadonlySet<SubscriptionPlan>,
@@ -333,7 +453,16 @@ function addAccountMemberModels(
   }
 }
 
-/** 将 Adobe 成员的明确图像白名单和可执行视频目录加入公开分类。 */
+/**
+ * 将 Adobe 成员的明确图像白名单和可执行视频目录加入公开分类。
+ *
+ * @param member - Adobe 成员的模式、白名单与视频支持事实。
+ * @param plans - 该成员可达的套餐集合。
+ * @param minimums - 当前动态能力门槛。
+ * @param modelsByCategory - 本次构建使用的可变分类集合。
+ * @returns 无返回值。
+ * @remarks 会写入分类 Map；无图像能力时跳过全部，视频仅由 direct 且显式支持视频的成员贡献。
+ */
 function addAdobeMemberModels(
   member: PlatformModelCatalogAdobeMember,
   plans: ReadonlySet<SubscriptionPlan>,
@@ -368,10 +497,11 @@ export function buildPlatformModelCatalog(
     conversation: new Map(),
   };
   const plansByGroupId = buildReachablePlansByMemberGroup(source);
+  const groupsById = new Map(source.groups.map((group) => [group.id, group]));
 
   for (const member of source.members) {
     if (!isPlatformSupportedMember(member)) continue;
-    const plans = getMemberPlans(member, plansByGroupId);
+    const plans = getMemberPlans(member, plansByGroupId, groupsById);
     if (plans.size === 0) continue;
     if (member.type === "api") {
       addApiMemberModels(member, plans, source, modelsByCategory);

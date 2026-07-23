@@ -24,6 +24,8 @@ import "./image-backend-pool";
 import "./system-settings";
 // 首页营销设置（人工管理员专用）
 import "./system-settings-marketing";
+// 首页可靠性读取（system-only，不向 Agent 暴露）
+import "./homepage-reliability";
 // 存储域
 import "./storage";
 // 内容审核域
@@ -39,6 +41,14 @@ export {
   platformModelCatalogItemSchema,
   platformModelCatalogOutputSchema,
 } from "./external-api-platform-model-catalog";
+export {
+  getHomepageGenerationSlaStats,
+  getHomepageSlaVisibility,
+  type HomepageGenerationSlaStatsOutput,
+  type HomepageSlaVisibilityOutput,
+  homepageGenerationSlaStatsOutputSchema,
+  homepageSlaVisibilityOutputSchema,
+} from "./homepage-reliability";
 export { settingsSetMarketingSlaVisibility } from "./system-settings-marketing";
 
 // 客服支持域

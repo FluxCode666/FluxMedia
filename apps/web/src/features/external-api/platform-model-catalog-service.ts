@@ -84,19 +84,37 @@ export type PlatformModelCatalogServiceDependencies = {
   loadCapabilityMatrix: () => Promise<PlanCapabilityMatrix>;
 };
 
-/** 判断未知 metadata 是否可安全按记录读取。 */
+/**
+ * 判断未知 metadata 是否可安全按普通记录读取。
+ *
+ * @param value - 数据库返回的未知 metadata。
+ * @returns 非空、非数组对象返回 true，否则返回 false。
+ * @remarks 纯函数，无副作用；不校验记录内部字段，后续规范化函数负责逐项收窄。
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-/** 从分组 metadata 收窄后端车道，非法值沿用调度器的 mixed 默认。 */
+/**
+ * 从分组 metadata 收窄后端车道。
+ *
+ * @param value - metadata 中未经信任的 backendType。
+ * @returns web 或 responses 原值；其他输入回退为调度器默认的 mixed。
+ * @remarks 纯函数，无副作用；空值、未知字符串和非字符串都采用 mixed 回退。
+ */
 function normalizeBackendType(
   value: unknown
 ): PlatformModelCatalogGroup["backendType"] {
   return value === "web" || value === "responses" ? value : "mixed";
 }
 
-/** 从分组 metadata 收窄一层子组 ID 并稳定去重。 */
+/**
+ * 从分组 metadata 收窄一层子组 ID 并稳定去重。
+ *
+ * @param value - metadata 中未经信任的 childGroupIds。
+ * @returns 经共享规则规范化的字符串 ID 数组；非数组返回空数组。
+ * @remarks 纯函数，无外部副作用；非字符串项被忽略，重复与空白由共享规范化器处理。
+ */
 function normalizeChildGroupIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return normalizeNestedChildGroupIds(
@@ -104,7 +122,13 @@ function normalizeChildGroupIds(value: unknown): string[] {
   );
 }
 
-/** 将数据库分组行映射为不含描述、价格和内部 metadata 的构建器输入。 */
+/**
+ * 将数据库分组行映射为不含描述、价格和内部 metadata 的构建器输入。
+ *
+ * @param row - 显式列投影得到的分组数据行。
+ * @returns 已规范化套餐、车道和子组的公开目录分组事实。
+ * @remarks 纯转换，无副作用；非法 metadata 按 free、mixed 和空子组安全回退。
+ */
 function toCatalogGroup(row: GroupRow): PlatformModelCatalogGroup {
   const metadata = isRecord(row.metadata) ? row.metadata : {};
   return {
@@ -118,7 +142,13 @@ function toCatalogGroup(row: GroupRow): PlatformModelCatalogGroup {
   };
 }
 
-/** 将成员的主分组和多对多分组收窄为无空值的稳定集合。 */
+/**
+ * 将成员的主分组和多对多分组收窄为稳定集合。
+ *
+ * @param row - 带可空主分组及关联分组的成员数据行。
+ * @returns 按关联分组、主分组顺序去重的非空 ID 数组。
+ * @remarks 纯函数，无副作用；null、空白和重复 ID 被忽略，无分组时返回空数组。
+ */
 function toMemberGroupIds(row: MemberGroupRow): string[] {
   const groupIds: string[] = [];
   for (const value of [row.matchedGroupId, row.groupId]) {
@@ -128,10 +158,23 @@ function toMemberGroupIds(row: MemberGroupRow): string[] {
   return groupIds;
 }
 
-/** 从动态能力矩阵提取构建目录所需的最小能力门槛。 */
+/**
+ * 从动态能力矩阵提取构建目录所需的最小能力门槛。
+ *
+ * @param matrix - 已由共享服务验证的套餐能力矩阵。
+ * @returns 目录构建器使用的六项最低套餐映射。
+ * @remarks 纯转换，无副作用；缺失能力键不在此回退，应由能力矩阵加载与验证阶段失败。
+ */
 function toCapabilityMinimums(
   matrix: PlanCapabilityMatrix
 ): PlatformModelCapabilityMinimums {
+  /**
+   * 读取单项能力对应的最低套餐。
+   *
+   * @param key - 目录依赖的能力键。
+   * @returns 能力矩阵中的最低套餐。
+   * @remarks 纯读取，无副作用；缺失键由上游矩阵类型与验证约束处理。
+   */
   const feature = (key: PlanCapabilityKey): SubscriptionPlan =>
     matrix.features[key];
   return {
@@ -144,7 +187,13 @@ function toCapabilityMinimums(
   };
 }
 
-/** 读取后端分组的公开可达性字段，排序与默认调度回退保持一致。 */
+/**
+ * 读取后端分组的公开可达性字段。
+ *
+ * @returns 按调度优先级和创建时间排序的分组数据行。
+ * @throws 数据库查询失败时原样上抛。
+ * @remarks 只读数据库且不写入状态；空表返回空数组，排序与默认调度回退保持一致。
+ */
 async function listGroups(): Promise<GroupRow[]> {
   return db
     .select({
@@ -158,7 +207,13 @@ async function listGroups(): Promise<GroupRow[]> {
     .orderBy(asc(imageBackendGroup.priority), asc(imageBackendGroup.createdAt));
 }
 
-/** 读取 API 成员的模型、接口模式、稳定状态和分组关系，不投影 URL 或密钥。 */
+/**
+ * 读取 API 成员的模型、接口模式、稳定状态和分组关系。
+ *
+ * @returns 每条分组关联对应一行的 API 成员公开事实。
+ * @throws 数据库查询失败时原样上抛。
+ * @remarks 只读数据库且不写入状态；无成员返回空数组，不投影 URL、密钥或错误详情。
+ */
 async function listApiMembers(): Promise<ApiMemberRow[]> {
   return db
     .select({
@@ -180,7 +235,13 @@ async function listApiMembers(): Promise<ApiMemberRow[]> {
     );
 }
 
-/** 读取账号成员的实现车道、稳定状态和分组关系，不投影凭据或远端账号信息。 */
+/**
+ * 读取账号成员的实现车道、稳定状态和分组关系。
+ *
+ * @returns 每条分组关联对应一行的账号成员公开事实。
+ * @throws 数据库查询失败时原样上抛。
+ * @remarks 只读数据库且不写入状态；无成员返回空数组，不投影凭据或远端账号信息。
+ */
 async function listAccountMembers(): Promise<AccountMemberRow[]> {
   return db
     .select({
@@ -198,7 +259,13 @@ async function listAccountMembers(): Promise<AccountMemberRow[]> {
     );
 }
 
-/** 读取 Adobe 成员的图像白名单、视频开关、稳定状态和分组关系。 */
+/**
+ * 读取 Adobe 成员的图像白名单、视频开关、稳定状态和分组关系。
+ *
+ * @returns 每条分组关联对应一行的 Adobe 成员公开事实。
+ * @throws 数据库查询失败时原样上抛。
+ * @remarks 只读数据库且不写入状态；无成员返回空数组，不投影地址、密钥或内部错误。
+ */
 async function listAdobeMembers(): Promise<AdobeMemberRow[]> {
   return db
     .select({
@@ -227,7 +294,13 @@ export const databasePlatformModelCatalogRepository: PlatformModelCatalogReposit
     listAdobeMembers,
   };
 
-/** 将 API 数据行显式映射为不含敏感字段的构建器成员。 */
+/**
+ * 将 API 数据行显式映射为不含敏感字段的构建器成员。
+ *
+ * @param row - 数据库显式投影的 API 成员行。
+ * @returns 保留模型、接口、状态与分组事实的 API 构建器成员。
+ * @remarks 纯转换，无副作用；空分组保留为空数组，未知模型声明交由纯构建器过滤。
+ */
 function toApiMember(row: ApiMemberRow): PlatformModelCatalogMember {
   return {
     type: "api",
@@ -243,7 +316,13 @@ function toApiMember(row: ApiMemberRow): PlatformModelCatalogMember {
   };
 }
 
-/** 将账号数据行显式映射为不含凭据的构建器成员。 */
+/**
+ * 将账号数据行显式映射为不含凭据的构建器成员。
+ *
+ * @param row - 数据库显式投影的账号成员行。
+ * @returns 保留实现模式、状态与分组事实的账号构建器成员。
+ * @remarks 纯转换，无副作用；空分组保留为空数组，未知模式由构建器按 web 回退。
+ */
 function toAccountMember(row: AccountMemberRow): PlatformModelCatalogMember {
   return {
     type: "account",
@@ -255,7 +334,13 @@ function toAccountMember(row: AccountMemberRow): PlatformModelCatalogMember {
   };
 }
 
-/** 将 Adobe 数据行显式映射为不含地址、密钥和内部 ID 的构建器成员。 */
+/**
+ * 将 Adobe 数据行显式映射为不含敏感字段的构建器成员。
+ *
+ * @param row - 数据库显式投影的 Adobe 成员行。
+ * @returns 保留模式、模型白名单、视频开关、状态与分组事实的 Adobe 构建器成员。
+ * @remarks 纯转换，无副作用；空分组保留为空数组，非法模型白名单由共享收集器忽略。
+ */
 function toAdobeMember(row: AdobeMemberRow): PlatformModelCatalogMember {
   return {
     type: "adobe",

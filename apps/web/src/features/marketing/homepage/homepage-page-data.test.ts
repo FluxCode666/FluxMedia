@@ -10,8 +10,6 @@ import { describe, expect, it, vi } from "vitest";
 
 const runtimeMocks = vi.hoisted(() => ({
   ensureUolInitialized: vi.fn(),
-  getRecentGenerationSlaStats: vi.fn(),
-  getRuntimeSettingBoolean: vi.fn(),
   getServerSession: vi.fn(),
   getUserRoleById: vi.fn(),
   invokeOperation: vi.fn(),
@@ -28,9 +26,6 @@ vi.mock("@repo/shared/auth/server", () => ({
 vi.mock("@repo/shared/logger", () => ({
   logger: { error: runtimeMocks.loggerError },
 }));
-vi.mock("@repo/shared/system-settings", () => ({
-  getRuntimeSettingBoolean: runtimeMocks.getRuntimeSettingBoolean,
-}));
 vi.mock("@repo/shared/uol", () => ({
   invokeOperation: runtimeMocks.invokeOperation,
   OperationError: class OperationError extends Error {
@@ -42,9 +37,6 @@ vi.mock("@repo/shared/uol", () => ({
       this.code = code;
     }
   },
-}));
-vi.mock("@/features/image-generation/sla", () => ({
-  getRecentGenerationSlaStats: runtimeMocks.getRecentGenerationSlaStats,
 }));
 vi.mock("@/server/uol-init", () => ({
   ensureUolInitialized: runtimeMocks.ensureUolInitialized,
@@ -176,34 +168,58 @@ describe("getNextHomepageModelTab", () => {
 });
 
 describe("loadHomepagePageData", () => {
-  it("生产目录 loader 初始化 UOL 后以固定 system reason 进程内调用 operation", async () => {
+  it("三个生产 loader 初始化 UOL 后以独立 system reason 并行调用 operation", async () => {
     for (const mock of Object.values(runtimeMocks)) mock.mockReset();
     runtimeMocks.ensureUolInitialized.mockResolvedValue(undefined);
-    runtimeMocks.invokeOperation.mockResolvedValue(READY_CATALOG);
-    runtimeMocks.getRuntimeSettingBoolean.mockResolvedValue(true);
-    runtimeMocks.getRecentGenerationSlaStats.mockResolvedValue(READY_SLA_STATS);
+    runtimeMocks.invokeOperation.mockImplementation(
+      async (operationName: string) => {
+        if (operationName === "externalApi.getPlatformModelCatalog") {
+          return READY_CATALOG;
+        }
+        if (operationName === "settings.getHomepageSlaVisibility") {
+          return { enabled: true };
+        }
+        if (operationName === "analytics.getHomepageGenerationSlaStats") {
+          return READY_SLA_STATS;
+        }
+        throw new Error("unexpected operation");
+      }
+    );
     runtimeMocks.getServerSession.mockResolvedValue(null);
 
     const result = await loadHomepagePageData();
 
-    expect(runtimeMocks.ensureUolInitialized).toHaveBeenCalledOnce();
+    expect(runtimeMocks.ensureUolInitialized).toHaveBeenCalledTimes(3);
     expect(runtimeMocks.invokeOperation).toHaveBeenCalledWith(
       "externalApi.getPlatformModelCatalog",
       {},
       { type: "system", reason: "homepage-platform-model-catalog" },
       { requestId: expect.any(String) }
     );
+    expect(runtimeMocks.invokeOperation).toHaveBeenCalledWith(
+      "settings.getHomepageSlaVisibility",
+      {},
+      { type: "system", reason: "homepage-sla-visibility" },
+      { requestId: expect.any(String) }
+    );
+    expect(runtimeMocks.invokeOperation).toHaveBeenCalledWith(
+      "analytics.getHomepageGenerationSlaStats",
+      {},
+      { type: "system", reason: "homepage-generation-sla-stats" },
+      { requestId: expect.any(String) }
+    );
+    expect(runtimeMocks.invokeOperation).toHaveBeenCalledTimes(3);
     expect(
       runtimeMocks.ensureUolInitialized.mock.invocationCallOrder[0] ?? 0
     ).toBeLessThan(
       runtimeMocks.invokeOperation.mock.invocationCallOrder[0] ?? 0
     );
-    expect(runtimeMocks.getRuntimeSettingBoolean).toHaveBeenCalledWith(
-      "MARKETING_SLA_STATUS_ENABLED",
-      true
-    );
     expect(runtimeMocks.getUserRoleById).not.toHaveBeenCalled();
     expect(result.catalog).toEqual({ status: "ready", ...READY_CATALOG });
+    expect(result.reliability).toEqual({
+      visibility: "enabled",
+      stats: { status: "ready", data: READY_SLA_STATS },
+    });
   });
 
   it("生产日志调用也只接收稳定事件字段而不接收原始 Error", async () => {
@@ -214,8 +230,6 @@ describe("loadHomepagePageData", () => {
     canary.stack = "stack-canary";
     runtimeMocks.ensureUolInitialized.mockResolvedValue(undefined);
     runtimeMocks.invokeOperation.mockRejectedValue(canary);
-    runtimeMocks.getRuntimeSettingBoolean.mockRejectedValue(canary);
-    runtimeMocks.getRecentGenerationSlaStats.mockRejectedValue(canary);
     runtimeMocks.getServerSession.mockRejectedValue(canary);
 
     await expect(loadHomepagePageData()).resolves.toMatchObject({
@@ -257,8 +271,10 @@ describe("loadHomepagePageData", () => {
     const resultPromise = loadHomepagePageData(loaders);
 
     expect(loaders.loadCatalog).toHaveBeenCalledWith("homepage-request-1");
-    expect(loaders.loadSlaVisibility).toHaveBeenCalledOnce();
-    expect(loaders.loadSlaStats).toHaveBeenCalledOnce();
+    expect(loaders.loadSlaVisibility).toHaveBeenCalledWith(
+      "homepage-request-1"
+    );
+    expect(loaders.loadSlaStats).toHaveBeenCalledWith("homepage-request-1");
     expect(loaders.loadSession).toHaveBeenCalledOnce();
     expect(loadRole).not.toHaveBeenCalled();
 

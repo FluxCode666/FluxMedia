@@ -39,7 +39,7 @@ export const settingsSetMarketingSlaVisibility = defineOperation({
   destructive: false,
   idempotency: { kind: "none" },
   sideEffects: ["cache"],
-  async execute(input, principal) {
+  async execute(input, principal, _ctx) {
     if (principal.type !== "user") {
       throw new OperationError(
         "forbidden",

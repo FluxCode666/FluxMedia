@@ -12,7 +12,13 @@ import {
   type PlatformModelCatalogSource,
 } from "./platform-model-catalog";
 
-/** 构造包含动态套餐能力门槛的最小目录事实。 */
+/**
+ * 构造包含动态套餐能力门槛的最小目录事实。
+ *
+ * @param overrides - 需要替换的顶层目录事实。
+ * @returns 可直接传给纯构建器的完整输入。
+ * @remarks 纯函数，无副作用；顶层覆盖不会深合并，测试需提供完整替代字段。
+ */
 function createSource(
   overrides: Partial<PlatformModelCatalogSource> = {}
 ): PlatformModelCatalogSource {
@@ -316,6 +322,111 @@ describe("buildPlatformModelCatalog", () => {
       expect.arrayContaining([{ id: "gpt-5.4" }, { id: "gpt-5.4-mini" }])
     );
     expect(catalog.image).not.toContainEqual({ id: "gpt-5.4" });
+  });
+
+  it("排除 adobeSourced API 视频并仅由 Adobe direct 保留视频目录", () => {
+    const fireflyVideoModelId = "firefly-sora2-4s-16x9";
+    const apiMember = {
+      type: "api" as const,
+      groupIds: ["default-group"],
+      isEnabled: true,
+      status: "active",
+      interfaceMode: "images",
+      imageUpstreamMode: "images",
+      model: fireflyVideoModelId,
+      supportedModelIds: [],
+      adobeSourced: true,
+    };
+
+    expect(
+      buildPlatformModelCatalog(createSource({ members: [apiMember] })).video
+    ).toEqual([]);
+
+    const catalog = buildPlatformModelCatalog(
+      createSource({
+        members: [
+          apiMember,
+          {
+            type: "adobe",
+            groupIds: ["default-group"],
+            isEnabled: true,
+            status: "active",
+            mode: "direct",
+            enabledModels: [],
+            supportsVideo: true,
+          },
+        ],
+      })
+    );
+
+    expect(catalog.video).toContainEqual({ id: fireflyVideoModelId });
+  });
+
+  it("排除 responses 账号从 web 分组贡献的模型", () => {
+    const source = createSource({
+      groups: createSource().groups.map((group) => ({
+        ...group,
+        backendType: "web" as const,
+      })),
+      members: [
+        {
+          type: "account",
+          groupIds: ["default-group"],
+          isEnabled: true,
+          status: "active",
+          implementationMode: "responses",
+        },
+      ],
+    });
+
+    expect(buildPlatformModelCatalog(source)).toEqual({
+      image: [],
+      video: [],
+      conversation: [],
+    });
+  });
+
+  it("排除 web 账号从 responses 分组贡献的模型", () => {
+    const source = createSource({
+      groups: createSource().groups.map((group) => ({
+        ...group,
+        backendType: "responses" as const,
+      })),
+      members: [
+        {
+          type: "account",
+          groupIds: ["default-group"],
+          isEnabled: true,
+          status: "active",
+          implementationMode: "web",
+        },
+      ],
+    });
+
+    expect(buildPlatformModelCatalog(source)).toEqual({
+      image: [],
+      video: [],
+      conversation: [],
+    });
+  });
+
+  it("允许账号从 mixed 分组贡献模型", () => {
+    const catalog = buildPlatformModelCatalog(
+      createSource({
+        members: [
+          {
+            type: "account",
+            groupIds: ["default-group"],
+            isEnabled: true,
+            status: "active",
+            implementationMode: "responses",
+          },
+        ],
+      })
+    );
+
+    expect(catalog.image).toContainEqual({ id: "gpt-image-2" });
+    expect(catalog.conversation.length).toBeGreaterThan(0);
   });
 });
 

@@ -10,15 +10,17 @@ import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { isAdminRole } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
 import { logger } from "@repo/shared/logger";
-import { getRuntimeSettingBoolean } from "@repo/shared/system-settings";
 import {
   invokeOperation,
   OperationError,
   type OperationErrorCode,
 } from "@repo/shared/uol";
-import type { PlatformModelCatalogOutput } from "@repo/shared/uol/operations";
+import type {
+  HomepageGenerationSlaStatsOutput,
+  HomepageSlaVisibilityOutput,
+  PlatformModelCatalogOutput,
+} from "@repo/shared/uol/operations";
 
-import { getRecentGenerationSlaStats } from "@/features/image-generation/sla";
 import { ensureUolInitialized } from "@/server/uol-init";
 
 /** 首页可公开的单个模型字段。 */
@@ -35,15 +37,7 @@ export type HomepageModelCatalogState =
   | { status: "unavailable" };
 
 /** 首页可靠性区允许公开的统计字段。 */
-export type HomepageSlaStats = {
-  sampleSize: number;
-  completed: number;
-  failed: number;
-  successRate: number;
-  platformErrors: number;
-  moderationErrors: number;
-  userRequestErrors: number;
-};
+export type HomepageSlaStats = HomepageGenerationSlaStatsOutput;
 
 /** SLA 统计显式区分可展示、样本不足和读取失败。 */
 export type HomepageSlaStatsState =
@@ -86,8 +80,8 @@ export type HomepageFailureEvent = {
 export type HomepagePageDataLoaders = {
   createRequestId: () => string;
   loadCatalog: (requestId: string) => Promise<unknown>;
-  loadSlaVisibility: () => Promise<unknown>;
-  loadSlaStats: () => Promise<unknown>;
+  loadSlaVisibility: (requestId: string) => Promise<unknown>;
+  loadSlaStats: (requestId: string) => Promise<unknown>;
   loadSession: () => Promise<unknown>;
   loadRole: (userId: string) => Promise<unknown>;
   reportFailure: (event: HomepageFailureEvent) => void;
@@ -240,12 +234,54 @@ async function loadCatalogThroughUol(
   );
 }
 
+/**
+ * 通过 system-only UOL operation 读取首页 SLA 展示开关。
+ *
+ * @param requestId - 当前首页请求的关联 ID，原样传入 UOL 网关用于审计关联。
+ * @returns 严格输出 DTO 中的布尔开关，不向页面暴露 operation 内部字段。
+ * @sideEffects 确保 UOL 完成初始化，并以固定 system Principal 进程内调用只读操作。
+ * @failure 初始化、权限、设置读取或输出契约失败时拒绝 Promise；上层 allSettled 将其
+ * 局部降级为 unavailable 并记录安全事件。
+ */
+async function loadSlaVisibilityThroughUol(
+  requestId: string
+): Promise<boolean> {
+  await ensureUolInitialized();
+  const output = await invokeOperation<HomepageSlaVisibilityOutput>(
+    "settings.getHomepageSlaVisibility",
+    {},
+    { type: "system", reason: "homepage-sla-visibility" },
+    { requestId }
+  );
+  return output.enabled;
+}
+
+/**
+ * 通过 system-only UOL operation 读取首页生成 SLA 聚合统计。
+ *
+ * @param requestId - 当前首页请求的关联 ID，原样传入 UOL 网关用于审计关联。
+ * @returns 仅包含公开计数和成功率的严格 SLA 统计 DTO。
+ * @sideEffects 确保 UOL 完成初始化，并以固定 system Principal 进程内调用只读操作。
+ * @failure 初始化、late binding、统计查询或输出契约失败时拒绝 Promise；上层
+ * allSettled 将其局部降级为 unavailable 并记录安全事件。
+ */
+async function loadSlaStatsThroughUol(
+  requestId: string
+): Promise<HomepageGenerationSlaStatsOutput> {
+  await ensureUolInitialized();
+  return invokeOperation<HomepageGenerationSlaStatsOutput>(
+    "analytics.getHomepageGenerationSlaStats",
+    {},
+    { type: "system", reason: "homepage-generation-sla-stats" },
+    { requestId }
+  );
+}
+
 const defaultLoaders: HomepagePageDataLoaders = {
   createRequestId: () => crypto.randomUUID(),
   loadCatalog: loadCatalogThroughUol,
-  loadSlaVisibility: () =>
-    getRuntimeSettingBoolean("MARKETING_SLA_STATUS_ENABLED", true),
-  loadSlaStats: () => getRecentGenerationSlaStats(1000),
+  loadSlaVisibility: loadSlaVisibilityThroughUol,
+  loadSlaStats: loadSlaStatsThroughUol,
   loadSession: getServerSession,
   loadRole: getUserRoleById,
   reportFailure: reportHomepageFailure,
@@ -254,7 +290,7 @@ const defaultLoaders: HomepagePageDataLoaders = {
 /**
  * 并行装配首页模型、可靠性与会话，再按需加载角色。
  *
- * @param loaders - 可注入依赖；生产默认值通过 UOL 读取模型并复用现有 SLA/auth 服务。
+ * @param loaders - 可注入依赖；生产默认值通过 UOL 读取模型和 SLA，并复用 auth 服务。
  * @returns 仅包含公开模型 DTO、可靠性枚举/数字、CTA href 与管理员布尔值的数据。
  * @sideEffects 读取运行时配置、统计、会话和角色；每个失败只写一条安全结构化日志。
  * @failure 任一依赖失败均局部降级，不抛出原始错误，也不让首页请求整体失败。
@@ -266,8 +302,8 @@ export async function loadHomepagePageData(
   const [catalogResult, visibilityResult, statsResult, sessionResult] =
     await Promise.allSettled([
       loaders.loadCatalog(requestId),
-      loaders.loadSlaVisibility(),
-      loaders.loadSlaStats(),
+      loaders.loadSlaVisibility(requestId),
+      loaders.loadSlaStats(requestId),
       loaders.loadSession(),
     ]);
 

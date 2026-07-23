@@ -53,7 +53,7 @@ export const getPlatformModelCatalog = defineOperation({
   destructive: false,
   idempotency: { kind: "natural" },
   sideEffects: [],
-  async execute() {
+  async execute(_input, _principal, _ctx) {
     throw new Error("Not yet wired: externalApi.getPlatformModelCatalog");
   },
 });

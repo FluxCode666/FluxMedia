@@ -148,4 +148,40 @@ describe("platform model catalog UOL binding", () => {
       /binding-api-key-canary|secret@example|binding-group-canary/
     );
   });
+
+  it("既有启动入口同时绑定 SLA 统计且每次调用都实时读取", async () => {
+    await import("@repo/shared/uol/operations");
+    const [{ invokeOperation }, { bindPlatformModelCatalogOperation }] =
+      await Promise.all([
+        import("@repo/shared/uol"),
+        import("@/server/platform-model-catalog-binding"),
+      ]);
+    const stats = {
+      sampleSize: 100,
+      completed: 96,
+      failed: 4,
+      successRate: 0.96,
+      platformErrors: 4,
+      moderationErrors: 0,
+      userRequestErrors: 0,
+    };
+    const loadGenerationSlaStats = vi.fn().mockResolvedValue(stats);
+    bindPlatformModelCatalogOperation({ loadGenerationSlaStats });
+
+    await expect(
+      invokeOperation(
+        "analytics.getHomepageGenerationSlaStats",
+        {},
+        { type: "system", reason: "homepage-generation-sla-stats" }
+      )
+    ).resolves.toEqual(stats);
+    await expect(
+      invokeOperation(
+        "analytics.getHomepageGenerationSlaStats",
+        {},
+        { type: "system", reason: "homepage-generation-sla-stats" }
+      )
+    ).resolves.toEqual(stats);
+    expect(loadGenerationSlaStats).toHaveBeenCalledTimes(2);
+  });
 });

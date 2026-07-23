@@ -29,7 +29,7 @@ export const HOMEPAGE_ARTWORKS: readonly HomepageArtwork[] = [
     layout: "portrait",
   },
   {
-    src: "/cinema/wall/w03.webp",
+    src: "/cinema/wall/w02.webp",
     altKey: "artworks.alts.mountain",
     layout: "landscape",
   },
