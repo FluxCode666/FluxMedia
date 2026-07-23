@@ -1,0 +1,608 @@
+/**
+ * 首页服务端数据装配测试。
+ *
+ * 使用方：Vitest；验证首阶段并行、登录后二阶段角色读取、区块独立降级、公开 DTO
+ * 收窄与安全日志，避免首页把异常或内部会话带入客户端边界。
+ */
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
+const runtimeMocks = vi.hoisted(() => ({
+  ensureUolInitialized: vi.fn(),
+  getRecentGenerationSlaStats: vi.fn(),
+  getRuntimeSettingBoolean: vi.fn(),
+  getServerSession: vi.fn(),
+  getUserRoleById: vi.fn(),
+  invokeOperation: vi.fn(),
+  loggerError: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@repo/shared/auth/role-server", () => ({
+  getUserRoleById: runtimeMocks.getUserRoleById,
+}));
+vi.mock("@repo/shared/auth/server", () => ({
+  getServerSession: runtimeMocks.getServerSession,
+}));
+vi.mock("@repo/shared/logger", () => ({
+  logger: { error: runtimeMocks.loggerError },
+}));
+vi.mock("@repo/shared/system-settings", () => ({
+  getRuntimeSettingBoolean: runtimeMocks.getRuntimeSettingBoolean,
+}));
+vi.mock("@repo/shared/uol", () => ({
+  invokeOperation: runtimeMocks.invokeOperation,
+  OperationError: class OperationError extends Error {
+    code: string;
+
+    /** 构造测试所需的最小 UOL 错误。 */
+    constructor(code: string) {
+      super(code);
+      this.code = code;
+    }
+  },
+}));
+vi.mock("@/features/image-generation/sla", () => ({
+  getRecentGenerationSlaStats: runtimeMocks.getRecentGenerationSlaStats,
+}));
+vi.mock("@/server/uol-init", () => ({
+  ensureUolInitialized: runtimeMocks.ensureUolInitialized,
+}));
+vi.mock("@/i18n/routing", () => ({
+  Link: ({ children, href }: { children: ReactNode; href: string }) =>
+    createElement("a", { href }, children),
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+vi.mock("./homepage-sla-toggle", () => ({
+  HomepageSlaToggle: () => null,
+}));
+vi.mock("next-intl/server", async () => {
+  const [{ default: zh }, { default: en }] = await Promise.all([
+    import("../../../../messages/zh.json"),
+    import("../../../../messages/en.json"),
+  ]);
+
+  /** 从测试消息对象中读取点分路径。 */
+  function readPath(root: unknown, path: string): unknown {
+    let current = root;
+    for (const segment of path.split(".")) {
+      if (
+        typeof current !== "object" ||
+        current === null ||
+        Array.isArray(current) ||
+        !(segment in current)
+      ) {
+        return undefined;
+      }
+      current = (current as Record<string, unknown>)[segment];
+    }
+    return current;
+  }
+
+  return {
+    getTranslations: async ({
+      locale,
+      namespace,
+    }: {
+      locale: string;
+      namespace: string;
+    }) => {
+      const messages = locale === "zh" ? zh : en;
+      const root = readPath(messages, namespace);
+      const translate = ((key: string) => {
+        const value = readPath(root, key);
+        if (typeof value !== "string") {
+          throw new Error(`Missing test translation: ${namespace}.${key}`);
+        }
+        return value;
+      }) as ((key: string) => string) & { raw: (key: string) => unknown };
+      translate.raw = (key: string) => readPath(root, key);
+      return translate;
+    },
+  };
+});
+
+import { HomepageContent } from "./homepage-content";
+import { getNextHomepageModelTab } from "./homepage-model-catalog";
+import {
+  type HomepagePageData,
+  type HomepagePageDataLoaders,
+  loadHomepagePageData,
+} from "./homepage-page-data";
+
+const READY_CATALOG = {
+  image: [{ id: "image-alpha" }],
+  video: [{ id: "video-alpha" }],
+  conversation: [{ id: "chat-alpha" }],
+};
+
+const READY_SLA_STATS = {
+  sampleSize: 100,
+  completed: 96,
+  failed: 4,
+  successRate: 0.96,
+  platformErrors: 4,
+  moderationErrors: 0,
+  userRequestErrors: 0,
+};
+
+/** 创建覆盖首页四个首阶段依赖和角色二阶段依赖的默认 loader。 */
+function createLoaders(
+  overrides: Partial<HomepagePageDataLoaders> = {}
+): HomepagePageDataLoaders {
+  return {
+    createRequestId: () => "homepage-request-1",
+    loadCatalog: vi.fn().mockResolvedValue(READY_CATALOG),
+    loadSlaVisibility: vi.fn().mockResolvedValue(true),
+    loadSlaStats: vi.fn().mockResolvedValue(READY_SLA_STATS),
+    loadSession: vi.fn().mockResolvedValue(null),
+    loadRole: vi.fn().mockResolvedValue("user"),
+    reportFailure: vi.fn(),
+    ...overrides,
+  };
+}
+
+/** 创建由测试显式释放的 Promise，用于证明加载顺序而不依赖计时器。 */
+function createDeferred<T>() {
+  let resolvePromise: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
+
+/** 从静态 HTML 中读取指定 id 元素的开始标签。 */
+function getOpeningTag(html: string, id: string): string {
+  const idIndex = html.indexOf(`id="${id}"`);
+  if (idIndex < 0) return "";
+  const start = html.lastIndexOf("<", idIndex);
+  const end = html.indexOf(">", idIndex);
+  return start >= 0 && end >= 0 ? html.slice(start, end + 1) : "";
+}
+
+describe("getNextHomepageModelTab", () => {
+  it.each([
+    ["image", "ArrowRight", "video"],
+    ["video", "ArrowRight", "conversation"],
+    ["conversation", "ArrowRight", "image"],
+    ["image", "ArrowLeft", "conversation"],
+    ["conversation", "ArrowLeft", "video"],
+    ["video", "Home", "image"],
+    ["image", "End", "conversation"],
+  ] as const)("%s + %s 切换到 %s", (current, key, expected) => {
+    expect(getNextHomepageModelTab(current, key)).toBe(expected);
+  });
+});
+
+describe("loadHomepagePageData", () => {
+  it("生产目录 loader 初始化 UOL 后以固定 system reason 进程内调用 operation", async () => {
+    for (const mock of Object.values(runtimeMocks)) mock.mockReset();
+    runtimeMocks.ensureUolInitialized.mockResolvedValue(undefined);
+    runtimeMocks.invokeOperation.mockResolvedValue(READY_CATALOG);
+    runtimeMocks.getRuntimeSettingBoolean.mockResolvedValue(true);
+    runtimeMocks.getRecentGenerationSlaStats.mockResolvedValue(READY_SLA_STATS);
+    runtimeMocks.getServerSession.mockResolvedValue(null);
+
+    const result = await loadHomepagePageData();
+
+    expect(runtimeMocks.ensureUolInitialized).toHaveBeenCalledOnce();
+    expect(runtimeMocks.invokeOperation).toHaveBeenCalledWith(
+      "externalApi.getPlatformModelCatalog",
+      {},
+      { type: "system", reason: "homepage-platform-model-catalog" },
+      { requestId: expect.any(String) }
+    );
+    expect(
+      runtimeMocks.ensureUolInitialized.mock.invocationCallOrder[0] ?? 0
+    ).toBeLessThan(
+      runtimeMocks.invokeOperation.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(runtimeMocks.getRuntimeSettingBoolean).toHaveBeenCalledWith(
+      "MARKETING_SLA_STATUS_ENABLED",
+      true
+    );
+    expect(runtimeMocks.getUserRoleById).not.toHaveBeenCalled();
+    expect(result.catalog).toEqual({ status: "ready", ...READY_CATALOG });
+  });
+
+  it("生产日志调用也只接收稳定事件字段而不接收原始 Error", async () => {
+    for (const mock of Object.values(runtimeMocks)) mock.mockReset();
+    const canary = new Error(
+      "https://user:password@example.test Bearer token-canary SELECT secret api_key=key-canary"
+    );
+    canary.stack = "stack-canary";
+    runtimeMocks.ensureUolInitialized.mockResolvedValue(undefined);
+    runtimeMocks.invokeOperation.mockRejectedValue(canary);
+    runtimeMocks.getRuntimeSettingBoolean.mockRejectedValue(canary);
+    runtimeMocks.getRecentGenerationSlaStats.mockRejectedValue(canary);
+    runtimeMocks.getServerSession.mockRejectedValue(canary);
+
+    await expect(loadHomepagePageData()).resolves.toMatchObject({
+      catalog: { status: "unavailable" },
+      ctaHref: "/sign-up",
+    });
+
+    const logged = JSON.stringify(runtimeMocks.loggerError.mock.calls);
+    expect(logged).not.toMatch(
+      /password@example|Bearer|token-canary|SELECT|api_key|key-canary|stack-canary/
+    );
+    expect(runtimeMocks.loggerError).toHaveBeenCalledTimes(4);
+    for (const [event, message] of runtimeMocks.loggerError.mock.calls) {
+      expect(Object.keys(event).sort()).toEqual([
+        "event",
+        "requestId",
+        "retryable",
+        "safeCode",
+        "section",
+      ]);
+      expect(message).toBe("Homepage dependency unavailable");
+    }
+  });
+
+  it("首阶段并行启动四个依赖，取得 userId 后才进入角色二阶段", async () => {
+    const catalog = createDeferred<unknown>();
+    const visibility = createDeferred<unknown>();
+    const stats = createDeferred<unknown>();
+    const session = createDeferred<unknown>();
+    const loadRole = vi.fn().mockResolvedValue("admin");
+    const loaders = createLoaders({
+      loadCatalog: vi.fn(() => catalog.promise),
+      loadSlaVisibility: vi.fn(() => visibility.promise),
+      loadSlaStats: vi.fn(() => stats.promise),
+      loadSession: vi.fn(() => session.promise),
+      loadRole,
+    });
+
+    const resultPromise = loadHomepagePageData(loaders);
+
+    expect(loaders.loadCatalog).toHaveBeenCalledWith("homepage-request-1");
+    expect(loaders.loadSlaVisibility).toHaveBeenCalledOnce();
+    expect(loaders.loadSlaStats).toHaveBeenCalledOnce();
+    expect(loaders.loadSession).toHaveBeenCalledOnce();
+    expect(loadRole).not.toHaveBeenCalled();
+
+    session.resolve({ user: { id: "user-1" } });
+    catalog.resolve(READY_CATALOG);
+    visibility.resolve(true);
+    stats.resolve(READY_SLA_STATS);
+
+    const result = await resultPromise;
+    expect(loadRole).toHaveBeenCalledWith("user-1");
+    expect(result.ctaHref).toBe("/dashboard/create");
+    expect(result.canToggleSlaStatus).toBe(true);
+  });
+
+  it.each([
+    ["catalog", "model_catalog"],
+    ["stats", "sla_stats"],
+    ["both", "model_catalog,sla_stats"],
+  ] as const)("隔离 %s 读取失败且不伪造其他区块状态", async (failureKind, expectedSections) => {
+    const reportFailure = vi.fn();
+    const loaders = createLoaders({ reportFailure });
+    if (failureKind === "catalog" || failureKind === "both") {
+      vi.mocked(loaders.loadCatalog).mockRejectedValue(
+        new Error("catalog unavailable")
+      );
+    }
+    if (failureKind === "stats" || failureKind === "both") {
+      vi.mocked(loaders.loadSlaStats).mockRejectedValue(
+        new Error("sla unavailable")
+      );
+    }
+
+    const result = await loadHomepagePageData(loaders);
+
+    expect(result.catalog.status).toBe(
+      failureKind === "stats" ? "ready" : "unavailable"
+    );
+    expect(result.reliability.visibility).toBe("enabled");
+    expect(result.reliability.stats.status).toBe(
+      failureKind === "catalog" ? "ready" : "unavailable"
+    );
+    expect(
+      reportFailure.mock.calls
+        .map(([event]) => event.section)
+        .sort()
+        .join(",")
+    ).toBe(expectedSections);
+  });
+
+  it("区分成功空目录、读取失败和每类真实空状态", async () => {
+    const empty = await loadHomepagePageData(
+      createLoaders({
+        loadCatalog: vi.fn().mockResolvedValue({
+          image: [],
+          video: [],
+          conversation: [],
+        }),
+      })
+    );
+    const failed = await loadHomepagePageData(
+      createLoaders({
+        loadCatalog: vi.fn().mockRejectedValue(new Error("unavailable")),
+      })
+    );
+
+    expect(empty.catalog).toEqual({
+      status: "ready",
+      image: [],
+      video: [],
+      conversation: [],
+    });
+    expect(failed.catalog).toEqual({ status: "unavailable" });
+  });
+
+  it("把零样本收窄为不足，关闭展示时保留真实统计但不伪造百分比", async () => {
+    const result = await loadHomepagePageData(
+      createLoaders({
+        loadSlaVisibility: vi.fn().mockResolvedValue(false),
+        loadSlaStats: vi.fn().mockResolvedValue({
+          ...READY_SLA_STATS,
+          sampleSize: 0,
+          completed: 0,
+          failed: 0,
+          platformErrors: 0,
+          successRate: 1,
+        }),
+      })
+    );
+
+    expect(result.reliability.visibility).toBe("disabled");
+    expect(result.reliability.stats).toEqual({ status: "insufficient" });
+  });
+
+  it.each([
+    {
+      name: "有效管理员会话",
+      session: { user: { id: "admin-1" } },
+      roleResult: "admin",
+      roleFailure: false,
+      href: "/dashboard/create",
+      canToggle: true,
+    },
+    {
+      name: "有效会话但角色读取失败",
+      session: { user: { id: "user-1" } },
+      roleResult: "user",
+      roleFailure: true,
+      href: "/dashboard/create",
+      canToggle: false,
+    },
+    {
+      name: "无会话",
+      session: null,
+      roleResult: "admin",
+      roleFailure: false,
+      href: "/sign-up",
+      canToggle: false,
+    },
+  ] as const)("$name 时 CTA 与管理员能力独立收窄", async ({
+    session,
+    roleResult,
+    roleFailure,
+    href,
+    canToggle,
+  }) => {
+    const loadRole = roleFailure
+      ? vi.fn().mockRejectedValue(new Error("role unavailable"))
+      : vi.fn().mockResolvedValue(roleResult);
+    const result = await loadHomepagePageData(
+      createLoaders({
+        loadSession: vi.fn().mockResolvedValue(session),
+        loadRole,
+      })
+    );
+
+    expect(result.ctaHref).toBe(href);
+    expect(result.canToggleSlaStatus).toBe(canToggle);
+    expect(loadRole).toHaveBeenCalledTimes(session ? 1 : 0);
+  });
+
+  it("会话读取失败安全回退注册入口且不读取角色", async () => {
+    const loadRole = vi.fn().mockResolvedValue("admin");
+    const result = await loadHomepagePageData(
+      createLoaders({
+        loadSession: vi.fn().mockRejectedValue(new Error("session failed")),
+        loadRole,
+      })
+    );
+
+    expect(result.ctaHref).toBe("/sign-up");
+    expect(result.canToggleSlaStatus).toBe(false);
+    expect(loadRole).not.toHaveBeenCalled();
+  });
+
+  it("客户端可消费结果只保留公开模型、数字、CTA 与管理员布尔值", async () => {
+    const catalogWithCanaries = {
+      ...READY_CATALOG,
+      image: [
+        {
+          id: "image-alpha",
+          apiKey: "api-key-canary",
+          baseUrl: "https://user:password@example.test",
+        },
+      ],
+      principal: { type: "system", reason: "principal-canary" },
+      internalRows: [{ id: "database-row-canary" }],
+    };
+    const result = await loadHomepagePageData(
+      createLoaders({
+        loadCatalog: vi.fn().mockResolvedValue(catalogWithCanaries),
+        loadSlaStats: vi.fn().mockResolvedValue({
+          ...READY_SLA_STATS,
+          rawError: new Error("stack-canary"),
+        }),
+        loadSession: vi.fn().mockResolvedValue({
+          user: { id: "user-1", email: "session-email-canary" },
+          token: "session-token-canary",
+        }),
+      })
+    );
+    const serialized = JSON.stringify(result);
+
+    expect(result.catalog).toEqual({
+      status: "ready",
+      image: [{ id: "image-alpha" }],
+      video: [{ id: "video-alpha" }],
+      conversation: [{ id: "chat-alpha" }],
+    });
+    expect(serialized).not.toMatch(
+      /api-key-canary|password@example|principal-canary|database-row-canary|stack-canary|session-email-canary|session-token-canary/
+    );
+  });
+
+  it("日志只接收稳定字段，不记录密码 URL、Bearer、SQL、API Key 或异常文本", async () => {
+    const reportFailure = vi.fn();
+    const secretError = new Error(
+      "https://user:password@example.test Bearer token-canary SELECT * FROM secret api_key=key-canary"
+    );
+    secretError.stack = "stack-canary";
+    await loadHomepagePageData(
+      createLoaders({
+        loadCatalog: vi.fn().mockRejectedValue(secretError),
+        loadSlaVisibility: vi.fn().mockRejectedValue(secretError),
+        loadSlaStats: vi.fn().mockRejectedValue(secretError),
+        loadSession: vi.fn().mockRejectedValue(secretError),
+        reportFailure,
+      })
+    );
+
+    const logged = JSON.stringify(reportFailure.mock.calls);
+    expect(logged).not.toMatch(
+      /password@example|Bearer|token-canary|SELECT|api_key|key-canary|stack-canary/
+    );
+    for (const [event] of reportFailure.mock.calls) {
+      expect(Object.keys(event).sort()).toEqual([
+        "event",
+        "requestId",
+        "retryable",
+        "safeCode",
+        "section",
+      ]);
+    }
+  });
+});
+
+/** 创建覆盖完整可见区块的服务端页面数据。 */
+function createRenderablePageData(
+  overrides: Partial<HomepagePageData> = {}
+): HomepagePageData {
+  return {
+    catalog: { status: "ready", ...READY_CATALOG },
+    reliability: {
+      visibility: "enabled",
+      stats: { status: "ready", data: READY_SLA_STATS },
+    },
+    ctaHref: "/dashboard/create",
+    canToggleSlaStatus: false,
+    ...overrides,
+  };
+}
+
+describe("HomepageContent 服务端完成态", () => {
+  it("无 JavaScript HTML 直接包含三类模型、集成、作品、统计、FAQ、CTA 与 Footer", async () => {
+    const element = await HomepageContent({
+      locale: "zh",
+      data: createRenderablePageData(),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-model-category="image"');
+    expect(html).toContain('data-model-category="video"');
+    expect(html).toContain('data-model-category="conversation"');
+    expect(html.match(/role="tab"/g)?.length).toBe(3);
+    expect(html.match(/role="tabpanel"/g)?.length).toBe(3);
+    expect(html).toContain('role="tablist"');
+    expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
+    for (const category of ["image", "video", "conversation"] as const) {
+      const tabId = `homepage-model-tab-${category}`;
+      const panelId = `homepage-model-panel-${category}`;
+      const tab = getOpeningTag(html, tabId);
+      const panel = getOpeningTag(html, panelId);
+      expect(tab).toContain(`aria-controls="${panelId}"`);
+      expect(tab).toContain(
+        category === "image" ? 'tabindex="0"' : 'tabindex="-1"'
+      );
+      expect(panel).toContain(`aria-labelledby="${tabId}"`);
+      expect(panel).toContain('role="tabpanel"');
+      expect(panel).not.toMatch(/\shidden(?:=|\s|>)/);
+    }
+    expect(html).toContain("image-alpha");
+    expect(html).toContain("video-alpha");
+    expect(html).toContain("chat-alpha");
+    expect(html).toContain("快速集成");
+    expect(html).toContain("/v1/images/generations");
+    expect(html).toContain("%2Fcinema%2Fwall%2Fw01.webp");
+    expect(html).toContain("96.00%");
+    expect(html).toContain("为什么有时看不到可靠性百分比？");
+    expect(html).toContain("首页只展示统计服务可验证的结果");
+    expect(html.match(/href="\/dashboard\/create"/g)?.length).toBe(2);
+    expect(html).toContain("<footer");
+    expect(html).toContain("© 2026 FluxMedia. 保留所有权利。");
+    expect(html).not.toMatch(/Pricing|订阅|额外积分包|twitter|github|discord/i);
+    expect(html).not.toContain("把模型、作品和下一步放在一起");
+  });
+
+  it("英文失败与空目录完成态保留三分类、双语 alt、注册 CTA 和诚实状态", async () => {
+    const element = await HomepageContent({
+      locale: "en",
+      data: createRenderablePageData({
+        catalog: {
+          status: "ready",
+          image: [],
+          video: [],
+          conversation: [],
+        },
+        reliability: {
+          visibility: "enabled",
+          stats: { status: "unavailable" },
+        },
+        ctaHref: "/sign-up",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("No public image model is currently available");
+    expect(html).toContain("No public video model is currently available");
+    expect(html).toContain(
+      "No public conversation model is currently available"
+    );
+    expect(html).toContain("Reliability statistics are currently unavailable");
+    expect(html).toContain(
+      "East Asian ink artwork of pale bamboo shadows and open space"
+    );
+    expect(html.match(/href="\/sign-up"/g)?.length).toBe(2);
+    expect(html).toContain("© 2026 FluxMedia. All rights reserved.");
+    expect(html).not.toMatch(/subscription|pricing|credit pack/i);
+  });
+
+  it("统计关闭时访客不见百分比，管理员仍得到服务端管理入口", async () => {
+    const visitorElement = await HomepageContent({
+      locale: "zh",
+      data: createRenderablePageData({
+        reliability: {
+          visibility: "disabled",
+          stats: { status: "ready", data: READY_SLA_STATS },
+        },
+      }),
+    });
+    const adminElement = await HomepageContent({
+      locale: "zh",
+      data: createRenderablePageData({
+        reliability: {
+          visibility: "disabled",
+          stats: { status: "ready", data: READY_SLA_STATS },
+        },
+        canToggleSlaStatus: true,
+      }),
+    });
+
+    const visitorHtml = renderToStaticMarkup(visitorElement);
+    const adminHtml = renderToStaticMarkup(adminElement);
+    expect(visitorHtml).not.toContain("96.00%");
+    expect(visitorHtml).not.toContain("首页可靠性展示已关闭");
+    expect(adminHtml).toContain("首页可靠性展示已关闭");
+    expect(adminHtml).not.toContain("96.00%");
+  });
+});

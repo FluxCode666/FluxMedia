@@ -22,6 +22,8 @@ import "./user-auth";
 import "./image-backend-pool";
 // 系统设置域
 import "./system-settings";
+// 首页营销设置（人工管理员专用）
+import "./system-settings-marketing";
 // 存储域
 import "./storage";
 // 内容审核域
@@ -37,6 +39,7 @@ export {
   platformModelCatalogItemSchema,
   platformModelCatalogOutputSchema,
 } from "./external-api-platform-model-catalog";
+export { settingsSetMarketingSlaVisibility } from "./system-settings-marketing";
 
 // 客服支持域
 import "./support";

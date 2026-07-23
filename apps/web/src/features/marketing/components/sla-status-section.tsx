@@ -198,10 +198,9 @@ export function SlaStatusSection({
         const enabled = data?.enabled ?? false;
         setVisible(enabled);
         toast.success(
-          data?.message ||
-            (enabled
-              ? copy("Homepage SLA enabled", "首页 SLA 已开启")
-              : copy("Homepage SLA hidden", "首页 SLA 已关闭"))
+          enabled
+            ? copy("Homepage SLA enabled", "首页 SLA 已开启")
+            : copy("Homepage SLA hidden", "首页 SLA 已关闭")
         );
       },
       onError: ({ error }) => {
@@ -243,10 +242,7 @@ export function SlaStatusSection({
     },
     {
       kind: "muted" as const,
-      label: copy(
-        "Moderation stops / request errors",
-        "审核拦截与请求错误"
-      ),
+      label: copy("Moderation stops / request errors", "审核拦截与请求错误"),
       value: formatNumber(stats.moderationErrors + stats.userRequestErrors),
     },
   ];

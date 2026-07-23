@@ -4,6 +4,126 @@
     "subtitle": "AI-Powered Chat-to-Image Generation Platform",
     "description": "Transform your ideas into stunning visuals through natural conversation, powered by state-of-the-art AI models."
   },
+  "Homepage": {
+    "hero": {
+      "eyebrow": "CREATE WITH LANGUAGE",
+      "titleLead": "Begin with language.",
+      "titleAccent": "Let the work emerge.",
+      "description": "FluxMedia brings the generation models supported by the current system into one creative entry point, so a sentence can reliably become work you can keep using.",
+      "cta": "Start Creating",
+      "workLink": "Explore the Work",
+      "mainAlt": "FluxMedia-generated artwork of a bold ink circle on open rice paper",
+      "draftAlt": "A pale ink draft from the generation process of the same artwork",
+      "depthAlt": "Close detail of ink fibers and dry-brush texture",
+      "draftLabel": "Generation draft",
+      "artworkCaption": "One Stroke",
+      "artworkFormat": "AI GENERATED"
+    },
+    "models": {
+      "previewLabel": "Current runtime models",
+      "eyebrow": "MODEL CATALOG",
+      "title": "Models supported by the system running now.",
+      "description": "This catalog shows the public model categories the platform can currently serve. For any account, the models callable by an API Key are always determined by its GET /v1/models response.",
+      "countLabel": "models",
+      "unavailable": "The runtime model catalog is currently unavailable. Please try again later.",
+      "supportedLabel": "Connected",
+      "categories": {
+        "image": {
+          "label": "Image",
+          "description": "For text-to-image, conversational image creation, and supported image workflows.",
+          "empty": "No public image model is currently available to display."
+        },
+        "video": {
+          "label": "Video",
+          "description": "For video generation paths currently connected to the system.",
+          "empty": "No public video model is currently available to display."
+        },
+        "conversation": {
+          "label": "Conversation",
+          "description": "Current models for conversation and Responses capabilities.",
+          "empty": "No public conversation model is currently available to display."
+        }
+      }
+    },
+    "artworks": {
+      "eyebrow": "MADE WITH FLUXMEDIA",
+      "title": "Real generations. Real space.",
+      "description": "These works are existing FluxMedia-generated samples cleared for public display. They unfold in the normal page flow, without requiring a long animation to reveal them.",
+      "alts": {
+        "bamboo": "East Asian ink artwork of pale bamboo shadows and open space",
+        "mountain": "Ink landscape of distant mountain layers receding into mist",
+        "plum": "Minimal ink artwork of plum branches and blossoms",
+        "waterfall": "Ink landscape of a waterfall descending through mountains",
+        "carp": "Ink artwork of two carp moving through water",
+        "lotus": "Ink artwork of lotus leaves and blossoms in open space",
+        "bridge": "Ink landscape joining an arched bridge to a distant view",
+        "rain": "Ink landscape of sparse rain and distant trees",
+        "circle": "Generated artwork of a bold ink circle on rice paper"
+      }
+    },
+    "reliability": {
+      "eyebrow": "VERIFIABLE RELIABILITY",
+      "title": "Reliability, limited to what we can verify.",
+      "description": "Statistics come from the latest finished generations. Moderation stops and invalid requests are excluded from the platform availability denominator.",
+      "availability": "Platform availability",
+      "sample": "Finished sample",
+      "completed": "Completed",
+      "platformErrors": "Platform or upstream errors",
+      "insufficient": "There are not enough finished samples to calculate an availability percentage yet.",
+      "unavailable": "Reliability statistics are currently unavailable, so no fixed percentage is shown here.",
+      "hiddenTitle": "Homepage reliability is hidden",
+      "hiddenDescription": "Visitors do not see reliability figures. Administrators can enable them here.",
+      "toggle": {
+        "show": "Show reliability",
+        "hide": "Hide reliability",
+        "enabled": "Homepage reliability is now visible",
+        "disabled": "Homepage reliability is now hidden",
+        "failed": "Failed to update reliability visibility"
+      }
+    },
+    "faq": {
+      "eyebrow": "FAQ",
+      "title": "What you may want to know before starting.",
+      "description": "Direct answers about current models, API integration, and the creative entry point.",
+      "items": [
+        {
+          "question": "Which models does FluxMedia currently support?",
+          "answer": "The homepage catalog reads the current runtime configuration and groups models into image, video, and conversation. Configuration changes appear on following requests. Models callable by a specific account still come from GET /v1/models with that API Key."
+        },
+        {
+          "question": "How do image, video, and conversation models relate?",
+          "answer": "They represent different serving capabilities: image models produce still visuals, video models handle enabled video paths, and conversation models power conversation and Responses features. An empty category only means there is no corresponding public model to display now."
+        },
+        {
+          "question": "How do I integrate image generation through the API?",
+          "answer": "Create an API Key in the console, call GET /v1/models from your server to confirm available models, then use the existing POST /v1/images/generations endpoint. Keep the API Key server-side; external API access depends on current account permissions."
+        },
+        {
+          "question": "How do I start creating?",
+          "answer": "After signing in, open the creation workspace, describe the visual in natural language, and keep refining it. Visitors without an account can create one and continue through the same creative entry point."
+        },
+        {
+          "question": "Why might the reliability percentage be absent?",
+          "answer": "The homepage only presents results the statistics service can verify. When display is disabled, the sample is insufficient, or loading fails, a fixed number is never substituted for real statistics."
+        }
+      ]
+    },
+    "footer": {
+      "eyebrow": "BEGIN WITH A SENTENCE",
+      "title": "Your next work begins with your language.",
+      "description": "Enter the existing creation workspace and turn an idea into a visual work you can continue to edit, save, and use.",
+      "cta": "Start Creating",
+      "brandDescription": "From language to work, making models reliable creative infrastructure.",
+      "siteLabel": "Site",
+      "legalLabel": "Legal",
+      "docs": "Docs",
+      "contact": "Contact",
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy",
+      "cookie": "Cookie Policy",
+      "copyright": "© 2026 FluxMedia. All rights reserved."
+    }
+  },
   "Hero": {
     "badge": "AI Image Generation",
     "title1": "Transform Words",
