@@ -8,6 +8,7 @@
 export type ApiIntegrationParameter = {
   name: string;
   requirement: string;
+  defaultValue?: string;
   description: string;
 };
 
@@ -45,7 +46,7 @@ export type ApiIntegrationDocsContent = {
   notesTitle: string;
   requestExampleTitle: string;
   responseExampleTitle: string;
-  parameterHeaders: readonly [string, string, string];
+  parameterHeaders: readonly [string, string, string, string];
   responseHeaders: readonly [string, string];
   copyLabels: {
     copy: string;
@@ -69,7 +70,7 @@ const zhContent = {
   notesTitle: "使用说明",
   requestExampleTitle: "请求示例",
   responseExampleTitle: "响应示例",
-  parameterHeaders: ["参数", "要求", "说明"],
+  parameterHeaders: ["参数", "要求", "默认值", "说明"],
   responseHeaders: ["字段", "说明"],
   copyLabels: {
     copy: "复制",
@@ -118,52 +119,63 @@ const zhContent = {
         {
           name: "model",
           requirement: "可选",
+          defaultValue: "后端默认（兜底 gpt-image-2）",
           description: "图片模型 ID；可用模型以当前 API 密钥可见范围为准。",
         },
         {
           name: "n",
           requirement: "可选",
+          defaultValue: "1",
           description: "生成数量，须在当前套餐允许的批量范围内。",
         },
         {
           name: "size",
           requirement: "可选",
+          defaultValue: "1024x1024",
           description: "目标图片尺寸，例如 1024x1024。",
         },
         {
           name: "quality",
           requirement: "可选",
+          defaultValue: "auto",
           description: "auto、low、medium 或 high。",
         },
         {
           name: "moderation",
           requirement: "可选",
+          defaultValue: "auto",
           description: "auto 或 low，作为上游图像生成参数传递。",
         },
         {
           name: "response_format",
           requirement: "可选",
+          defaultValue: "b64_json",
           description: "url 或 b64_json；默认返回 b64_json。",
         },
         {
           name: "output_format",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "png、jpeg 或 webp。",
         },
         {
           name: "output_compression",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "0 到 100，仅对 jpeg 和 webp 输出有意义。",
         },
         {
           name: "background",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "transparent、opaque 或 auto；透明能力取决于模型。",
         },
         {
           name: "stream",
           requirement: "可选",
-          description: "设为 true 时返回 text/event-stream。",
+          defaultValue: "false",
+          description:
+            "设为 true 或请求 Accept: text/event-stream 时返回事件流。",
         },
       ],
       responses: [
@@ -236,57 +248,69 @@ const zhContent = {
         {
           name: "mask",
           requirement: "可选",
+          defaultValue: "无",
           description: "遮罩图片；透明区域表示需要编辑的范围。",
         },
         {
           name: "model",
           requirement: "可选",
+          defaultValue: "后端默认（兜底 gpt-image-2）",
           description: "图片模型 ID；可用模型以当前 API 密钥可见范围为准。",
         },
         {
           name: "n",
           requirement: "可选",
+          defaultValue: "1",
           description: "生成数量，须在当前套餐允许的批量范围内。",
         },
         {
           name: "size",
           requirement: "可选",
+          defaultValue: "1024x1024",
           description: "目标图片尺寸，例如 1024x1024。",
         },
         {
           name: "quality",
           requirement: "可选",
+          defaultValue: "auto",
           description: "auto、low、medium 或 high。",
         },
         {
           name: "moderation",
           requirement: "可选",
+          defaultValue: "auto",
           description: "auto 或 low，作为上游图像编辑参数传递。",
         },
         {
           name: "response_format",
           requirement: "可选",
+          defaultValue: "b64_json",
           description: "url 或 b64_json；默认返回 b64_json。",
         },
         {
           name: "output_format",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "png、jpeg 或 webp。",
         },
         {
           name: "output_compression",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "0 到 100，仅对 jpeg 和 webp 输出有意义。",
         },
         {
           name: "background",
           requirement: "可选",
+          defaultValue: "未指定（上游决定）",
           description: "transparent、opaque 或 auto；透明能力取决于模型。",
         },
         {
           name: "stream",
           requirement: "可选",
-          description: "设为 true 时返回 text/event-stream。",
+          defaultValue: "false",
+          description:
+            "设为 true 或请求 Accept: text/event-stream 时返回事件流。",
         },
       ],
       responses: [
@@ -518,7 +542,7 @@ const enContent = {
   notesTitle: "Usage notes",
   requestExampleTitle: "Request example",
   responseExampleTitle: "Response example",
-  parameterHeaders: ["Parameter", "Requirement", "Description"],
+  parameterHeaders: ["Parameter", "Requirement", "Default", "Description"],
   responseHeaders: ["Field", "Description"],
   copyLabels: {
     copy: "Copy",
@@ -541,54 +565,65 @@ const enContent = {
         {
           name: "model",
           requirement: "Optional",
+          defaultValue: "Backend default (fallback: gpt-image-2)",
           description: "Image model ID available to the current API key.",
         },
         {
           name: "n",
           requirement: "Optional",
+          defaultValue: "1",
           description:
             "Number of images, within the current plan's batch limit.",
         },
         {
           name: "size",
           requirement: "Optional",
+          defaultValue: "1024x1024",
           description: "Target image size, for example 1024x1024.",
         },
         {
           name: "quality",
           requirement: "Optional",
+          defaultValue: "auto",
           description: "auto, low, medium, or high.",
         },
         {
           name: "moderation",
           requirement: "Optional",
+          defaultValue: "auto",
           description: "auto or low, forwarded as an upstream image parameter.",
         },
         {
           name: "response_format",
           requirement: "Optional",
+          defaultValue: "b64_json",
           description: "url or b64_json; defaults to b64_json.",
         },
         {
           name: "output_format",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description: "png, jpeg, or webp.",
         },
         {
           name: "output_compression",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description: "0 to 100; meaningful for jpeg and webp output.",
         },
         {
           name: "background",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description:
             "transparent, opaque, or auto; support depends on the model.",
         },
         {
           name: "stream",
           requirement: "Optional",
-          description: "Return text/event-stream when true.",
+          defaultValue: "false",
+          description:
+            "Return an event stream when true or when Accept is text/event-stream.",
         },
       ],
       responses: [
@@ -641,60 +676,72 @@ const enContent = {
         {
           name: "mask",
           requirement: "Optional",
+          defaultValue: "None",
           description:
             "Mask image whose transparent area indicates the edit region.",
         },
         {
           name: "model",
           requirement: "Optional",
+          defaultValue: "Backend default (fallback: gpt-image-2)",
           description: "Image model ID available to the current API key.",
         },
         {
           name: "n",
           requirement: "Optional",
+          defaultValue: "1",
           description:
             "Number of images, within the current plan's batch limit.",
         },
         {
           name: "size",
           requirement: "Optional",
+          defaultValue: "1024x1024",
           description: "Target image size, for example 1024x1024.",
         },
         {
           name: "quality",
           requirement: "Optional",
+          defaultValue: "auto",
           description: "auto, low, medium, or high.",
         },
         {
           name: "moderation",
           requirement: "Optional",
+          defaultValue: "auto",
           description: "auto or low, forwarded as an upstream edit parameter.",
         },
         {
           name: "response_format",
           requirement: "Optional",
+          defaultValue: "b64_json",
           description: "url or b64_json; defaults to b64_json.",
         },
         {
           name: "output_format",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description: "png, jpeg, or webp.",
         },
         {
           name: "output_compression",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description: "0 to 100; meaningful for jpeg and webp output.",
         },
         {
           name: "background",
           requirement: "Optional",
+          defaultValue: "Unset (upstream decides)",
           description:
             "transparent, opaque, or auto; support depends on the model.",
         },
         {
           name: "stream",
           requirement: "Optional",
-          description: "Return text/event-stream when true.",
+          defaultValue: "false",
+          description:
+            "Return an event stream when true or when Accept is text/event-stream.",
         },
       ],
       responses: [

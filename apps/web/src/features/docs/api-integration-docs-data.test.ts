@@ -94,4 +94,56 @@ describe("API integration docs data", () => {
       "task_id"
     );
   });
+
+  it("为每个公开可选参数声明默认行为", () => {
+    for (const locale of ["zh", "en"] as const) {
+      const content = getApiIntegrationDocs(locale);
+      for (const endpoint of content.endpoints) {
+        for (const parameter of endpoint.parameters) {
+          const isOptional =
+            parameter.requirement === "可选" ||
+            parameter.requirement === "Optional";
+          if (isOptional) {
+            expect(
+              parameter.defaultValue?.trim(),
+              `${locale}:${endpoint.id}:${parameter.name}`
+            ).toBeTruthy();
+          }
+        }
+      }
+    }
+  });
+
+  it("与外部图片处理链的真实默认契约保持一致", () => {
+    const endpoints = getApiIntegrationDocs("zh").endpoints;
+    const generation = endpoints.find(
+      (endpoint) => endpoint.id === "image-generations"
+    );
+    const edit = endpoints.find((endpoint) => endpoint.id === "image-edits");
+    const generationDefaults = Object.fromEntries(
+      (generation?.parameters ?? [])
+        .filter((parameter) => parameter.requirement === "可选")
+        .map((parameter) => [parameter.name, parameter.defaultValue])
+    );
+    const editDefaults = Object.fromEntries(
+      (edit?.parameters ?? [])
+        .filter((parameter) => parameter.requirement === "可选")
+        .map((parameter) => [parameter.name, parameter.defaultValue])
+    );
+    const commonDefaults = {
+      model: "后端默认（兜底 gpt-image-2）",
+      n: "1",
+      size: "1024x1024",
+      quality: "auto",
+      moderation: "auto",
+      response_format: "b64_json",
+      output_format: "未指定（上游决定）",
+      output_compression: "未指定（上游决定）",
+      background: "未指定（上游决定）",
+      stream: "false",
+    };
+
+    expect(generationDefaults).toEqual(commonDefaults);
+    expect(editDefaults).toEqual({ mask: "无", ...commonDefaults });
+  });
 });

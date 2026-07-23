@@ -31,7 +31,7 @@ function ParameterTable({
     <div>
       <h4 className="text-sm font-medium">{content.parametersTitle}</h4>
       <div className="mt-2 overflow-hidden rounded-lg border border-border">
-        <div className="hidden grid-cols-[1fr_0.7fr_2fr] border-b bg-muted/50 text-xs font-medium text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[0.9fr_0.7fr_1fr_2fr] border-b bg-muted/50 text-xs font-medium text-muted-foreground md:grid">
           {content.parameterHeaders.map((header) => (
             <div className="px-4 py-2.5" key={header}>
               {header}
@@ -40,7 +40,7 @@ function ParameterTable({
         </div>
         {parameters.map((parameter) => (
           <div
-            className="grid gap-2 border-b border-border p-4 text-sm last:border-b-0 md:grid-cols-[1fr_0.7fr_2fr]"
+            className="grid gap-2 border-b border-border p-4 text-sm last:border-b-0 md:grid-cols-[0.9fr_0.7fr_1fr_2fr]"
             key={parameter.name}
           >
             <code className="font-mono text-xs text-foreground">
@@ -48,6 +48,12 @@ function ParameterTable({
             </code>
             <span className="text-xs text-muted-foreground md:text-sm">
               {parameter.requirement}
+            </span>
+            <span className="break-words text-xs text-muted-foreground md:text-sm">
+              <span className="mr-2 font-medium text-foreground md:hidden">
+                {content.parameterHeaders[2]}:
+              </span>
+              {parameter.defaultValue ?? "—"}
             </span>
             <span className="text-sm leading-relaxed text-muted-foreground">
               {parameter.description}

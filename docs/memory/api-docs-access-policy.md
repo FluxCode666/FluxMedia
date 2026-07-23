@@ -26,6 +26,12 @@
 由公开数据出口统一过滤，恢复时只需调整隐藏端点集合。契约由
 `api-integration-docs-data.test.ts` 防回归。
 
+请求参数表为参数、要求、默认值、说明四列。所有公开可选参数必须声明默认行为；其中
+`model` 取后端默认并兜底 `gpt-image-2`，`n=1`、`size=1024x1024`、
+`quality=auto`、`moderation=auto`、`response_format=b64_json`、`stream=false`，图生图
+`mask` 默认为无。`output_format`、`output_compression`、`background` 本站不强制固定值，
+明确标为由上游决定，禁止凭兼容 API 的常见值猜写。
+
 公开页的接口区使用响应式滚动电梯：桌面端显示粘性侧栏，窄屏显示粘性横向导航；活动
 章节随滚动位置更新，并通过文字、背景和 `aria-current` 同时表达。
 控制台镜像复用相同电梯；控制台内容容器在该路由保持 `overflow: visible`，避免横向滚动
