@@ -10,6 +10,7 @@ import {
   isFireflyVideoModelId,
 } from "@repo/shared/adobe/firefly-direct";
 import {
+  GPT55_CHAT_MODEL,
   isPlanAtLeast,
   RESPONSES_IMAGE_MODELS,
   SUBSCRIPTION_PLANS,
@@ -100,7 +101,6 @@ type CatalogCategory = keyof PlatformModelCatalog;
 const CONVERSATION_MODEL_IDS = new Set<string>(
   RESPONSES_IMAGE_MODELS.map((modelId) => modelId.toLowerCase())
 );
-const GPT55_MODEL_ID = RESPONSES_IMAGE_MODELS.at(-1) ?? "gpt-5.5";
 const NON_EXECUTABLE_IMAGE_MODEL_IDS = new Set(["auto", "default", "unknown"]);
 
 /** 判断一个套餐是否达到动态能力门槛。 */
@@ -216,7 +216,7 @@ function hasConversationPlan(
 ): boolean {
   return Array.from(plans).some((plan) => {
     if (
-      modelId.toLowerCase() === GPT55_MODEL_ID.toLowerCase() &&
+      modelId.toLowerCase() === GPT55_CHAT_MODEL.toLowerCase() &&
       !planAllows(plan, minimums.gpt55)
     ) {
       return false;

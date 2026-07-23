@@ -20,6 +20,7 @@ import {
   normalizeSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
+import { normalizeChildGroupIds as normalizeNestedChildGroupIds } from "@repo/shared/image-backend/nested-groups";
 import type {
   PlanCapabilityKey,
   PlanCapabilityMatrix,
@@ -98,16 +99,9 @@ function normalizeBackendType(
 /** 从分组 metadata 收窄一层子组 ID 并稳定去重。 */
 function normalizeChildGroupIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const childGroupIds: string[] = [];
-  for (const item of value) {
-    if (typeof item !== "string") continue;
-    const id = item.trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    childGroupIds.push(id);
-  }
-  return childGroupIds;
+  return normalizeNestedChildGroupIds(
+    value.filter((item): item is string => typeof item === "string")
+  );
 }
 
 /** 将数据库分组行映射为不含描述、价格和内部 metadata 的构建器输入。 */

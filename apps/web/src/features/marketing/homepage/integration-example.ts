@@ -5,6 +5,7 @@
  * 不读取请求 Host、转发头或 API Key，只接受已配置的 origin 和 U1 公开模型 DTO。
  */
 import { getApiIntegrationHomepageContract } from "@/features/docs/api-integration-docs-data";
+import { isConcretePlatformImageModelId } from "@/features/external-api/platform-model-catalog";
 
 /** 构建器接受的单个公开图像模型。 */
 export type HomepageIntegrationImageModel = { id: string };
@@ -82,8 +83,6 @@ export type HomepageIntegrationContent = {
   unavailableTitle: string;
   unavailableMessages: Record<HomepageIntegrationUnavailableReason, string>;
 };
-
-const NON_CONCRETE_MODEL_IDS = new Set(["auto", "default", "unknown"]);
 
 /** 判断文本是否包含 URL 配置不应接受的 ASCII 控制字符。 */
 function containsControlCharacter(value: string): boolean {
@@ -170,11 +169,7 @@ function findFirstConcreteImageModel(
   for (const model of models) {
     if (typeof model.id !== "string") continue;
     const id = model.id.trim();
-    if (
-      id &&
-      id.length <= 120 &&
-      !NON_CONCRETE_MODEL_IDS.has(id.toLowerCase())
-    ) {
+    if (id.length <= 120 && isConcretePlatformImageModelId(id)) {
       return id;
     }
   }

@@ -169,7 +169,6 @@ export function HomepageModelCatalog({
   const [enhanced, setEnhanced] = useState(false);
   const [selectedCategory, setSelectedCategory] =
     useState<HomepageModelCategory>("image");
-  const tabListRef = useRef<HTMLDivElement | null>(null);
   const tabButtonRefs = useRef<
     Partial<Record<HomepageModelCategory, HTMLButtonElement | null>>
   >({});
@@ -208,7 +207,6 @@ export function HomepageModelCatalog({
           <div
             aria-label={copy.previewLabel}
             className="flex flex-wrap gap-2"
-            ref={tabListRef}
             role="tablist"
           >
             {MODEL_CATEGORIES.map((category) => {

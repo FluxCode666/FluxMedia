@@ -16,7 +16,6 @@ import {
 import { loadHomepagePageData } from "@/features/marketing/homepage/homepage-page-data";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 /**
  * 生成当前首页 Metadata。
