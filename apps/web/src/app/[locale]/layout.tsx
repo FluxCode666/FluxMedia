@@ -6,9 +6,6 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { Toaster } from "sonner";
 import { Analytics } from "@/features/analytics";
-// 深路径直引(不经 marketing barrel):barrel 同时 re-export Header/PricingSection,
-// 它们 import framer-motion(~62KB gzip)。经 barrel 引入会把 framer 引擎拖进每个
-// 非营销路由(dashboard/auth 共 21 个)的首屏。直引 cookie-consent 即可避免。
 import { CookieConsent } from "@/features/marketing/components/cookie-consent";
 import { routing } from "@/i18n/routing";
 

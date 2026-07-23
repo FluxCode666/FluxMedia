@@ -31,7 +31,7 @@ const TEMPLATE =
   " edges, pure black ink monochrome, no color, no text, no seal, no" +
   " watermark, no signature, square composition";
 
-/** 16 张清单:id 与 cinema-artworks/wallTitles 对齐(hero 在展位 14) */
+/** 16 张原始作品清单；处理后的公共资产由首页作品墙按需选取。 */
 const JOBS = [
   {
     id: "hero",

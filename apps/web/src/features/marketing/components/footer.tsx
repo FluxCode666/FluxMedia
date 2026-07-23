@@ -4,7 +4,6 @@ import { getLocale } from "next-intl/server";
 
 const footerTitleMap = {
   product: {
-    Pricing: "定价",
     Docs: "文档",
     "Contact Us": "联系我们",
   },
