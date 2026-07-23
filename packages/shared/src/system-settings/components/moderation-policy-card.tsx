@@ -31,21 +31,16 @@ import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import type { ModerationBlockRiskLevel } from "../../moderation/policy-contract";
+import type {
+  ModerationBlockRiskLevel,
+  ModerationPolicySource,
+  ResolvedModerationPolicyValues,
+} from "../../moderation/policy-contract";
 import { formatDateInTimeZone } from "../../time-zone";
 import {
   getGlobalModerationPolicyAction,
   setGlobalModerationPolicyAction,
 } from "../actions";
-
-type ModerationPolicySource = "user_override" | "global" | "fallback_high";
-
-interface GlobalModerationPolicyView {
-  globalDefault: ModerationBlockRiskLevel;
-  userOverride: ModerationBlockRiskLevel | null;
-  effectiveLevel: ModerationBlockRiskLevel;
-  source: ModerationPolicySource;
-}
 
 interface GlobalModerationPolicyAudit {
   id: string;
@@ -125,7 +120,8 @@ function getAuditActor(audit: GlobalModerationPolicyAudit): string {
  * @remarks 保存失败不清空原因；成功后清空原因并重新读取策略与审计。
  */
 export function ModerationPolicyCard({ timeZone }: { timeZone: string }) {
-  const [policy, setPolicy] = useState<GlobalModerationPolicyView | null>(null);
+  const [policy, setPolicy] =
+    useState<ResolvedModerationPolicyValues | null>(null);
   const [audits, setAudits] = useState<GlobalModerationPolicyAudit[]>([]);
   const [level, setLevel] = useState<ModerationBlockRiskLevel>("high");
   const [reason, setReason] = useState("");

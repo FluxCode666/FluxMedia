@@ -362,7 +362,6 @@ export const externalApiKeySummarySchema = z
   })
   .strict();
 
-export type ExternalApiKeyGroup = z.infer<typeof externalApiKeyGroupSchema>;
 export type ExternalApiKeySummary = z.infer<typeof externalApiKeySummarySchema>;
 
 // ---------------------------------------------------------------------------

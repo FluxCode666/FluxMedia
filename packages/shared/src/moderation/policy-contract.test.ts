@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MODERATION_BLOCK_RISK_LEVEL,
   MODERATION_BLOCK_RISK_LEVELS,
+  MODERATION_POLICY_SOURCES,
   moderationBlockRiskLevelSchema,
+  moderationPolicySourceSchema,
   resolveModerationPolicyValues,
 } from "./policy-contract";
 
@@ -24,6 +26,13 @@ describe("moderation policy contract", () => {
     expect(moderationBlockRiskLevelSchema.safeParse("critical").success).toBe(
       false
     );
+    expect(MODERATION_POLICY_SOURCES).toEqual([
+      "user_override",
+      "global",
+      "fallback_high",
+    ]);
+    expect(moderationPolicySourceSchema.safeParse("global").success).toBe(true);
+    expect(moderationPolicySourceSchema.safeParse("key").success).toBe(false);
   });
 });
 

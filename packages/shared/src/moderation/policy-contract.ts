@@ -36,11 +36,20 @@ export type ModerationBlockRiskLevel = z.infer<
 export const DEFAULT_MODERATION_BLOCK_RISK_LEVEL: ModerationBlockRiskLevel =
   "high";
 
+/** 生效审核级别允许的权威来源。 */
+export const MODERATION_POLICY_SOURCES = [
+  "user_override",
+  "global",
+  "fallback_high",
+] as const;
+
+/** 生效审核级别来源的共享运行时校验契约。 */
+export const moderationPolicySourceSchema = z.enum(MODERATION_POLICY_SOURCES);
+
 /** 生效审核级别的权威来源。 */
-export type ModerationPolicySource =
-  | "user_override"
-  | "global"
-  | "fallback_high";
+export type ModerationPolicySource = z.infer<
+  typeof moderationPolicySourceSchema
+>;
 
 /** 尚未信任的数据库或配置输入。 */
 export interface ResolveModerationPolicyValuesInput {

@@ -18,6 +18,7 @@ import {
 import {
   moderationBlockRiskLevelSchema,
   moderationPolicyChangeReasonSchema,
+  moderationPolicySourceSchema,
 } from "../../moderation/policy-contract";
 import {
   type ModerationPolicyActor,
@@ -57,7 +58,7 @@ const resolvedModerationPolicySchema = z.object({
   globalDefault: moderationBlockRiskLevelSchema,
   userOverride: moderationBlockRiskLevelSchema.nullable(),
   effectiveLevel: moderationBlockRiskLevelSchema,
-  source: z.enum(["user_override", "global", "fallback_high"]),
+  source: moderationPolicySourceSchema,
 });
 
 /** 全站策略实际写入或无变化时的结构化结果。 */
@@ -75,7 +76,7 @@ const userRiskLevelWriteResultSchema = z.object({
   before: z.unknown(),
   after: moderationBlockRiskLevelSchema.nullable(),
   effectiveLevel: moderationBlockRiskLevelSchema,
-  source: z.enum(["user_override", "global", "fallback_high"]),
+  source: moderationPolicySourceSchema,
   auditLogId: z.string().nullable(),
   updatedAt: z.date(),
 });

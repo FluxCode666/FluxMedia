@@ -29,9 +29,11 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import type {
-  ModerationBlockRiskLevel,
-  ModerationPolicySource,
+import {
+  type ModerationBlockRiskLevel,
+  moderationBlockRiskLevelSchema,
+  type ModerationPolicySource,
+  type ResolvedModerationPolicyValues,
 } from "../../../moderation/policy-contract";
 import { setUserModerationPolicyAction } from "../../actions/admin-users";
 
@@ -40,16 +42,9 @@ type ModerationPolicySelection =
   | typeof INHERIT_GLOBAL_VALUE
   | ModerationBlockRiskLevel;
 
-interface ModerationPolicyView {
-  globalDefault: ModerationBlockRiskLevel;
-  userOverride: ModerationBlockRiskLevel | null;
-  effectiveLevel: ModerationBlockRiskLevel;
-  source: ModerationPolicySource;
-}
-
 interface ModerationPolicyControlProps {
   userId: string;
-  policy: ModerationPolicyView;
+  policy: ResolvedModerationPolicyValues;
   canManage: boolean;
   readOnlyReason: string;
   onUpdated: () => Promise<void> | void;
@@ -98,7 +93,7 @@ function getSourceLabel(source: ModerationPolicySource): string {
  * @returns 值是否为受支持的审核级别；无副作用。
  */
 function isModerationLevel(value: string): value is ModerationBlockRiskLevel {
-  return LEVEL_OPTIONS.some((option) => option.value === value);
+  return moderationBlockRiskLevelSchema.safeParse(value).success;
 }
 
 /**

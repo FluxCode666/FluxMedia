@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { ExternalApiKeySummary } from "@/features/external-api/key-management-service";
@@ -141,6 +141,14 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   const [newKeyCreditLimit, setNewKeyCreditLimit] = useState("");
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
   const [quotaDrafts, setQuotaDrafts] = useState<Record<string, string>>({});
+  const expandedKeyIdSet = useMemo(
+    () => new Set(listState.expandedKeyIds),
+    [listState.expandedKeyIds]
+  );
+  const editableGroupIdSet = useMemo(
+    () => new Set(editableGroups.map((group) => group.id)),
+    [editableGroups]
+  );
 
   /** 用服务端摘要重建列表和编辑草稿；只在完整加载成功时调用。 */
   const applyLoadedList = useCallback((data: ExternalApiKeyListResult) => {
@@ -639,13 +647,13 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
               </div>
               <div className="divide-y divide-border/60">
                 {listState.items.map((key) => {
-                  const isExpanded = listState.expandedKeyIds.includes(key.id);
+                  const isExpanded = expandedKeyIdSet.has(key.id);
                   const isLocked = isExternalApiKeyRowLocked(listState, key.id);
                   const pendingOperation = listState.pendingByKeyId[key.id];
                   const rowError = listState.errorsByKeyId[key.id];
-                  const currentGroupIsEditable = editableGroups.some(
-                    (group) => group.id === key.generationGroupId
-                  );
+                  const currentGroupIsEditable =
+                    key.generationGroupId !== null &&
+                    editableGroupIdSet.has(key.generationGroupId);
                   const groupDraft =
                     groupDrafts[key.id] ||
                     key.generationGroupId ||

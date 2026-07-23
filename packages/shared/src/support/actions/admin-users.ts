@@ -37,9 +37,10 @@ import {
 } from "../../credits/core";
 import { expireStalePendingGenerations } from "../../generation-maintenance";
 import {
-  type ModerationBlockRiskLevel,
   moderationBlockRiskLevelSchema,
+  type ResolvedModerationPolicyValues,
 } from "../../moderation/policy-contract";
+import type { SetUserRiskLevelOverrideResult } from "../../moderation/policy-service";
 import {
   ActionUserError,
   adminAction,
@@ -131,23 +132,6 @@ const setUserModerationPolicySchema = userIdSchema
     reason: reasonSchema,
   })
   .strict();
-
-interface ResolvedUserModerationPolicyActionResult {
-  globalDefault: ModerationBlockRiskLevel;
-  userOverride: ModerationBlockRiskLevel | null;
-  effectiveLevel: ModerationBlockRiskLevel;
-  source: "user_override" | "global" | "fallback_high";
-}
-
-interface UserModerationPolicyWriteActionResult {
-  changed: boolean;
-  before: unknown;
-  after: ModerationBlockRiskLevel | null;
-  effectiveLevel: ModerationBlockRiskLevel;
-  source: "user_override" | "global" | "fallback_high";
-  auditLogId: string | null;
-  updatedAt: Date;
-}
 
 /** 从 adminAction 已复查的用户 ID 与角色构造可信人工会话 Principal。 */
 function createAdminUsersPrincipal(input: {
@@ -621,7 +605,7 @@ export const setUserModerationPolicyAction = withAdminUsersAction(
   .schema(setUserModerationPolicySchema)
   .action(async ({ parsedInput, ctx }) => {
     const result =
-      await invokeUserModerationPolicyOperation<UserModerationPolicyWriteActionResult>(
+      await invokeUserModerationPolicyOperation<SetUserRiskLevelOverrideResult>(
         "moderation.setUserRiskLevelOverride",
         parsedInput,
         createAdminUsersPrincipal({
@@ -762,7 +746,7 @@ export const getUserDetailAction = withAdminUsersAction("getUserDetail")
         })
         .from(generation)
         .where(eq(generation.userId, userId)),
-      invokeUserModerationPolicyOperation<ResolvedUserModerationPolicyActionResult>(
+      invokeUserModerationPolicyOperation<ResolvedModerationPolicyValues>(
         "moderation.getUserRiskPolicy",
         { userId },
         principal

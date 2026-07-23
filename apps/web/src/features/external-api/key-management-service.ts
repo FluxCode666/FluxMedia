@@ -6,13 +6,15 @@
  * 使用方：apps/web/src/server/uol-bindings.ts 与 API 密钥管理 Server Actions。
  * 关键依赖：Drizzle 仓储、套餐能力、后端分组选项、quota-math。
  */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { externalApiKey as externalApiKeyTable } from "@repo/database/schema";
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import type { PlanCapabilityKey } from "@repo/shared/subscription/services/plan-capabilities";
+import type { ExternalApiKeySummary } from "@repo/shared/uol/operations";
 import { nanoid } from "nanoid";
 
+import { hashApiKey } from "./auth-token";
 import { normalizeExternalApiKeyCreditLimit } from "./quota-math";
 
 const API_KEY_PREFIX = "g2i";
@@ -39,7 +41,6 @@ export class ExternalApiKeyManagementError extends Error {
 /** 仓储返回的可信 API 密钥行；不包含明文和哈希。 */
 export type ExternalApiKeyRecord = {
   id: string;
-  userId: string;
   name: string;
   keyPrefix: string;
   lastFour: string;
@@ -57,18 +58,9 @@ export type ExternalApiKeyGroupRecord = {
   id: string;
   name: string;
   isEnabled: boolean;
-  isUserSelectable: boolean;
 };
 
-/** 对外列表和 mutation 统一返回的安全摘要。 */
-export type ExternalApiKeySummary = Omit<ExternalApiKeyRecord, "userId"> & {
-  currentGroup: {
-    id: string;
-    name: string;
-    enabled: boolean;
-    selectable: boolean;
-  } | null;
-};
+export type { ExternalApiKeySummary } from "@repo/shared/uol/operations";
 
 /** 创建仓储行时唯一允许写入的字段。 */
 export type ExternalApiKeyInsert = {
@@ -167,11 +159,6 @@ function toKeySummary(
         }
       : null,
   };
-}
-
-/** 生成外部 API 密钥的 SHA-256 摘要，数据库永不保存明文。 */
-function hashApiKey(apiKey: string): string {
-  return createHash("sha256").update(apiKey).digest("hex");
 }
 
 /** 生成带固定前缀的高熵 API 密钥；明文只从 create 调用返回一次。 */
@@ -413,7 +400,6 @@ function selectExternalApiKeyFields(
 ) {
   return {
     id: externalApiKey.id,
-    userId: externalApiKey.userId,
     name: externalApiKey.name,
     keyPrefix: externalApiKey.keyPrefix,
     lastFour: externalApiKey.lastFour,
@@ -427,13 +413,27 @@ function selectExternalApiKeyFields(
   };
 }
 
-/** 延迟加载数据库实现，避免 DB-free 服务测试在 import 阶段创建数据库依赖。 */
-async function loadDatabaseModules() {
+/** 创建数据库模块加载任务，避免 DB-free 测试在 import 阶段创建数据库依赖。 */
+function createDatabaseModulesPromise() {
   return Promise.all([
     import("@repo/database"),
     import("@repo/database/schema"),
     import("drizzle-orm"),
   ]);
+}
+
+type DatabaseModules = Awaited<ReturnType<typeof createDatabaseModulesPromise>>;
+let databaseModulesPromise: Promise<DatabaseModules> | null = null;
+
+/** 复用成功的延迟加载；加载失败时清空缓存，允许后续调用重试。 */
+function loadDatabaseModules(): Promise<DatabaseModules> {
+  if (!databaseModulesPromise) {
+    databaseModulesPromise = createDatabaseModulesPromise().catch((error) => {
+      databaseModulesPromise = null;
+      throw error;
+    });
+  }
+  return databaseModulesPromise;
 }
 
 const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
@@ -448,7 +448,6 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
           id: imageBackendGroup.id,
           name: imageBackendGroup.name,
           isEnabled: imageBackendGroup.isEnabled,
-          isUserSelectable: imageBackendGroup.isUserSelectable,
         },
       })
       .from(externalApiKey)
@@ -593,7 +592,6 @@ export const externalApiKeyManagementService =
           id: imageBackendGroup.id,
           name: imageBackendGroup.name,
           isEnabled: imageBackendGroup.isEnabled,
-          isUserSelectable: imageBackendGroup.isUserSelectable,
         })
         .from(imageBackendGroup)
         .where(eq(imageBackendGroup.id, groupId))

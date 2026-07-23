@@ -28,6 +28,7 @@ import "./storage";
 import "./moderation";
 // 外部 API 域
 import "./external-api";
+export type { ExternalApiKeySummary } from "./external-api";
 // 客服支持域
 import "./support";
 // 用户控制台统计

@@ -19,9 +19,10 @@ import {
 } from "../../generation-maintenance";
 import { logError } from "../../logger";
 import {
-  type ModerationBlockRiskLevel,
   moderationBlockRiskLevelSchema,
+  type ResolvedModerationPolicyValues,
 } from "../../moderation/policy-contract";
+import type { SetGlobalRiskLevelResult } from "../../moderation/policy-service";
 import { ActionUserError, superAdminAction } from "../../safe-action";
 import { invokeOperation, OperationError, type Principal } from "../../uol";
 import "../../uol/operations/moderation";
@@ -31,21 +32,6 @@ import {
   initializeMissingSystemSettingsDefaults,
   setSystemSettings,
 } from "../index";
-
-interface ResolvedModerationPolicyActionResult {
-  globalDefault: ModerationBlockRiskLevel;
-  userOverride: ModerationBlockRiskLevel | null;
-  effectiveLevel: ModerationBlockRiskLevel;
-  source: "user_override" | "global" | "fallback_high";
-}
-
-interface GlobalModerationPolicyWriteActionResult {
-  changed: boolean;
-  before: unknown;
-  after: ModerationBlockRiskLevel;
-  auditLogId: string | null;
-  updatedAt: Date;
-}
 
 const globalModerationPolicyInputSchema = z
   .object({
@@ -104,7 +90,7 @@ export const getGlobalModerationPolicyAction = superAdminAction
   .action(async ({ ctx }) => {
     try {
       const policy =
-        await invokeOperation<ResolvedModerationPolicyActionResult>(
+        await invokeOperation<ResolvedModerationPolicyValues>(
           "moderation.getGlobalRiskPolicy",
           {},
           createSystemSettingsPrincipal({
@@ -146,7 +132,7 @@ export const setGlobalModerationPolicyAction = superAdminAction
   .action(async ({ parsedInput, ctx }) => {
     try {
       const result =
-        await invokeOperation<GlobalModerationPolicyWriteActionResult>(
+        await invokeOperation<SetGlobalRiskLevelResult>(
           "moderation.setGlobalRiskLevel",
           parsedInput,
           createSystemSettingsPrincipal({

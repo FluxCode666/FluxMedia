@@ -107,7 +107,6 @@ jobs:
           set -euo pipefail
           pnpm --filter @repo/database db:release-gate -- drain
           pnpm --filter @repo/database db:release-gate -- preflight
-          pnpm --filter @repo/database db:release-gate -- postcheck
           pnpm --filter @repo/database db:release-gate -- postcheck-initial
 
       - name: Build web
@@ -579,9 +578,10 @@ jobs:
             exit 1
           fi
 
-          run_release_gate postcheck
           if [ "${initial_governance_migration}" = "true" ]; then
             run_release_gate postcheck-initial
+          else
+            run_release_gate postcheck
           fi
 
           echo "启动 web 服务。"

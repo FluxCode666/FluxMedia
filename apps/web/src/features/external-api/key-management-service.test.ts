@@ -20,7 +20,6 @@ const now = new Date("2026-07-23T04:00:00.000Z");
 
 const activeKey: ExternalApiKeyRecord = {
   id: "key-1",
-  userId: "user-1",
   name: "Production",
   keyPrefix: "g2i_abc",
   lastFour: "wxyz",
@@ -37,14 +36,12 @@ const disabledCurrentGroup = {
   id: "group-1",
   name: "Legacy Group",
   isEnabled: false,
-  isUserSelectable: true,
 };
 
 const selectableGroup = {
   id: "group-2",
   name: "Selectable Group",
   isEnabled: true,
-  isUserSelectable: true,
 };
 
 type RepositoryMocks = {
