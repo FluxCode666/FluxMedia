@@ -64,9 +64,15 @@ import {
 } from "@repo/shared/storage";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { signOut } from "@repo/shared/auth/client";
+import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
+import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
 import { ImageBackendPreferenceSection } from "@/features/image-backend-pool";
 
 import { ApiConfigForm } from "./api-config-form";
+import {
+  isAvatarFileSizeAllowed,
+  resolveAvatarMaxFileSizeBytes,
+} from "./avatar-upload-limit";
 import { SecuritySection } from "./security-section";
 
 interface SettingsProfileViewProps {
@@ -120,7 +126,12 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
   const [selectedTimeZone, setSelectedTimeZone] = useState(
     user.timeZone ?? INHERIT_TIME_ZONE_VALUE
   );
-  const avatarMaxFileSizeBytes = MAX_FILE_SIZE;
+  const [capabilities, setCapabilities] =
+    useState<PlanCapabilitySnapshot | null>(null);
+  const avatarMaxFileSizeBytes = resolveAvatarMaxFileSizeBytes(
+    capabilities,
+    MAX_FILE_SIZE
+  );
   const normalizeTab = useCallback((value: string | null) => {
     if (
       value === "security" ||
@@ -164,6 +175,12 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       name: user.name,
     },
   });
+
+  useEffect(() => {
+    void getMyPlanAction().then((result) => {
+      setCapabilities(result?.data?.capabilities ?? null);
+    });
+  }, []);
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
@@ -280,7 +297,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       return;
     }
 
-    if (file.size > avatarMaxFileSizeBytes) {
+    if (!isAvatarFileSizeAllowed(file.size, avatarMaxFileSizeBytes)) {
       toast.error(
         t("errors.fileTooLarge", { size: avatarMaxFileSizeBytes / 1024 / 1024 })
       );
@@ -307,9 +324,15 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
       if (!uploadUrlResult?.data?.uploadUrl) {
         throw new Error(t("errors.uploadFailed"));
       }
-      const signedMaxFileSizeBytes =
-        uploadUrlResult.data.maxFileSizeBytes || avatarMaxFileSizeBytes;
-      if (file.size > signedMaxFileSizeBytes) {
+      const signedMaxFileSizeBytes = resolveAvatarMaxFileSizeBytes(
+        {
+          limits: {
+            maxFileSizeBytes: uploadUrlResult.data.maxFileSizeBytes,
+          },
+        },
+        avatarMaxFileSizeBytes
+      );
+      if (!isAvatarFileSizeAllowed(file.size, signedMaxFileSizeBytes)) {
         throw new Error(
           t("errors.fileTooLarge", {
             size: signedMaxFileSizeBytes / 1024 / 1024,
