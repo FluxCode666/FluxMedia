@@ -50,29 +50,38 @@ export const userRoleEnum = pgEnum("user_role", [
  * @field role - 用户角色 (user/observer_admin/admin/super_admin)
  * @field banned - 是否被封禁
  * @field bannedReason - 封禁原因
- * @field moderationBlockRiskLevel - 用户默认审核拦截级别
+ * @field moderationBlockRiskLevelOverride - 仅管理员维护的审核级别覆盖；空值继承全站默认
  * @field timeZone - 用户展示时区；为空时继承部署环境 APP_TIME_ZONE
  * @field customerId - 支付提供商客户 ID (Creem)
  * @field createdAt - 创建时间
  * @field updatedAt - 更新时间
  */
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  role: userRoleEnum("role").notNull().default("user"),
-  banned: boolean("banned").notNull().default(false),
-  bannedReason: text("banned_reason"),
-  moderationBlockRiskLevel: text("moderation_block_risk_level")
-    .notNull()
-    .default("low"),
-  timeZone: text("time_zone"),
-  customerId: text("customer_id").unique(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const user = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    role: userRoleEnum("role").notNull().default("user"),
+    banned: boolean("banned").notNull().default(false),
+    bannedReason: text("banned_reason"),
+    moderationBlockRiskLevelOverride: text(
+      "moderation_block_risk_level_override"
+    ),
+    timeZone: text("time_zone"),
+    customerId: text("customer_id").unique(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "user_moderation_block_risk_level_override_check",
+      sql`${table.moderationBlockRiskLevelOverride} IS NULL OR ${table.moderationBlockRiskLevelOverride} IN ('low', 'medium', 'high')`
+    ),
+  ]
+);
 
 // ============================================
 // 管理员操作审计日志 (Admin Audit Log)
@@ -90,21 +99,34 @@ export const user = pgTable("user", {
  * @field metadata - 扩展元数据
  * @field createdAt - 创建时间
  */
-export const adminAuditLog = pgTable("admin_audit_log", {
-  id: text("id").primaryKey(),
-  adminUserId: text("admin_user_id").references(() => user.id, {
-    onDelete: "set null",
-  }),
-  targetUserId: text("target_user_id").references(() => user.id, {
-    onDelete: "set null",
-  }),
-  action: text("action").notNull(),
-  reason: text("reason"),
-  before: json("before").$type<Record<string, unknown>>(),
-  after: json("after").$type<Record<string, unknown>>(),
-  metadata: json("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const adminAuditLog = pgTable(
+  "admin_audit_log",
+  {
+    id: text("id").primaryKey(),
+    adminUserId: text("admin_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    targetUserId: text("target_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    reason: text("reason"),
+    before: json("before").$type<Record<string, unknown>>(),
+    after: json("after").$type<Record<string, unknown>>(),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("admin_audit_log_action_created_at_idx").on(
+      table.action,
+      table.createdAt
+    ),
+    index("admin_audit_log_target_user_id_created_at_idx").on(
+      table.targetUserId,
+      table.createdAt
+    ),
+  ]
+);
 
 // ============================================
 // 注册邮箱账本 (Registration Identity)
@@ -1688,9 +1710,6 @@ export const externalApiKey = pgTable("external_api_key", {
   keyPrefix: text("key_prefix").notNull(),
   keyHash: text("key_hash").notNull().unique(),
   lastFour: text("last_four").notNull(),
-  moderationBlockRiskLevel: text("moderation_block_risk_level")
-    .notNull()
-    .default("low"),
   generationGroupId: text("generation_group_id").references(
     () => imageBackendGroup.id,
     { onDelete: "set null" }
@@ -1709,9 +1728,6 @@ export const externalApiKey = pgTable("external_api_key", {
     .default(0),
   lastUsedAt: timestamp("last_used_at"),
   isActive: boolean("is_active").notNull().default(true),
-  // 纯中转模式：开启后该 key 的请求不写生成历史、不上传对象存储、站内不可查看，
-  // 仅保留扣费/审核/额度计数。用于保护用户隐私、不额外占用服务器存储。
-  relayOnly: boolean("relay_only").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -1736,7 +1752,8 @@ export const generation = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // relayOnly 从不落 generation；新非中转任务显式写 true，作为不可变活动证据。
+    // 新生成任务显式写 true，作为普通持久化路径的不可变活动证据；NULL 仅表示
+    // 无法证明可见性的历史记录。
     usageLogVisible: boolean("usage_log_visible"),
     prompt: text("prompt").notNull(),
     revisedPrompt: text("revised_prompt"),
