@@ -102,7 +102,6 @@ export default async function DashboardPage() {
           }
           initialSnapshot={snapshot}
           isZh={isZh}
-          userName={session.user.name || session.user.email || "User"}
         />
       </div>
     );

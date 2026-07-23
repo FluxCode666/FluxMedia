@@ -31,7 +31,6 @@ import { ModelUsageDistributionChartLazy } from "./dashboard-analytics-charts-la
 type DashboardAnalyticsPanelProps = {
   initialSnapshot: DashboardSnapshot;
   isZh: boolean;
-  userName: string;
   accountSupport: ReactNode;
 };
 
@@ -54,13 +53,12 @@ function formatCount(value: number, locale: string): string {
 /**
  * 渲染近 24 小时和累计摘要、模型占比与近期创作。
  *
- * @param props 服务端首屏快照、语言、用户名与账户支持区。
+ * @param props 服务端首屏快照、语言与账户支持区。
  * @returns 可刷新且对窄屏友好的控制台主体。
  */
 export function DashboardAnalyticsPanel({
   initialSnapshot,
   isZh,
-  userName,
   accountSupport,
 }: DashboardAnalyticsPanelProps) {
   const copy = (en: string, zh: string) => (isZh ? zh : en);
@@ -135,37 +133,6 @@ export function DashboardAnalyticsPanel({
 
   return (
     <div className="space-y-8">
-      <header
-        className={cn(
-          "flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between",
-          sectionEnterClass
-        )}
-      >
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-            {copy("Overview", "总览")}
-          </p>
-          <h1 className="font-serif text-3xl font-medium tracking-tight">
-            {copy("Usage overview", "用量概览")}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {copy(
-              `Welcome back, ${userName}. Track your output at a glance.`,
-              `欢迎回来，${userName}。在这里查看你的创作产出。`
-            )}
-          </p>
-        </div>
-        <Button
-          aria-busy={isRefreshing}
-          disabled={isRefreshing}
-          onClick={() => void refreshSnapshot()}
-          type="button"
-        >
-          <RefreshCw className={cn(isRefreshing && "animate-spin")} />
-          {copy("Refresh", "刷新")}
-        </Button>
-      </header>
-
       {accountSupport}
 
       {[
@@ -173,20 +140,35 @@ export function DashboardAnalyticsPanel({
           title: copy("Last 24 hours", "近24小时统计"),
           metrics: last24HoursMetrics,
           delay: "delay-80",
+          showRefresh: true,
         },
         {
           title: copy("Lifetime", "累计统计"),
           metrics: lifetimeMetrics,
           delay: "delay-160",
+          showRefresh: false,
         },
       ].map((section) => (
         <section
           className={cn("space-y-3", sectionEnterClass, section.delay)}
           key={section.title}
         >
-          <h2 className="font-serif text-lg font-medium tracking-tight">
-            {section.title}
-          </h2>
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-serif text-lg font-medium tracking-tight">
+              {section.title}
+            </h2>
+            {section.showRefresh && (
+              <Button
+                aria-busy={isRefreshing}
+                disabled={isRefreshing}
+                onClick={() => void refreshSnapshot()}
+                type="button"
+              >
+                <RefreshCw className={cn(isRefreshing && "animate-spin")} />
+                {copy("Refresh", "刷新")}
+              </Button>
+            )}
+          </div>
           <div className="grid gap-4 md:grid-cols-3">
             {section.metrics.map((metric) => {
               const Icon = metric.icon;
