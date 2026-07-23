@@ -1,5 +1,5 @@
 /**
- * 控制台支持配置 UOL operation 的权限、元数据与安全降级测试。
+ * 控制台服务与支持配置 UOL operation 的权限、元数据与安全降级测试。
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +56,28 @@ describe("support.getDashboardConfiguration", () => {
     );
 
     expect(dashboardSupportConfigSchema.parse(output)).toEqual(configured);
+  });
+
+  it("removes legacy official support data from the UOL response", async () => {
+    const legacyConfig = {
+      ...DEFAULT_DASHBOARD_SUPPORT_CONFIG,
+      officialSupport: {
+        enabled: true,
+        channel: { zh: "旧支持", en: "Legacy support" },
+        description: { zh: "旧说明", en: "Legacy description" },
+        actionLabel: { zh: "联系", en: "Contact" },
+        actionUrl: "/dashboard/support/new",
+      },
+    };
+    vi.mocked(getRuntimeSettingJson).mockResolvedValue(legacyConfig);
+
+    await expect(
+      getDashboardConfiguration.execute(
+        {},
+        { type: "user", userId: "user-1", role: "user" },
+        context
+      )
+    ).resolves.toEqual(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
   });
 
   it("falls back when a historical stored value is invalid", async () => {

@@ -32,7 +32,7 @@ import { defineOperation } from "../registry";
 // ---------------------------------------------------------------------------
 
 /**
- * support.getDashboardConfiguration - 获取控制台支持区配置
+ * support.getDashboardConfiguration - 获取控制台服务与支持配置
  *
  * 权限：仅站内登录用户。返回值已经过共享 Zod 契约收窄，不暴露其他系统设置。
  * 历史脏值不会拖垮控制台，但会记录不包含配置正文的服务端错误并回退安全默认值。
@@ -41,8 +41,7 @@ export const getDashboardConfiguration = defineOperation({
   name: "support.getDashboardConfiguration",
   domain: "support",
   title: "Get Dashboard Support Configuration",
-  description:
-    "获取控制台官方支持渠道和 Service & Support 入口的安全公开配置。",
+  description: "获取控制台 Service & Support 入口的安全公开配置。",
   input: z.object({}),
   output: dashboardSupportConfigSchema,
   access: { kind: "user" },

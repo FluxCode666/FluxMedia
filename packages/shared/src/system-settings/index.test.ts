@@ -351,8 +351,11 @@ describe("setSystemSettings", () => {
 
   it("validates dashboard support structure and safe links before writing", async () => {
     const configured = structuredClone(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
-    configured.officialSupport.qrCodeUrl =
-      "https://assets.example.com/support.png";
+    const configuredService = configured.services[0];
+    if (!configuredService)
+      throw new Error("Default support services are missing");
+    configuredService.icon = "qq";
+    configuredService.url = "https://assets.example.com/support";
 
     await setSystemSettings(
       [{ key: "DASHBOARD_SUPPORT_CONFIG", value: configured }],
@@ -361,7 +364,9 @@ describe("setSystemSettings", () => {
     expect(store.get("DASHBOARD_SUPPORT_CONFIG")?.value).toEqual(configured);
 
     const unsafe = structuredClone(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
-    unsafe.officialSupport.actionUrl = "javascript:alert(1)";
+    const unsafeService = unsafe.services[0];
+    if (!unsafeService) throw new Error("Default support services are missing");
+    unsafeService.url = "javascript:alert(1)";
     await expect(
       setSystemSettings(
         [{ key: "DASHBOARD_SUPPORT_CONFIG", value: unsafe }],

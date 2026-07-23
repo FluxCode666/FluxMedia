@@ -18,14 +18,14 @@ import { useRouter } from "@/i18n/routing";
 type DashboardAnalyticsUnavailableProps = {
   isZh: boolean;
   reason: DashboardLoadFailureReason;
-  accountSupport?: ReactNode;
+  serviceSupport?: ReactNode;
 };
 
 /** 渲染统计准备或查询超时状态，并允许用户重新发起安全读取。 */
 export function DashboardAnalyticsUnavailable({
   isZh,
   reason,
-  accountSupport,
+  serviceSupport,
 }: DashboardAnalyticsUnavailableProps) {
   const router = useRouter();
   const [isRefreshing, startTransition] = useTransition();
@@ -51,7 +51,7 @@ export function DashboardAnalyticsUnavailable({
           </h1>
         </header>
 
-        {accountSupport}
+        {serviceSupport}
 
         <Card>
           <CardContent className="flex min-h-[320px] flex-col items-center justify-center px-6 py-12 text-center">
@@ -75,12 +75,12 @@ export function DashboardAnalyticsUnavailable({
               {isTimeout
                 ? copy(
                     "The database did not respond within the expected time. Please try again shortly; your account and usage data are unaffected.",
-                    "数据库未能在限定时间内返回结果，请稍后重试。你的账户和用量数据不会受到影响。"
+                    "数据库未能在限定时间内返回结果，请稍后重试。你的用量数据不会受到影响。"
                   )
                 : isUnavailable
                   ? copy(
-                      "We could not load your account data right now. Please try again shortly.",
-                      "当前无法加载你的账户数据，请稍后重试。"
+                      "We could not load your usage data right now. Please try again shortly.",
+                      "当前无法加载你的用量数据，请稍后重试。"
                     )
                   : copy(
                       "Your historical usage is still being processed. No data will be shown until verification is complete.",

@@ -32,7 +32,7 @@ type DashboardAnalyticsPanelProps = {
   initialSnapshot: DashboardSnapshot;
   isZh: boolean;
   userName: string;
-  accountSupport: ReactNode;
+  serviceSupport: ReactNode;
 };
 
 const sectionEnterClass =
@@ -54,14 +54,14 @@ function formatCount(value: number, locale: string): string {
 /**
  * 渲染近 24 小时和累计摘要、模型占比与近期创作。
  *
- * @param props 服务端首屏快照、语言、用户名与账户支持区。
+ * @param props 服务端首屏快照、语言、用户名与服务支持区。
  * @returns 可刷新且对窄屏友好的控制台主体。
  */
 export function DashboardAnalyticsPanel({
   initialSnapshot,
   isZh,
   userName,
-  accountSupport,
+  serviceSupport,
 }: DashboardAnalyticsPanelProps) {
   const copy = (en: string, zh: string) => (isZh ? zh : en);
   const locale = isZh ? "zh-CN" : "en-US";
@@ -166,7 +166,7 @@ export function DashboardAnalyticsPanel({
         </Button>
       </header>
 
-      {accountSupport}
+      {serviceSupport}
 
       {[
         {

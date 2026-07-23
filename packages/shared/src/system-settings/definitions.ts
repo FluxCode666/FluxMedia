@@ -426,9 +426,9 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "DASHBOARD_SUPPORT_CONFIG",
-    label: "控制台账户与支持",
+    label: "控制台服务与支持",
     description:
-      "配置控制台的官方支持渠道、二维码和 Service & Support 服务入口；支持中英文文案、站内路径与 HTTP(S) 链接。",
+      "配置控制台 Service & Support 服务入口；支持中英文文案、站内路径与 HTTP(S) 链接。",
     category: "support",
     valueType: "json",
     defaultValue: DEFAULT_DASHBOARD_SUPPORT_CONFIG,
@@ -1876,7 +1876,7 @@ export const SETTING_CATEGORIES: Array<{
   {
     id: "support",
     label: "支持",
-    description: "控制台官方支持渠道、二维码、多语言文案与服务入口。",
+    description: "控制台 Service & Support 的多语言文案与服务入口。",
   },
   {
     id: "auth",

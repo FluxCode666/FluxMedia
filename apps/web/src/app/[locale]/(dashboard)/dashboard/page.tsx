@@ -7,7 +7,6 @@
 import { auth } from "@repo/shared/auth";
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { logError } from "@repo/shared/logger";
-import { getAvatarUrl } from "@repo/shared/storage";
 import {
   type DashboardSupportConfig,
   DEFAULT_DASHBOARD_SUPPORT_CONFIG,
@@ -15,7 +14,7 @@ import {
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
-import { DashboardAccountSupport } from "@/features/dashboard/components/dashboard-account-support";
+import { DashboardServiceSupport } from "@/features/dashboard/components/dashboard-service-support";
 import { DashboardAnalyticsPanel } from "@/features/dashboard/components/dashboard-analytics-panel";
 import { DashboardAnalyticsUnavailable } from "@/features/dashboard/components/dashboard-analytics-pending";
 import {
@@ -89,15 +88,10 @@ export default async function DashboardPage() {
     return (
       <div className="container mx-auto px-4 py-6 md:px-6">
         <DashboardAnalyticsPanel
-          accountSupport={
-            <DashboardAccountSupport
+          serviceSupport={
+            <DashboardServiceSupport
               configuration={supportConfiguration}
               isZh={isZh}
-              user={{
-                name: session.user.name,
-                email: session.user.email,
-                imageUrl: getAvatarUrl(session.user.image),
-              }}
             />
           }
           initialSnapshot={snapshot}
@@ -116,15 +110,10 @@ export default async function DashboardPage() {
     // 读模型准备中不能伪造零值；可重试查询故障也不能暴露服务端堆栈。
     return (
       <DashboardAnalyticsUnavailable
-        accountSupport={
-          <DashboardAccountSupport
+        serviceSupport={
+          <DashboardServiceSupport
             configuration={supportConfiguration}
             isZh={isZh}
-            user={{
-              name: session.user.name,
-              email: session.user.email,
-              imageUrl: getAvatarUrl(session.user.image),
-            }}
           />
         }
         isZh={isZh}
