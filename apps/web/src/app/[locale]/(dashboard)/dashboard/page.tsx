@@ -26,7 +26,11 @@ import {
   type DashboardLoadFailureReason,
   getDashboardLoadFailureReason,
 } from "@/features/dashboard/dashboard-load-error";
-import { loadDashboardSupportConfiguration } from "@/features/dashboard/dashboard-support-data";
+import {
+  type DashboardAnnouncement,
+  loadDashboardAnnouncements,
+  loadDashboardSupportConfiguration,
+} from "@/features/dashboard/dashboard-support-data";
 
 /** 记录不含 SQL、参数、用户 ID 和会话信息的 Dashboard 降级事件。 */
 function logDashboardLoadFailure(
@@ -73,6 +77,9 @@ export default async function DashboardPage() {
 
   let supportConfigurationPromise: Promise<DashboardSupportConfig> =
     Promise.resolve(DEFAULT_DASHBOARD_SUPPORT_CONFIG);
+  let announcementsPromise: Promise<DashboardAnnouncement[]> = Promise.resolve(
+    []
+  );
 
   try {
     const role = await getUserRoleById(session.user.id);
@@ -80,17 +87,26 @@ export default async function DashboardPage() {
       userId: session.user.id,
       role,
     });
-    const snapshot: DashboardSnapshot = await loadDashboardSnapshot({
+    announcementsPromise = loadDashboardAnnouncements({
       userId: session.user.id,
       role,
     });
-    const supportConfiguration = await supportConfigurationPromise;
+    const [snapshot, supportConfiguration, announcements]: [
+      DashboardSnapshot,
+      DashboardSupportConfig,
+      DashboardAnnouncement[],
+    ] = await Promise.all([
+      loadDashboardSnapshot({ userId: session.user.id, role }),
+      supportConfigurationPromise,
+      announcementsPromise,
+    ]);
 
     return (
       <div className="container mx-auto px-4 py-6 md:px-6">
         <DashboardAnalyticsPanel
           accountSupport={
             <DashboardAccountSupport
+              announcements={announcements}
               configuration={supportConfiguration}
               isZh={isZh}
               user={{
@@ -111,12 +127,16 @@ export default async function DashboardPage() {
     if (reason !== "not_ready") {
       logDashboardLoadFailure(reason, "analytics");
     }
-    const supportConfiguration = await supportConfigurationPromise;
+    const [supportConfiguration, announcements] = await Promise.all([
+      supportConfigurationPromise,
+      announcementsPromise,
+    ]);
     // 读模型准备中不能伪造零值；可重试查询故障也不能暴露服务端堆栈。
     return (
       <DashboardAnalyticsUnavailable
         accountSupport={
           <DashboardAccountSupport
+            announcements={announcements}
             configuration={supportConfiguration}
             isZh={isZh}
             user={{
