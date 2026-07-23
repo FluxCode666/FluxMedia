@@ -151,11 +151,15 @@ describe("API integration docs data", () => {
     const expectations = {
       zh: [
         "控制输出图片的压缩级别",
+        "数值越大，压缩力度越大",
+        "0 表示不压缩，100 表示最大压缩",
         "output_format 为 jpeg 或 webp",
-        "上游决定",
+        "不同上游",
       ],
       en: [
         "Controls the output image compression level",
+        "Higher values apply stronger compression",
+        "0 means no compression and 100 means maximum compression",
         "output_format is jpeg or webp",
         "upstream provider",
       ],

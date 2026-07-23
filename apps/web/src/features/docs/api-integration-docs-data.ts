@@ -163,7 +163,7 @@ const zhContent = {
           requirement: "可选",
           defaultValue: "未指定（上游决定）",
           description:
-            "控制输出图片的压缩级别，取值 0 到 100；仅在 output_format 为 jpeg 或 webp 时生效，具体压缩效果由上游决定。",
+            "控制输出图片的压缩级别，取值 0 到 100：数值越大，压缩力度越大，通常文件越小、画质损失越明显；0 表示不压缩，100 表示最大压缩。仅在 output_format 为 jpeg 或 webp 时生效，不同上游的实际压缩结果可能略有差异。",
         },
         {
           name: "background",
@@ -299,7 +299,7 @@ const zhContent = {
           requirement: "可选",
           defaultValue: "未指定（上游决定）",
           description:
-            "控制输出图片的压缩级别，取值 0 到 100；仅在 output_format 为 jpeg 或 webp 时生效，具体压缩效果由上游决定。",
+            "控制输出图片的压缩级别，取值 0 到 100：数值越大，压缩力度越大，通常文件越小、画质损失越明显；0 表示不压缩，100 表示最大压缩。仅在 output_format 为 jpeg 或 webp 时生效，不同上游的实际压缩结果可能略有差异。",
         },
         {
           name: "background",
@@ -612,7 +612,7 @@ const enContent = {
           requirement: "Optional",
           defaultValue: "Unset (upstream decides)",
           description:
-            "Controls the output image compression level from 0 to 100. It only applies when output_format is jpeg or webp; the exact compression behavior depends on the upstream provider.",
+            "Controls the output image compression level from 0 to 100. Higher values apply stronger compression, typically producing smaller files with more quality loss; 0 means no compression and 100 means maximum compression. It only applies when output_format is jpeg or webp, and exact results may vary by upstream provider.",
         },
         {
           name: "background",
@@ -731,7 +731,7 @@ const enContent = {
           requirement: "Optional",
           defaultValue: "Unset (upstream decides)",
           description:
-            "Controls the output image compression level from 0 to 100. It only applies when output_format is jpeg or webp; the exact compression behavior depends on the upstream provider.",
+            "Controls the output image compression level from 0 to 100. Higher values apply stronger compression, typically producing smaller files with more quality loss; 0 means no compression and 100 means maximum compression. It only applies when output_format is jpeg or webp, and exact results may vary by upstream provider.",
         },
         {
           name: "background",
