@@ -167,7 +167,7 @@ export const dashboardNav: NavGroup[] = [
       },
       {
         title: "API Docs",
-        href: "/api-docs",
+        href: "/dashboard/api-docs",
         icon: BookOpen,
       },
       {

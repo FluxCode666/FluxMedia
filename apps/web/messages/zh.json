@@ -630,6 +630,7 @@
       "newTicket": "新建工单",
       "settings": "设置",
       "externalApi": "API 密钥",
+      "apiDocs": "接入文档",
       "backendHelp": "系统文档",
       "userManagement": "用户管理",
       "announcementManagement": "公告管理",

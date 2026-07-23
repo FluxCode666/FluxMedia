@@ -514,7 +514,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
               {t("baseUrl", { url: baseUrl })}
             </p>
             <Link
-              href={`/${locale}/api-docs`}
+              href={`/${locale}/dashboard/api-docs`}
               className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >
               {t("documentation")}

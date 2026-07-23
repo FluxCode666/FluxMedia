@@ -146,7 +146,7 @@ export const DEFAULT_DASHBOARD_SUPPORT_CONFIG: DashboardSupportConfig = {
         en: "Explore image APIs and usage guides",
       },
       actionLabel: { zh: "查看", en: "Open" },
-      url: "/api-docs",
+      url: "/dashboard/api-docs",
     },
     {
       id: "support-tickets",

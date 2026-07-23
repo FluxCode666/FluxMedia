@@ -7,8 +7,8 @@
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { canAccessAdminArea } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";
-import { getLocale } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { getLocale } from "next-intl/server";
 
 import { SystemDocsContent } from "@/features/docs/system-docs";
 
@@ -23,7 +23,7 @@ export default async function BackendHelpPage() {
 
   const role = await getUserRoleById(session.user.id);
   if (!canAccessAdminArea(role)) {
-    redirect(`/${locale}/api-docs`);
+    redirect(`/${locale}/dashboard/api-docs`);
   }
 
   return <SystemDocsContent locale={locale} />;

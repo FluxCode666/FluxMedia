@@ -18,7 +18,9 @@ type ElevatorEndpoint = Pick<
 >;
 
 const MOBILE_ACTIVATION_LINE = 144;
-const DESKTOP_ACTIVATION_LINE = 112;
+// 章节使用 scroll-mt-32（128px）；激活线需略低于锚点落位，否则点击电梯后会
+// 因章节顶部仍高于激活线而回退高亮上一项。
+const DESKTOP_ACTIVATION_LINE = 144;
 
 /**
  * 渲染随滚动高亮的章节导航。

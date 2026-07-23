@@ -1,7 +1,7 @@
 "use client";
 
-import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import { canUseCustomApi } from "@repo/shared/config/subscription-plan";
+import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
 import { Button } from "@repo/ui/components/button";
 import { Input } from "@repo/ui/components/input";
 import { Label } from "@repo/ui/components/label";
@@ -418,7 +418,7 @@ export function ApiConfigForm() {
 
           {/* Documentation link */}
           <a
-            href={`/${locale}/api-docs`}
+            href={`/${locale}/dashboard/api-docs`}
             className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
           >
             <ExternalLink className="h-3 w-3" />

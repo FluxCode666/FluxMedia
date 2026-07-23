@@ -23,6 +23,7 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/support": "support",
     "/dashboard/support/new": "newTicket",
     "/dashboard/announcements": "announcements",
+    "/dashboard/api-docs": "apiDocs",
     "/dashboard/backend-help": "backendHelp",
     "/dashboard/external-api": "externalApi",
     "/dashboard/billing": "billing",
@@ -69,6 +70,8 @@ export function DashboardMainWrapper({
   const t = useTranslations("Dashboard.pages");
   const pageTitleKey = getPageTitleKey(pathname);
   const pageTitle = t(pageTitleKey);
+  const normalizedPath = pathname.replace(/^\/[a-z]{2}\//, "/");
+  const isApiDocsPage = normalizedPath === "/dashboard/api-docs";
 
   return (
     <main
@@ -117,7 +120,16 @@ export function DashboardMainWrapper({
         </header>
 
         {/* 内容区域 */}
-        <div className="min-w-0 flex-1 overflow-x-auto p-6">{children}</div>
+        <div
+          className={cn(
+            "min-w-0 flex-1 p-6",
+            // 横向滚动祖先会让文档电梯的 sticky 失效；接入文档自身已在表格和
+            // 代码块边界处理横向溢出，因此该路由可以安全保持 overflow 可见。
+            isApiDocsPage ? "overflow-visible" : "overflow-x-auto"
+          )}
+        >
+          {children}
+        </div>
       </div>
     </main>
   );
