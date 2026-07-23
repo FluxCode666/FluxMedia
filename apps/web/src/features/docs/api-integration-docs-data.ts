@@ -56,6 +56,24 @@ export type ApiIntegrationDocsContent = {
   endpoints: readonly ApiIntegrationEndpoint[];
 };
 
+/** 首页快速集成只需要的最小公开 API 文档契约。 */
+export type ApiIntegrationHomepageContract = {
+  endpoint: Pick<ApiIntegrationEndpoint, "contentType" | "method" | "path">;
+  authentication: {
+    headerName: "Authorization";
+    scheme: "Bearer";
+    environmentVariable: "FLUXMEDIA_API_KEY";
+  };
+  copyLabels: ApiIntegrationDocsContent["copyLabels"];
+};
+
+const IMAGE_GENERATION_ENDPOINT_ID = "image-generations";
+const API_KEY_AUTHENTICATION = {
+  headerName: "Authorization",
+  scheme: "Bearer",
+  environmentVariable: "FLUXMEDIA_API_KEY",
+} as const;
+
 const zhContent = {
   eyebrow: "FluxMedia External API",
   title: "API 接入文档",
@@ -913,5 +931,35 @@ export function getApiIntegrationDocs(
     endpoints: content.endpoints.filter(
       (endpoint) => !TEMPORARILY_HIDDEN_ENDPOINT_IDS.has(endpoint.id)
     ),
+  };
+}
+
+/**
+ * 提取首页快速集成需要的端点、鉴权和复制文案。
+ *
+ * @param locale - Next.js 路由语言；只有 zh 使用中文，其余安全回退英文。
+ * @returns 不含旧固定域名、固定模型或响应示例的最小共享契约。
+ * @sideEffects 无。
+ * @failure 若公开文档误删图片生成端点，则在服务端渲染阶段显式抛错，避免展示伪造契约。
+ */
+export function getApiIntegrationHomepageContract(
+  locale?: string
+): ApiIntegrationHomepageContract {
+  const content = getApiIntegrationDocs(locale);
+  const endpoint = content.endpoints.find(
+    (candidate) => candidate.id === IMAGE_GENERATION_ENDPOINT_ID
+  );
+  if (!endpoint) {
+    throw new Error("Missing public image generation API contract");
+  }
+
+  return {
+    endpoint: {
+      contentType: endpoint.contentType,
+      method: endpoint.method,
+      path: endpoint.path,
+    },
+    authentication: API_KEY_AUTHENTICATION,
+    copyLabels: content.copyLabels,
   };
 }

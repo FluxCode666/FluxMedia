@@ -6,7 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { getApiIntegrationDocs } from "./api-integration-docs-data";
+import {
+  getApiIntegrationDocs,
+  getApiIntegrationHomepageContract,
+} from "./api-integration-docs-data";
 
 const EXPECTED_PATHS = [
   "/v1/images/generations",
@@ -50,6 +53,30 @@ const FORBIDDEN_EXTENSION_NAMES = [
 ] as const;
 
 describe("API integration docs data", () => {
+  it.each(["zh", "en"])("%s 为首页提取同源端点、鉴权和复制契约", (locale) => {
+    const content = getApiIntegrationDocs(locale);
+    const generation = content.endpoints.find(
+      (endpoint) => endpoint.id === "image-generations"
+    );
+    const homepage = getApiIntegrationHomepageContract(locale);
+
+    expect(homepage).toEqual({
+      endpoint: {
+        contentType: generation?.contentType,
+        method: generation?.method,
+        path: generation?.path,
+      },
+      authentication: {
+        environmentVariable: "FLUXMEDIA_API_KEY",
+        headerName: "Authorization",
+        scheme: "Bearer",
+      },
+      copyLabels: content.copyLabels,
+    });
+    expect(homepage.endpoint).not.toHaveProperty("requestExample");
+    expect(homepage.endpoint).not.toHaveProperty("responseExample");
+  });
+
   it.each(["zh", "en"])("%s 仅公开指定的三个图像端点", (locale) => {
     const content = getApiIntegrationDocs(locale);
 
