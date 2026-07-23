@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@repo/ui/components/card";
+import { CodeBlock } from "@repo/ui/components/code-block";
 import {
   ArrowDown,
   ArrowRight,
@@ -312,6 +313,9 @@ const sections = {
       baseUrl: "https://gpt2image.superapi.buzz",
       examplesTitle: "请求示例",
       responseExampleTitle: "响应示例",
+      copyLabel: "复制",
+      copiedLabel: "已复制",
+      copyFailedLabel: "复制失败",
       common: [
         "所有外接接口都需要 Authorization: Bearer <本站 API 密钥>。",
         "Chat Completions、图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上；Agent 生图接口默认需要旗舰版及以上。具体门槛可在套餐能力矩阵中调整 externalApi.*。",
@@ -2778,6 +2782,9 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       baseUrl: "https://gpt2image.superapi.buzz",
       examplesTitle: "Request Example",
       responseExampleTitle: "Response Example",
+      copyLabel: "Copy",
+      copiedLabel: "Copied",
+      copyFailedLabel: "Copy failed",
       common: [
         "All external endpoints require Authorization: Bearer <FluxMedia API key>.",
         "Chat Completions, image generation, and image edits require Starter or higher; Responses requires Pro or higher; Agent image runs require Ultra by default. The exact gates can be changed with externalApi.* in the Plan Capability Matrix.",
@@ -5151,6 +5158,9 @@ function ExternalApiDocs({
         <div className="space-y-5">
           {docs.docs.map((doc) => (
             <ExternalEndpointDoc
+              copiedLabel={docs.copiedLabel}
+              copyFailedLabel={docs.copyFailedLabel}
+              copyLabel={docs.copyLabel}
               customLabel={docs.customLabel}
               doc={doc}
               fieldHeaders={docs.fieldHeaders}
@@ -5215,6 +5225,9 @@ function ExternalEndpointDoc({
   notesTitle,
   examplesTitle,
   responseExampleTitle,
+  copyLabel,
+  copiedLabel,
+  copyFailedLabel,
   customLabel,
 }: {
   doc: ExternalApiDoc;
@@ -5225,6 +5238,9 @@ function ExternalEndpointDoc({
   notesTitle: string;
   examplesTitle: string;
   responseExampleTitle: string;
+  copyLabel: string;
+  copiedLabel: string;
+  copyFailedLabel: string;
   customLabel: string;
 }) {
   return (
@@ -5253,15 +5269,29 @@ function ExternalEndpointDoc({
       <div className="space-y-5 p-4">
         <div>
           <h4 className="text-sm font-medium">{examplesTitle}</h4>
-          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
-            <code>{doc.example}</code>
-          </pre>
+          <CodeBlock
+            className="mt-2"
+            code={doc.example}
+            labels={{
+              copy: copyLabel,
+              copied: copiedLabel,
+              copyFailed: copyFailedLabel,
+            }}
+            language="bash"
+          />
         </div>
         <div>
           <h4 className="text-sm font-medium">{responseExampleTitle}</h4>
-          <pre className="mt-2 overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs leading-relaxed">
-            <code>{doc.responseExample}</code>
-          </pre>
+          <CodeBlock
+            className="mt-2"
+            code={doc.responseExample}
+            labels={{
+              copy: copyLabel,
+              copied: copiedLabel,
+              copyFailed: copyFailedLabel,
+            }}
+            language="text"
+          />
         </div>
         <EndpointFieldTable
           customLabel={customLabel}

@@ -17,6 +17,7 @@
     "./components/calendar": "./src/components/calendar.tsx",
     "./components/checkbox": "./src/components/checkbox.tsx",
     "./components/collapsible": "./src/components/collapsible.tsx",
+    "./components/code-block": "./src/components/code-block.tsx",
     "./components/dialog": "./src/components/dialog.tsx",
     "./components/dropdown-menu": "./src/components/dropdown-menu.tsx",
     "./components/form": "./src/components/form.tsx",
