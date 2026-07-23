@@ -1,3 +1,9 @@
+/**
+ * FluxMedia 本地化官网首页路由。
+ *
+ * 使用方：`/[locale]` 首页；专属 Route Group 保证布局不附加营销共享 Footer。
+ * 关键依赖：首页营销组件、运行时配置与会话读取。
+ */
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import { isAdminRole } from "@repo/shared/auth/roles";
 import { getServerSession } from "@repo/shared/auth/server";

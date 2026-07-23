@@ -8,6 +8,9 @@ export {
   // Dashboard 配置
   dashboardNav,
   footerNav,
+  getMarketingHeaderNavigation,
+  type MarketingHeaderNavigation,
+  type MarketingHeaderVariant,
   // Marketing 配置
   mainNav,
   marketingConfig,

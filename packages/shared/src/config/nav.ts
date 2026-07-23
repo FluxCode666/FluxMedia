@@ -1,8 +1,13 @@
+/**
+ * 全站导航配置与营销 Header 变体契约。
+ *
+ * 使用方：营销 Header、移动端 Sheet、Footer、Dashboard 与 Admin 侧栏。
+ * 关键依赖：Lucide 图标；营销链接保持 locale-neutral，由应用层 i18n Link
+ * 统一添加当前语言前缀。
+ */
 import {
   BookOpen,
-  Bot,
   Clock,
-  Coins,
   GalleryHorizontalEnd,
   Headset,
   Image,
@@ -55,6 +60,15 @@ export interface ProductNavGroup {
   items: ProductNavItem[];
 }
 
+/** Marketing Header 支持的显式页面变体。 */
+export type MarketingHeaderVariant = "home" | "marketing";
+
+/** 桌面与移动端共同消费的营销 Header 导航快照。 */
+export interface MarketingHeaderNavigation {
+  items: readonly NavItem[];
+  productGroups: readonly ProductNavGroup[];
+}
+
 // ============================================
 // Marketing 导航配置
 // ============================================
@@ -86,39 +100,37 @@ export const productsNav: ProductNavGroup[] = [
       },
     ],
   },
-  {
-    title: "Platform",
-    items: [
-      {
-        title: "GPT Image 2",
-        href: "/#features",
-        description: "Next-generation image model with stunning quality",
-        icon: Bot,
-      },
-      {
-        title: "Multi-model Support",
-        href: "/#features",
-        description: "Access multiple image generation models",
-        icon: Bot,
-      },
-      {
-        title: "Credits System",
-        href: "/#pricing",
-        description: "Flexible pay-as-you-go credits",
-        icon: Coins,
-      },
-    ],
-  },
 ];
 
 /**
  * 主导航链接 (Header)
  */
 export const mainNav: NavItem[] = [
-  { title: "Pricing", href: "/#pricing" },
+  { title: "Models", href: "/#models" },
+  { title: "Quick Integration", href: "/#integration" },
+  { title: "Work", href: "/#work" },
+  { title: "Start Creating", href: "/#create" },
   { title: "Docs", href: "/api-docs" },
   { title: "Blog", href: "/blog" },
 ];
+
+const emptyProductNav: readonly ProductNavGroup[] = [];
+
+/**
+ * 为指定页面变体返回营销 Header 的单一导航事实源。
+ *
+ * @param variant - 首页隐藏 Products 下拉，其他营销页面保留有效产品入口。
+ * @returns 桌面 NavMenu 与移动 Sheet 必须共同使用的导航项和产品分组。
+ * @sideEffects 无。
+ */
+export function getMarketingHeaderNavigation(
+  variant: MarketingHeaderVariant
+): MarketingHeaderNavigation {
+  return {
+    items: mainNav,
+    productGroups: variant === "home" ? emptyProductNav : productsNav,
+  };
+}
 
 /**
  * Footer 导航配置
@@ -126,7 +138,6 @@ export const mainNav: NavItem[] = [
 export const footerNav = {
   /** 产品 (Product) */
   product: [
-    { title: "Pricing", href: "/#pricing" },
     { title: "Docs", href: "/api-docs" },
     { title: "Contact Us", href: "mailto:support@media.flux-code.cc" },
   ] as NavItem[],

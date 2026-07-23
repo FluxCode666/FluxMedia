@@ -1,10 +1,20 @@
-// 注意:不要在本布局引入 fumadocs-ui/style.css。它自带一套 @layer utilities(含
-// .hidden{display:none}),作为第二个样式表加载时会按层叠顺序压过本 app 的 .md:flex/
-// .md:inline-flex,导致整个营销组(含首页)Header 的 `hidden md:flex` 导航与按钮在所有
-// 宽度被永久 display:none。fumadocs CSS 只有 blog/[slug]、legal/[slug] 的 .prose 需要,
-// 故下沉到这两个页面各自引入,避免污染首页等无关页面。
+/**
+ * 非首页营销路由的共享布局。
+ *
+ * 使用方：Blog、API Docs、法律页、PSEO 与 Demo。
+ * 关键边界：保留共享 Header 与独立 Footer，不承载 sibling `(home)` 首页。
+ * 注意：不要在本布局引入 fumadocs-ui/style.css。它自带一套 @layer utilities，
+ * 会覆盖响应式 Header 工具类；该样式只在需要的内容页局部引入。
+ */
 import { Footer, Header } from "@/features/marketing/components";
 
+/**
+ * 渲染非首页营销页面的共享站点框架。
+ *
+ * @param children - 当前营销子路由的服务端页面内容。
+ * @returns 带营销 Header 与独立 Footer 的纵向布局。
+ * @sideEffects 无。
+ */
 export default function MarketingLayout({
   children,
 }: {
@@ -12,7 +22,7 @@ export default function MarketingLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <Header />
+      <Header variant="marketing" />
       <main className="flex-1">{children}</main>
       <Footer />
     </div>
