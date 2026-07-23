@@ -44,6 +44,10 @@ import {
   parseImageCreditOverrides,
 } from "@repo/shared/image-backend/group-image-pricing";
 import {
+  moderateContent,
+  type ModerationImageInput,
+} from "@repo/shared/moderation";
+import {
   type HistoryListOutput,
   historyListOutputSchema,
 } from "@repo/shared/image-generation/history-contract";
@@ -139,6 +143,46 @@ function parseVideoModelCreditsPerSecond(
 // ---------------------------------------------------------------------------
 // image-generation 域
 // ---------------------------------------------------------------------------
+
+/** moderation.proxyModerate - 将代理请求的 base64 图片转换为领域输入并阻止回环代理。 */
+bindExecute(
+  "moderation.proxyModerate",
+  async (
+    input: {
+      prompt: string;
+      images?: Array<{
+        data?: string;
+        type?: string;
+        name?: string;
+        url?: string;
+      }>;
+      mode?: "text" | "image";
+      userId?: string;
+      effectiveBlockRiskLevel: "low" | "medium" | "high";
+      generationId?: string;
+    },
+    _principal: Principal,
+    _ctx: OperationContext
+  ) => {
+    const images = input.images
+      ?.map((image): ModerationImageInput => ({
+        data: image.data ? Buffer.from(image.data, "base64") : Buffer.alloc(0),
+        type: image.type || "image/png",
+        ...(image.name ? { name: image.name } : {}),
+        ...(image.url ? { url: image.url } : {}),
+      }))
+      .filter((image) => image.data.length > 0 || Boolean(image.url));
+    return moderateContent({
+      prompt: input.prompt,
+      ...(images ? { images } : {}),
+      ...(input.mode ? { mode: input.mode } : {}),
+      ...(input.userId ? { userId: input.userId } : {}),
+      effectiveBlockRiskLevel: input.effectiveBlockRiskLevel,
+      ...(input.generationId ? { generationId: input.generationId } : {}),
+      skipProxy: true,
+    });
+  }
+);
 
 /**
  * image.generate - 统一管线核心

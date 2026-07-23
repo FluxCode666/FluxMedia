@@ -8,12 +8,28 @@ import type { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  moderateContent: vi.fn(),
+  ensureUolInitialized: vi.fn(),
+  invokeOperation: vi.fn(),
+  OperationError: class OperationError extends Error {
+    readonly code: string;
+    readonly httpStatus: number;
+
+    constructor(code: string, message: string, httpStatus: number) {
+      super(message);
+      this.code = code;
+      this.httpStatus = httpStatus;
+    }
+  },
   runtimeSettings: new Map<string, string>(),
 }));
 
-vi.mock("@repo/shared/moderation", () => ({
-  moderateContent: mocks.moderateContent,
+vi.mock("@repo/shared/uol", () => ({
+  invokeOperation: mocks.invokeOperation,
+  OperationError: mocks.OperationError,
+}));
+
+vi.mock("@/server/uol-init", () => ({
+  ensureUolInitialized: mocks.ensureUolInitialized,
 }));
 
 vi.mock("@repo/shared/system-settings", () => ({
@@ -50,8 +66,9 @@ function configureProxySecret() {
 describe("POST /moderate", () => {
   beforeEach(() => {
     mocks.runtimeSettings.clear();
-    mocks.moderateContent.mockReset();
-    mocks.moderateContent.mockResolvedValue({
+    mocks.ensureUolInitialized.mockReset();
+    mocks.invokeOperation.mockReset();
+    mocks.invokeOperation.mockResolvedValue({
       decision: "allow",
       provider: "openai",
     });
@@ -69,7 +86,7 @@ describe("POST /moderate", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "Unauthorized" });
     expect(json).not.toHaveBeenCalled();
-    expect(mocks.moderateContent).not.toHaveBeenCalled();
+    expect(mocks.invokeOperation).not.toHaveBeenCalled();
   });
 
   it("错误代理密钥在 JSON 解析前返回 401", async () => {
@@ -86,31 +103,40 @@ describe("POST /moderate", () => {
 
     expect(response.status).toBe(401);
     expect(json).not.toHaveBeenCalled();
-    expect(mocks.moderateContent).not.toHaveBeenCalled();
+    expect(mocks.invokeOperation).not.toHaveBeenCalled();
   });
 
   it.each([undefined, null, "invalid-level"])(
-    "授权后拒绝缺失或非法的生效审核级别：%s",
+    "授权后将缺失或非法的生效审核级别交由 UOL 校验：%s",
     async (effectiveBlockRiskLevel) => {
       configureProxySecret();
       const body: Record<string, unknown> = { prompt: "safe prompt" };
       if (effectiveBlockRiskLevel !== undefined) {
         body.effectiveBlockRiskLevel = effectiveBlockRiskLevel;
       }
+      mocks.invokeOperation.mockRejectedValueOnce(
+        new mocks.OperationError("validation_error", "Input validation failed", 400)
+      );
 
       const response = await POST(createRequest(body, PROXY_SECRET));
 
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual({ error: "Invalid request body" });
-      expect(mocks.moderateContent).not.toHaveBeenCalled();
+      expect(mocks.invokeOperation).toHaveBeenCalledWith(
+        "moderation.proxyModerate",
+        body,
+        { type: "proxy", secretKind: "proxy" }
+      );
     }
   );
 
   it.each([
     { userPlan: false },
     { userModerationBlockRiskLevel: null },
-  ])("strict 输入拒绝旧治理字段：%j", async (legacyField) => {
+  ])("strict 输入将旧治理字段交由 UOL 拒绝：%j", async (legacyField) => {
     configureProxySecret();
+    mocks.invokeOperation.mockRejectedValueOnce(
+      new mocks.OperationError("validation_error", "Input validation failed", 400)
+    );
 
     const response = await POST(
       createRequest(
@@ -124,12 +150,22 @@ describe("POST /moderate", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid request body" });
-    expect(mocks.moderateContent).not.toHaveBeenCalled();
+    expect(mocks.invokeOperation).toHaveBeenCalledWith(
+      "moderation.proxyModerate",
+      {
+        prompt: "safe prompt",
+        effectiveBlockRiskLevel: "high",
+        ...legacyField,
+      },
+      { type: "proxy", secretKind: "proxy" }
+    );
   });
 
-  it("strict 输入不再接受 text 作为 prompt 别名", async () => {
+  it("将 text 旧别名交由 UOL schema 拒绝", async () => {
     configureProxySecret();
+    mocks.invokeOperation.mockRejectedValueOnce(
+      new mocks.OperationError("validation_error", "Input validation failed", 400)
+    );
 
     const response = await POST(
       createRequest(
@@ -142,11 +178,14 @@ describe("POST /moderate", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Invalid request body" });
-    expect(mocks.moderateContent).not.toHaveBeenCalled();
+    expect(mocks.invokeOperation).toHaveBeenCalledWith(
+      "moderation.proxyModerate",
+      { text: "legacy prompt alias", effectiveBlockRiskLevel: "high" },
+      { type: "proxy", secretKind: "proxy" }
+    );
   });
 
-  it("合法 medium 与图片输入精确透传并强制 skipProxy", async () => {
+  it("合法请求经 proxyModerate UOL operation 透传并保留 proxy Principal", async () => {
     configureProxySecret();
     const imageData = Buffer.from("image-bytes");
 
@@ -175,22 +214,44 @@ describe("POST /moderate", () => {
       decision: "allow",
       provider: "openai",
     });
-    expect(mocks.moderateContent).toHaveBeenCalledTimes(1);
-    expect(mocks.moderateContent).toHaveBeenCalledWith({
-      prompt: "moderate this image",
-      images: [
-        {
-          data: imageData,
-          name: "input.png",
-          type: "image/png",
-          url: undefined,
-        },
-      ],
-      mode: "image",
-      userId: "user-1",
-      effectiveBlockRiskLevel: "medium",
-      generationId: "generation-1",
-      skipProxy: true,
-    });
+    expect(mocks.ensureUolInitialized).toHaveBeenCalledTimes(1);
+    expect(mocks.invokeOperation).toHaveBeenCalledWith(
+      "moderation.proxyModerate",
+      {
+        prompt: "moderate this image",
+        images: [
+          {
+            data: imageData.toString("base64"),
+            name: "input.png",
+            type: "image/png",
+          },
+        ],
+        mode: "image",
+        userId: "user-1",
+        effectiveBlockRiskLevel: "medium",
+        generationId: "generation-1",
+      },
+      { type: "proxy", secretKind: "proxy" }
+    );
+  });
+
+  it("gateway 密钥构造 gateway proxy Principal", async () => {
+    mocks.runtimeSettings.set(
+      "CONTENT_MODERATION_PROXY_GATEWAY_SECRET",
+      "moderation-gateway-test-secret"
+    );
+
+    await POST(
+      createRequest(
+        { prompt: "safe prompt", effectiveBlockRiskLevel: "low" },
+        "moderation-gateway-test-secret"
+      )
+    );
+
+    expect(mocks.invokeOperation).toHaveBeenCalledWith(
+      "moderation.proxyModerate",
+      { prompt: "safe prompt", effectiveBlockRiskLevel: "low" },
+      { type: "proxy", secretKind: "gateway" }
+    );
   });
 });

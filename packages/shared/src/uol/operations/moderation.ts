@@ -42,6 +42,14 @@ const moderationImageInputSchema = z.object({
   url: z.string().optional(),
 });
 
+/** 代理 HTTP 输入允许省略图片类型，binding 会回填历史默认值 image/png。 */
+const moderationProxyImageInputSchema = z.object({
+  data: z.string().optional(),
+  type: z.string().optional(),
+  name: z.string().optional(),
+  url: z.string().optional(),
+});
+
 /**
  * 审核决策结果 schema - 对应 ModerationResult 接口。
  * decision: allow/block/skipped/error 四种状态。
@@ -385,7 +393,7 @@ export const proxyModerate = defineOperation({
   input: z
     .object({
       prompt: z.string(),
-      images: z.array(moderationImageInputSchema).optional(),
+      images: z.array(moderationProxyImageInputSchema).optional(),
       mode: z.enum(["text", "image"]).optional(),
       userId: z.string().optional(),
       effectiveBlockRiskLevel: moderationBlockRiskLevelSchema,
