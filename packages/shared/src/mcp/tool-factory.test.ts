@@ -125,6 +125,24 @@ describe("MCP tool factories", () => {
     expect(buildUserMcpTools(apiKeyPrincipal)).toHaveLength(0);
   });
 
+  it("never projects the system-only platform catalog to Admin or User MCP", () => {
+    registerOperation({
+      name: "externalApi.getPlatformModelCatalog",
+      domain: "external-api",
+      access: { kind: "system" },
+      agentExposure: "human-only",
+      readOnly: true,
+    });
+    bindExecute("externalApi.getPlatformModelCatalog", async () => ({
+      image: [],
+      video: [],
+      conversation: [],
+    }));
+
+    expect(buildAdminMcpTools(adminPrincipal)).toHaveLength(0);
+    expect(buildUserMcpTools(apiKeyPrincipal)).toHaveLength(0);
+  });
+
   it("preserves analytics unions, enums, defaults, and user-only exposure", () => {
     registerOperation({
       name: "analytics.getMyUsageTrends",

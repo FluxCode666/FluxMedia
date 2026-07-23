@@ -119,6 +119,9 @@ import {
   loadUsageEvents,
   UsageLogServiceError,
 } from "@/features/usage-log/service";
+import {
+  bindPlatformModelCatalogOperation,
+} from "@/server/platform-model-catalog-binding";
 
 /** 将未知 JSON 收窄为可用于视频计费的正数每秒积分表。 */
 function parseVideoModelCreditsPerSecond(
@@ -312,6 +315,9 @@ bindExecute(
     return getExternalModelsForUser(principal.userId);
   }
 );
+
+// 首页平台目录使用独立 binding 保持 strict DTO 映射可被聚焦集成测试复用。
+bindPlatformModelCatalogOperation();
 
 // ---------------------------------------------------------------------------
 // analytics 域

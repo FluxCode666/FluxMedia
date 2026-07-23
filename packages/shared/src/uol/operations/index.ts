@@ -28,7 +28,16 @@ import "./storage";
 import "./moderation";
 // 外部 API 域
 import "./external-api";
+// 首页平台公开模型目录（system-only，不改变外接 API Key 授权语义）
+import "./external-api-platform-model-catalog";
+
 export type { ExternalApiKeySummary } from "./external-api";
+export {
+  type PlatformModelCatalogOutput,
+  platformModelCatalogItemSchema,
+  platformModelCatalogOutputSchema,
+} from "./external-api-platform-model-catalog";
+
 // 客服支持域
 import "./support";
 // 用户控制台统计

@@ -114,6 +114,7 @@ describe("POST /api/mcp/user wallet isolation", () => {
 
     expect(response.status).toBe(200);
     expect(names).toEqual(["externalApi.getModels"]);
+    expect(names).not.toContain("externalApi.getPlatformModelCatalog");
     expect(names).not.toEqual(
       expect.arrayContaining([
         "externalApi.createKey",
