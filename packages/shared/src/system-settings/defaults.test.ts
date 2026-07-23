@@ -144,6 +144,15 @@ describe("system setting default initialization", () => {
     expect(store.get("PLAN_CAPABILITY_MATRIX")?.value).toEqual(
       DEFAULT_PLAN_CAPABILITY_MATRIX
     );
+    expect(store.get("PLAN_CAPABILITY_MATRIX")?.value).not.toHaveProperty(
+      "moderation"
+    );
+    const storedPlanFeatures = (
+      store.get("PLAN_CAPABILITY_MATRIX")?.value as {
+        features: Record<string, unknown>;
+      }
+    ).features;
+    expect(Object.hasOwn(storedPlanFeatures, "externalApi.relay")).toBe(false);
     expect(store.get("BILLING_YEARLY_ENABLED")?.value).toBe(true);
     expect(store.get("APP_TIME_ZONE")).toBeUndefined();
     expect(store.get("MARKETING_SLA_STATUS_ENABLED")?.value).toBe(true);
@@ -373,7 +382,6 @@ describe("system setting default initialization", () => {
           "imageGeneration.chat": "starter",
         },
         limits: DEFAULT_PLAN_CAPABILITY_MATRIX.limits,
-        moderation: DEFAULT_PLAN_CAPABILITY_MATRIX.moderation,
         billing: DEFAULT_PLAN_CAPABILITY_MATRIX.billing,
       },
     });

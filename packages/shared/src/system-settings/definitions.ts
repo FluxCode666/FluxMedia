@@ -251,7 +251,6 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "externalApi.responses": "pro",
     "externalApi.agent": "ultra",
     "externalApi.streaming": "starter",
-    "externalApi.relay": "pro",
     "moderation.blocking": "free",
     "moderation.onlyFailureSettlement": "ultra",
   },
@@ -310,28 +309,6 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
       maxEditImages: 16,
       maxChatImages: 16,
       maxChatContextChars: 30000,
-    },
-  },
-  moderation: {
-    free: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    starter: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    pro: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    ultra: {
-      defaultBlockRiskLevel: "medium",
-      maxBlockRiskLevel: "medium",
-    },
-    enterprise: {
-      defaultBlockRiskLevel: "high",
-      maxBlockRiskLevel: "high",
     },
   },
   billing: {
@@ -697,7 +674,7 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "PLAN_CAPABILITY_MATRIX",
     label: "套餐能力矩阵",
     description:
-      "统一控制套餐功能门槛、积分配额、上传限制、批量数量、并发、队列优先级、审核能力和 Chat/Agent 每轮计费。后台以矩阵表格编辑，保存后仍写入同一个 JSON 配置。功能门槛按最低套餐生效，高级套餐自动包含低级套餐能力。留空时使用代码默认矩阵，并兼容旧上传/月积分配置。",
+      "统一控制套餐功能门槛、积分配额、上传限制、批量数量、并发、队列优先级和 Chat/Agent 每轮计费。后台以矩阵表格编辑，保存后仍写入同一个 JSON 配置。功能门槛按最低套餐生效，高级套餐自动包含低级套餐能力。留空时使用代码默认矩阵，并兼容旧上传/月积分配置。",
     category: "plans",
     valueType: "json",
     exampleValue: PLAN_CAPABILITY_MATRIX_EXAMPLE,

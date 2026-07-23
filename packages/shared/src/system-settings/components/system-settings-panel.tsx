@@ -80,12 +80,6 @@ const QUEUE_PRIORITY_OPTIONS = [
   { value: "highest", label: "最高" },
 ] as const;
 
-const MODERATION_LEVEL_OPTIONS = [
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-] as const;
-
 const FEATURE_ROWS = [
   {
     key: "imageGeneration.text",
@@ -188,11 +182,6 @@ const FEATURE_ROWS = [
     description: "允许 stream=true",
   },
   {
-    key: "externalApi.relay",
-    label: "纯中转 Key",
-    description: "允许将 API Key 设为纯中转（不记录/不存储），默认要求 Pro+",
-  },
-  {
     key: "moderation.blocking",
     label: "审核拦截",
     description: "本站内容审核是否对该套餐生效",
@@ -261,19 +250,6 @@ const LIMIT_ROWS = [
   },
 ] as const;
 
-const MODERATION_ROWS = [
-  {
-    key: "defaultBlockRiskLevel",
-    label: "默认拦截等级",
-    description: "用户未选择时使用",
-  },
-  {
-    key: "maxBlockRiskLevel",
-    label: "最高可选等级",
-    description: "用户可选择的最高拦截强度",
-  },
-] as const;
-
 const BILLING_ROWS = [
   {
     key: "chatRoundCredits",
@@ -290,17 +266,14 @@ const BILLING_ROWS = [
 type PlanValue = (typeof PLAN_OPTIONS)[number]["value"];
 type PlanRequirementValue = (typeof PLAN_REQUIREMENT_OPTIONS)[number]["value"];
 type QueuePriorityValue = (typeof QUEUE_PRIORITY_OPTIONS)[number]["value"];
-type ModerationLevelValue = (typeof MODERATION_LEVEL_OPTIONS)[number]["value"];
 type FeatureKey = (typeof FEATURE_ROWS)[number]["key"];
 type LimitKey = (typeof LIMIT_ROWS)[number]["key"];
-type ModerationKey = (typeof MODERATION_ROWS)[number]["key"];
 type BillingKey = (typeof BILLING_ROWS)[number]["key"];
 
 type CapabilityMatrixDraft = {
   version: 1;
   features: Record<FeatureKey, PlanValue>;
   limits: Record<PlanValue, Record<LimitKey, string | number>>;
-  moderation: Record<PlanValue, Record<ModerationKey, ModerationLevelValue>>;
   billing: Record<PlanValue, Record<BillingKey, number>>;
 };
 
@@ -381,15 +354,6 @@ function asQueuePriority(
 ): QueuePriorityValue {
   return QUEUE_PRIORITY_OPTIONS.some((option) => option.value === value)
     ? (value as QueuePriorityValue)
-    : fallback;
-}
-
-function asModerationLevel(
-  value: unknown,
-  fallback: ModerationLevelValue
-): ModerationLevelValue {
-  return MODERATION_LEVEL_OPTIONS.some((option) => option.value === value)
-    ? (value as ModerationLevelValue)
     : fallback;
 }
 
@@ -539,10 +503,6 @@ function normalizeCapabilityMatrixDraft(
   const fallbackFeatures = isRecord(fallback.features) ? fallback.features : {};
   const rawLimits = isRecord(raw.limits) ? raw.limits : {};
   const fallbackLimits = isRecord(fallback.limits) ? fallback.limits : {};
-  const rawModeration = isRecord(raw.moderation) ? raw.moderation : {};
-  const fallbackModeration = isRecord(fallback.moderation)
-    ? fallback.moderation
-    : {};
   const rawBilling = isRecord(raw.billing) ? raw.billing : {};
   const fallbackBilling = isRecord(fallback.billing) ? fallback.billing : {};
 
@@ -582,33 +542,6 @@ function normalizeCapabilityMatrixDraft(
     })
   ) as CapabilityMatrixDraft["limits"];
 
-  const moderation = Object.fromEntries(
-    PLAN_OPTIONS.map((plan) => {
-      const rawPlanModeration = recordValue(rawModeration, plan.value);
-      const fallbackPlanModeration = recordValue(
-        fallbackModeration,
-        plan.value
-      );
-
-      return [
-        plan.value,
-        {
-          defaultBlockRiskLevel: asModerationLevel(
-            rawPlanModeration.defaultBlockRiskLevel,
-            asModerationLevel(
-              fallbackPlanModeration.defaultBlockRiskLevel,
-              "low"
-            )
-          ),
-          maxBlockRiskLevel: asModerationLevel(
-            rawPlanModeration.maxBlockRiskLevel,
-            asModerationLevel(fallbackPlanModeration.maxBlockRiskLevel, "low")
-          ),
-        },
-      ] as const;
-    })
-  ) as CapabilityMatrixDraft["moderation"];
-
   const billing = Object.fromEntries(
     PLAN_OPTIONS.map((plan) => {
       const rawPlanBilling = recordValue(rawBilling, plan.value);
@@ -636,7 +569,6 @@ function normalizeCapabilityMatrixDraft(
     version: 1,
     features,
     limits,
-    moderation,
     billing,
   };
 }
@@ -1017,23 +949,6 @@ function PlanCapabilityMatrixInput({
     });
   };
 
-  const updateModeration = (
-    plan: PlanValue,
-    key: ModerationKey,
-    nextValue: ModerationLevelValue
-  ) => {
-    updateMatrix({
-      ...matrix,
-      moderation: {
-        ...matrix.moderation,
-        [plan]: {
-          ...matrix.moderation[plan],
-          [key]: nextValue,
-        },
-      },
-    });
-  };
-
   const updateBilling = (
     plan: PlanValue,
     key: BillingKey,
@@ -1055,7 +970,7 @@ function PlanCapabilityMatrixInput({
     <div className="space-y-5">
       <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
         按最低套餐配置功能门槛；Starter/Pro/Ultra/Enterprise
-        自动包含更低套餐能力。并发、上传大小、月积分、批量张数、参考图数量、审核等级和
+        自动包含更低套餐能力。并发、上传大小、月积分、批量张数、参考图数量和
         Chat/Agent 每轮计费都在这里统一配置。
       </div>
 
@@ -1225,62 +1140,6 @@ function PlanCapabilityMatrixInput({
                       </td>
                     );
                   })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <div>
-          <h4 className="text-[11px] uppercase tracking-widest text-muted-foreground font-medium">
-            审核策略
-          </h4>
-          <p className="text-xs text-muted-foreground">
-            配置各套餐默认审核拦截等级和用户/API Key 可选择的最高等级。
-          </p>
-        </div>
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="border-b border-border/60 text-[11px] uppercase tracking-widest text-muted-foreground">
-              <tr>
-                <th className="w-52 px-3 py-2 text-left font-medium">策略</th>
-                {PLAN_OPTIONS.map((plan) => (
-                  <th
-                    key={plan.value}
-                    className="w-36 px-3 py-2 text-left font-medium"
-                  >
-                    {plan.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {MODERATION_ROWS.map((row) => (
-                <tr key={row.key}>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{row.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.description}
-                    </div>
-                  </td>
-                  {PLAN_OPTIONS.map((plan) => (
-                    <td key={plan.value} className="px-3 py-2 align-top">
-                      <MatrixSelect
-                        value={matrix.moderation[plan.value][row.key]}
-                        options={MODERATION_LEVEL_OPTIONS}
-                        disabled={disabled}
-                        onChange={(nextValue) =>
-                          updateModeration(
-                            plan.value,
-                            row.key,
-                            nextValue as ModerationLevelValue
-                          )
-                        }
-                      />
-                    </td>
-                  ))}
                 </tr>
               ))}
             </tbody>

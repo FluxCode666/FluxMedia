@@ -7,17 +7,13 @@ import {
 } from "../../config/subscription-plan";
 import { SYSTEM_SETTING_DEFINITIONS } from "../../system-settings/definitions";
 import {
-  DEFAULT_PLAN_CAPABILITY_MATRIX,
-  PLAN_CAPABILITY_KEYS,
   canUsePlanCapability,
-  getAllowedPlanModerationBlockRiskLevels,
-  getDefaultPlanModerationBlockRiskLevel,
-  getMaxPlanModerationBlockRiskLevel,
+  DEFAULT_PLAN_CAPABILITY_MATRIX,
+  DEFAULT_PLAN_CAPABILITY_MATRIX_JSON,
   getPlanBillingConfig,
   getPlanCapabilityMatrix,
   getPlanCapabilitySnapshot,
   getPlanLimits,
-  getPlanModerationConfig,
   getPlanMonthlyCredits,
   getPlanPrivilegesFromCapabilities,
   getPlanQueueSettings,
@@ -25,7 +21,7 @@ import {
   MAX_PLAN_IMAGE_COUNT,
   megabytesToBytes,
   normalizePlanCapabilityMatrix,
-  normalizePlanModerationBlockRiskLevel,
+  PLAN_CAPABILITY_KEYS,
   type PlanLimitConfig,
 } from "./plan-capabilities";
 
@@ -47,6 +43,9 @@ describe("plan capability matrix defaults", () => {
 
   it("normalizes an empty value to the complete default matrix", () => {
     const matrix = normalizePlanCapabilityMatrix(undefined);
+    const defaultJson = JSON.parse(DEFAULT_PLAN_CAPABILITY_MATRIX_JSON) as {
+      features: Record<string, unknown>;
+    };
 
     expect(matrix).toEqual(DEFAULT_PLAN_CAPABILITY_MATRIX);
     expect(Object.keys(matrix.features).sort()).toEqual(
@@ -60,7 +59,15 @@ describe("plan capability matrix defaults", () => {
     expect(matrix.features["imageGeneration.waterfall"]).toBe("pro");
     expect(matrix.features["export.ppt"]).toBe("free");
     expect(matrix.features["export.psd"]).toBe("free");
+    expect(matrix.features["moderation.blocking"]).toBe("free");
     expect(matrix.features["moderation.onlyFailureSettlement"]).toBe("ultra");
+    expect(PLAN_CAPABILITY_KEYS).not.toContain("externalApi.relay");
+    expect(Object.hasOwn(matrix.features, "externalApi.relay")).toBe(false);
+    expect(matrix).not.toHaveProperty("moderation");
+    expect(Object.hasOwn(defaultJson.features, "externalApi.relay")).toBe(
+      false
+    );
+    expect(defaultJson).not.toHaveProperty("moderation");
     expect(matrix.limits.ultra).toMatchObject({
       maxFileMb: 100,
       maxUploadMb: 100,
@@ -248,8 +255,13 @@ describe("plan capability matrix defaults", () => {
     });
   });
 
-  it("clamps moderation defaults and lets higher plans inherit lower-plan max levels", () => {
+  it("ignores obsolete relay and plan moderation fields from stored JSON", () => {
     const matrix = normalizePlanCapabilityMatrix({
+      features: {
+        "externalApi.relay": "free",
+        "moderation.blocking": "starter",
+        "moderation.onlyFailureSettlement": "enterprise",
+      },
       moderation: {
         free: {
           defaultBlockRiskLevel: "high",
@@ -274,18 +286,12 @@ describe("plan capability matrix defaults", () => {
       },
     });
 
-    expect(matrix.moderation.free).toEqual({
-      defaultBlockRiskLevel: "medium",
-      maxBlockRiskLevel: "medium",
-    });
-    for (const plan of ["starter", "pro", "ultra"] as const) {
-      expect(matrix.moderation[plan].maxBlockRiskLevel).toBe("medium");
-      expect(matrix.moderation[plan].defaultBlockRiskLevel).toBe("low");
-    }
-    expect(matrix.moderation.enterprise).toEqual({
-      defaultBlockRiskLevel: "medium",
-      maxBlockRiskLevel: "high",
-    });
+    expect(Object.hasOwn(matrix.features, "externalApi.relay")).toBe(false);
+    expect(matrix.features["moderation.blocking"]).toBe("starter");
+    expect(matrix.features["moderation.onlyFailureSettlement"]).toBe(
+      "enterprise"
+    );
+    expect(matrix).not.toHaveProperty("moderation");
   });
 
   it("accepts custom chat and agent round billing per plan", () => {
@@ -360,7 +366,7 @@ describe("plan capability matrix runtime accessors", () => {
     expect(runtimeSettingsMock.getRuntimeSettingNumber).toHaveBeenCalledTimes(14);
   });
 
-  it("drives feature gates, limits, queue settings, snapshots, and moderation helpers", async () => {
+  it("drives feature gates, limits, queue settings, and snapshots", async () => {
     runtimeSettingsMock.getRuntimeSettingJson.mockResolvedValue({
       features: {
         "externalApi.streaming": "ultra",
@@ -386,12 +392,6 @@ describe("plan capability matrix runtime accessors", () => {
         ultra: {
           chatRoundCredits: 2,
           agentRoundCredits: 6,
-        },
-      },
-      moderation: {
-        ultra: {
-          defaultBlockRiskLevel: "medium",
-          maxBlockRiskLevel: "medium",
         },
       },
     });
@@ -436,13 +436,6 @@ describe("plan capability matrix runtime accessors", () => {
       chatRoundCredits: 2,
       agentRoundCredits: 6,
     });
-    await expect(getAllowedPlanModerationBlockRiskLevels("ultra")).resolves.toEqual(
-      ["low", "medium"]
-    );
-    await expect(normalizePlanModerationBlockRiskLevel("ultra", "high")).resolves.toBe(
-      "medium"
-    );
-
     const snapshot = await getPlanCapabilitySnapshot("ultra");
     expect(snapshot.features["externalApi.streaming"]).toBe(true);
     expect(snapshot.features["externalApi.agent"]).toBe(true);
@@ -453,14 +446,11 @@ describe("plan capability matrix runtime accessors", () => {
       chatRoundCredits: 2,
       agentRoundCredits: 6,
     });
-    expect(snapshot.moderation.allowedBlockRiskLevels).toEqual([
-      "low",
-      "medium",
-    ]);
+    expect(snapshot).not.toHaveProperty("moderation");
   });
 });
 
-describe("plan capability privilege and moderation accessors", () => {
+describe("plan capability privilege accessors", () => {
   beforeEach(() => {
     runtimeSettingsMock.getRuntimeSettingJson.mockReset();
     runtimeSettingsMock.getRuntimeSettingNumber.mockReset();
@@ -485,41 +475,5 @@ describe("plan capability privilege and moderation accessors", () => {
     expect(privileges.maxUploadBytes).toBe(megabytesToBytes(128));
     expect(privileges.imageGenerationConcurrency).toBe(21);
     expect(privileges.monthlyCredits).toBe(42_000);
-  });
-
-  it("returns the plan moderation row from the configured matrix", async () => {
-    runtimeSettingsMock.getRuntimeSettingJson.mockResolvedValue({
-      moderation: {
-        ultra: {
-          defaultBlockRiskLevel: "medium",
-          maxBlockRiskLevel: "medium",
-        },
-      },
-    });
-
-    await expect(getPlanModerationConfig("ultra")).resolves.toEqual({
-      defaultBlockRiskLevel: "medium",
-      maxBlockRiskLevel: "medium",
-    });
-  });
-
-  it("exposes default and max moderation block risk levels", async () => {
-    runtimeSettingsMock.getRuntimeSettingJson.mockResolvedValue(undefined);
-    runtimeSettingsMock.getRuntimeSettingNumber.mockImplementation(
-      async (_key: string, fallback: number) => fallback
-    );
-
-    await expect(
-      getDefaultPlanModerationBlockRiskLevel("enterprise")
-    ).resolves.toBe("high");
-    await expect(getMaxPlanModerationBlockRiskLevel("enterprise")).resolves.toBe(
-      "high"
-    );
-    await expect(getDefaultPlanModerationBlockRiskLevel("free")).resolves.toBe(
-      "low"
-    );
-    await expect(getMaxPlanModerationBlockRiskLevel("free")).resolves.toBe(
-      "low"
-    );
   });
 });

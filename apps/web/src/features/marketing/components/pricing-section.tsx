@@ -493,14 +493,6 @@ export function PricingSection({
       );
     }
 
-    const moderation = capabilityMatrix.moderation[plan];
-    items.push(
-      copy(
-        `Moderation control up to ${moderation.maxBlockRiskLevel} risk`,
-        `审核拦截最高可配置到 ${moderation.maxBlockRiskLevel}`
-      )
-    );
-
     const billing = capabilityMatrix.billing[plan];
     if (
       canUseCapability(planId, "imageGeneration.chat") ||

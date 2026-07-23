@@ -1,13 +1,10 @@
 import {
-  MODERATION_BLOCK_RISK_LEVELS,
-  PLAN_PRIVILEGES,
-  PLAN_RANK,
-  SUBSCRIPTION_PLANS,
-  isModerationBlockRiskLevel,
   isPlanAtLeast,
   isSubscriptionPlan,
-  type ModerationBlockRiskLevel,
+  PLAN_PRIVILEGES,
+  PLAN_RANK,
   type QueuePriority,
+  SUBSCRIPTION_PLANS,
   type SubscriptionPlan,
 } from "../../config/subscription-plan";
 import {
@@ -30,11 +27,6 @@ const QUEUE_PRIORITY_RANK: Record<QueuePriority, number> = {
   highest: 3,
 };
 const QUEUE_PRIORITIES = ["normal", "priority", "highest"] as const;
-const MODERATION_RANK: Record<ModerationBlockRiskLevel, number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
-};
 
 export const PLAN_CAPABILITY_MATRIX_SETTING_KEY = "PLAN_CAPABILITY_MATRIX";
 
@@ -59,7 +51,6 @@ export const PLAN_CAPABILITY_KEYS = [
   "externalApi.responses",
   "externalApi.agent",
   "externalApi.streaming",
-  "externalApi.relay",
   "moderation.blocking",
   "moderation.onlyFailureSettlement",
 ] as const;
@@ -78,11 +69,6 @@ export type PlanLimitConfig = {
   maxChatContextChars: number;
 };
 
-export type PlanModerationConfig = {
-  defaultBlockRiskLevel: ModerationBlockRiskLevel;
-  maxBlockRiskLevel: ModerationBlockRiskLevel;
-};
-
 export type PlanBillingConfig = {
   chatRoundCredits: number;
   agentRoundCredits: number;
@@ -92,7 +78,6 @@ export type PlanCapabilityMatrix = {
   version: 1;
   features: Record<PlanCapabilityKey, SubscriptionPlan>;
   limits: Record<SubscriptionPlan, PlanLimitConfig>;
-  moderation: Record<SubscriptionPlan, PlanModerationConfig>;
   billing: Record<SubscriptionPlan, PlanBillingConfig>;
 };
 
@@ -102,9 +87,6 @@ export type PlanCapabilitySnapshot = {
   limits: PlanLimitConfig & {
     maxFileSizeBytes: number;
     maxUploadBytes: number;
-  };
-  moderation: PlanModerationConfig & {
-    allowedBlockRiskLevels: ModerationBlockRiskLevel[];
   };
   billing: PlanBillingConfig;
 };
@@ -132,7 +114,6 @@ export const DEFAULT_PLAN_CAPABILITY_MATRIX: PlanCapabilityMatrix = {
     "externalApi.responses": "pro",
     "externalApi.agent": "ultra",
     "externalApi.streaming": "starter",
-    "externalApi.relay": "pro",
     "moderation.blocking": "free",
     "moderation.onlyFailureSettlement": "ultra",
   },
@@ -191,28 +172,6 @@ export const DEFAULT_PLAN_CAPABILITY_MATRIX: PlanCapabilityMatrix = {
       maxEditImages: 16,
       maxChatImages: 16,
       maxChatContextChars: 30_000,
-    },
-  },
-  moderation: {
-    free: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    starter: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    pro: {
-      defaultBlockRiskLevel: "low",
-      maxBlockRiskLevel: "low",
-    },
-    ultra: {
-      defaultBlockRiskLevel: "medium",
-      maxBlockRiskLevel: "medium",
-    },
-    enterprise: {
-      defaultBlockRiskLevel: "high",
-      maxBlockRiskLevel: "high",
     },
   },
   billing: {
@@ -277,22 +236,6 @@ function maxQueuePriority(
   return QUEUE_PRIORITY_RANK[current] >= QUEUE_PRIORITY_RANK[floor]
     ? current
     : floor;
-}
-
-function maxModerationLevel(
-  current: ModerationBlockRiskLevel,
-  floor: ModerationBlockRiskLevel
-): ModerationBlockRiskLevel {
-  return MODERATION_RANK[current] >= MODERATION_RANK[floor] ? current : floor;
-}
-
-function minModerationLevel(
-  current: ModerationBlockRiskLevel,
-  ceiling: ModerationBlockRiskLevel
-): ModerationBlockRiskLevel {
-  return MODERATION_RANK[current] <= MODERATION_RANK[ceiling]
-    ? current
-    : ceiling;
 }
 
 function normalizeFeatureMinimums(value: unknown) {
@@ -390,51 +333,6 @@ function normalizePlanLimits(value: unknown) {
   return limits;
 }
 
-function normalizeModeration(value: unknown) {
-  const moderation = structuredClone(DEFAULT_PLAN_CAPABILITY_MATRIX.moderation);
-  if (isRecord(value)) {
-    for (const plan of SUBSCRIPTION_PLANS) {
-      const raw = value[plan];
-      if (!isRecord(raw)) continue;
-      const fallback = moderation[plan];
-      const maxBlockRiskLevel = isModerationBlockRiskLevel(
-        raw.maxBlockRiskLevel
-      )
-        ? raw.maxBlockRiskLevel
-        : fallback.maxBlockRiskLevel;
-      const defaultBlockRiskLevel = isModerationBlockRiskLevel(
-        raw.defaultBlockRiskLevel
-      )
-        ? raw.defaultBlockRiskLevel
-        : fallback.defaultBlockRiskLevel;
-      moderation[plan] = {
-        maxBlockRiskLevel,
-        defaultBlockRiskLevel: minModerationLevel(
-          defaultBlockRiskLevel,
-          maxBlockRiskLevel
-        ),
-      };
-    }
-  }
-
-  let previousMax: ModerationBlockRiskLevel | undefined;
-  for (const plan of SUBSCRIPTION_PLANS) {
-    if (previousMax) {
-      moderation[plan].maxBlockRiskLevel = maxModerationLevel(
-        moderation[plan].maxBlockRiskLevel,
-        previousMax
-      );
-      moderation[plan].defaultBlockRiskLevel = minModerationLevel(
-        moderation[plan].defaultBlockRiskLevel,
-        moderation[plan].maxBlockRiskLevel
-      );
-    }
-    previousMax = moderation[plan].maxBlockRiskLevel;
-  }
-
-  return moderation;
-}
-
 function normalizeBilling(value: unknown) {
   const billing = structuredClone(DEFAULT_PLAN_CAPABILITY_MATRIX.billing);
   if (!isRecord(value)) return billing;
@@ -507,7 +405,6 @@ export function normalizePlanCapabilityMatrix(
     version: 1,
     features: normalizeFeatureMinimums(raw.features),
     limits: normalizePlanLimits(raw.limits),
-    moderation: normalizeModeration(raw.moderation),
     billing: normalizeBilling(raw.billing),
   };
 }
@@ -549,52 +446,9 @@ export async function getPlanQueueSettings(plan: SubscriptionPlan) {
   };
 }
 
-export async function getPlanModerationConfig(plan: SubscriptionPlan) {
-  const matrix = await getPlanCapabilityMatrix();
-  return matrix.moderation[plan];
-}
-
 export async function getPlanBillingConfig(plan: SubscriptionPlan) {
   const matrix = await getPlanCapabilityMatrix();
   return matrix.billing[plan];
-}
-
-export async function getDefaultPlanModerationBlockRiskLevel(
-  plan: SubscriptionPlan
-) {
-  const config = await getPlanModerationConfig(plan);
-  return config.defaultBlockRiskLevel;
-}
-
-export async function getMaxPlanModerationBlockRiskLevel(
-  plan: SubscriptionPlan
-) {
-  const config = await getPlanModerationConfig(plan);
-  return config.maxBlockRiskLevel;
-}
-
-export async function getAllowedPlanModerationBlockRiskLevels(
-  plan: SubscriptionPlan
-) {
-  const maxLevel = await getMaxPlanModerationBlockRiskLevel(plan);
-  const maxRank = MODERATION_RANK[maxLevel];
-  return MODERATION_BLOCK_RISK_LEVELS.filter(
-    (level) => MODERATION_RANK[level] <= maxRank
-  );
-}
-
-export async function normalizePlanModerationBlockRiskLevel(
-  plan: SubscriptionPlan,
-  value?: string | null
-) {
-  const [fallback, maxLevel] = await Promise.all([
-    getDefaultPlanModerationBlockRiskLevel(plan),
-    getMaxPlanModerationBlockRiskLevel(plan),
-  ]);
-  const requested = isModerationBlockRiskLevel(value) ? value : fallback;
-  return MODERATION_RANK[requested] > MODERATION_RANK[maxLevel]
-    ? maxLevel
-    : requested;
 }
 
 export async function getPlanCapabilitySnapshot(
@@ -602,7 +456,6 @@ export async function getPlanCapabilitySnapshot(
 ): Promise<PlanCapabilitySnapshot> {
   const matrix = await getPlanCapabilityMatrix();
   const limits = matrix.limits[plan];
-  const moderation = matrix.moderation[plan];
   const billing = matrix.billing[plan];
   const features = Object.fromEntries(
     PLAN_CAPABILITY_KEYS.map((key) => [
@@ -618,13 +471,6 @@ export async function getPlanCapabilitySnapshot(
       ...limits,
       maxFileSizeBytes: megabytesToBytes(limits.maxFileMb),
       maxUploadBytes: megabytesToBytes(limits.maxUploadMb),
-    },
-    moderation: {
-      ...moderation,
-      allowedBlockRiskLevels: MODERATION_BLOCK_RISK_LEVELS.filter(
-        (level) =>
-          MODERATION_RANK[level] <= MODERATION_RANK[moderation.maxBlockRiskLevel]
-      ),
     },
     billing,
   };

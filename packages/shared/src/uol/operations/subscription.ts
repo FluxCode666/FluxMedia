@@ -361,8 +361,7 @@ defineOperation({
   name: "subscription.getCapabilitySnapshot",
   domain: "subscription",
   title: "Get Capability Snapshot",
-  description:
-    "获取指定计划的完整能力快照（features/limits/moderation/billing）",
+  description: "获取指定计划的完整能力快照（features/limits/billing）",
   access: { kind: "protected" },
   input: z.object({
     plan: z
@@ -387,13 +386,6 @@ defineOperation({
         maxChatContextChars: z.number(),
       })
       .describe("计划限制"),
-    moderation: z
-      .object({
-        defaultBlockRiskLevel: z.string(),
-        maxBlockRiskLevel: z.string(),
-        allowedBlockRiskLevels: z.array(z.string()),
-      })
-      .describe("审核配置"),
     billing: z
       .object({
         chatRoundCredits: z.number(),
@@ -425,13 +417,6 @@ defineOperation({
         maxEditImages: snapshot.limits.maxEditImages,
         maxChatImages: snapshot.limits.maxChatImages,
         maxChatContextChars: snapshot.limits.maxChatContextChars,
-      },
-      moderation: {
-        defaultBlockRiskLevel:
-          snapshot.moderation.defaultBlockRiskLevel,
-        maxBlockRiskLevel: snapshot.moderation.maxBlockRiskLevel,
-        allowedBlockRiskLevels:
-          snapshot.moderation.allowedBlockRiskLevels,
       },
       billing: {
         chatRoundCredits: snapshot.billing.chatRoundCredits,
