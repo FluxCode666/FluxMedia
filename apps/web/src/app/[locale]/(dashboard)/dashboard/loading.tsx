@@ -1,7 +1,7 @@
 /**
  * Dashboard 页面加载骨架屏。
  *
- * Next.js App Router 在页面数据获取时自动显示；结构与标题、服务与支持、两组摘要、
+ * Next.js App Router 在页面数据获取时自动显示；结构与标题、账户支持、两组摘要、
  * 模型占比和近期创作保持一致，减少切换时的布局跳动。
  */
 /** 渲染与控制台实际布局对齐的无交互加载占位。 */
@@ -14,6 +14,27 @@ export default function DashboardLoading() {
           <div className="h-3 w-14 rounded-md bg-muted" />
           <div className="h-9 w-44 rounded-md bg-muted" />
           <div className="h-4 w-56 rounded-md bg-muted" />
+        </div>
+
+        {/* 账户与官方支持双卡骨架 */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: 静态骨架无重排
+              key={index}
+              className="space-y-5 rounded-lg border border-border p-5"
+            >
+              <div className="h-3 w-28 rounded-md bg-muted" />
+              <div className="flex items-center gap-4">
+                <div className="size-20 shrink-0 rounded-lg bg-muted" />
+                <div className="flex-1 space-y-3">
+                  <div className="h-4 w-1/3 rounded-md bg-muted" />
+                  <div className="h-3 w-2/3 rounded-md bg-muted" />
+                  <div className="h-8 w-24 rounded-md bg-muted" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Service & Support 列表骨架 */}

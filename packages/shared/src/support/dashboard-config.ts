@@ -1,5 +1,5 @@
 /**
- * 控制台服务与支持区的可配置内容契约。
+ * 控制台账户支持区的可配置内容契约。
  *
  * 系统设置写入、UOL 读取和 Web 控制台共用本文件，确保多语言文案、链接协议与
  * 服务项数量在进入渲染层前已经收窄。这里不依赖数据库，可由 Vitest 直接验证。
@@ -49,9 +49,6 @@ const dashboardSupportHrefSchema = z
 export const dashboardSupportServiceIconSchema = z.enum([
   "discord",
   "telegram",
-  "qq",
-  "wechat",
-  "twitter",
   "documentation",
   "models",
   "support",
@@ -75,27 +72,19 @@ export const dashboardSupportServiceSchema = z
   })
   .strict();
 
-/**
- * 兼容已保存的旧版官方支持字段。
- *
- * 旧字段只用于读取历史系统设置，转换结果不会向控制台或新的保存操作暴露，避免已
- * 移除的展示区继续形成死配置。
- */
-const legacyOfficialSupportSchema = z
-  .object({
-    enabled: z.boolean(),
-    channel: localizedTextSchema,
-    description: localizedDescriptionSchema,
-    qrCodeUrl: dashboardSupportHrefSchema.optional(),
-    actionLabel: localizedTextSchema,
-    actionUrl: dashboardSupportHrefSchema,
-  })
-  .strict();
-
 export const dashboardSupportConfigSchema = z
   .object({
     version: z.literal(1),
-    officialSupport: legacyOfficialSupportSchema.optional(),
+    officialSupport: z
+      .object({
+        enabled: z.boolean(),
+        channel: localizedTextSchema,
+        description: localizedDescriptionSchema,
+        qrCodeUrl: dashboardSupportHrefSchema.optional(),
+        actionLabel: localizedTextSchema,
+        actionUrl: dashboardSupportHrefSchema,
+      })
+      .strict(),
     services: z.array(dashboardSupportServiceSchema).max(12),
   })
   .strict()
@@ -111,8 +100,7 @@ export const dashboardSupportConfigSchema = z
       }
       ids.add(service.id);
     });
-  })
-  .transform(({ services, version }) => ({ services, version }));
+  });
 
 export type DashboardSupportConfig = z.infer<
   typeof dashboardSupportConfigSchema
@@ -126,6 +114,22 @@ export type DashboardSupportServiceIcon = z.infer<
 
 export const DEFAULT_DASHBOARD_SUPPORT_CONFIG: DashboardSupportConfig = {
   version: 1,
+  officialSupport: {
+    enabled: true,
+    channel: {
+      zh: "官方支持中心",
+      en: "Official support center",
+    },
+    description: {
+      zh: "通过站内工单联系官方支持，处理账户、积分、支付与服务接入问题。",
+      en: "Contact the official team for account, credits, billing, and service integration help.",
+    },
+    actionLabel: {
+      zh: "联系支持",
+      en: "Contact support",
+    },
+    actionUrl: "/dashboard/support/new",
+  },
   services: [
     {
       id: "system-docs",
@@ -170,7 +174,7 @@ export const DEFAULT_DASHBOARD_SUPPORT_CONFIG: DashboardSupportConfig = {
  * 把未知系统设置收窄为可渲染配置。
  *
  * @param value 数据库、环境变量或表单草稿中的未知值。
- * @returns 校验成功且已剔除旧官方支持字段的配置；缺失或历史脏值回退默认值。
+ * @returns 校验成功的配置；缺失或历史脏值回退到安全默认值。
  */
 export function normalizeDashboardSupportConfig(
   value: unknown

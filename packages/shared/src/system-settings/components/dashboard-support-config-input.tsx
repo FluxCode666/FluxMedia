@@ -1,5 +1,5 @@
 /**
- * 控制台服务与支持配置的可视化编辑器。
+ * 控制台账户与支持配置的可视化编辑器。
  *
  * SystemSettingsPanel 在编辑 DASHBOARD_SUPPORT_CONFIG 时使用本组件。组件只维护
  * 表单草稿并向父级回传 JSON，最终可信校验仍由 system-settings 写入边界负责。
@@ -34,9 +34,6 @@ const SERVICE_ICON_OPTIONS: Array<{
 }> = [
   { value: "discord", label: "Discord" },
   { value: "telegram", label: "Telegram" },
-  { value: "qq", label: "QQ" },
-  { value: "wechat", label: "微信" },
-  { value: "twitter", label: "推特" },
   { value: "documentation", label: "文档" },
   { value: "models", label: "模型" },
   { value: "support", label: "客服" },
@@ -168,7 +165,7 @@ function LocalizedField({
 }
 
 /**
- * 渲染服务与支持入口的结构化编辑器。
+ * 渲染官方支持与服务入口的结构化编辑器。
  *
  * @param props 父表单草稿、默认值、禁用态与 JSON 回调。
  * @returns 可增删服务项的双语配置表单；不直接持久化数据。
@@ -187,6 +184,35 @@ export function DashboardSupportConfigInput({
   const commit = (next: DashboardSupportConfig) => {
     setConfig(next);
     onChange(JSON.stringify(next, null, 2));
+  };
+
+  /** 更新官方支持对象中的普通字段。 */
+  const updateOfficial = (
+    patch: Partial<DashboardSupportConfig["officialSupport"]>
+  ) => {
+    commit({
+      ...config,
+      officialSupport: { ...config.officialSupport, ...patch },
+    });
+  };
+
+  /** 更新官方支持的双语字段。 */
+  const updateOfficialLocalized = (
+    field: "channel" | "description" | "actionLabel",
+    locale: "zh" | "en",
+    nextValue: string
+  ) => {
+    updateOfficial({
+      [field]: { ...config.officialSupport[field], [locale]: nextValue },
+    });
+  };
+
+  /** 更新可选二维码地址；清空时从 JSON 中移除字段。 */
+  const updateQrCodeUrl = (nextValue: string) => {
+    const officialSupport = { ...config.officialSupport };
+    if (nextValue.trim()) officialSupport.qrCodeUrl = nextValue;
+    else delete officialSupport.qrCodeUrl;
+    commit({ ...config, officialSupport });
   };
 
   /** 按数组索引合并一条服务项草稿。 */
@@ -236,124 +262,206 @@ export function DashboardSupportConfigInput({
   };
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="font-medium">Service &amp; Support</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            服务项按当前顺序展示，最多十二项；关闭后保留配置但不在控制台显示。
-          </p>
+    <div className="space-y-6">
+      <section className="space-y-4 rounded-lg border bg-muted/10 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-medium">Official Support</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              配置官方渠道、联系入口与可选二维码。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="official-support-enabled">显示</Label>
+            <Switch
+              checked={config.officialSupport.enabled}
+              disabled={disabled}
+              id="official-support-enabled"
+              onCheckedChange={(enabled) => updateOfficial({ enabled })}
+            />
+          </div>
         </div>
-        <Button
-          disabled={disabled || config.services.length >= 12}
-          onClick={addService}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          <Plus />
-          添加服务项
-        </Button>
-      </div>
 
-      <div className="space-y-4">
-        {config.services.map((service, index) => (
-          <div
-            className="space-y-4 rounded-lg border bg-background p-4"
-            key={service.id}
+        <LocalizedField
+          disabled={disabled}
+          label="渠道名称"
+          onChange={(locale, nextValue) =>
+            updateOfficialLocalized("channel", locale, nextValue)
+          }
+          value={config.officialSupport.channel}
+        />
+        <LocalizedField
+          disabled={disabled}
+          label="支持说明"
+          multiline
+          onChange={(locale, nextValue) =>
+            updateOfficialLocalized("description", locale, nextValue)
+          }
+          value={config.officialSupport.description}
+        />
+        <LocalizedField
+          disabled={disabled}
+          label="按钮文案"
+          onChange={(locale, nextValue) =>
+            updateOfficialLocalized("actionLabel", locale, nextValue)
+          }
+          value={config.officialSupport.actionLabel}
+        />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="official-support-url">联系链接</Label>
+            <Input
+              disabled={disabled}
+              id="official-support-url"
+              onChange={(event) =>
+                updateOfficial({ actionUrl: event.target.value })
+              }
+              placeholder="/dashboard/support/new 或 https://..."
+              value={config.officialSupport.actionUrl}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="official-support-qr-code">二维码图片链接</Label>
+            <Input
+              disabled={disabled}
+              id="official-support-qr-code"
+              onChange={(event) => updateQrCodeUrl(event.target.value)}
+              placeholder="可留空；支持 /path 或 https://..."
+              value={config.officialSupport.qrCodeUrl ?? ""}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-medium">Service &amp; Support</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              服务项按当前顺序展示，最多十二项；关闭后保留配置但不在控制台显示。
+            </p>
+          </div>
+          <Button
+            disabled={disabled || config.services.length >= 12}
+            onClick={addService}
+            size="sm"
+            type="button"
+            variant="outline"
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Input
-                aria-label="服务项 ID"
-                className="font-mono text-xs sm:max-w-56"
-                disabled={disabled}
-                readOnly
-                value={service.id}
-              />
-              <Select
-                disabled={disabled}
-                onValueChange={(value) => {
-                  const icon = SERVICE_ICON_OPTIONS.find(
-                    (option) => option.value === value
-                  )?.value;
-                  if (icon) updateService(index, { icon });
-                }}
-                value={service.icon}
-              >
-                <SelectTrigger className="sm:w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SERVICE_ICON_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="ml-auto flex items-center gap-2">
-                <Label htmlFor={`service-enabled-${index}`}>显示</Label>
-                <Switch
-                  checked={service.enabled}
+            <Plus />
+            添加服务项
+          </Button>
+        </div>
+
+        <div className="space-y-4">
+          {config.services.map((service, index) => (
+            <div
+              className="space-y-4 rounded-lg border bg-background p-4"
+              key={service.id}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Input
+                  aria-label="服务项 ID"
+                  className="font-mono text-xs sm:max-w-56"
                   disabled={disabled}
-                  id={`service-enabled-${index}`}
-                  onCheckedChange={(enabled) =>
-                    updateService(index, { enabled })
-                  }
+                  readOnly
+                  value={service.id}
                 />
-                <Button
-                  aria-label="删除服务项"
+                <Select
                   disabled={disabled}
-                  onClick={() => removeService(index)}
-                  size="icon"
-                  type="button"
-                  variant="ghost"
+                  onValueChange={(value) => {
+                    const icon = SERVICE_ICON_OPTIONS.find(
+                      (option) => option.value === value
+                    )?.value;
+                    if (icon) updateService(index, { icon });
+                  }}
+                  value={service.icon}
                 >
-                  <Trash2 />
-                </Button>
+                  <SelectTrigger className="sm:w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SERVICE_ICON_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="ml-auto flex items-center gap-2">
+                  <Label htmlFor={`service-enabled-${index}`}>显示</Label>
+                  <Switch
+                    checked={service.enabled}
+                    disabled={disabled}
+                    id={`service-enabled-${index}`}
+                    onCheckedChange={(enabled) =>
+                      updateService(index, { enabled })
+                    }
+                  />
+                  <Button
+                    aria-label="删除服务项"
+                    disabled={disabled}
+                    onClick={() => removeService(index)}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              </div>
+
+              <LocalizedField
+                disabled={disabled}
+                label="服务名称"
+                onChange={(locale, nextValue) =>
+                  updateServiceLocalized(index, "title", locale, nextValue)
+                }
+                value={service.title}
+              />
+              <LocalizedField
+                disabled={disabled}
+                label="服务说明"
+                multiline
+                onChange={(locale, nextValue) =>
+                  updateServiceLocalized(
+                    index,
+                    "description",
+                    locale,
+                    nextValue
+                  )
+                }
+                value={service.description}
+              />
+              <LocalizedField
+                disabled={disabled}
+                label="按钮文案"
+                onChange={(locale, nextValue) =>
+                  updateServiceLocalized(
+                    index,
+                    "actionLabel",
+                    locale,
+                    nextValue
+                  )
+                }
+                value={service.actionLabel}
+              />
+              <div className="space-y-2">
+                <Label htmlFor={`service-url-${index}`}>目标链接</Label>
+                <Input
+                  disabled={disabled}
+                  id={`service-url-${index}`}
+                  onChange={(event) =>
+                    updateService(index, { url: event.target.value })
+                  }
+                  placeholder="/dashboard/... 或 https://..."
+                  value={service.url}
+                />
               </div>
             </div>
-
-            <LocalizedField
-              disabled={disabled}
-              label="服务名称"
-              onChange={(locale, nextValue) =>
-                updateServiceLocalized(index, "title", locale, nextValue)
-              }
-              value={service.title}
-            />
-            <LocalizedField
-              disabled={disabled}
-              label="服务说明"
-              multiline
-              onChange={(locale, nextValue) =>
-                updateServiceLocalized(index, "description", locale, nextValue)
-              }
-              value={service.description}
-            />
-            <LocalizedField
-              disabled={disabled}
-              label="按钮文案"
-              onChange={(locale, nextValue) =>
-                updateServiceLocalized(index, "actionLabel", locale, nextValue)
-              }
-              value={service.actionLabel}
-            />
-            <div className="space-y-2">
-              <Label htmlFor={`service-url-${index}`}>目标链接</Label>
-              <Input
-                disabled={disabled}
-                id={`service-url-${index}`}
-                onChange={(event) =>
-                  updateService(index, { url: event.target.value })
-                }
-                placeholder="/dashboard/... 或 https://..."
-                value={service.url}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
