@@ -20,6 +20,7 @@ import {
 import { HomepageFooter } from "./homepage-footer";
 import { HomepageIntegration } from "./homepage-integration";
 import { HomepageModelCatalog } from "./homepage-model-catalog";
+import { HomepageMotion } from "./homepage-motion";
 import type { HomepagePageData } from "./homepage-page-data";
 import { HomepageReliability } from "./homepage-reliability";
 
@@ -58,10 +59,11 @@ export async function HomepageContent({
       : { status: "unavailable" as const };
 
   return (
-    <div className="bg-background text-foreground">
+    <HomepageMotion>
       <section
         aria-labelledby="homepage-hero-title"
         className="relative isolate overflow-hidden border-b border-border px-4 py-14 sm:px-6 sm:py-20 lg:min-h-[calc(100svh-4rem)] lg:px-8 lg:py-24"
+        data-homepage-motion="hero"
       >
         <div
           aria-hidden="true"
@@ -69,11 +71,15 @@ export async function HomepageContent({
         />
         <div className="mx-auto grid w-full max-w-7xl gap-12 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
           <div className="relative z-10 lg:py-10">
-            <p className="font-mono text-xs uppercase tracking-[0.24em] text-destructive">
+            <p
+              className="font-mono text-xs uppercase tracking-[0.24em] text-destructive"
+              data-homepage-motion="hero-copy"
+            >
               {t("hero.eyebrow")}
             </p>
             <h1
               className="mt-6 max-w-3xl font-serif text-5xl font-medium leading-[0.98] tracking-[-0.035em] sm:text-6xl lg:text-7xl xl:text-8xl"
+              data-homepage-motion="hero-copy"
               id="homepage-hero-title"
             >
               {t("hero.titleLead")}
@@ -81,10 +87,16 @@ export async function HomepageContent({
                 {t("hero.titleAccent")}
               </span>
             </h1>
-            <p className="mt-7 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg">
+            <p
+              className="mt-7 max-w-xl text-base leading-7 text-muted-foreground sm:text-lg"
+              data-homepage-motion="hero-copy"
+            >
               {t("hero.description")}
             </p>
-            <div className="mt-9 flex flex-wrap gap-3">
+            <div
+              className="mt-9 flex flex-wrap gap-3"
+              data-homepage-motion="hero-copy"
+            >
               <Button asChild className="rounded-none" size="lg">
                 <Link href={data.ctaHref}>
                   {t("hero.cta")}
@@ -105,7 +117,10 @@ export async function HomepageContent({
             </div>
           </div>
 
-          <div className="relative mx-auto w-full max-w-3xl pb-8 pl-6 sm:pl-12 lg:pb-12">
+          <div
+            className="relative mx-auto w-full max-w-3xl pb-8 pl-6 sm:pl-12 lg:pb-12"
+            data-homepage-motion="hero-artwork"
+          >
             <div className="absolute -left-2 top-10 hidden w-[28%] -rotate-3 border border-border bg-background p-2 shadow-whisper sm:block">
               <Image
                 alt={t("hero.draftAlt")}
@@ -119,7 +134,10 @@ export async function HomepageContent({
                 {t("hero.draftLabel")}
               </p>
             </div>
-            <figure className="relative ml-auto w-[84%] border border-border bg-background p-3 shadow-menu sm:w-[78%]">
+            <figure
+              className="relative ml-auto w-[84%] border border-border bg-background p-3 shadow-menu sm:w-[78%]"
+              data-homepage-motion="hero-parallax"
+            >
               <Image
                 alt={t("hero.mainAlt")}
                 className="aspect-[3/4] w-full object-cover"
@@ -152,37 +170,41 @@ export async function HomepageContent({
         </div>
       </section>
 
-      <HomepageModelCatalog
-        catalog={data.catalog}
-        copy={{
-          eyebrow: t("models.eyebrow"),
-          title: t("models.title"),
-          description: t("models.description"),
-          previewLabel: t("models.previewLabel"),
-          countLabel: t("models.countLabel"),
-          unavailable: t("models.unavailable"),
-          supportedLabel: t("models.supportedLabel"),
-          categories: {
-            image: {
-              label: t("models.categories.image.label"),
-              description: t("models.categories.image.description"),
-              empty: t("models.categories.image.empty"),
+      <div data-homepage-motion="model">
+        <HomepageModelCatalog
+          catalog={data.catalog}
+          copy={{
+            eyebrow: t("models.eyebrow"),
+            title: t("models.title"),
+            description: t("models.description"),
+            previewLabel: t("models.previewLabel"),
+            countLabel: t("models.countLabel"),
+            unavailable: t("models.unavailable"),
+            supportedLabel: t("models.supportedLabel"),
+            categories: {
+              image: {
+                label: t("models.categories.image.label"),
+                description: t("models.categories.image.description"),
+                empty: t("models.categories.image.empty"),
+              },
+              video: {
+                label: t("models.categories.video.label"),
+                description: t("models.categories.video.description"),
+                empty: t("models.categories.video.empty"),
+              },
+              conversation: {
+                label: t("models.categories.conversation.label"),
+                description: t("models.categories.conversation.description"),
+                empty: t("models.categories.conversation.empty"),
+              },
             },
-            video: {
-              label: t("models.categories.video.label"),
-              description: t("models.categories.video.description"),
-              empty: t("models.categories.video.empty"),
-            },
-            conversation: {
-              label: t("models.categories.conversation.label"),
-              description: t("models.categories.conversation.description"),
-              empty: t("models.categories.conversation.empty"),
-            },
-          },
-        }}
-      />
+          }}
+        />
+      </div>
 
-      <HomepageIntegration catalog={integrationCatalog} locale={locale} />
+      <div data-homepage-motion="reveal">
+        <HomepageIntegration catalog={integrationCatalog} locale={locale} />
+      </div>
 
       <section
         aria-labelledby="homepage-work-title"
@@ -190,7 +212,10 @@ export async function HomepageContent({
         id="work"
       >
         <div className="mx-auto w-full max-w-7xl">
-          <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+          <div
+            className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-end"
+            data-homepage-motion="reveal"
+          >
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
                 {t("artworks.eyebrow")}
@@ -271,6 +296,6 @@ export async function HomepageContent({
         }}
         ctaHref={data.ctaHref}
       />
-    </div>
+    </HomepageMotion>
   );
 }
