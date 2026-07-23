@@ -162,7 +162,8 @@ const zhContent = {
           name: "output_compression",
           requirement: "可选",
           defaultValue: "未指定（上游决定）",
-          description: "0 到 100，仅对 jpeg 和 webp 输出有意义。",
+          description:
+            "控制输出图片的压缩级别，取值 0 到 100；仅在 output_format 为 jpeg 或 webp 时生效，具体压缩效果由上游决定。",
         },
         {
           name: "background",
@@ -297,7 +298,8 @@ const zhContent = {
           name: "output_compression",
           requirement: "可选",
           defaultValue: "未指定（上游决定）",
-          description: "0 到 100，仅对 jpeg 和 webp 输出有意义。",
+          description:
+            "控制输出图片的压缩级别，取值 0 到 100；仅在 output_format 为 jpeg 或 webp 时生效，具体压缩效果由上游决定。",
         },
         {
           name: "background",
@@ -609,7 +611,8 @@ const enContent = {
           name: "output_compression",
           requirement: "Optional",
           defaultValue: "Unset (upstream decides)",
-          description: "0 to 100; meaningful for jpeg and webp output.",
+          description:
+            "Controls the output image compression level from 0 to 100. It only applies when output_format is jpeg or webp; the exact compression behavior depends on the upstream provider.",
         },
         {
           name: "background",
@@ -727,7 +730,8 @@ const enContent = {
           name: "output_compression",
           requirement: "Optional",
           defaultValue: "Unset (upstream decides)",
-          description: "0 to 100; meaningful for jpeg and webp output.",
+          description:
+            "Controls the output image compression level from 0 to 100. It only applies when output_format is jpeg or webp; the exact compression behavior depends on the upstream provider.",
         },
         {
           name: "background",

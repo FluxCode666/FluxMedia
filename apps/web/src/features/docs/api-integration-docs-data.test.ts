@@ -146,4 +146,35 @@ describe("API integration docs data", () => {
     expect(generationDefaults).toEqual(commonDefaults);
     expect(editDefaults).toEqual({ mask: "无", ...commonDefaults });
   });
+
+  it("说明 output_compression 的用途与生效范围", () => {
+    const expectations = {
+      zh: [
+        "控制输出图片的压缩级别",
+        "output_format 为 jpeg 或 webp",
+        "上游决定",
+      ],
+      en: [
+        "Controls the output image compression level",
+        "output_format is jpeg or webp",
+        "upstream provider",
+      ],
+    } as const;
+
+    for (const locale of ["zh", "en"] as const) {
+      const content = getApiIntegrationDocs(locale);
+      const compressionParameters = content.endpoints.flatMap((endpoint) =>
+        endpoint.parameters.filter(
+          (parameter) => parameter.name === "output_compression"
+        )
+      );
+
+      expect(compressionParameters).toHaveLength(2);
+      for (const parameter of compressionParameters) {
+        for (const phrase of expectations[locale]) {
+          expect(parameter.description).toContain(phrase);
+        }
+      }
+    }
+  });
 });

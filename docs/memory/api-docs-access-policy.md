@@ -30,7 +30,8 @@
 `model` 取后端默认并兜底 `gpt-image-2`，`n=1`、`size=1024x1024`、
 `quality=auto`、`moderation=auto`、`response_format=b64_json`、`stream=false`，图生图
 `mask` 默认为无。`output_format`、`output_compression`、`background` 本站不强制固定值，
-明确标为由上游决定，禁止凭兼容 API 的常见值猜写。
+明确标为由上游决定，禁止凭兼容 API 的常见值猜写。`output_compression` 控制 JPEG/WebP
+输出图片的压缩级别，具体压缩效果同样由上游决定。
 
 公开页的接口区使用响应式滚动电梯：桌面端显示粘性侧栏，窄屏显示粘性横向导航；活动
 章节随滚动位置更新，并通过文字、背景和 `aria-current` 同时表达。
