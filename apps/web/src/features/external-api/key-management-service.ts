@@ -30,7 +30,14 @@ export type ExternalApiKeyManagementErrorCode =
 export class ExternalApiKeyManagementError extends Error {
   readonly code: ExternalApiKeyManagementErrorCode;
 
-  /** 创建带稳定错误码的 API 密钥领域错误。 */
+  /**
+   * 创建带稳定错误码的 API 密钥领域错误。
+   *
+   * @param code 可供传输层稳定映射的领域错误码。
+   * @param message 面向调用方的可定位错误说明。
+   * @returns 新的错误实例；构造过程不产生外部副作用。
+   * @throws 不主动抛错；边界是仅接收已声明的领域错误码。
+   */
   constructor(code: ExternalApiKeyManagementErrorCode, message: string) {
     super(message);
     this.name = "ExternalApiKeyManagementError";
@@ -132,7 +139,15 @@ export type CreateExternalApiKeyInput = {
   creditLimit?: number | null;
 };
 
-/** 将仓储行裁剪成绝不包含 userId、哈希或明文的公开摘要。 */
+/**
+ * 将仓储行和分组资格裁剪成可公开返回的密钥摘要。
+ *
+ * @param key 仓储返回的可信密钥行，不含明文或哈希。
+ * @param currentGroup 密钥当前引用的分组；分组不存在时为 null。
+ * @param selectableGroupIds 当前套餐允许选择的分组 ID 集合。
+ * @returns 不包含 userId、哈希或明文，并标注分组可选性的摘要。
+ * @throws 不主动抛错；不会修改输入记录或集合。
+ */
 function toKeySummary(
   key: ExternalApiKeyRecord,
   currentGroup: ExternalApiKeyGroupRecord | null,
@@ -161,7 +176,13 @@ function toKeySummary(
   };
 }
 
-/** 生成带固定前缀的高熵 API 密钥；明文只从 create 调用返回一次。 */
+/**
+ * 生成带固定前缀的高熵 API 密钥明文。
+ *
+ * @returns `g2i_` 前缀与 32 字节随机内容组成的密钥。
+ * @throws 系统随机源不可用时透传 `randomBytes` 的错误。
+ * @remarks 副作用是读取系统随机源；明文仅应由 create 流程返回一次。
+ */
 function createApiKey(): string {
   return `${API_KEY_PREFIX}_${randomBytes(32).toString("base64url")}`;
 }
@@ -171,11 +192,22 @@ function createApiKey(): string {
  *
  * 所有 mutation 先执行单条带所有权/状态条件的写入；0 行后才读取当前状态区分
  * not_found 与 state_conflict，避免先查后写导致假成功。
+ *
+ * @param dependencies 仓储、套餐能力、分组查询及密钥生成等可注入依赖。
+ * @returns 提供列出、创建、撤销、删除和更新密钥能力的应用服务。
+ * @throws 工厂本身不访问外部资源；各方法会透传依赖错误并抛出领域错误。
  */
 export function createExternalApiKeyManagementService(
   dependencies: ServiceDependencies
 ) {
-  /** 读取当前套餐，并在写操作前检查 API 密钥管理能力。 */
+  /**
+   * 读取当前套餐，并在写操作前检查 API 密钥管理能力。
+   *
+   * @param userId 已由调用边界鉴权的用户 ID。
+   * @returns 具备密钥管理能力的当前套餐。
+   * @throws 套餐不具备能力时抛出 `capability_required`；依赖失败时透传。
+   * @remarks 副作用是读取套餐与能力配置，不执行数据库写入。
+   */
   async function requireManagementPlan(
     userId: string
   ): Promise<SubscriptionPlan> {
@@ -194,7 +226,14 @@ export function createExternalApiKeyManagementService(
     return plan;
   }
 
-  /** 读取当前套餐下真实可编辑的分组；无分组选择能力时返回空集。 */
+  /**
+   * 读取当前套餐下真实可编辑的分组。
+   *
+   * @param plan 已解析的用户套餐。
+   * @returns 可选分组列表；无分组选择能力时返回空数组。
+   * @throws 能力或分组提供方失败时透传错误。
+   * @remarks 副作用仅为读取能力配置及可选分组。
+   */
   async function loadEditableGroups(
     plan: SubscriptionPlan
   ): Promise<ExternalApiKeyGroupRecord[]> {
@@ -206,7 +245,15 @@ export function createExternalApiKeyManagementService(
     return dependencies.listSelectableGroups(plan);
   }
 
-  /** 将分组输入归一为 null 或当前套餐确实可选的分组 ID。 */
+  /**
+   * 将分组输入归一为默认分组或当前套餐确实可选的分组 ID。
+   *
+   * @param plan 已解析的用户套餐。
+   * @param groupId 用户提交的分组 ID；空值或 `default` 表示默认分组。
+   * @returns 归一后的分组 ID，以及本次校验使用的可编辑分组列表。
+   * @throws 非默认分组不在可选列表时抛出 `validation_error`；依赖失败时透传。
+   * @remarks 副作用仅为读取能力配置及可选分组。
+   */
   async function normalizeGroupId(
     plan: SubscriptionPlan,
     groupId: string | null | undefined
@@ -227,7 +274,16 @@ export function createExternalApiKeyManagementService(
     return { groupId, editableGroups };
   }
 
-  /** mutation 成功后用当前分组和当前套餐资格装饰数据库实际返回行。 */
+  /**
+   * 用当前分组状态和套餐资格装饰 mutation 返回的数据库行。
+   *
+   * @param userId 已由调用边界鉴权的用户 ID。
+   * @param key 数据库 mutation 实际返回的安全密钥行。
+   * @param editableGroups 可复用的可编辑分组；缺省时按用户套餐重新读取。
+   * @returns 带当前分组显示信息和可选性标记的公开摘要。
+   * @throws 套餐、能力或分组查询失败时透传错误。
+   * @remarks 不执行写入；可能读取套餐、能力配置和当前分组。
+   */
   async function decorateMutationRow(
     userId: string,
     key: ExternalApiKeyRecord,
@@ -246,7 +302,16 @@ export function createExternalApiKeyManagementService(
     );
   }
 
-  /** 0 行写入后读取同一用户范围内的状态，并抛出准确生命周期错误。 */
+  /**
+   * 在条件 mutation 返回 0 行后判定准确的生命周期错误。
+   *
+   * @param userId 已由调用边界鉴权的用户 ID，用于限定所有权范围。
+   * @param keyId 未成功 mutation 的密钥 ID。
+   * @param conflictMessage 资源存在但状态不允许操作时的错误说明。
+   * @returns 永不返回。
+   * @throws 密钥不存在时抛出 `not_found`，否则抛出 `state_conflict`；查询失败时透传。
+   * @remarks 副作用仅为在用户范围内读取密钥状态。
+   */
   async function throwMutationMiss(
     userId: string,
     keyId: string,
@@ -260,7 +325,14 @@ export function createExternalApiKeyManagementService(
   }
 
   return {
-    /** 列出本人全部 Key，并把当前分组与可编辑候选分开返回。 */
+    /**
+     * 列出用户全部密钥，并分开返回当前分组与可编辑候选。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @returns 安全密钥摘要和当前套餐可编辑分组；无选择能力时后者为空。
+     * @throws 套餐、能力、分组或仓储读取失败时透传错误。
+     * @remarks 只执行读取；返回值不包含密钥明文、哈希或 userId。
+     */
     async listKeys(userId: string) {
       const plan = await dependencies.getUserPlan(userId);
       const [rows, editableGroups] = await Promise.all([
@@ -283,7 +355,15 @@ export function createExternalApiKeyManagementService(
       };
     },
 
-    /** 创建 Key；只将哈希写入仓储，明文仅随本次返回值离开服务。 */
+    /**
+     * 为用户创建 API 密钥，并仅在本次调用中返回一次明文。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @param input 名称、分组和额度上限；空名称使用默认名称。
+     * @returns 一次性密钥明文及不含明文和哈希的持久化摘要。
+     * @throws 无管理能力、分组不可选或额度非法时抛错；仓储及依赖失败时透传。
+     * @remarks 会生成随机密钥并插入数据库；摘要装饰失败时插入仍可能已成功。
+     */
     async createKey(userId: string, input: CreateExternalApiKeyInput) {
       const plan = await requireManagementPlan(userId);
       const { groupId, editableGroups } = await normalizeGroupId(
@@ -313,7 +393,16 @@ export function createExternalApiKeyManagementService(
       };
     },
 
-    /** 原子撤销本人启用 Key；重复撤销返回状态冲突。 */
+    /**
+     * 原子撤销用户本人当前启用的密钥。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @param keyId 待撤销的密钥 ID。
+     * @returns 已撤销密钥的公开摘要。
+     * @throws 密钥不存在时抛出 `not_found`，已撤销时抛出
+     * `state_conflict`；仓储及装饰查询失败时透传。
+     * @remarks 以所有权和启用态为条件更新数据库；装饰失败时撤销仍可能已成功。
+     */
     async revokeKey(
       userId: string,
       keyId: string
@@ -329,7 +418,16 @@ export function createExternalApiKeyManagementService(
       return decorateMutationRow(userId, updated);
     },
 
-    /** 仅删除本人已撤销 Key；启用态或竞态变化返回状态冲突。 */
+    /**
+     * 删除用户本人已撤销的密钥。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @param keyId 待删除的密钥 ID。
+     * @returns 被删除记录的 ID。
+     * @throws 密钥不存在时抛出 `not_found`，仍启用或竞态变化时抛出
+     * `state_conflict`；仓储失败时透传。
+     * @remarks 以所有权和撤销态为条件永久删除数据库记录。
+     */
     async deleteKey(userId: string, keyId: string) {
       const deleted = await dependencies.repository.deleteRevoked(
         userId,
@@ -341,7 +439,17 @@ export function createExternalApiKeyManagementService(
       return deleted;
     },
 
-    /** 仅更新本人启用 Key 的分组，并拒绝当前套餐不可选的候选。 */
+    /**
+     * 更新用户本人启用密钥的后端分组。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @param keyId 待更新的密钥 ID。
+     * @param generationGroupId 新分组 ID；null 表示恢复默认分组。
+     * @returns 更新后的公开密钥摘要。
+     * @throws 无管理能力、分组不可选、密钥不存在或已撤销时抛出领域错误；
+     * 仓储及依赖失败时透传。
+     * @remarks 仅在所有权和启用态同时满足时更新；装饰失败时更新仍可能已成功。
+     */
     async updateKeyGroup(
       userId: string,
       keyId: string,
@@ -368,7 +476,17 @@ export function createExternalApiKeyManagementService(
       return decorateMutationRow(userId, updated, editableGroups);
     },
 
-    /** 仅更新本人启用 Key 的额度，并沿用两位小数归一规则。 */
+    /**
+     * 更新用户本人启用密钥的积分额度上限。
+     *
+     * @param userId 已由调用边界鉴权的用户 ID。
+     * @param keyId 待更新的密钥 ID。
+     * @param creditLimit 新额度；null 表示不限额，有限非负数归一到两位小数。
+     * @returns 更新后的公开密钥摘要。
+     * @throws 无管理能力、额度非法、密钥不存在或已撤销时抛错；仓储及依赖
+     * 失败时透传。
+     * @remarks 仅在所有权和启用态同时满足时更新；装饰失败时更新仍可能已成功。
+     */
     async updateKeyQuota(
       userId: string,
       keyId: string,
@@ -394,7 +512,14 @@ export function createExternalApiKeyManagementService(
   };
 }
 
-/** 从数据库选择安全 Key 字段，避免哈希和废弃治理列进入服务返回值。 */
+/**
+ * 构造数据库查询使用的安全密钥字段投影。
+ *
+ * @param externalApiKey Drizzle 的 API 密钥表定义。
+ * @returns 仅包含 `ExternalApiKeyRecord` 允许进入服务层的字段映射。
+ * @throws 不主动抛错；不执行查询或修改表定义。
+ * @remarks 排除 userId、密钥哈希和废弃治理列，避免意外进入返回值。
+ */
 function selectExternalApiKeyFields(
   externalApiKey: typeof externalApiKeyTable
 ) {
@@ -413,7 +538,13 @@ function selectExternalApiKeyFields(
   };
 }
 
-/** 创建数据库模块加载任务，避免 DB-free 测试在 import 阶段创建数据库依赖。 */
+/**
+ * 创建数据库、schema 与 Drizzle 运算符的延迟加载任务。
+ *
+ * @returns 三个数据库模块并行加载后的 Promise。
+ * @throws 任一动态导入失败时拒绝 Promise。
+ * @remarks 会启动模块加载，但不会在本文件 import 阶段连接数据库。
+ */
 function createDatabaseModulesPromise() {
   return Promise.all([
     import("@repo/database"),
@@ -425,7 +556,13 @@ function createDatabaseModulesPromise() {
 type DatabaseModules = Awaited<ReturnType<typeof createDatabaseModulesPromise>>;
 let databaseModulesPromise: Promise<DatabaseModules> | null = null;
 
-/** 复用成功的延迟加载；加载失败时清空缓存，允许后续调用重试。 */
+/**
+ * 获取可复用的数据库模块加载结果。
+ *
+ * @returns 首次调用创建、后续调用共享的模块加载 Promise。
+ * @throws 动态导入失败时透传错误，并清空缓存以允许下次调用重试。
+ * @remarks 首次调用会启动模块加载；并发调用共享同一进行中的 Promise。
+ */
 function loadDatabaseModules(): Promise<DatabaseModules> {
   if (!databaseModulesPromise) {
     databaseModulesPromise = createDatabaseModulesPromise().catch((error) => {
@@ -437,7 +574,14 @@ function loadDatabaseModules(): Promise<DatabaseModules> {
 }
 
 const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
-  /** left join 当前分组，使已禁用现值仍可在摘要中识别。 */
+  /**
+   * 读取指定用户的全部密钥及其当前分组。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @returns 按创建时间倒序排列的安全密钥行和可空当前分组。
+   * @throws 数据库模块加载或查询失败时透传错误。
+   * @remarks 执行只读 left join，使已禁用的当前分组仍可被识别。
+   */
   async listByUser(userId) {
     const [{ db }, { externalApiKey, imageBackendGroup }, { desc, eq }] =
       await loadDatabaseModules();
@@ -463,7 +607,14 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     }>;
   },
 
-  /** 插入仅含哈希的 Key，并返回安全字段。 */
+  /**
+   * 插入一条仅持久化密钥哈希的记录。
+   *
+   * @param values 已包含所有权、哈希、展示片段和时间戳的插入字段。
+   * @returns 数据库返回的安全密钥行；未返回行时为 null。
+   * @throws 数据库模块加载、约束校验或插入失败时透传错误。
+   * @remarks 写入数据库；返回投影不会包含 userId、哈希或明文。
+   */
   async insert(values) {
     const [{ db }, { externalApiKey }] = await loadDatabaseModules();
     const [row] = await db
@@ -473,7 +624,16 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     return (row as ExternalApiKeyRecord | undefined) ?? null;
   },
 
-  /** 仅撤销本人当前启用的 Key，并以 returning 判断真实写入。 */
+  /**
+   * 原子撤销指定用户当前启用的密钥。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @param keyId 待撤销的密钥 ID。
+   * @param updatedAt 由服务层统一生成的更新时间。
+   * @returns 实际更新的安全密钥行；条件未命中时为 null。
+   * @throws 数据库模块加载或更新失败时透传错误。
+   * @remarks 仅在用户、密钥 ID 和启用态同时匹配时写入。
+   */
   async revokeActive(userId, keyId, updatedAt) {
     const [{ db }, { externalApiKey }, { and, eq }] =
       await loadDatabaseModules();
@@ -491,7 +651,15 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     return (row as ExternalApiKeyRecord | undefined) ?? null;
   },
 
-  /** 单条条件删除本人已撤销 Key，禁止先查后删。 */
+  /**
+   * 原子删除指定用户已经撤销的密钥。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @param keyId 待删除的密钥 ID。
+   * @returns 被删除记录的 ID；条件未命中时为 null。
+   * @throws 数据库模块加载或删除失败时透传错误。
+   * @remarks 仅在用户、密钥 ID 和撤销态同时匹配时永久删除记录。
+   */
   async deleteRevoked(userId, keyId) {
     const [{ db }, { externalApiKey }, { and, eq }] =
       await loadDatabaseModules();
@@ -508,7 +676,17 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     return row ?? null;
   },
 
-  /** 仅更新本人启用 Key 的后端分组。 */
+  /**
+   * 原子更新指定用户启用密钥的后端分组。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @param keyId 待更新的密钥 ID。
+   * @param generationGroupId 新分组 ID；null 表示使用默认分组。
+   * @param updatedAt 由服务层统一生成的更新时间。
+   * @returns 实际更新的安全密钥行；条件未命中时为 null。
+   * @throws 数据库模块加载、约束校验或更新失败时透传错误。
+   * @remarks 仅在用户、密钥 ID 和启用态同时匹配时写入。
+   */
   async updateActiveGroup(userId, keyId, generationGroupId, updatedAt) {
     const [{ db }, { externalApiKey }, { and, eq }] =
       await loadDatabaseModules();
@@ -526,7 +704,17 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     return (row as ExternalApiKeyRecord | undefined) ?? null;
   },
 
-  /** 仅更新本人启用 Key 的积分额度。 */
+  /**
+   * 原子更新指定用户启用密钥的积分额度上限。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @param keyId 待更新的密钥 ID。
+   * @param creditLimit 已归一化的额度；null 表示不限额。
+   * @param updatedAt 由服务层统一生成的更新时间。
+   * @returns 实际更新的安全密钥行；条件未命中时为 null。
+   * @throws 数据库模块加载、约束校验或更新失败时透传错误。
+   * @remarks 仅在用户、密钥 ID 和启用态同时匹配时写入。
+   */
   async updateActiveQuota(userId, keyId, creditLimit, updatedAt) {
     const [{ db }, { externalApiKey }, { and, eq }] =
       await loadDatabaseModules();
@@ -544,7 +732,15 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
     return (row as ExternalApiKeyRecord | undefined) ?? null;
   },
 
-  /** 在条件写入 0 行后读取当前所有权范围内的真实生命周期状态。 */
+  /**
+   * 读取条件 mutation 未命中后的真实生命周期状态。
+   *
+   * @param userId 用于限定所有权范围的用户 ID。
+   * @param keyId 待读取的密钥 ID。
+   * @returns 当前启用状态；用户范围内不存在该密钥时为 null。
+   * @throws 数据库模块加载或查询失败时透传错误。
+   * @remarks 执行只读查询，用于区分不存在与状态冲突。
+   */
   async findState(userId, keyId) {
     const [{ db }, { externalApiKey }, { and, eq }] =
       await loadDatabaseModules();
@@ -563,18 +759,43 @@ const databaseExternalApiKeyRepository: ExternalApiKeyRepository = {
 export const externalApiKeyManagementService =
   createExternalApiKeyManagementService({
     repository: databaseExternalApiKeyRepository,
+    /**
+     * 读取用户当前订阅套餐。
+     *
+     * @param userId 待查询的用户 ID。
+     * @returns 用户当前生效的套餐标识。
+     * @throws 订阅模块加载或套餐查询失败时透传错误。
+     * @remarks 动态加载订阅服务并执行只读查询。
+     */
     async getUserPlan(userId) {
       const { getUserPlan } = await import(
         "@repo/shared/subscription/services/user-plan"
       );
       return (await getUserPlan(userId)).plan;
     },
+    /**
+     * 判断套餐是否具备指定能力。
+     *
+     * @param plan 待判断的订阅套餐。
+     * @param capability 待检查的能力位。
+     * @returns 套餐能力配置允许时为 true，否则为 false。
+     * @throws 能力模块加载或配置读取失败时透传错误。
+     * @remarks 动态加载能力服务，不执行数据库写入。
+     */
     async canUsePlanCapability(plan, capability) {
       const { canUsePlanCapability } = await import(
         "@repo/shared/subscription/services/plan-capabilities"
       );
       return canUsePlanCapability(plan, capability);
     },
+    /**
+     * 读取套餐允许用户选择的启用后端分组。
+     *
+     * @param plan 用于过滤分组资格的订阅套餐。
+     * @returns 满足用户可选条件的后端分组最小视图列表。
+     * @throws 分组服务模块加载或查询失败时透传错误。
+     * @remarks 动态加载分组服务并执行只读查询。
+     */
     async listSelectableGroups(plan) {
       const { listImageBackendGroupOptions } = await import(
         "@/features/image-backend-pool/service"
@@ -584,6 +805,14 @@ export const externalApiKeyManagementService =
         plan,
       });
     },
+    /**
+     * 按 ID 读取密钥当前引用的后端分组。
+     *
+     * @param groupId 待查询的后端分组 ID。
+     * @returns 分组最小视图；记录不存在时为 null。
+     * @throws 数据库模块加载或查询失败时透传错误。
+     * @remarks 执行只读查询，不要求分组当前启用或用户可选。
+     */
     async getGroupById(groupId) {
       const [{ db }, { imageBackendGroup }, { eq }] =
         await loadDatabaseModules();
@@ -601,5 +830,12 @@ export const externalApiKeyManagementService =
     createId: nanoid,
     createSecret: createApiKey,
     hashSecret: hashApiKey,
+    /**
+     * 获取本次 mutation 使用的当前时间。
+     *
+     * @returns 调用时刻的新 `Date` 实例。
+     * @throws 不主动抛错。
+     * @remarks 读取系统时钟，不修改外部状态。
+     */
     now: () => new Date(),
   });
