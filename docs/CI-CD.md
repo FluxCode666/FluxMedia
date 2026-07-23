@@ -41,14 +41,16 @@
 
 - 允许从 `main` 或与输入版本完全一致的 Git tag 手动触发，版本号必须符合项目版本
   格式；可选择只构建镜像。tag 与输入版本不一致时会在质量门阶段拒绝部署。
-- 发布前执行文档镜像、部署提交改动文件 lint、typecheck、test，随后构建 `linux/amd64` 的
-  `fluxmedia-web` 与 `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
+- 发布前执行文档镜像、全仓 lint、typecheck、DB-free test、临时 PostgreSQL 迁移与审核
+  事务集成测试、Web production build，随后构建 `linux/amd64` 的 `fluxmedia-web` 与
+  `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
 - 使用 SSH 账号密码连接目标机，同步 `deploy/docker-compose.yml`；SSH 参数与 FluxCode
-  一致，不校验主机指纹。连接后先启用 `maintenance` profile 执行一次性数据库迁移，再执行
-  `docker compose up -d --no-deps web`，不会启动注册机。
-- 目标机的真实 `.env` 不离开服务器；流水线只更新镜像名和版本。健康检查失败时恢复
-  前一版本并重新启动 `web`，不会自动回退已提交的数据库迁移。完整初始化与 Secrets
-  说明见 `deploy/README.md`。
+  一致，不校验主机指纹。连接后先拉取新镜像，再停止旧 Web、排空 `fluxmedia-web` 数据库
+  连接、执行只读迁移预检、创建加密版本化备份，最后迁移并只启动新 Web，不会启动注册机。
+- 目标机的真实 `.env` 不离开服务器；流水线只输出不含数据的预检计数、备份 artifact ID、
+  密文 SHA-256 与销毁截止时间。迁移开始后的任何失败都保持维护状态，不自动启动旧 schema
+  镜像。完整初始化见 `deploy/README.md`，破坏性迁移手册见
+  `docs/plan/2026-07-23-api-key-moderation-rollout.md`。
 
 ## 生产部署配置清单
 
@@ -107,6 +109,23 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 
 `NEXT_PUBLIC_APP_URL` 会写入浏览器端产物。修改域名后，即使服务器 `.env` 已更新，也
 必须重新运行生产 Workflow 构建镜像，否则客户端仍会使用旧地址。
+
+### 生产迁移备份配置
+
+目标机必须安装与数据库主版本兼容的 PostgreSQL 客户端、age 和 AWS CLI v2。备份 bucket
+必须启用版本控制；age 私钥只放在批准的离线恢复介质，服务器仅保存公钥。
+
+| 名称 | 必填 | 默认值 | 用途与要求 |
+|---|---|---|---|
+| `DEPLOY_BACKUP_S3_BUCKET` | 是 | 无 | 专用版本化备份 bucket；不得与公开静态资源共用。 |
+| `DEPLOY_BACKUP_S3_PREFIX` | 否 | `fluxmedia-production` | 部署身份被授权写入的最小对象前缀。 |
+| `DEPLOY_BACKUP_AGE_RECIPIENT` | 是 | 无 | 标准 `age1...` 公钥；对应私钥不得进入目标机或 GitHub。 |
+| `DEPLOY_BACKUP_RETENTION_DAYS` | 否 | `7` | 回滚窗口，允许 1 至 30 天；摘要会计算并记录销毁截止时间。 |
+| `DEPLOY_BACKUP_AWS_PROFILE` | 否 | 空 | 目标机专用 profile；使用实例角色时留空。 |
+
+优先使用目标机实例角色；否则 profile 凭据只存目标机标准 AWS 凭据文件。部署身份仅授予
+指定前缀的 `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObject`；
+`s3:DeleteObjectVersion` 由独立值班销毁身份持有。
 
 ### 流水线托管的镜像变量
 
@@ -179,6 +198,11 @@ cd /root/flux-media
 chmod 600 .env
 docker compose --profile maintenance config --quiet
 docker compose --profile maintenance pull migrate web
+command -v age aws pg_dump pg_restore sha256sum
+aws s3api get-bucket-versioning \
+  --bucket '<DEPLOY_BACKUP_S3_BUCKET>' \
+  --query Status \
+  --output text
 ```
 
 检查展开配置时不要执行不带 `--quiet` 的 `docker compose config` 并复制输出到工单或
@@ -212,6 +236,7 @@ gh api repos/MeowFree/GPT2Image-Pro/branches/<dev|main>/protection/required_stat
 - **第三方 Action 已钉 SHA**：`ci.yml` / `docker-release.yml` / `deploy-production.yml` / `actions/setup` 中的第三方 Action 均钉到 40 位 commit SHA（行尾注释保留可读大版本），防 tag 重指向供应链攻击；由 dependabot 周更自动维护。升级大版本（如 checkout v5→v6）是单独的人工决策。
 - **lint 仅覆盖改动文件**：若未来对全仓做一次性 `biome format` 重排，可将门禁升级为全仓 `biome ci`。
 - **build 与 docker-build 在 PR 上各构建一次**：分别校验「代码可构建」与「镜像可打包」，刻意保留以提高鲁棒性；如需省额度可二选一。
-- **测试为 DB-free 单测**：涉及真实 DB 的集成测试目前不在 CI 内（见 `docs/TODO.md` 端到端实测项）。
+- **普通 CI 测试仍为 DB-free**：生产 Workflow 另起临时 PostgreSQL，应用全部迁移后运行审核
+  策略并发、锁等待和审计回滚集成门；其他真实数据库集成面仍需按对应发布计划补充。
 - **Windows 本地 `turbo build` 会在 standalone 拷贝阶段报 `EINVAL`**：Next 生成的 trace 文件名含冒号（`[externals]_node:fs_promises...`），Windows 文件名非法。编译本身成功；CI（Linux runner）与 Docker 构建不受影响——本仓库生产构建走 Docker/Linux。
 - **行尾**：`.mjs` 等文件的 git blob 为 LF，CI（Linux）下 biome 检查通过；Windows 开发机因 `core.autocrlf=true` 本地工作副本为 CRLF，本地直接跑 `biome` 可能报 `format`（CRLF）告警，属本地假象，不影响 CI。

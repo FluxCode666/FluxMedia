@@ -36,6 +36,20 @@ jobs:
   quality:
     name: Quality gate
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: fluxmedia_moderation_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fluxmedia_moderation_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -67,26 +81,47 @@ jobs:
       - name: Generate Fumadocs source
         run: pnpm --filter @repo/web exec fumadocs-mdx
 
-      - name: Lint files changed by deployment commit
-        run: |
-          set -euo pipefail
-          mapfile -t changed_files < <(
-            git diff-tree --no-commit-id --diff-filter=ACMRT --name-only -r HEAD -- \
-              '*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx'
-          )
-
-          if [ "${#changed_files[@]}" -eq 0 ]; then
-            echo "当前部署提交没有可由 Biome 检查的代码文件。"
-          else
-            ./apps/web/node_modules/.bin/biome lint \
-              --no-errors-on-unmatched "${changed_files[@]}"
-          fi
+      - name: Lint
+        run: pnpm turbo lint
 
       - name: Typecheck
         run: pnpm turbo typecheck
 
       - name: Test
         run: pnpm turbo test
+
+      - name: Migrate moderation integration database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
+        run: pnpm --filter @repo/database db:migrate
+
+      - name: Test moderation with PostgreSQL
+        env:
+          MODERATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
+        run: pnpm --filter @repo/integration-tests test:moderation
+
+      - name: Verify release database gates
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
+        run: |
+          set -euo pipefail
+          pnpm --filter @repo/database db:release-gate -- drain
+          pnpm --filter @repo/database db:release-gate -- preflight
+          pnpm --filter @repo/database db:release-gate -- postcheck
+          pnpm --filter @repo/database db:release-gate -- postcheck-initial
+
+      - name: Build web
+        env:
+          BETTER_AUTH_SECRET: build-time-placeholder-secret-not-for-runtime
+          BETTER_AUTH_URL: http://localhost:3000
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
+          NEXT_PUBLIC_APP_NAME: FluxMedia
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_PUBLIC_AVATARS_BUCKET_NAME: avatars
+          NEXT_PUBLIC_GENERATIONS_BUCKET_NAME: generations
+          NEXT_PUBLIC_PAYMENT_PROVIDER: none
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm --filter @repo/web build
 
   build-and-push:
     name: Build and push web and migrate images
@@ -215,7 +250,6 @@ jobs:
             echo "::error::GHCR_USERNAME 必须是有效的 GitHub 用户名。"
             exit 1
           fi
-
           if ! command -v sshpass >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends sshpass
@@ -260,8 +294,13 @@ jobs:
             "docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin"
 
       - name: Deploy and verify web service
+        id: deploy
         run: |
           set -euo pipefail
+          result_file="$(mktemp)"
+          trap 'rm -f "${result_file}"' EXIT
+
+          set +e
           SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
@@ -269,13 +308,19 @@ jobs:
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
             -p "${DEPLOY_PORT}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            bash -s -- "${WEB_IMAGE}" "${MIGRATE_IMAGE}" "${IMAGE_TAG}" "${DEPLOY_PATH}" <<'REMOTE_SCRIPT'
+            bash -s -- \
+              "${WEB_IMAGE}" \
+              "${MIGRATE_IMAGE}" \
+              "${IMAGE_TAG}" \
+              "${DEPLOY_PATH}" \
+              "${GITHUB_SHA}" <<'REMOTE_SCRIPT' | tee "${result_file}"
           set -euo pipefail
 
           web_image="$1"
           migrate_image="$2"
           image_tag="$3"
           deploy_path="$4"
+          git_sha="$5"
           cd "${deploy_path}"
 
           if [ ! -f .env ]; then
@@ -283,11 +328,13 @@ jobs:
             exit 1
           fi
 
+          # 读取目标机单行环境配置，不打印值，避免凭据进入日志。
           read_env_value() {
             key="$1"
             sed -n "s/^${key}=//p" .env | tail -n 1
           }
 
+          # 只更新流水线托管的镜像元数据键。
           set_env_value() {
             key="$1"
             value="$2"
@@ -299,11 +346,17 @@ jobs:
             fi
           }
 
-          previous_image="$(read_env_value FLUXMEDIA_IMAGE)"
-          previous_migrate_image="$(read_env_value FLUXMEDIA_MIGRATE_IMAGE)"
-          previous_tag="$(read_env_value FLUXMEDIA_TAG)"
+          # 用本次新 migrator 镜像运行只读数据库门禁。
+          run_release_gate() {
+            gate="$1"
+            docker compose --profile maintenance run --rm --no-deps \
+              --interactive=false migrate \
+              pnpm --dir packages/database db:release-gate -- "${gate}" \
+              </dev/null
+          }
 
-          restore_previous_release() {
+          # 仅在迁移开始前恢复旧镜像元数据；是否重启由退出状态机决定。
+          restore_previous_metadata() {
             if [ -n "${previous_image}" ]; then
               set_env_value FLUXMEDIA_IMAGE "${previous_image}"
             fi
@@ -313,13 +366,170 @@ jobs:
             if [ -n "${previous_tag}" ]; then
               set_env_value FLUXMEDIA_TAG "${previous_tag}"
             fi
-
-            if [ -n "${previous_image}" ] && [ -n "${previous_tag}" ]; then
-              echo "正在回滚到 ${previous_image}:${previous_tag}。" >&2
-              docker compose pull web || true
-              docker compose up -d --no-deps web || true
-            fi
           }
+
+          # 在独立子 shell 中创建备份，任何退出路径都会清除明文和本地密文。
+          create_encrypted_backup() (
+            set -euo pipefail
+            database_url="$1"
+            backup_bucket="$2"
+            backup_prefix="$3"
+            age_recipient="$4"
+            retention_days="$5"
+
+            backup_dir="$(mktemp -d)"
+            backup_plain="${backup_dir}/fluxmedia.dump"
+            backup_cipher="${backup_plain}.age"
+            backup_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+            backup_key="${backup_prefix}/${image_tag}/${backup_timestamp}-${git_sha}.dump.age"
+
+            # backup_dir 由本函数内 mktemp 创建，EXIT 时精确删除该目录。
+            cleanup_backup_files() {
+              rm -rf "${backup_dir}"
+            }
+            trap cleanup_backup_files EXIT
+
+            umask 077
+            PGDATABASE="${database_url}" pg_dump \
+              --format=custom \
+              --no-acl \
+              --no-owner \
+              --file "${backup_plain}"
+            pg_restore --list "${backup_plain}" >/dev/null
+            age --recipient "${age_recipient}" \
+              --output "${backup_cipher}" "${backup_plain}"
+            rm -f "${backup_plain}"
+
+            backup_sha256="$(sha256sum "${backup_cipher}" | awk '{print $1}')"
+            version_id="$(
+              aws s3api put-object \
+                --bucket "${backup_bucket}" \
+                --key "${backup_key}" \
+                --body "${backup_cipher}" \
+                --metadata "sha256=${backup_sha256},git-sha=${git_sha}" \
+                --server-side-encryption AES256 \
+                --query VersionId \
+                --output text
+            )"
+            if [ -z "${version_id}" ] || [ "${version_id}" = "None" ]; then
+              echo "备份存储未返回版本 ID，拒绝继续迁移。" >&2
+              return 1
+            fi
+
+            remote_sha256="$(
+              aws s3api head-object \
+                --bucket "${backup_bucket}" \
+                --key "${backup_key}" \
+                --version-id "${version_id}" \
+                --query 'Metadata.sha256' \
+                --output text
+            )"
+            if [ "${remote_sha256}" != "${backup_sha256}" ]; then
+              echo "备份上传后的 SHA-256 元数据校验失败。" >&2
+              return 1
+            fi
+
+            backup_delete_after="$(
+              date -u -d "+${retention_days} days" +%Y-%m-%dT%H:%M:%SZ
+            )"
+            printf 'backup_artifact_id=s3://%s/%s?versionId=%s\n' \
+              "${backup_bucket}" "${backup_key}" "${version_id}"
+            printf 'backup_ciphertext_sha256=%s\n' "${backup_sha256}"
+            printf 'backup_delete_after=%s\n' "${backup_delete_after}"
+            printf 'backup_restore_manifest_verified=true\n'
+          )
+
+          previous_image="$(read_env_value FLUXMEDIA_IMAGE)"
+          previous_migrate_image="$(read_env_value FLUXMEDIA_MIGRATE_IMAGE)"
+          previous_tag="$(read_env_value FLUXMEDIA_TAG)"
+          if [[ "${previous_image}" =~ ^[A-Za-z0-9._/@:-]+$ ]] \
+            && [[ "${previous_tag}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            printf 'previous_release=%s:%s\n' \
+              "${previous_image}" "${previous_tag}"
+          else
+            printf 'previous_release=unknown\n'
+          fi
+          database_url="$(read_env_value DATABASE_URL)"
+          backup_bucket="$(read_env_value DEPLOY_BACKUP_S3_BUCKET)"
+          backup_prefix="$(read_env_value DEPLOY_BACKUP_S3_PREFIX)"
+          backup_age_recipient="$(read_env_value DEPLOY_BACKUP_AGE_RECIPIENT)"
+          backup_retention_days="$(read_env_value DEPLOY_BACKUP_RETENTION_DAYS)"
+          backup_aws_profile="$(read_env_value DEPLOY_BACKUP_AWS_PROFILE)"
+          backup_prefix="${backup_prefix:-fluxmedia-production}"
+          backup_retention_days="${backup_retention_days:-7}"
+
+          : "${database_url:?DATABASE_URL 必填}"
+          : "${backup_bucket:?DEPLOY_BACKUP_S3_BUCKET 必填}"
+          : "${backup_age_recipient:?DEPLOY_BACKUP_AGE_RECIPIENT 必填}"
+          if [[ ! "${backup_bucket}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
+            echo "DEPLOY_BACKUP_S3_BUCKET 不是有效的 S3 bucket 名称。" >&2
+            exit 1
+          fi
+          if [[ ! "${backup_prefix}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "DEPLOY_BACKUP_S3_PREFIX 只能包含安全路径字符。" >&2
+            exit 1
+          fi
+          if [[ ! "${backup_age_recipient}" =~ ^age1[0-9a-z]+$ ]]; then
+            echo "DEPLOY_BACKUP_AGE_RECIPIENT 必须是标准 age 公钥。" >&2
+            exit 1
+          fi
+          if [[ ! "${backup_retention_days}" =~ ^[0-9]+$ ]] \
+            || (( backup_retention_days < 1 || backup_retention_days > 30 )); then
+            echo "DEPLOY_BACKUP_RETENTION_DAYS 必须位于 1 到 30。" >&2
+            exit 1
+          fi
+          if [ -n "${backup_aws_profile}" ]; then
+            if [[ ! "${backup_aws_profile}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "DEPLOY_BACKUP_AWS_PROFILE 不是安全的 profile 名称。" >&2
+              exit 1
+            fi
+            export AWS_PROFILE="${backup_aws_profile}"
+          fi
+
+          for command_name in age aws date pg_dump pg_restore sha256sum; do
+            if ! command -v "${command_name}" >/dev/null 2>&1; then
+              echo "目标服务器缺少生产备份工具：${command_name}。" >&2
+              exit 1
+            fi
+          done
+          bucket_versioning="$(
+            aws s3api get-bucket-versioning \
+              --bucket "${backup_bucket}" \
+              --query Status \
+              --output text
+          )"
+          if [ "${bucket_versioning}" != "Enabled" ]; then
+            echo "生产备份 bucket 必须启用版本控制。" >&2
+            exit 1
+          fi
+
+          web_stopped=false
+          migration_started=false
+          deployment_succeeded=false
+
+          # 迁移前允许恢复旧服务；迁移开始后只保持维护状态。
+          handle_deployment_exit() {
+            status="$?"
+            if [ "${status}" -eq 0 ] || [ "${deployment_succeeded}" = "true" ]; then
+              return
+            fi
+
+            if [ "${migration_started}" = "true" ]; then
+              echo "迁移已开始：保持维护状态，禁止自动启动旧 schema 镜像。" >&2
+              docker compose stop --timeout 30 web >/dev/null 2>&1 || true
+              return "${status}"
+            fi
+
+            restore_previous_metadata
+            if [ "${web_stopped}" = "true" ] \
+              && [ -n "${previous_image}" ] \
+              && [ -n "${previous_tag}" ]; then
+              echo "迁移尚未开始，恢复旧 Web 服务。" >&2
+              docker compose up -d --no-deps web >/dev/null 2>&1 || true
+            fi
+            return "${status}"
+          }
+          trap handle_deployment_exit EXIT
 
           set_env_value FLUXMEDIA_IMAGE "${web_image}"
           set_env_value FLUXMEDIA_MIGRATE_IMAGE "${migrate_image}"
@@ -327,31 +537,62 @@ jobs:
           docker compose --profile maintenance config --quiet
 
           if ! docker compose --profile maintenance pull migrate web; then
-            restore_previous_release
             exit 1
           fi
 
+          echo "在停服前烟测新 migrator 镜像与纯中转门禁。"
+          preliminary_preflight="$(run_release_gate preflight)"
+          printf '%s\n' "${preliminary_preflight}"
+          if printf '%s\n' "${preliminary_preflight}" \
+            | grep -qx 'relay_only_column=present'; then
+            initial_governance_migration=true
+          else
+            initial_governance_migration=false
+          fi
+
+          echo "进入维护状态并停止旧 Web 服务。"
+          docker compose stop --timeout 60 web
+          web_stopped=true
+          if [ -n "$(docker compose ps -q --status running web)" ]; then
+            echo "旧 Web 容器仍在运行，拒绝迁移。" >&2
+            exit 1
+          fi
+
+          run_release_gate drain
+          run_release_gate preflight
+
+          echo "创建迁移前加密备份并校验受控存储版本。"
+          create_encrypted_backup \
+            "${database_url}" \
+            "${backup_bucket}" \
+            "${backup_prefix}" \
+            "${backup_age_recipient}" \
+            "${backup_retention_days}"
+
           echo "执行数据库迁移。"
+          migration_started=true
           # 远程脚本本身从 SSH stdin 读取；迁移容器不得继承 stdin，否则会吞掉后续
           # web 启动与健康检查命令，并让未完成的部署被误判为成功。
           if ! docker compose --profile maintenance run --rm --no-deps \
             --interactive=false migrate </dev/null; then
-            echo "数据库迁移失败，保持当前 web 版本运行。" >&2
-            restore_previous_release
+            echo "数据库迁移失败，保持维护状态等待恢复备份或前向修复。" >&2
             exit 1
+          fi
+
+          run_release_gate postcheck
+          if [ "${initial_governance_migration}" = "true" ]; then
+            run_release_gate postcheck-initial
           fi
 
           echo "启动 web 服务。"
           if ! docker compose up -d --remove-orphans web; then
-            echo "数据库迁移已经成功，不会自动回退数据库结构。" >&2
-            restore_previous_release
+            echo "新 Web 启动失败，保持维护状态。" >&2
             exit 1
           fi
 
           container_id="$(docker compose ps -q web)"
           if [ -z "${container_id}" ]; then
             echo "未找到 web 容器。" >&2
-            restore_previous_release
             exit 1
           fi
 
@@ -363,7 +604,11 @@ jobs:
             )"
             if [ "${health_status}" = "healthy" ]; then
               echo "web 服务已通过健康检查。"
+              web_stopped=false
+              deployment_succeeded=true
+              printf 'deployment_completed=true\n'
               docker image prune -f --filter "until=168h"
+              trap - EXIT
               exit 0
             fi
             if [ "${health_status}" = "unhealthy" ] || [ "${health_status}" = "exited" ]; then
@@ -374,10 +619,56 @@ jobs:
           done
 
           docker compose logs --tail=100 web >&2
-          echo "数据库迁移已经成功，不会自动回退数据库结构。" >&2
-          restore_previous_release
+          echo "新 Web 健康检查失败，保持维护状态且不启动旧镜像。" >&2
           exit 1
           REMOTE_SCRIPT
+
+          ssh_status="${PIPESTATUS[0]}"
+          set -e
+          if [ "${ssh_status}" -ne 0 ]; then
+            exit "${ssh_status}"
+          fi
+
+          # 从远程输出提取最后一个同名安全证据值。
+          extract_evidence() {
+            key="$1"
+            awk -v key="${key}" '
+              index($0, key "=") == 1 {
+                value = substr($0, length(key) + 2)
+              }
+              END { print value }
+            ' "${result_file}"
+          }
+
+          relay_count="$(extract_evidence relay_only_true_count)"
+          backup_artifact_id="$(extract_evidence backup_artifact_id)"
+          backup_ciphertext_sha256="$(
+            extract_evidence backup_ciphertext_sha256
+          )"
+          backup_delete_after="$(extract_evidence backup_delete_after)"
+          backup_restore_manifest_verified="$(
+            extract_evidence backup_restore_manifest_verified
+          )"
+          deployment_completed="$(extract_evidence deployment_completed)"
+          previous_release="$(extract_evidence previous_release)"
+          if [ "${relay_count}" != "0" ] \
+            || [ -z "${backup_artifact_id}" ] \
+            || [[ ! "${backup_ciphertext_sha256}" =~ ^[a-f0-9]{64}$ ]] \
+            || [ -z "${backup_delete_after}" ] \
+            || [ "${backup_restore_manifest_verified}" != "true" ] \
+            || [ "${deployment_completed}" != "true" ]; then
+            echo "::error::部署完成但安全证据不完整。"
+            exit 1
+          fi
+
+          {
+            echo "relay_count=${relay_count}"
+            echo "backup_artifact_id=${backup_artifact_id}"
+            echo "backup_ciphertext_sha256=${backup_ciphertext_sha256}"
+            echo "backup_delete_after=${backup_delete_after}"
+            echo "backup_restore_manifest_verified=${backup_restore_manifest_verified}"
+            echo "previous_release=${previous_release}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Deployment summary
         if: success()
@@ -389,5 +680,13 @@ jobs:
             echo "- Migrate 镜像：\`${MIGRATE_IMAGE}:${IMAGE_TAG}\`"
             echo "- 域名：\`${PUBLIC_APP_URL}\`"
             echo "- 提交：\`${GITHUB_SHA}\`"
+            echo "- 迁移前版本：\`${{ steps.deploy.outputs.previous_release }}\`"
             echo "- 服务：\`web\`（未启动注册机）"
+            echo "- 纯中转预检：\`${{ steps.deploy.outputs.relay_count }}\`"
+            echo "- 备份 artifact：\`${{ steps.deploy.outputs.backup_artifact_id }}\`"
+            echo "- 备份密文 SHA-256：\`${{ steps.deploy.outputs.backup_ciphertext_sha256 }}\`"
+            echo "- 备份销毁截止：\`${{ steps.deploy.outputs.backup_delete_after }}\`"
+            echo "- 备份 manifest 校验：\`${{ steps.deploy.outputs.backup_restore_manifest_verified }}\`"
+            echo "- 操作者：\`${GITHUB_ACTOR}\`"
+            echo "- 回滚边界：迁移后失败保持维护状态，不自动启动旧镜像"
           } >> "${GITHUB_STEP_SUMMARY}"

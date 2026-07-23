@@ -16,7 +16,9 @@ ChatGPT Web 代理均不启动。宿主机 Nginx 负责 TLS 终止并反向
 
 ## 首次配置服务器
 
-目标机需要 Docker Engine、Docker Compose v2、Nginx 与 Certbot。先准备部署目录和
+目标机需要 Docker Engine、Docker Compose v2、Nginx、Certbot、PostgreSQL 客户端、
+`age` 和 AWS CLI v2。生产 Workflow 会在停止旧 Web 后用 `pg_dump` 创建一致性备份，
+用离线保管私钥对应的 age 公钥加密，再上传到启用版本控制的 S3 bucket。先准备部署目录和
 真实环境变量：
 
 ```bash
@@ -29,6 +31,7 @@ sudo editor /root/flux-media/.env
 
 至少填写 `DATABASE_URL`、`BETTER_AUTH_SECRET`、`REDIS_HOST`、`REDIS_PORT`、
 `REDIS_PASSWORD`、`FLUXMEDIA_SUPER_ADMIN_EMAIL` 和 `FLUXMEDIA_SUPER_ADMIN_PASSWORD`；
+同时配置 `DEPLOY_BACKUP_S3_BUCKET`、`DEPLOY_BACKUP_AGE_RECIPIENT` 和备份保留期；
 `REDIS_USERNAME` 可选。数据库必须已创建；外部 Redis 必须可从 Web 容器访问。Redis 连接
 参数通过独立变量传递，密码不需要 URL 编码；系统设置缓存默认使用逻辑库 4。迁移由部署
 流水线在切换 `web` 前执行。本 Compose 不启动 PostgreSQL 或 Redis。
@@ -52,9 +55,11 @@ docker compose up -d web
 自动部署必须关闭 migrate 容器的 stdin。远程脚本通过 SSH stdin 传入；若保留 Compose
 默认的交互输入，迁移容器会读取后续 Web 启动命令，导致只完成迁移却未启动服务。
 
-迁移提交后通常不可自动降级；如果新版本健康检查失败，流水线只回滚应用镜像，不会
-尝试回退已经提交的数据库迁移。因此新增迁移应保持向后兼容，先添加字段/表，再在后续
-版本移除旧结构。
+自动部署先拉取新镜像，再停止旧 Web、确认 `fluxmedia-web` 数据库连接已排空，并执行只读
+预检。预检通过后才创建加密备份和执行迁移。迁移一旦开始，任何迁移、后置校验、启动或
+健康检查失败都会保持 Web 停止，绝不自动启动旧 schema 镜像。恢复只能由值班人员选择
+前向修复，或先恢复 Workflow 记录的迁移前数据库备份，再恢复旧镜像。完整步骤见
+`docs/plan/2026-07-23-api-key-moderation-rollout.md`。
 
 ## 配置 Nginx 与证书
 
@@ -86,6 +91,11 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 - `GHCR_PAT`：仅用于目标机拉取私有镜像，至少需要 `read:packages`；PAT 创建者必须与
   `GHCR_USERNAME` 一致。
 
+生产备份身份不放在 GitHub Secrets。优先给目标机绑定只允许指定前缀的实例角色；否则在
+目标机配置专用 AWS profile，并把 profile 名写入 `DEPLOY_BACKUP_AWS_PROFILE`。部署身份只需
+`s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObject`，备份销毁使用独立值班身份的
+`s3:DeleteObjectVersion`。bucket 必须启用版本控制；age 私钥只放离线恢复环境。
+
 可选 Repository Variable `GHCR_USERNAME` 指定创建 `GHCR_PAT` 的 GitHub 用户名，默认
 使用 Workflow 触发者。建议固定配置该值，避免其他用户触发时登录用户名与 PAT 所属账号
 不一致。构建端使用自动 `GITHUB_TOKEN` 推送；`GHCR_USERNAME` 只决定目标机登录身份，
@@ -99,11 +109,12 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 
 可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/root/flux-media`。服务器
 上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 并更新其中的
-`FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令先通过
-`maintenance` profile 执行一次迁移，再启动 `web`，不会启动注册机。外部 Redis 的地址、
-鉴权和网络连通性由服务器 `.env` 与基础设施负责，流水线不会创建或修改 Redis 服务。
+`FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令停止旧 Web 并
+排空数据库连接后，通过 `maintenance` profile 执行只读门禁、备份、迁移和后置校验，再
+启动新 `web`，不会启动注册机。外部 Redis 的地址、鉴权和网络连通性由服务器 `.env` 与
+基础设施负责，流水线不会创建或修改 Redis 服务。
 
 生产部署从 Actions 手动触发，可选择 `main`，也可选择与输入版本完全一致的 Git tag；
 版本号必须符合 `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。tag 与输入版本不一致时
-流水线会拒绝部署。新容器未通过健康检查时，流水线会恢复先前镜像标签并重新启动
-`web`。
+流水线会拒绝部署。新容器未通过健康检查时，流水线保持维护状态并记录备份 artifact、
+密文 SHA-256 和销毁截止时间；不会恢复先前镜像或启动旧 Web。
