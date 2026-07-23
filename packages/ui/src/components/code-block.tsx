@@ -75,37 +75,74 @@ export function CodeBlock({
   ...props
 }: CodeBlockProps) {
   const [copyState, setCopyState] = useState<CopyState>("idle");
+  const isMountedRef = useRef(false);
+  const copyRequestIdRef = useRef(0);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resolvedLabels = { ...DEFAULT_LABELS, ...labels };
   const lines = getCodeLines(code);
 
-  useEffect(
-    () => () => {
-      if (resetTimerRef.current) {
-        clearTimeout(resetTimerRef.current);
-      }
-    },
-    []
-  );
+  useEffect(() => {
+    isMountedRef.current = true;
 
-  /** 将完整原始代码复制到剪贴板，并维护成功或失败反馈。 */
+    return () => {
+      isMountedRef.current = false;
+      copyRequestIdRef.current += 1;
+
+      if (resetTimerRef.current !== null) {
+        clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /**
+   * 将完整原始代码复制到剪贴板，并维护成功或失败反馈。
+   *
+   * @returns 复制与反馈更新完成后解决的 Promise；过期或卸载后的请求直接结束。
+   * @sideEffects 写入系统剪贴板、更新 React 状态并管理反馈重置定时器。
+   * @failure 当前有效请求被浏览器拒绝时展示失败状态并记录控制台错误。
+   */
   const handleCopy = async () => {
-    if (resetTimerRef.current) {
+    if (resetTimerRef.current !== null) {
       clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
     }
+
+    const requestId = copyRequestIdRef.current + 1;
+    copyRequestIdRef.current = requestId;
+    let nextCopyState: Exclude<CopyState, "idle">;
+    let copyError: unknown;
 
     try {
       if (!navigator.clipboard?.writeText) {
         throw new Error("Clipboard API is unavailable");
       }
       await navigator.clipboard.writeText(code);
-      setCopyState("copied");
+      nextCopyState = "copied";
     } catch (error) {
-      console.error("Failed to copy code block", error);
-      setCopyState("failed");
+      nextCopyState = "failed";
+      copyError = error;
     }
 
-    resetTimerRef.current = setTimeout(() => setCopyState("idle"), 2000);
+    // Promise 可能逆序完成；仅最后一次且仍挂载的请求可以发布反馈。
+    if (!isMountedRef.current || requestId !== copyRequestIdRef.current) {
+      return;
+    }
+
+    if (nextCopyState === "failed") {
+      console.error("Failed to copy code block", copyError);
+    }
+    setCopyState(nextCopyState);
+
+    const resetTimer: ReturnType<typeof setTimeout> = setTimeout(() => {
+      if (isMountedRef.current && requestId === copyRequestIdRef.current) {
+        setCopyState("idle");
+      }
+      if (resetTimerRef.current === resetTimer) {
+        resetTimerRef.current = null;
+      }
+    }, 2000);
+    resetTimerRef.current = resetTimer;
   };
 
   const copyLabel =
