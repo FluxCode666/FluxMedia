@@ -142,6 +142,7 @@ export async function HomepageContent({
                 alt={t("hero.mainAlt")}
                 className="aspect-[3/4] w-full object-cover"
                 height={1280}
+                loading="eager"
                 priority
                 sizes="(max-width: 640px) 82vw, (max-width: 1024px) 66vw, 42vw"
                 src="/cinema/artwork-hero.webp"
