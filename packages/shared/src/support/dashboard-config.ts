@@ -133,8 +133,8 @@ export const DEFAULT_DASHBOARD_SUPPORT_CONFIG: DashboardSupportConfig = {
       icon: "documentation",
       title: { zh: "接入文档", en: "API docs" },
       description: {
-        zh: "查看图像与视频 API 接口和使用说明",
-        en: "Explore image and video APIs and usage guides",
+        zh: "查看图像 API 接口和使用说明",
+        en: "Explore image APIs and usage guides",
       },
       actionLabel: { zh: "查看", en: "Open" },
       url: "/api-docs",

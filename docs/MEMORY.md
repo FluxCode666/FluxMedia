@@ -25,7 +25,7 @@
 
 ## 功能
 
-- [API 文档访问边界](memory/api-docs-access-policy.md) — `/api-docs` 公开五个精简端点；`/docs`、控制台系统文档与搜索索引仅 admin/super_admin；共享代码块不依赖 Fumadocs 全局样式。
+- [API 文档访问边界](memory/api-docs-access-policy.md) — `/api-docs` 当前公开三个图像端点并带滚动电梯；视频文档暂时隐藏；`/docs`、控制台系统文档与搜索索引仅 admin/super_admin。
 - [控制台服务与支持区](memory/dashboard-service-support.md) — Service & Support 通过版本化双语配置、专用系统设置表单和只读 UOL operation 动态展示。
 - [API 密钥管理与审核治理](plans/2026-07-23-001-feat-api-key-management-moderation-plan.md) — API 密钥统一走普通持久化路径；审核级别使用全站 `high` 默认与管理员用户覆盖，用户不可自行控制。
 - [积分充值与 Adobe 模型开放范围](plan/2026-07-18-credits-top-up-and-adobe-models.md) — 按金额充值、兑换比例、多币种配置、支付宝当面付及 Adobe 后端模型限制的实施与验证约束。
