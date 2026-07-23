@@ -21,7 +21,7 @@ import {
   Loader2,
   Trash2,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAction } from "next-safe-action/hooks";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -46,12 +46,17 @@ function flattenValidationErrors(value: unknown): string[] {
     return value.flatMap((item) => flattenValidationErrors(item));
   }
   if (typeof value === "object") {
-    return Object.values(value).flatMap((item) => flattenValidationErrors(item));
+    return Object.values(value).flatMap((item) =>
+      flattenValidationErrors(item)
+    );
   }
   return [];
 }
 
-function getActionErrorMessage(error: ActionError | undefined, fallback: string) {
+function getActionErrorMessage(
+  error: ActionError | undefined,
+  fallback: string
+) {
   const validationMessages = flattenValidationErrors(error?.validationErrors);
   if (validationMessages.length > 0) {
     return validationMessages.join(", ");
@@ -61,6 +66,7 @@ function getActionErrorMessage(error: ActionError | undefined, fallback: string)
 
 export function ApiConfigForm() {
   const t = useTranslations("Settings");
+  const locale = useLocale();
   const [expanded, setExpanded] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -82,7 +88,9 @@ export function ApiConfigForm() {
         setIsActive(true);
       },
       onError: (err) => {
-        toast.error(getActionErrorMessage(err.error, t("apiConfig.saveFailed")));
+        toast.error(
+          getActionErrorMessage(err.error, t("apiConfig.saveFailed"))
+        );
       },
     }
   );
@@ -161,8 +169,7 @@ export function ApiConfigForm() {
           setModel(configResult.data.model || "");
           setUseStream(Boolean(configResult.data.useStream));
           setChatCompletionsUpstreamMode(
-            configResult.data.chatCompletionsUpstreamMode ===
-              "chat_completions"
+            configResult.data.chatCompletionsUpstreamMode === "chat_completions"
               ? "chat_completions"
               : "responses"
           );
@@ -249,9 +256,7 @@ export function ApiConfigForm() {
           {hasConfig && (
             <div className="-mx-2 flex items-center justify-between rounded-md px-2 py-1.5 transition-colors duration-150 hover:bg-muted/30">
               <div>
-                <Label className="text-sm">
-                  {t("apiConfig.enabled")}
-                </Label>
+                <Label className="text-sm">{t("apiConfig.enabled")}</Label>
                 <p className="text-xs text-muted-foreground">
                   {t("apiConfig.enabledDescription")}
                 </p>
@@ -350,7 +355,9 @@ export function ApiConfigForm() {
               value={chatCompletionsUpstreamMode}
               onValueChange={(value) =>
                 setChatCompletionsUpstreamMode(
-                  value === "chat_completions" ? "chat_completions" : "responses"
+                  value === "chat_completions"
+                    ? "chat_completions"
+                    : "responses"
                 )
               }
               disabled={!customApiAllowed}
@@ -366,7 +373,9 @@ export function ApiConfigForm() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Responses 模式会把 Chat 请求接到上游 /responses，保留生图能力；原生模式会请求上游 /chat/completions，适合纯聊天兼容。
+              Responses 模式会把 Chat 请求接到上游
+              /responses，保留生图能力；原生模式会请求上游
+              /chat/completions，适合纯聊天兼容。
             </p>
           </div>
 
@@ -384,9 +393,7 @@ export function ApiConfigForm() {
               variant="outline"
               size="sm"
               onClick={handleTest}
-              disabled={
-                !customApiAllowed || !baseUrl || !apiKey || isTesting
-              }
+              disabled={!customApiAllowed || !baseUrl || !apiKey || isTesting}
             >
               {isTesting ? (
                 <Loader2 className="mr-2 h-3 w-3 animate-spin" />
@@ -411,7 +418,7 @@ export function ApiConfigForm() {
 
           {/* Documentation link */}
           <a
-            href="/docs"
+            href={`/${locale}/api-docs`}
             className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
           >
             <ExternalLink className="h-3 w-3" />

@@ -22,6 +22,7 @@ import { Sheet, SheetContent, SheetTitle } from "@repo/ui/components/sheet";
 import { cn } from "@repo/ui/utils";
 import {
   Activity,
+  BookOpen,
   ChevronsUpDown,
   LogOut,
   Megaphone,
@@ -105,6 +106,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
       Dashboard: t("nav.dashboard"),
       Gallery: t("nav.gallery"),
       "Usage records": t("nav.history"),
+      "API Docs": t("nav.apiDocs"),
       "System Docs": t("nav.backendHelp"),
       "API Keys": t("nav.externalApi"),
       Wallet: t("nav.wallet"),
@@ -216,6 +218,11 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
                   ...group.items,
                   ...(isAdmin
                     ? [
+                        {
+                          title: "System Docs",
+                          href: "/dashboard/backend-help",
+                          icon: BookOpen,
+                        },
                         {
                           title: "Global Status",
                           href: "/dashboard/admin/status",

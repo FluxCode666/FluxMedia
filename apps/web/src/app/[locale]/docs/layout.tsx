@@ -1,20 +1,44 @@
 import "fumadocs-ui/style.css";
 
+import { getUserRoleById } from "@repo/shared/auth/role-server";
+import { canAccessAdminArea } from "@repo/shared/auth/roles";
+import { getServerSession } from "@repo/shared/auth/server";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { RootProvider } from "fumadocs-ui/provider/next";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { Header } from "@/features/marketing/components";
 import { docsSource } from "@/lib/source";
 
 /**
- * 文档布局
+ * 管理员文档布局。
  *
- * 使用 Fumadocs UI 的 DocsLayout 组件
- * 提供侧边栏导航和文档结构
- * 同时保留网站顶部导航栏
+ * 在渲染 Fumadocs 页面树前使用数据库真实角色做集中式授权。未登录用户前往登录页，
+ * 已登录普通用户前往公开 API 接入文档，避免任何 /docs 子页因新增路由而绕过保护。
+ *
+ * @param children - 管理员文档子页面。
+ * @param params - 包含当前 locale 的路由参数。
+ * @returns 通过授权后的 Fumadocs 布局。
+ * @sideEffects 授权失败时调用 redirect，中止当前渲染。
  */
-export default async function Layout({ children }: { children: ReactNode }) {
+export default async function Layout({
+  children,
+  params,
+}: {
+  children: ReactNode;
+  params: Promise<{ locale: string }>;
+}) {
+  const [{ locale }, session] = await Promise.all([params, getServerSession()]);
+  if (!session?.user) {
+    redirect(`/${locale}/sign-in`);
+  }
+
+  const role = await getUserRoleById(session.user.id);
+  if (!canAccessAdminArea(role)) {
+    redirect(`/${locale}/api-docs`);
+  }
+
   // 获取页面树（不需要 locale，因为 i18n 由 Next.js 路由处理）
   const tree = docsSource.pageTree;
 

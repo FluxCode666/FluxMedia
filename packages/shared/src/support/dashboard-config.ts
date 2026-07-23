@@ -29,9 +29,7 @@ const dashboardSupportHrefSchema = z
     (value) => {
       if (value.startsWith("/")) {
         return (
-          !value.startsWith("//") &&
-          !value.includes("\\") &&
-          !/\s/.test(value)
+          !value.startsWith("//") && !value.includes("\\") && !/\s/.test(value)
         );
       }
       try {
@@ -137,13 +135,13 @@ export const DEFAULT_DASHBOARD_SUPPORT_CONFIG: DashboardSupportConfig = {
       id: "system-docs",
       enabled: true,
       icon: "documentation",
-      title: { zh: "系统文档", en: "System docs" },
+      title: { zh: "接入文档", en: "API docs" },
       description: {
-        zh: "查看平台能力、接口与使用说明",
-        en: "Explore platform features, APIs, and usage guides",
+        zh: "查看图像与视频 API 接口和使用说明",
+        en: "Explore image and video APIs and usage guides",
       },
       actionLabel: { zh: "查看", en: "Open" },
-      url: "/dashboard/backend-help",
+      url: "/api-docs",
     },
     {
       id: "support-tickets",

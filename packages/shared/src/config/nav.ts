@@ -116,7 +116,7 @@ export const productsNav: ProductNavGroup[] = [
  */
 export const mainNav: NavItem[] = [
   { title: "Pricing", href: "/#pricing" },
-  { title: "Docs", href: "/docs" },
+  { title: "Docs", href: "/api-docs" },
   { title: "Blog", href: "/blog" },
 ];
 
@@ -127,7 +127,7 @@ export const footerNav = {
   /** 产品 (Product) */
   product: [
     { title: "Pricing", href: "/#pricing" },
-    { title: "Docs", href: "/docs" },
+    { title: "Docs", href: "/api-docs" },
     { title: "Contact Us", href: "mailto:support@media.flux-code.cc" },
   ] as NavItem[],
 
@@ -166,8 +166,8 @@ export const dashboardNav: NavGroup[] = [
         icon: Clock,
       },
       {
-        title: "System Docs",
-        href: "/dashboard/backend-help",
+        title: "API Docs",
+        href: "/api-docs",
         icon: BookOpen,
       },
       {

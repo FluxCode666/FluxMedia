@@ -25,7 +25,7 @@ describe("dashboard support config", () => {
       "https://assets.example.com/support.png";
     const firstService = candidate.services[0];
     if (!firstService) throw new Error("Default support services are missing");
-    firstService.url = "/dashboard/backend-help?tab=api";
+    firstService.url = "/api-docs?tab=images";
 
     expect(dashboardSupportConfigSchema.safeParse(candidate).success).toBe(
       true
