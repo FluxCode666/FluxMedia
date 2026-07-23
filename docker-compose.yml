@@ -117,6 +117,31 @@ services:
       CHATGPT_REGISTER_SECRET: ${CHATGPT_REGISTER_SECRET:-}
       CHATGPT_REGISTER_TIMEOUT_SECONDS: ${CHATGPT_REGISTER_TIMEOUT_SECONDS:-1800}
 
+  # 影子流量 relay 默认不启动。启用后，调用方把明确允许的内网 JSON 请求发给它；
+  # relay 同步转发生产端，异步投递 A/B 评估端。两个目标与密钥均由部署环境固定配置。
+  ab-shadow-relay:
+    profiles:
+      - ab-shadow
+    build:
+      context: .
+      dockerfile: Dockerfile.ab-shadow-relay
+    restart: unless-stopped
+    environment:
+      AB_RELAY_BIND: :3030
+      AB_RELAY_PRODUCTION_URL: ${AB_RELAY_PRODUCTION_URL:-}
+      AB_RELAY_SHADOW_URL: ${AB_RELAY_SHADOW_URL:-}
+      AB_RELAY_INBOUND_SECRET: ${AB_RELAY_INBOUND_SECRET:-}
+      AB_RELAY_SHADOW_SECRET: ${AB_RELAY_SHADOW_SECRET:-}
+      AB_RELAY_ALLOWED_PATHS: ${AB_RELAY_ALLOWED_PATHS:-}
+      AB_RELAY_ALLOWED_METHODS: ${AB_RELAY_ALLOWED_METHODS:-}
+      AB_RELAY_TIMEOUT_MS: ${AB_RELAY_TIMEOUT_MS:-5000}
+      AB_RELAY_MAX_BODY_BYTES: ${AB_RELAY_MAX_BODY_BYTES:-1048576}
+      AB_RELAY_MAX_IN_FLIGHT_SHADOWS: ${AB_RELAY_MAX_IN_FLIGHT_SHADOWS:-32}
+    ports:
+      - "127.0.0.1:${AB_RELAY_PORT:-3030}:3030"
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   postgres-data:
   app-storage:

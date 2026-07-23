@@ -34,7 +34,7 @@
 ## docker-release.yml —— 发布（tag 触发）
 
 - 触发：推送形如 `v*.*.*` 的 tag（含预发布 `v1.0.0-rc.1`，glob `v*.*.*` 同样匹配）。
-- 构建 + 推送到 GHCR（`ghcr.io`）4 个镜像：`web`、`migrate`、`chatgpt-web-proxy`、`chatgpt-register`，tag 含语义 tag、`latest`、`sha-<sha>`。
+- 构建 + 推送到 GHCR（`ghcr.io`）5 个镜像：`web`、`migrate`、`chatgpt-web-proxy`、`chatgpt-register`、`ab-shadow-relay`，tag 含语义 tag、`latest`、`sha-<sha>`。
 - 起草（draft）一份 GitHub Release，附 docker-compose 部署包（`.tar.gz` / `.zip`）。
 
 ## deploy-production.yml —— FluxMedia 生产部署

@@ -1,0 +1,24 @@
+# A/B 影子流量转发 sidecar。
+# 使用方：docker-compose 的 ab-shadow profile 或宿主机单独 docker run；构建物仅包含
+# Go 标准库静态二进制，以最小攻击面运行在受控内网中。
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /src
+
+COPY services/ab-shadow-relay/go.mod ./
+COPY services/ab-shadow-relay/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ab-shadow-relay .
+
+FROM alpine:3.22 AS runner
+
+RUN addgroup -S app && adduser -S app -G app
+
+COPY --from=builder /out/ab-shadow-relay /usr/local/bin/ab-shadow-relay
+
+USER app
+EXPOSE 3030
+
+ENV AB_RELAY_BIND=":3030"
+
+ENTRYPOINT ["ab-shadow-relay"]
