@@ -103,6 +103,11 @@ jobs:
           MODERATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
         run: pnpm --filter @repo/integration-tests test:moderation
 
+      - name: Test release governance gates with PostgreSQL
+        env:
+          RELEASE_GATE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test
+        run: pnpm --filter @repo/integration-tests test:release-governance
+
       - name: Verify release database gates
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fluxmedia_moderation_test

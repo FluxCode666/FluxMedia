@@ -10,6 +10,8 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { requireDedicatedTestDatabaseUrl } from "./test-database-url";
+
 const GLOBAL_SETTING_KEY = "CONTENT_MODERATION_BLOCK_RISK_LEVEL";
 const GLOBAL_ACTION = "moderation.setGlobalRiskLevel";
 const USER_ACTION = "moderation.setUserRiskLevelOverride";
@@ -62,33 +64,6 @@ let pool: Pool | null = null;
 let policyService: PolicyServiceModule | null = null;
 let originalGlobalSetting: OriginalGlobalSetting | null = null;
 let sharedDatabaseLoaded = false;
-
-/** 读取并校验专用测试数据库 URL，不返回或记录凭据。 */
-function requireTestDatabaseUrl(): string {
-  const value = process.env.MODERATION_TEST_DATABASE_URL?.trim();
-  if (!value) {
-    throw new Error(
-      "MODERATION_TEST_DATABASE_URL 未设置；拒绝连接默认 DATABASE_URL"
-    );
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("MODERATION_TEST_DATABASE_URL 不是有效 PostgreSQL URL");
-  }
-  if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
-    throw new Error("MODERATION_TEST_DATABASE_URL 必须使用 PostgreSQL 协议");
-  }
-  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
-  if (!/(^|[-_])test($|[-_])/iu.test(databaseName)) {
-    throw new Error(
-      "MODERATION_TEST_DATABASE_URL 必须指向名称含 test 标记的专用数据库"
-    );
-  }
-  return value;
-}
 
 /** 要求测试库已应用审核治理迁移，缺列或约束时明确红灯。 */
 async function assertGovernanceMigrationReady(client: Pool): Promise<void> {
@@ -252,7 +227,9 @@ async function cleanup(): Promise<void> {
 }
 
 beforeAll(async () => {
-  const databaseUrl = requireTestDatabaseUrl();
+  const databaseUrl = requireDedicatedTestDatabaseUrl(
+    "MODERATION_TEST_DATABASE_URL"
+  );
   process.env.DATABASE_URL = databaseUrl;
   pool = new Pool({
     connectionString: databaseUrl,

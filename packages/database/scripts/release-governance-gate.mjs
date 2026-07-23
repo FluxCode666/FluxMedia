@@ -12,7 +12,17 @@ const { Pool } = pg;
 const GLOBAL_SETTING_KEY = "CONTENT_MODERATION_BLOCK_RISK_LEVEL";
 const PLAN_MATRIX_SETTING_KEY = "PLAN_CAPABILITY_MATRIX";
 
-/** 将 PostgreSQL bigint 计数收窄为安全整数。 */
+/**
+ * 将 PostgreSQL bigint 文本计数收窄为 JavaScript 安全整数。
+ *
+ * @param {unknown} value PostgreSQL 查询返回的计数值。
+ * @param {string} label 仅用于错误定位且不得包含数据库内容的检查名称。
+ * @returns {number} 非负且位于 Number 安全整数范围内的计数。
+ * @throws 值无法转成非负安全整数时抛错。
+ * @sideEffect 无副作用。
+ * @boundary 接受 pg 默认返回的十进制字符串或等价数值；拒绝负数、NaN、Infinity
+ *   与超过 Number.MAX_SAFE_INTEGER 的计数。
+ */
 function parseCount(value, label) {
   const count = Number(value);
   if (!Number.isSafeInteger(count) || count < 0) {
@@ -21,12 +31,30 @@ function parseCount(value, label) {
   return count;
 }
 
-/** 输出可由部署脚本解析且不包含数据库内容的键值证据。 */
+/**
+ * 输出部署脚本可解析的单行键值证据。
+ *
+ * @param {string} key 由调用方控制的稳定证据键。
+ * @param {string | number | boolean} value 不包含数据库内容的证据值。
+ * @returns {void} 不返回值。
+ * @throws stdout 写入失败时由 Node.js 流实现抛错。
+ * @sideEffect 向 process.stdout 写入一行文本。
+ * @boundary 调用方必须保证 key 与 value 不含换行、凭据或数据库行内容。
+ */
 function printEvidence(key, value) {
   process.stdout.write(`${key}=${value}\n`);
 }
 
-/** 在只读事务中执行检查，异常时显式回滚。 */
+/**
+ * 在单个只读事务中执行门禁检查，并确保连接归还连接池。
+ *
+ * @param {pg.Pool} pool 已配置到目标数据库的 PostgreSQL 连接池。
+ * @param {(client: pg.PoolClient) => Promise<void>} work 使用独占连接执行的检查。
+ * @returns {Promise<void>} 检查成功并提交只读事务后完成的 Promise。
+ * @throws 获取连接、开始/提交事务或 work 失败时原样抛错。
+ * @sideEffect 获取并释放一个池连接，执行 BEGIN READ ONLY、COMMIT 或 ROLLBACK。
+ * @boundary 回滚失败不会覆盖原始异常；finally 始终释放已获取的连接。
+ */
 async function inReadOnlyTransaction(pool, work) {
   const client = await pool.connect();
   try {
@@ -41,7 +69,15 @@ async function inReadOnlyTransaction(pool, work) {
   }
 }
 
-/** 确认旧 Web 的稳定 application_name 连接已全部排空。 */
+/**
+ * 确认当前数据库内旧 Web 的稳定 application_name 连接已全部排空。
+ *
+ * @param {pg.Pool} pool 已配置到目标生产数据库的连接池。
+ * @returns {Promise<void>} 连接数为零时完成的 Promise。
+ * @throws 查询失败、计数非法，或仍存在 fluxmedia-web 连接时抛错。
+ * @sideEffect 在只读事务中查询 pg_stat_activity，并向 stdout 输出连接计数。
+ * @boundary 仅统计当前数据库且排除当前后端进程；其他 application_name 不阻断。
+ */
 async function assertWebConnectionsDrained(pool) {
   await inReadOnlyTransaction(pool, async (client) => {
     const result = await client.query(`
@@ -60,7 +96,13 @@ async function assertWebConnectionsDrained(pool) {
 }
 
 /**
- * 检查历史纯中转数据；旧列已不存在时表明 0056 已完成，后续发布可安全跳过。
+ * 检查历史纯中转数据，旧列已不存在时按后续发布成功处理。
+ *
+ * @param {pg.Pool} pool 已配置到目标生产数据库的连接池。
+ * @returns {Promise<void>} relay_only 旧列缺失或 true 行数为零时完成的 Promise。
+ * @throws 查询失败、计数非法，或发现 relay_only=true 的历史行时抛错。
+ * @sideEffect 在只读事务中查询 schema 与 external_api_key，并输出列状态和计数。
+ * @boundary 旧列缺失代表 0056 已完成；旧列存在时必须扫描真实数据并 fail closed。
  */
 async function assertRelayPreflight(pool) {
   await inReadOnlyTransaction(pool, async (client) => {
@@ -74,10 +116,7 @@ async function assertRelayPreflight(pool) {
       ) as present
     `);
     const columnPresent = columnResult.rows[0]?.present === true;
-    printEvidence(
-      "relay_only_column",
-      columnPresent ? "present" : "absent"
-    );
+    printEvidence("relay_only_column", columnPresent ? "present" : "absent");
     if (!columnPresent) {
       printEvidence("relay_only_true_count", 0);
       return;
@@ -102,6 +141,13 @@ async function assertRelayPreflight(pool) {
 /**
  * 验证 0056 的 schema、策略、套餐 JSON 与审计索引不变量。
  * 首次删除旧列时额外要求所有管理员覆盖为空，后续发布允许合法覆盖继续存在。
+ *
+ * @param {pg.Pool} pool 已配置到目标生产数据库的连接池。
+ * @param {boolean} requireEmptyOverrides 是否要求所有用户覆盖均为空。
+ * @returns {Promise<void>} 全部迁移后不变量满足时完成的 Promise。
+ * @throws 查询失败、计数非法，或任一治理不变量不满足时抛错。
+ * @sideEffect 在只读事务中查询 schema、设置与索引，并向 stdout 输出聚合证据。
+ * @boundary 首次发布拒绝任何非空覆盖；后续发布只允许受 CHECK 约束保护的合法覆盖。
  */
 async function assertPostMigrationState(pool, requireEmptyOverrides) {
   await inReadOnlyTransaction(pool, async (client) => {
@@ -217,10 +263,7 @@ async function assertPostMigrationState(pool, requireEmptyOverrides) {
     printEvidence("valid_global_policy_count", validGlobalCount);
     printEvidence("obsolete_plan_node_count", obsoletePlanCount);
     printEvidence("moderation_audit_index_count", auditIndexCount);
-    printEvidence(
-      "override_column_valid",
-      row.override_column_valid === true
-    );
+    printEvidence("override_column_valid", row.override_column_valid === true);
     printEvidence(
       "override_check_present",
       row.override_check_present === true
@@ -241,7 +284,15 @@ async function assertPostMigrationState(pool, requireEmptyOverrides) {
   });
 }
 
-/** 解析命令并执行唯一对应的只读门禁。 */
+/**
+ * 从进程环境和命令行解析命令，并执行唯一对应的只读门禁。
+ *
+ * @returns {Promise<void>} 指定门禁成功且连接池关闭后完成的 Promise。
+ * @throws DATABASE_URL 缺失、命令不支持、连接失败或门禁拒绝时抛错。
+ * @sideEffect 读取 process.env/argv，创建并关闭 PostgreSQL 连接池，输出门禁证据。
+ * @boundary 只接受 drain、preflight、postcheck 与 postcheck-initial；忽略 pnpm
+ *   透传产生的独立 `--` 参数，不输出连接串。
+ */
 async function main() {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
