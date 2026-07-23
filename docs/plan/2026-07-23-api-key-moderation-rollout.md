@@ -7,7 +7,8 @@
 
 1. 在目标机安装与数据库主版本兼容的 `pg_dump`/`pg_restore`、age、AWS CLI v2。
 2. 创建启用版本控制的专用 S3 bucket；部署身份仅授予指定备份前缀的
-   `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObject`。销毁权限由独立值班身份持有。
+   `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObjectVersion`。销毁权限由独立值班
+   身份持有。
 3. 离线生成 age 身份。只把 `age1...` 公钥写入目标机 `.env` 的
    `DEPLOY_BACKUP_AGE_RECIPIENT`；私钥放入批准的离线恢复介质，禁止进入服务器、仓库、
    GitHub Secrets、日志或工单。
@@ -15,6 +16,10 @@
    `DEPLOY_BACKUP_AWS_PROFILE`。确认目标机 `.env` 权限为 `0600`。
 5. 在 GitHub `production` Environment 启用人工审批。审批人核对目标提交、镜像版本、
    维护窗口、当前数据库主版本和 age 私钥的可用性。
+6. 执行 0056 前，发布审批记录必须关联一次同 bucket/prefix、当前 age 身份和兼容
+   PostgreSQL 主版本的隔离恢复演练。演练证据必须包含：按精确 `versionId` 下载对象、
+   对下载密文重新计算并核对 SHA-256、使用离线 age 私钥解密、执行
+   `pg_restore --list`，以及恢复到隔离数据库后的成功校验。缺少任一证据均为 No-Go。
 
 ## 自动发布顺序
 
@@ -27,13 +32,19 @@
    'fluxmedia-web'` 的连接数为 0。
 4. 在只读事务中检查 `external_api_key.relay_only IS TRUE` 的数量。非零时迁移尚未开始，
    Workflow 恢复旧镜像元数据并重启旧 Web；不得人工忽略或直接改值后重跑。
-5. 用 `pg_dump --format=custom` 创建完整一致性备份，以 `pg_restore --list` 校验 manifest，
-   使用 age 公钥加密并立即删除明文，再上传到启用版本控制的 S3 对象。上传后读取指定
-   version 的 SHA-256 元数据并比对。
+5. 用 `pg_dump --format=custom` 创建完整一致性备份，以 `pg_restore --list` 校验上传前
+   archive manifest，使用 age 公钥加密并立即删除明文，再上传到启用版本控制的 S3
+   对象。上传后读取指定 version 的 SHA-256 元数据并比对。
 6. 执行 `0056`，随后验证旧三列不存在、全站值合法、所有用户覆盖为空、套餐 JSON 无旧
    节点、覆盖 CHECK 与两个审计索引存在。
 7. 只启动新 Web 并等待健康检查。成功摘要记录新镜像/提交、操作者、纯中转预检值、S3
    artifact ID（含 version ID）、密文 SHA-256 和销毁截止时间。
+
+工作流输出的 `backup_archive_manifest_verified=true` 只表示加密上传前的 custom-format
+archive 可由 `pg_restore --list` 读取；`backup_object_metadata_verified=true` 只表示指定
+S3 version 的自填 SHA-256 元数据与上传前计算值一致。自动化不会下载对象、重新计算下载
+密文的 SHA-256、持有离线 age 私钥、解密 archive 或执行隔离恢复，因此不得把这些字段
+解释为“恢复已验证”。恢复可用性只能由发布前准备第 6 项的人工证据证明。
 
 ## 迁移后失败
 

@@ -9,6 +9,8 @@ ChatGPT Web 代理均不启动。宿主机 Nginx 负责 TLS 终止并反向
 
 - `docker-compose.yml`：`web` 主服务，以及默认关闭的 `maintenance` 数据库迁移服务；
   超管与外部 Redis 连接信息由服务器 `.env` 注入。
+- `read-env-value.sh`：生产 Workflow 使用的 fail-closed dotenv 单键读取器。
+- `read-env-value.test.sh`：读取器的引号、拒绝路径与不执行配置内容回归测试。
 - `.env.example`：不含真实机密的服务器环境变量模板。
 - `nginx/nginx.conf`：参考 user-service 的宿主机 Nginx 主配置。
 - `nginx/conf.d/fluxmedia.conf`：`media.flux-code.cc` 的 HTTPS 站点配置。
@@ -92,9 +94,10 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
   `GHCR_USERNAME` 一致。
 
 生产备份身份不放在 GitHub Secrets。优先给目标机绑定只允许指定前缀的实例角色；否则在
-目标机配置专用 AWS profile，并把 profile 名写入 `DEPLOY_BACKUP_AWS_PROFILE`。部署身份只需
-`s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObject`，备份销毁使用独立值班身份的
-`s3:DeleteObjectVersion`。bucket 必须启用版本控制；age 私钥只放离线恢复环境。
+目标机配置专用 AWS profile，并把 profile 名写入 `DEPLOY_BACKUP_AWS_PROFILE`。部署身份
+只需 `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObjectVersion`，备份销毁使用独立
+值班身份的 `s3:DeleteObjectVersion`。bucket 必须启用版本控制；age 私钥只放离线恢复
+环境。
 
 可选 Repository Variable `GHCR_USERNAME` 指定创建 `GHCR_PAT` 的 GitHub 用户名，默认
 使用 Workflow 触发者。建议固定配置该值，避免其他用户触发时登录用户名与 PAT 所属账号
@@ -108,11 +111,12 @@ Nginx，例如通过 Certbot deploy hook 执行 `systemctl reload nginx`。
 如果部署账号不是 `root`，必须将 `DEPLOY_PATH` 改为该账号可写的绝对路径。
 
 可选 Repository Variable `DEPLOY_PATH` 指定部署目录，默认 `/root/flux-media`。服务器
-上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 并更新其中的
-`FLUXMEDIA_IMAGE`、`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令停止旧 Web 并
-排空数据库连接后，通过 `maintenance` profile 执行只读门禁、备份、迁移和后置校验，再
-启动新 `web`，不会启动注册机。外部 Redis 的地址、鉴权和网络连通性由服务器 `.env` 与
-基础设施负责，流水线不会创建或修改 Redis 服务。
+上的真实 `.env` 由运维持久维护；流水线只同步 `docker-compose.yml` 和
+`read-env-value.sh`，并更新 `.env` 中的 `FLUXMEDIA_IMAGE`、
+`FLUXMEDIA_MIGRATE_IMAGE`、`FLUXMEDIA_TAG`。部署命令停止旧 Web 并排空数据库连接后，
+通过 `maintenance` profile 执行只读门禁、备份、迁移和后置校验，再启动新 `web`，不会
+启动注册机。外部 Redis 的地址、鉴权和网络连通性由服务器 `.env` 与基础设施负责，
+流水线不会创建或修改 Redis 服务。
 
 生产部署从 Actions 手动触发，可选择 `main`，也可选择与输入版本完全一致的 Git tag；
 版本号必须符合 `v<MAJOR>.<MINOR>.<PATCH>[-<alpha|beta|rc>.<N>]`。tag 与输入版本不一致时

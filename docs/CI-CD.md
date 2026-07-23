@@ -44,9 +44,10 @@
 - 发布前执行文档镜像、全仓 lint、typecheck、DB-free test、临时 PostgreSQL 迁移与审核
   事务集成测试、Web production build，随后构建 `linux/amd64` 的 `fluxmedia-web` 与
   `fluxmedia-migrate` 镜像并推送不可变版本 tag 与 `latest` 到 GHCR。
-- 使用 SSH 账号密码连接目标机，同步 `deploy/docker-compose.yml`；SSH 参数与 FluxCode
-  一致，不校验主机指纹。连接后先拉取新镜像，再停止旧 Web、排空 `fluxmedia-web` 数据库
-  连接、执行只读迁移预检、创建加密版本化备份，最后迁移并只启动新 Web，不会启动注册机。
+- 使用 SSH 账号密码连接目标机，同步 `deploy/docker-compose.yml` 与受测的 dotenv
+  读取器；SSH 参数与 FluxCode 一致，不校验主机指纹。连接后先拉取新镜像，再停止旧
+  Web、排空 `fluxmedia-web` 数据库连接、执行只读迁移预检、创建加密版本化备份，最后
+  迁移并只启动新 Web，不会启动注册机。
 - 目标机的真实 `.env` 不离开服务器；流水线只输出不含数据的预检计数、备份 artifact ID、
   密文 SHA-256 与销毁截止时间。迁移开始后的任何失败都保持维护状态，不自动启动旧 schema
   镜像。完整初始化见 `deploy/README.md`，破坏性迁移手册见
@@ -124,7 +125,7 @@ Workflow runner 会自动安装 `sshpass`，不会将密码写入文件或命令
 | `DEPLOY_BACKUP_AWS_PROFILE` | 否 | 空 | 目标机专用 profile；使用实例角色时留空。 |
 
 优先使用目标机实例角色；否则 profile 凭据只存目标机标准 AWS 凭据文件。部署身份仅授予
-指定前缀的 `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObject`；
+指定前缀的 `s3:GetBucketVersioning`、`s3:PutObject`、`s3:GetObjectVersion`；
 `s3:DeleteObjectVersion` 由独立值班销毁身份持有。
 
 ### 流水线托管的镜像变量

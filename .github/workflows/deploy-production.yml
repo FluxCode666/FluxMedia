@@ -78,6 +78,9 @@ jobs:
       - name: Assert documentation mirror
         run: diff -q --strip-trailing-cr CLAUDE.md AGENTS.md
 
+      - name: Test deployment environment parser
+        run: bash deploy/read-env-value.test.sh
+
       - name: Generate Fumadocs source
         run: pnpm --filter @repo/web exec fumadocs-mdx
 
@@ -259,7 +262,7 @@ jobs:
             echo "DEPLOY_PATH=${DEPLOY_PATH}"
           } >> "${GITHUB_ENV}"
 
-      - name: Synchronize Compose file
+      - name: Synchronize deployment files
         run: |
           set -euo pipefail
           SSHPASS="${DEPLOY_PASSWORD}" sshpass -e ssh \
@@ -276,8 +279,10 @@ jobs:
             -o LogLevel=ERROR \
             -o PreferredAuthentications=password \
             -o PubkeyAuthentication=no \
-            -P "${DEPLOY_PORT}" deploy/docker-compose.yml \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/docker-compose.yml"
+            -P "${DEPLOY_PORT}" \
+            deploy/docker-compose.yml \
+            deploy/read-env-value.sh \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
 
       - name: Login target host to GHCR
         run: |
@@ -326,11 +331,16 @@ jobs:
             echo "目标服务器缺少 ${deploy_path}/.env，请先从 deploy/.env.example 创建并填写。" >&2
             exit 1
           fi
+          if [ ! -f read-env-value.sh ]; then
+            echo "目标服务器缺少部署 dotenv 读取器。" >&2
+            exit 1
+          fi
 
-          # 读取目标机单行环境配置，不打印值，避免凭据进入日志。
+          # 用受测解析器读取单行 dotenv。
+          # 不会 source/eval 配置或打印其他值。
           read_env_value() {
             key="$1"
-            sed -n "s/^${key}=//p" .env | tail -n 1
+            bash ./read-env-value.sh .env "${key}"
           }
 
           # 只更新流水线托管的镜像元数据键。
@@ -435,7 +445,8 @@ jobs:
               "${backup_bucket}" "${backup_key}" "${version_id}"
             printf 'backup_ciphertext_sha256=%s\n' "${backup_sha256}"
             printf 'backup_delete_after=%s\n' "${backup_delete_after}"
-            printf 'backup_restore_manifest_verified=true\n'
+            printf 'backup_archive_manifest_verified=true\n'
+            printf 'backup_object_metadata_verified=true\n'
           )
 
           previous_image="$(read_env_value FLUXMEDIA_IMAGE)"
@@ -646,8 +657,11 @@ jobs:
             extract_evidence backup_ciphertext_sha256
           )"
           backup_delete_after="$(extract_evidence backup_delete_after)"
-          backup_restore_manifest_verified="$(
-            extract_evidence backup_restore_manifest_verified
+          backup_archive_manifest_verified="$(
+            extract_evidence backup_archive_manifest_verified
+          )"
+          backup_object_metadata_verified="$(
+            extract_evidence backup_object_metadata_verified
           )"
           deployment_completed="$(extract_evidence deployment_completed)"
           previous_release="$(extract_evidence previous_release)"
@@ -655,7 +669,8 @@ jobs:
             || [ -z "${backup_artifact_id}" ] \
             || [[ ! "${backup_ciphertext_sha256}" =~ ^[a-f0-9]{64}$ ]] \
             || [ -z "${backup_delete_after}" ] \
-            || [ "${backup_restore_manifest_verified}" != "true" ] \
+            || [ "${backup_archive_manifest_verified}" != "true" ] \
+            || [ "${backup_object_metadata_verified}" != "true" ] \
             || [ "${deployment_completed}" != "true" ]; then
             echo "::error::部署完成但安全证据不完整。"
             exit 1
@@ -666,7 +681,10 @@ jobs:
             echo "backup_artifact_id=${backup_artifact_id}"
             echo "backup_ciphertext_sha256=${backup_ciphertext_sha256}"
             echo "backup_delete_after=${backup_delete_after}"
-            echo "backup_restore_manifest_verified=${backup_restore_manifest_verified}"
+            printf 'backup_archive_manifest_verified=%s\n' \
+              "${backup_archive_manifest_verified}"
+            printf 'backup_object_metadata_verified=%s\n' \
+              "${backup_object_metadata_verified}"
             echo "previous_release=${previous_release}"
           } >> "${GITHUB_OUTPUT}"
 
@@ -686,7 +704,10 @@ jobs:
             echo "- 备份 artifact：\`${{ steps.deploy.outputs.backup_artifact_id }}\`"
             echo "- 备份密文 SHA-256：\`${{ steps.deploy.outputs.backup_ciphertext_sha256 }}\`"
             echo "- 备份销毁截止：\`${{ steps.deploy.outputs.backup_delete_after }}\`"
-            echo "- 备份 manifest 校验：\`${{ steps.deploy.outputs.backup_restore_manifest_verified }}\`"
+            echo "- 上传前 archive manifest 校验：" \
+              "\`${{ steps.deploy.outputs.backup_archive_manifest_verified }}\`"
+            echo "- S3 指定版本元数据校验：" \
+              "\`${{ steps.deploy.outputs.backup_object_metadata_verified }}\`"
             echo "- 操作者：\`${GITHUB_ACTOR}\`"
             echo "- 回滚边界：迁移后失败保持维护状态，不自动启动旧镜像"
           } >> "${GITHUB_STEP_SUMMARY}"
