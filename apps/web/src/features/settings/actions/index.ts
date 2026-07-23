@@ -14,9 +14,7 @@ export {
   getExternalApiKeys,
   revokeExternalApiKey,
   updateExternalApiKeyGroup,
-  updateExternalApiKeyModeration,
   updateExternalApiKeyQuota,
-  updateExternalApiKeyRelay,
 } from "./external-api-key";
 export { updateProfileAction } from "./update-profile";
 export { updateTimeZoneAction } from "./update-time-zone";

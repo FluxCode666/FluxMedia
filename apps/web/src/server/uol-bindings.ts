@@ -70,6 +70,11 @@ import {
   loadOutputUsageTrends,
   readAnalyticsReadModelStates,
 } from "@/features/dashboard/analytics-service";
+import {
+  type CreateExternalApiKeyInput,
+  ExternalApiKeyManagementError,
+  externalApiKeyManagementService,
+} from "@/features/external-api/key-management-service";
 import { getExternalModelsForUser } from "@/features/external-api/models";
 import {
   deleteImageBackendParameterMappingTemplate,
@@ -960,6 +965,122 @@ bindExecute(
 // ---------------------------------------------------------------------------
 // external-api 域
 // ---------------------------------------------------------------------------
+
+/** API 密钥管理只接受 session user Principal，身份不得从输入读取。 */
+function getApiKeyManagementUserId(principal: Principal): string {
+  if (principal.type !== "user") {
+    throw new OperationError(
+      "unauthenticated",
+      "User session authentication required"
+    );
+  }
+  return principal.userId;
+}
+
+/** 将应用服务预期领域错误稳定映射为 UOL 错误。 */
+async function invokeApiKeyManagement<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!(error instanceof ExternalApiKeyManagementError)) throw error;
+    switch (error.code) {
+      case "capability_required":
+        throw new OperationError("capability_required", error.message);
+      case "not_found":
+        throw new OperationError("not_found", error.message);
+      case "validation_error":
+        throw new OperationError("validation_error", error.message);
+      case "state_conflict":
+        throw new OperationError(
+          "validation_error",
+          error.message,
+          { reason: "state_conflict" },
+          409
+        );
+    }
+  }
+}
+
+/** externalApi.listKeys - 返回本人 Key 摘要与当前可编辑分组。 */
+bindExecute(
+  "externalApi.listKeys",
+  async (_input: Record<string, never>, principal: Principal) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.listKeys(
+        getApiKeyManagementUserId(principal)
+      )
+    )
+);
+
+/** externalApi.createKey - 明文只在本次 operation 输出返回。 */
+bindExecute(
+  "externalApi.createKey",
+  async (input: CreateExternalApiKeyInput, principal: Principal) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.createKey(
+        getApiKeyManagementUserId(principal),
+        input
+      )
+    )
+);
+
+/** externalApi.revokeKey - 原子撤销本人启用 Key。 */
+bindExecute(
+  "externalApi.revokeKey",
+  async (input: { keyId: string }, principal: Principal) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.revokeKey(
+        getApiKeyManagementUserId(principal),
+        input.keyId
+      )
+    )
+);
+
+/** externalApi.deleteKey - 仅删除本人已撤销 Key。 */
+bindExecute(
+  "externalApi.deleteKey",
+  async (input: { keyId: string }, principal: Principal) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.deleteKey(
+        getApiKeyManagementUserId(principal),
+        input.keyId
+      )
+    )
+);
+
+/** externalApi.updateKeyGroup - 仅更新本人启用 Key 的可选分组。 */
+bindExecute(
+  "externalApi.updateKeyGroup",
+  async (
+    input: { keyId: string; generationGroupId: string | null },
+    principal: Principal
+  ) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.updateKeyGroup(
+        getApiKeyManagementUserId(principal),
+        input.keyId,
+        input.generationGroupId
+      )
+    )
+);
+
+/** externalApi.updateKeyQuota - 仅更新本人启用 Key 的积分额度。 */
+bindExecute(
+  "externalApi.updateKeyQuota",
+  async (
+    input: { keyId: string; creditLimit: number | null },
+    principal: Principal
+  ) =>
+    invokeApiKeyManagement(() =>
+      externalApiKeyManagementService.updateKeyQuota(
+        getApiKeyManagementUserId(principal),
+        input.keyId,
+        input.creditLimit
+      )
+    )
+);
 
 // TODO: externalApi.handleImageGenerations - image-generations handler 逻辑
 // TODO: externalApi.handleImageEdits - image-edits handler 逻辑

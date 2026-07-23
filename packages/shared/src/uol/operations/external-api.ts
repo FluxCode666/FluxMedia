@@ -5,7 +5,7 @@
  * - 图像生成/编辑/Agent 图像端点
  * - Chat completions / Responses 端点
  * - 积分查询、任务查询、模型列表（只读端点）
- * - API Key 管理（CRUD、配额、审核、中转、分组）
+ * - API Key 管理（CRUD、配额、分组）
  * - 管理员 Key 状态设置
  *
  * 使用方：UOL invoke 网关、MCP 适配器、内置 Agent
@@ -334,38 +334,54 @@ export const getModels = defineOperation({
   },
 });
 
+/** API 密钥当前分组与可编辑候选分组的稳定摘要。 */
+export const externalApiKeyGroupSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    enabled: z.boolean(),
+    selectable: z.boolean(),
+  })
+  .strict();
+
+/** API 密钥列表行；严格排除明文、哈希和废弃治理字段。 */
+export const externalApiKeySummarySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    keyPrefix: z.string(),
+    lastFour: z.string(),
+    generationGroupId: z.string().nullable(),
+    creditLimit: z.number().nonnegative().nullable(),
+    creditsUsed: z.number().nonnegative(),
+    lastUsedAt: z.date().nullable(),
+    isActive: z.boolean(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+    currentGroup: externalApiKeyGroupSchema.nullable(),
+  })
+  .strict();
+
+export type ExternalApiKeyGroup = z.infer<typeof externalApiKeyGroupSchema>;
+export type ExternalApiKeySummary = z.infer<typeof externalApiKeySummarySchema>;
+
 // ---------------------------------------------------------------------------
-// 9. externalApi.listKeys - getExternalApiKeys (protected, read)
+// 9. externalApi.listKeys - getExternalApiKeys (session user, read)
 // ---------------------------------------------------------------------------
 export const listKeys = defineOperation({
   name: "externalApi.listKeys",
   domain: "external-api",
   title: "List API Keys",
-  description:
-    "获取当前用户的外部 API Key 列表。需要登录认证。只读操作。",
-  input: z.object({
-    page: z.number().int().positive().optional().describe("页码"),
-    limit: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .describe("每页数量"),
-  }),
-  output: z.object({
-    keys: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string().optional(),
-        prefix: z.string().describe("Key 前缀（脱敏）"),
-        status: z.enum(["active", "revoked", "deleted"]),
-        createdAt: z.string(),
-        lastUsedAt: z.string().optional(),
-      }),
-    ),
-    total: z.number(),
-  }),
-  access: { kind: "protected" },
+  description: "获取当前用户的外部 API Key 列表。需要登录认证。只读操作。",
+  input: z.object({}).strict(),
+  output: z
+    .object({
+      keys: z.array(externalApiKeySummarySchema),
+      editableGroups: z.array(externalApiKeyGroupSchema),
+    })
+    .strict(),
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: true,
   destructive: false,
   idempotency: { kind: "natural" },
@@ -376,25 +392,39 @@ export const listKeys = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 10. externalApi.createKey - createExternalApiKey (protected)
+// 10. externalApi.createKey - createExternalApiKey (session user)
 // ---------------------------------------------------------------------------
 export const createKey = defineOperation({
   name: "externalApi.createKey",
   domain: "external-api",
   title: "Create API Key",
-  description:
-    "创建新的外部 API Key。需要登录认证。",
-  input: z.object({
-    name: z.string().optional().describe("Key 名称"),
-  }),
-  output: z.object({
-    id: z.string().describe("Key ID"),
-    key: z.string().describe("完整 Key（仅创建时返回一次）"),
-    name: z.string().optional(),
-    prefix: z.string().describe("Key 前缀"),
-    createdAt: z.string(),
-  }),
-  access: { kind: "protected" },
+  description: "创建新的外部 API Key。需要登录认证。",
+  input: z
+    .object({
+      name: z.string().trim().min(1).max(80).optional().describe("Key 名称"),
+      generationGroupId: z
+        .string()
+        .trim()
+        .min(1)
+        .nullable()
+        .optional()
+        .describe("生图分组 ID；null 表示使用系统默认分组"),
+      creditLimit: z
+        .number()
+        .nonnegative()
+        .nullable()
+        .optional()
+        .describe("积分额度上限；null 表示不限额"),
+    })
+    .strict(),
+  output: z
+    .object({
+      apiKey: z.string().describe("完整 Key（仅创建时返回一次）"),
+      key: externalApiKeySummarySchema,
+    })
+    .strict(),
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: false,
   destructive: false,
   idempotency: { kind: "none" },
@@ -405,22 +435,21 @@ export const createKey = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 11. externalApi.revokeKey - revokeExternalApiKey (protected + owner)
+// 11. externalApi.revokeKey - revokeExternalApiKey (session user)
 // ---------------------------------------------------------------------------
 export const revokeKey = defineOperation({
   name: "externalApi.revokeKey",
   domain: "external-api",
   title: "Revoke API Key",
-  description:
-    "撤销外部 API Key（不可逆）。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("要撤销的 Key ID"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    revokedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
+  description: "撤销外部 API Key（不可逆）。需要登录认证且为 Key 所有者。",
+  input: z
+    .object({
+      keyId: z.string().min(1).describe("要撤销的 Key ID"),
+    })
+    .strict(),
+  output: externalApiKeySummarySchema,
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: false,
   destructive: true,
   idempotency: { kind: "none" },
@@ -431,22 +460,21 @@ export const revokeKey = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 12. externalApi.deleteKey - deleteExternalApiKey (protected + owner)
+// 12. externalApi.deleteKey - deleteExternalApiKey (session user)
 // ---------------------------------------------------------------------------
 export const deleteKey = defineOperation({
   name: "externalApi.deleteKey",
   domain: "external-api",
   title: "Delete API Key",
-  description:
-    "删除外部 API Key。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("要删除的 Key ID"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    deletedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
+  description: "删除外部 API Key。需要登录认证且为 Key 所有者。",
+  input: z
+    .object({
+      keyId: z.string().min(1).describe("要删除的 Key ID"),
+    })
+    .strict(),
+  output: z.object({ id: z.string() }).strict(),
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: false,
   destructive: true,
   idempotency: { kind: "none" },
@@ -457,58 +485,27 @@ export const deleteKey = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 13. externalApi.updateKeyModeration - updateExternalApiKeyModeration
-//     (protected + owner)
-// ---------------------------------------------------------------------------
-export const updateKeyModeration = defineOperation({
-  name: "externalApi.updateKeyModeration",
-  domain: "external-api",
-  title: "Update Key Moderation",
-  description:
-    "更新外部 API Key 的内容审核设置。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("Key ID"),
-    moderationEnabled: z.boolean().describe("是否启用内容审核"),
-    moderationLevel: z
-      .enum(["strict", "moderate", "permissive"])
-      .optional()
-      .describe("审核严格程度"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    updatedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
-  readOnly: false,
-  destructive: false,
-  idempotency: { kind: "none" },
-  sideEffects: ["audit"],
-  async execute() {
-    throw new Error(
-      "Not yet wired: externalApi.updateKeyModeration",
-    );
-  },
-});
-
-// ---------------------------------------------------------------------------
-// 14. externalApi.updateKeyGroup - updateExternalApiKeyGroup
-//     (protected + owner)
+// 13. externalApi.updateKeyGroup - updateExternalApiKeyGroup (session user)
 // ---------------------------------------------------------------------------
 export const updateKeyGroup = defineOperation({
   name: "externalApi.updateKeyGroup",
   domain: "external-api",
   title: "Update Key Group",
-  description:
-    "更新外部 API Key 的分组归属。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("Key ID"),
-    groupId: z.string().nullable().describe("分组 ID，null 表示移出分组"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    updatedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
+  description: "更新外部 API Key 的分组归属。需要登录认证且为 Key 所有者。",
+  input: z
+    .object({
+      keyId: z.string().min(1).describe("Key ID"),
+      generationGroupId: z
+        .string()
+        .trim()
+        .min(1)
+        .nullable()
+        .describe("分组 ID；null 表示使用系统默认分组"),
+    })
+    .strict(),
+  output: externalApiKeySummarySchema,
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: false,
   destructive: false,
   idempotency: { kind: "none" },
@@ -519,43 +516,26 @@ export const updateKeyGroup = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 15. externalApi.updateKeyQuota - updateExternalApiKeyQuota
-//     (protected + owner)
+// 14. externalApi.updateKeyQuota - updateExternalApiKeyQuota (session user)
 // ---------------------------------------------------------------------------
 export const updateKeyQuota = defineOperation({
   name: "externalApi.updateKeyQuota",
   domain: "external-api",
   title: "Update Key Quota",
-  description:
-    "更新外部 API Key 的配额限制。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("Key ID"),
-    dailyLimit: z
-      .number()
-      .int()
-      .nonnegative()
-      .nullable()
-      .optional()
-      .describe("每日调用上限，null 表示无限制"),
-    monthlyLimit: z
-      .number()
-      .int()
-      .nonnegative()
-      .nullable()
-      .optional()
-      .describe("每月调用上限，null 表示无限制"),
-    creditsLimit: z
-      .number()
-      .nonnegative()
-      .nullable()
-      .optional()
-      .describe("积分消耗上限，null 表示无限制"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    updatedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
+  description: "更新外部 API Key 的配额限制。需要登录认证且为 Key 所有者。",
+  input: z
+    .object({
+      keyId: z.string().min(1).describe("Key ID"),
+      creditLimit: z
+        .number()
+        .nonnegative()
+        .nullable()
+        .describe("积分额度上限；null 表示不限额"),
+    })
+    .strict(),
+  output: externalApiKeySummarySchema,
+  access: { kind: "user" },
+  agentExposure: "human-only",
   readOnly: false,
   destructive: false,
   idempotency: { kind: "none" },
@@ -566,44 +546,7 @@ export const updateKeyQuota = defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 16. externalApi.updateKeyRelay - updateExternalApiKeyRelay
-//     (protected + owner)
-// ---------------------------------------------------------------------------
-export const updateKeyRelay = defineOperation({
-  name: "externalApi.updateKeyRelay",
-  domain: "external-api",
-  title: "Update Key Relay",
-  description:
-    "更新外部 API Key 的纯中转设置。需要登录认证且为 Key 所有者。",
-  input: z.object({
-    keyId: z.string().describe("Key ID"),
-    relayEnabled: z.boolean().describe("是否启用纯中转模式"),
-    relayEndpoint: z
-      .string()
-      .url()
-      .optional()
-      .describe("中转目标端点 URL"),
-    relayApiKey: z
-      .string()
-      .optional()
-      .describe("中转目标 API Key"),
-  }),
-  output: z.object({
-    success: z.boolean(),
-    updatedAt: z.string(),
-  }),
-  access: { kind: "owner", resource: "externalApiKey" },
-  readOnly: false,
-  destructive: false,
-  idempotency: { kind: "none" },
-  sideEffects: ["audit"],
-  async execute() {
-    throw new Error("Not yet wired: externalApi.updateKeyRelay");
-  },
-});
-
-// ---------------------------------------------------------------------------
-// 17. externalApi.adminSetKeyStatus - setExternalApiKeyStatus (admin)
+// 15. externalApi.adminSetKeyStatus - setExternalApiKeyStatus (admin)
 // ---------------------------------------------------------------------------
 export const adminSetKeyStatus = defineOperation({
   name: "externalApi.adminSetKeyStatus",

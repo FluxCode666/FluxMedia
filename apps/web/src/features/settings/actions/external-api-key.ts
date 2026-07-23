@@ -1,334 +1,191 @@
 "use server";
 
-import { randomBytes, createHash } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+/**
+ * API 密钥管理 Server Actions 薄传输适配器。
+ *
+ * 职责：校验页面输入、构造当前 session Principal、调用六个 UOL operation，并刷新
+ * API 密钥路由；数据库、套餐、分组、额度和生命周期逻辑全部由应用服务负责。
+ * 使用方：external-api-key-section.tsx。
+ * 关键依赖：protectedAction、UOL invoke 网关和 Web UOL 初始化。
+ */
+import { getUserRoleById } from "@repo/shared/auth/role-server";
+import { ActionUserError, protectedAction } from "@repo/shared/safe-action";
+import {
+  invokeOperation,
+  OperationError,
+  type Principal,
+} from "@repo/shared/uol";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { db } from "@repo/database";
-import { externalApiKey } from "@repo/database/schema";
-import {
-  normalizeExternalApiKeyCreditLimit,
-} from "@/features/external-api/quota";
-import { listImageBackendGroupOptions } from "@/features/image-backend-pool/service";
-import { protectedAction } from "@repo/shared/safe-action";
-import {
-  canUsePlanCapability,
-  normalizePlanModerationBlockRiskLevel,
-} from "@repo/shared/subscription/services/plan-capabilities";
-import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
+import type { ExternalApiKeySummary } from "@/features/external-api/key-management-service";
+import { ensureUolInitialized } from "@/server/uol-init";
 
-const API_KEY_PREFIX = "g2i";
+const createKeySchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    generationGroupId: z.string().trim().min(1).nullable().optional(),
+    creditLimit: z.number().nonnegative().nullable().optional(),
+  })
+  .strict();
 
-function hashApiKey(apiKey: string) {
-  return createHash("sha256").update(apiKey).digest("hex");
+const keyIdSchema = z.object({ id: z.string().min(1) }).strict();
+
+const updateKeyGroupSchema = z
+  .object({
+    id: z.string().min(1),
+    generationGroupId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+
+const updateKeyQuotaSchema = z
+  .object({
+    id: z.string().min(1),
+    creditLimit: z.number().nonnegative().nullable(),
+  })
+  .strict();
+
+export type ExternalApiKeyListResult = {
+  keys: ExternalApiKeySummary[];
+  editableGroups: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    selectable: boolean;
+  }>;
+};
+
+type CreateExternalApiKeyResult = {
+  apiKey: string;
+  key: ExternalApiKeySummary;
+};
+
+type KeyOperationOutputs = {
+  "externalApi.listKeys": ExternalApiKeyListResult;
+  "externalApi.createKey": CreateExternalApiKeyResult;
+  "externalApi.revokeKey": ExternalApiKeySummary;
+  "externalApi.deleteKey": { id: string };
+  "externalApi.updateKeyGroup": ExternalApiKeySummary;
+  "externalApi.updateKeyQuota": ExternalApiKeySummary;
+};
+
+type KeyOperationName = keyof KeyOperationOutputs;
+
+/** 初始化 UOL 并从当前 session 构造唯一可信 user Principal。 */
+async function createApiKeyPrincipal(userId: string): Promise<Principal> {
+  await ensureUolInitialized();
+  return {
+    type: "user",
+    userId,
+    role: await getUserRoleById(userId),
+  };
 }
 
-function createApiKey() {
-  return `${API_KEY_PREFIX}_${randomBytes(32).toString("base64url")}`;
-}
-
-const withExternalApiKeyAction = (name: string) =>
-  protectedAction.metadata({ action: `settings.externalApiKey.${name}` });
-
-async function ensureExternalApiAllowed(userId: string) {
-  const plan = await getUserPlan(userId);
-  if (!(await canUsePlanCapability(plan.plan, "externalApi.keys.manage"))) {
-    throw new Error("External API access requires Starter plan or higher.");
-  }
-  return plan.plan;
-}
-
-async function normalizeSelectableGenerationGroupId(
-  groupId: string | null | undefined,
-  plan: Awaited<ReturnType<typeof getUserPlan>>["plan"]
-) {
-  if (!groupId || groupId === "default") return null;
-  if (!(await canUsePlanCapability(plan, "backendGroups.select"))) {
-    throw new Error("当前套餐不可手动选择生图分组");
-  }
-  const groups = await listImageBackendGroupOptions({
-    userSelectableOnly: true,
-    plan,
-  });
-  if (!groups.some((group) => group.id === groupId)) {
-    throw new Error("Image backend group is not selectable");
-  }
-  return groupId;
-}
-
-async function normalizeRelayOnly(
-  relayOnly: boolean | undefined,
-  plan: Awaited<ReturnType<typeof getUserPlan>>["plan"]
-) {
-  if (!relayOnly) return false;
-  if (!(await canUsePlanCapability(plan, "externalApi.relay"))) {
-    throw new Error("纯中转模式需要 Pro 及以上套餐");
-  }
-  return true;
-}
-
-export const getExternalApiKeys = withExternalApiKeyAction("list").action(
-  async ({ ctx }) => {
-    const plan = await getUserPlan(ctx.userId);
-    const keys = await db
-      .select({
-        id: externalApiKey.id,
-        name: externalApiKey.name,
-        keyPrefix: externalApiKey.keyPrefix,
-        lastFour: externalApiKey.lastFour,
-        moderationBlockRiskLevel: externalApiKey.moderationBlockRiskLevel,
-        generationGroupId: externalApiKey.generationGroupId,
-        creditLimit: externalApiKey.creditLimit,
-        creditsUsed: externalApiKey.creditsUsed,
-        relayOnly: externalApiKey.relayOnly,
-        lastUsedAt: externalApiKey.lastUsedAt,
-        isActive: externalApiKey.isActive,
-        createdAt: externalApiKey.createdAt,
-      })
-      .from(externalApiKey)
-      .where(eq(externalApiKey.userId, ctx.userId))
-      .orderBy(desc(externalApiKey.createdAt));
-
-    const groups = await listImageBackendGroupOptions({
-      userSelectableOnly: true,
-      plan: plan.plan,
-    });
-    const canUseRelay = await canUsePlanCapability(
-      plan.plan,
-      "externalApi.relay"
+/** 调用类型绑定的 Key operation，并把预期 UOL 错误安全展示给用户。 */
+async function invokeApiKeyOperation<N extends KeyOperationName>(
+  name: N,
+  input: unknown,
+  userId: string
+): Promise<KeyOperationOutputs[N]> {
+  try {
+    return await invokeOperation<KeyOperationOutputs[N]>(
+      name,
+      input,
+      await createApiKeyPrincipal(userId)
     );
-    return { keys, groups, canUseRelay };
-  }
-);
-
-export const createExternalApiKey = withExternalApiKeyAction("create")
-  .schema(
-    z.object({
-      name: z.string().trim().min(1).max(80).optional(),
-      moderationBlockRiskLevel: z.enum(["low", "medium", "high"]).optional(),
-      generationGroupId: z.string().trim().optional().nullable(),
-      creditLimit: z.number().min(0).nullable().optional(),
-      relayOnly: z.boolean().optional(),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const plan = await ensureExternalApiAllowed(ctx.userId);
-
-    const apiKey = createApiKey();
-    const keyPrefix = apiKey.slice(0, 7);
-    const generationGroupId = await normalizeSelectableGenerationGroupId(
-      parsedInput.generationGroupId,
-      plan
-    );
-    const relayOnly = await normalizeRelayOnly(parsedInput.relayOnly, plan);
-
-    await db.insert(externalApiKey).values({
-      id: nanoid(),
-      userId: ctx.userId,
-      name: parsedInput.name || "默认 API Key",
-      keyPrefix,
-      keyHash: hashApiKey(apiKey),
-      lastFour: apiKey.slice(-4),
-      moderationBlockRiskLevel: await normalizePlanModerationBlockRiskLevel(
-        plan,
-        parsedInput.moderationBlockRiskLevel
-      ),
-      generationGroupId,
-      creditLimit: normalizeExternalApiKeyCreditLimit(parsedInput.creditLimit),
-      relayOnly,
-    });
-
-    return { apiKey };
-  });
-
-export const revokeExternalApiKey = withExternalApiKeyAction("revoke")
-  .schema(
-    z.object({
-      id: z.string().min(1),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const keys = await db
-      .select({ id: externalApiKey.id })
-      .from(externalApiKey)
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      )
-      .limit(1);
-
-    if (!keys[0]) {
-      throw new Error("API key not found");
+  } catch (error) {
+    if (error instanceof OperationError) {
+      throw new ActionUserError(error.message);
     }
+    throw error;
+  }
+}
 
-    await db
-      .update(externalApiKey)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      );
+/** mutation 成功后刷新 API 密钥路由的服务端快照。 */
+function revalidateApiKeyPage(): void {
+  revalidatePath("/dashboard/external-api");
+}
 
-    return { success: true };
-  });
+/** 读取本人 API 密钥摘要与当前可编辑分组。 */
+export const getExternalApiKeys = protectedAction
+  .metadata({ action: "externalApi.listKeys" })
+  .action(
+    async ({ ctx }): Promise<ExternalApiKeyListResult> =>
+      invokeApiKeyOperation("externalApi.listKeys", {}, ctx.userId)
+  );
 
-export const deleteExternalApiKey = withExternalApiKeyAction("delete")
-  .schema(
-    z.object({
-      id: z.string().min(1),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const keys = await db
-      .select({ id: externalApiKey.id, isActive: externalApiKey.isActive })
-      .from(externalApiKey)
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      )
-      .limit(1);
-
-    if (!keys[0]) {
-      throw new Error("API key not found");
-    }
-    if (keys[0].isActive) {
-      throw new Error("Revoke API key before deleting it");
-    }
-
-    await db
-      .delete(externalApiKey)
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId),
-          eq(externalApiKey.isActive, false)
-        )
-      );
-
-    return { success: true };
-  });
-
-export const updateExternalApiKeyModeration = withExternalApiKeyAction(
-  "updateModeration"
-)
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      moderationBlockRiskLevel: z.enum(["low", "medium", "high"]),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const plan = await ensureExternalApiAllowed(ctx.userId);
-    const normalized = await normalizePlanModerationBlockRiskLevel(
-      plan,
-      parsedInput.moderationBlockRiskLevel
+/** 创建 API 密钥；完整明文只存在于本次 Action 成功响应。 */
+export const createExternalApiKey = protectedAction
+  .metadata({ action: "externalApi.createKey" })
+  .schema(createKeySchema)
+  .action(async ({ parsedInput, ctx }): Promise<CreateExternalApiKeyResult> => {
+    const result = await invokeApiKeyOperation(
+      "externalApi.createKey",
+      parsedInput,
+      ctx.userId
     );
-
-    await db
-      .update(externalApiKey)
-      .set({
-        moderationBlockRiskLevel: normalized,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      );
-
-    return { success: true, moderationBlockRiskLevel: normalized };
+    revalidateApiKeyPage();
+    return result;
   });
 
-export const updateExternalApiKeyGroup = withExternalApiKeyAction("updateGroup")
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      generationGroupId: z.string().trim().optional().nullable(),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const plan = await ensureExternalApiAllowed(ctx.userId);
-    const generationGroupId = await normalizeSelectableGenerationGroupId(
-      parsedInput.generationGroupId,
-      plan
+/** 原子撤销本人当前启用的 API 密钥。 */
+export const revokeExternalApiKey = protectedAction
+  .metadata({ action: "externalApi.revokeKey" })
+  .schema(keyIdSchema)
+  .action(async ({ parsedInput, ctx }): Promise<ExternalApiKeySummary> => {
+    const result = await invokeApiKeyOperation(
+      "externalApi.revokeKey",
+      { keyId: parsedInput.id },
+      ctx.userId
     );
-    await db
-      .update(externalApiKey)
-      .set({
-        generationGroupId,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      );
-
-    return { success: true };
+    revalidateApiKeyPage();
+    return result;
   });
 
-export const updateExternalApiKeyQuota = withExternalApiKeyAction("updateQuota")
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      creditLimit: z.number().min(0).nullable(),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    await ensureExternalApiAllowed(ctx.userId);
-    const creditLimit = normalizeExternalApiKeyCreditLimit(
-      parsedInput.creditLimit
+/** 删除本人已撤销的 API 密钥。 */
+export const deleteExternalApiKey = protectedAction
+  .metadata({ action: "externalApi.deleteKey" })
+  .schema(keyIdSchema)
+  .action(async ({ parsedInput, ctx }): Promise<{ id: string }> => {
+    const result = await invokeApiKeyOperation(
+      "externalApi.deleteKey",
+      { keyId: parsedInput.id },
+      ctx.userId
     );
-
-    await db
-      .update(externalApiKey)
-      .set({
-        creditLimit,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      );
-
-    return { success: true, creditLimit };
+    revalidateApiKeyPage();
+    return result;
   });
 
-export const updateExternalApiKeyRelay = withExternalApiKeyAction("updateRelay")
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      relayOnly: z.boolean(),
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const plan = await ensureExternalApiAllowed(ctx.userId);
-    // 仅 Pro+ 可开启纯中转；关闭（false）任何套餐都允许。
-    const relayOnly = await normalizeRelayOnly(parsedInput.relayOnly, plan);
+/** 更新本人启用 Key 的当前可选后端分组。 */
+export const updateExternalApiKeyGroup = protectedAction
+  .metadata({ action: "externalApi.updateKeyGroup" })
+  .schema(updateKeyGroupSchema)
+  .action(async ({ parsedInput, ctx }): Promise<ExternalApiKeySummary> => {
+    const result = await invokeApiKeyOperation(
+      "externalApi.updateKeyGroup",
+      {
+        keyId: parsedInput.id,
+        generationGroupId: parsedInput.generationGroupId,
+      },
+      ctx.userId
+    );
+    revalidateApiKeyPage();
+    return result;
+  });
 
-    await db
-      .update(externalApiKey)
-      .set({
-        relayOnly,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(externalApiKey.id, parsedInput.id),
-          eq(externalApiKey.userId, ctx.userId)
-        )
-      );
-
-    return { success: true, relayOnly };
+/** 更新本人启用 Key 的积分额度。 */
+export const updateExternalApiKeyQuota = protectedAction
+  .metadata({ action: "externalApi.updateKeyQuota" })
+  .schema(updateKeyQuotaSchema)
+  .action(async ({ parsedInput, ctx }): Promise<ExternalApiKeySummary> => {
+    const result = await invokeApiKeyOperation(
+      "externalApi.updateKeyQuota",
+      {
+        keyId: parsedInput.id,
+        creditLimit: parsedInput.creditLimit,
+      },
+      ctx.userId
+    );
+    revalidateApiKeyPage();
+    return result;
   });

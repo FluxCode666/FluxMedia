@@ -171,7 +171,7 @@ export const dashboardNav: NavGroup[] = [
         icon: BookOpen,
       },
       {
-        title: "External API",
+        title: "API Keys",
         href: "/dashboard/external-api",
         icon: KeyRound,
       },

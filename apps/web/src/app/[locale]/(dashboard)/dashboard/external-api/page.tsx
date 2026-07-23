@@ -1,3 +1,8 @@
+/**
+ * API 密钥管理独立页面。
+ *
+ * 职责：校验登录会话、读取用户时区并渲染 API 密钥创建区与摘要列表。
+ */
 import { getServerSession } from "@repo/shared/auth/server";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { redirect } from "next/navigation";
@@ -6,10 +11,11 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { ExternalApiKeySection } from "@/features/settings/components";
 
 export const metadata = {
-  title: "External API | FluxMedia",
-  description: "Create and manage FluxMedia external API keys",
+  title: "API Keys | FluxMedia",
+  description: "Create and manage FluxMedia API keys",
 };
 
+/** 渲染当前登录用户的 API 密钥管理页面。 */
 export default async function ExternalApiPage() {
   const session = await getServerSession();
   const locale = await getLocale();
