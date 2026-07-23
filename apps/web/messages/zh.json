@@ -419,7 +419,7 @@
       },
       "starter": {
         "name": "入门版",
-        "description": "开放外接 API Key 和自接 API",
+        "description": "开放 API 密钥和自接 API",
         "cta": "订阅",
         "creditsAmount": "5,000",
         "creditsLabel": "积分 / 月",
@@ -432,7 +432,7 @@
           "batch": "每批最多 10 张图",
           "fileSize": "上传上限：单图 20MB，总上传 75MB",
           "queue": "单用户最多 5 并发",
-          "externalApi": "外接 API Key 调用",
+          "externalApi": "API 密钥调用",
           "customApi": "自接 OpenAI 兼容 API",
           "export": "下载与分享",
           "history": "画廊历史永久保存",
@@ -458,7 +458,7 @@
           "queue": "优先队列，单用户最多 15 并发",
           "export": "下载与分享",
           "history": "画廊历史永久保存",
-          "externalApi": "外接 API Key 调用",
+          "externalApi": "API 密钥调用",
           "customApi": "自接 OpenAI 兼容 API",
           "support": "优先支持"
         }
@@ -483,7 +483,7 @@
           "queue": "最高优先队列，单用户最多 50 并发",
           "export": "下载与分享",
           "history": "画廊历史永久保存",
-          "externalApi": "外接 API Key 调用",
+          "externalApi": "API 密钥调用",
           "customApi": "自接 OpenAI 兼容 API",
           "support": "专属支持"
         }
@@ -509,7 +509,7 @@
           "enterpriseResourcePackUnlimited": "企业资源包可按数量不限量购买",
           "export": "下载与分享",
           "history": "画廊历史永久保存",
-          "externalApi": "外接 API Key 调用",
+          "externalApi": "API 密钥调用",
           "customApi": "自接 OpenAI 兼容 API",
           "support": "专属支持"
         }

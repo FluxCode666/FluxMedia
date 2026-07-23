@@ -21,7 +21,7 @@ const sections = {
       "这里按当前代码真实链路说明：页面入口和外接入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。默认部署启用自用模式：关闭公开注册，首次启动使用环境变量中的凭据创建超管。",
     flow: {
       title: "请求路由图",
-      note: "普通 image/chat/responses 请求中，用户自接 API 目前仍保留最高优先级；命中用户自接 API 时不扣本站积分，也不占用本站外接 API Key 额度。Agent 或明确要求 Codex/Responses 的入口会忽略用户自接 API。外接接口不会反向请求站内 /api/images/*。",
+      note: "普通 image/chat/responses 请求中，用户自接 API 目前仍保留最高优先级；命中用户自接 API 时不扣本站积分，也不占用本站 API 密钥额度。Agent 或明确要求 Codex/Responses 的入口会忽略用户自接 API。外接接口不会反向请求站内 /api/images/*。",
       entryTitle: "入口",
       resolverTitle: "统一处理",
       groupTitle: "分组选择",
@@ -104,14 +104,14 @@ const sections = {
         },
       ],
       resolver: [
-        "校验登录态或外部 API Key",
+        "校验登录态或 API 密钥",
         "把页面表单或 OpenAI 兼容请求转换为统一运行参数",
         "计算积分和审核成本",
         "调用 runImageGenerationForUser 进入统一生成链路",
       ],
       groups: [
-        "外部 API Key 绑定分组优先",
-        "外部 API Key 未绑定分组时使用平台默认分组",
+        "API 密钥绑定分组优先",
+        "API 密钥未绑定分组时使用平台默认分组",
         "网页端创作才使用用户在设置里选择的生图后端分组",
         "分组会检查套餐权限、是否启用、内容安全开关",
       ],
@@ -119,7 +119,7 @@ const sections = {
         {
           title: "用户自接 API",
           description:
-            "如果用户设置了自己的 OpenAI 兼容 API，普通 image/chat/responses 请求会先直接使用它；命中时 useCredits=false，不扣本站余额，也不增加本站 API Key 已用额度。",
+            "如果用户设置了自己的 OpenAI 兼容 API，普通 image/chat/responses 请求会先直接使用它；命中时 useCredits=false，不扣本站余额，也不增加本站 API 密钥已用额度。",
         },
         {
           title: "Web 账号池",
@@ -180,7 +180,7 @@ const sections = {
           "OpenAI images generation",
           "/v1/images/generations",
           "image_generation",
-          "验证 API Key 和套餐后进入同一生成链路；默认返回 b64_json，可显式请求 url。",
+          "验证 API 密钥和套餐后进入同一生成链路；默认返回 b64_json，可显式请求 url。",
         ],
         [
           "OpenAI images edit",
@@ -228,13 +228,13 @@ const sections = {
           "OpenAI models",
           "/v1/models",
           "-",
-          "只返回当前套餐/API Key 可见模型，不触发后端池调度。",
+          "只返回当前套餐/API 密钥可见模型，不触发后端池调度。",
         ],
         [
           "FluxMedia credits",
           "/v1/credits",
           "-",
-          "返回当前 API Key 的限额、已用、剩余以及所属账户余额，不触发后端池调度。",
+          "返回当前 API 密钥的限额、已用、剩余以及所属账户余额，不触发后端池调度。",
         ],
       ],
     },
@@ -254,7 +254,7 @@ const sections = {
         [
           "外接 API 入口",
           "/v1/chat/completions、/v1/images/generations、/v1/images/edits、/v1/videos/generations、/v1/ppts、/v1/psds、/v1/images/{task_id}、/v1/editable-file-tasks/{task_id}、/v1/responses、/v1/agents/images",
-          "/api/v1/* 是同一 handler 的别名；只负责 API Key、OpenAI 兼容请求和响应格式适配。/v1/ppts、/v1/psds 走独立的可编辑文件链路（付费级 web 账号 + 代码解释器），不汇入 runImageGenerationForUser；支持 async:true + GET /v1/editable-file-tasks/{task_id} 轮询与 callback_url。",
+          "/api/v1/* 是同一 handler 的别名；只负责 API 密钥、OpenAI 兼容请求和响应格式适配。/v1/ppts、/v1/psds 走独立的可编辑文件链路（付费级 web 账号 + 代码解释器），不汇入 runImageGenerationForUser；支持 async:true + GET /v1/editable-file-tasks/{task_id} 轮询与 callback_url。",
         ],
         [
           "共同核心",
@@ -313,15 +313,17 @@ const sections = {
       examplesTitle: "请求示例",
       responseExampleTitle: "响应示例",
       common: [
-        "所有外接接口都需要 Authorization: Bearer <本站 API Key>。",
+        "所有外接接口都需要 Authorization: Bearer <本站 API 密钥>。",
         "Chat Completions、图片生成和图片编辑接口需要入门版及以上；Responses 接口需要专业版及以上；Agent 生图接口默认需要旗舰版及以上。具体门槛可在套餐能力矩阵中调整 externalApi.*。",
         "/api/v1/* 与 /v1/* 使用同一套 handler，只是路径别名。",
+        "所有 API 密钥请求均走普通持久化路径，并按接口能力写入生成历史、对象存储、使用记录与续承状态；不提供不记录模式。",
+        "平台内容审核级别由管理员集中管理：用户覆盖优先，否则使用全站默认值，缺失或非法值回退到 high。调用方不能通过 API 密钥或请求字段修改；low、medium、high 只改变 Aliyun 审核阈值，OpenAI 审核提供方不随这三档变化。",
         "response_format 控制返回 URL 或 base64；output_format 才控制图片文件格式，二者不是同一个字段。",
         "错误响应采用 OpenAI 风格 error 对象；本站可能额外返回 generation_id、generationId、credits_consumed 方便排查和对账。",
-        "外接 API Key 绑定的后端分组优先；未绑定时使用平台默认分组，再回退默认启用分组。页面创作才使用用户选择的默认分组。",
+        "API 密钥绑定的后端分组优先；未绑定时使用平台默认分组，再回退默认启用分组。页面创作才使用用户选择的默认分组。",
         "图片按实际输出像素归入 1024、1K、2K、4K 固定档位；价格依次读取所选分组的模型覆盖、全局模型价格和通用档位价格，再加运行时审核费。图片和视频均不使用分组倍率。",
-        "外接 API Key 可设置独立积分限额；GET /v1/credits 可查询 Key 限额、已用额度和账户余额。",
-        "用户已启用“接入其他站 API”时，普通 /v1/chat/completions、/v1/images/generations、/v1/images/edits 和 /v1/responses 仍优先使用用户自接 API；命中时 credits_consumed 为 0，不扣本站余额，也不增加本站 API Key 已用额度。",
+        "API 密钥可设置独立积分限额；GET /v1/credits 可查询密钥限额、已用额度和账户余额。",
+        "用户已启用“接入其他站 API”时，普通 /v1/chat/completions、/v1/images/generations、/v1/images/edits 和 /v1/responses 仍优先使用用户自接 API；命中时 credits_consumed 为 0，不扣本站余额，也不增加本站 API 密钥已用额度。",
         "/v1/agents/images 和需要 Codex/Responses 能力的页面功能会忽略用户自接 API，按平台后端池或外接后端池结算本站积分。",
         "image 接口的 web_first / webFirst / force_web / forceWeb（chat 对应 mix_web_first）是 Web-first 优先路由，不是硬性只走 Web，且默认开启。开启时（不传或显式 true）按 Web-first 像素区间（IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS，默认 0.66MP-2MP）判定：尺寸落在区间内才优先 Web、失败回退 Codex/Responses，超出区间（如 4K）则走正常调度；auto 或无法解析的尺寸视为可优先 Web。显式传 false 则不优先 Web。该路由只对 mixed 后端分组生效（纯 Web / 纯 Codex-Responses 分组无此概念），不会覆盖用户自接 API；agent 始终走 Codex/Responses，不受此项影响。",
         "Adobe（Firefly）后端：作为特殊成员按 priority 挂入分组同池调度——firefly-* 模型或 force_firefly=true 会把候选收敛到仅 Adobe；普通请求则只有当组内 web/codex/api 限流、耗尽或可切换失败时才兜底到 Adobe（取决于 Adobe 是否在该组及其优先级，priority 越大越靠后）。图片使用模型四档固定价加运行时审核费，视频使用模型族每秒固定价格；两者都不乘 Adobe 或分组倍率。路由兜底详见 /docs/adobe-firefly-routing，兼容转换详见 /docs/adobe-firefly-compat。",
@@ -367,7 +369,7 @@ const sections = {
           path: "/v1/models",
           contentType: "无请求体",
           description:
-            "兼容 OpenAI List models，列出当前 API Key 所属用户可见的图片模型与 Responses 模型：默认图片模型、Adobe Firefly 图像族 id、Firefly 视频模型 id（均受 externalApi.images.generate 门控，未开启不列出）、当前套餐可用的 Chat/Responses 模型，以及已启用 API 供应商配置的模型 ID。",
+            "兼容 OpenAI List models，列出当前 API 密钥所属用户可见的图片模型与 Responses 模型：默认图片模型、Adobe Firefly 图像族 id、Firefly 视频模型 id（均受 externalApi.images.generate 门控，未开启不列出）、当前套餐可用的 Chat/Responses 模型，以及已启用 API 供应商配置的模型 ID。",
           example: `curl https://gpt2image.superapi.buzz/v1/models \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -385,7 +387,7 @@ const sections = {
             {
               name: "Authorization",
               requirement: "必填 header",
-              description: "Bearer <本站 API Key>。",
+              description: "Bearer <本站 API 密钥>。",
             },
           ],
           responses: [
@@ -415,7 +417,7 @@ const sections = {
           path: "/v1/credits",
           contentType: "无请求体",
           description:
-            "查询当前 Bearer API Key 的限额、已用额度、剩余额度，以及所属账户当前积分余额。",
+            "查询当前 Bearer API 密钥的限额、已用额度、剩余额度，以及所属账户当前积分余额。",
           example: `curl https://gpt2image.superapi.buzz/v1/credits \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -437,7 +439,7 @@ const sections = {
             {
               name: "Authorization",
               requirement: "必填 header",
-              description: "Bearer <本站 API Key>。",
+              description: "Bearer <本站 API 密钥>。",
             },
           ],
           responses: [
@@ -452,16 +454,16 @@ const sections = {
             },
             {
               name: "api_key.credit_limit",
-              description: "当前 API Key 总限额；null 表示不限额。",
+              description: "当前 API 密钥总限额；null 表示不限额。",
             },
             {
               name: "api_key.credits_used / credits_remaining",
               description:
-                "当前 API Key 已用和剩余额度；不限额时 credits_remaining 为 null。",
+                "当前 API 密钥已用和剩余额度；不限额时 credits_remaining 为 null。",
             },
           ],
           notes: [
-            "API Key 限额只限制该 Key 自身；走本站平台计费路径时仍必须有足够账户积分。",
+            "API 密钥限额只限制该密钥自身；走本站平台计费路径时仍必须有足够账户积分。",
             "命中用户自接 API 时不扣本站账户积分，也不增加 Key 已用额度。",
             "api_key 对象还含 id / name / key_prefix / last_four / is_active / last_used_at / created_at 等字段（示例从略）。",
             "生成失败退款、审核拦截结算和实际尺寸后修正会同步修正 Key 已用额度。",
@@ -495,7 +497,7 @@ const sections = {
               name: "Authorization",
               requirement: "必填 header",
               description:
-                "Bearer <本站 API Key>；需能力位 export.ppt / export.psd（默认对 free 开放）。",
+                "Bearer <本站 API 密钥>；需能力位 export.ppt / export.psd（默认对 free 开放）。",
             },
             {
               name: "prompt",
@@ -575,7 +577,7 @@ const sections = {
             {
               name: "Authorization",
               requirement: "必填 header",
-              description: "Bearer <本站 API Key>；只返回归属本人的任务。",
+              description: "Bearer <本站 API 密钥>；只返回归属本人的任务。",
             },
             {
               name: "task_id",
@@ -740,7 +742,8 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "moderation",
               requirement: "可选",
-              description: "auto 或 low；作为本轮 Chat 生图运行参数。",
+              description:
+                "auto 或 low；作为向上游图像接口传递的本轮 Chat 生图参数，不会修改平台集中管理的内容审核级别。",
             },
             {
               name: "stream",
@@ -1068,7 +1071,8 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "moderation",
               requirement: "可选",
-              description: "auto 或 low。",
+              description:
+                "auto 或 low；作为向上游图像接口传递的生成参数，不会修改平台集中管理的内容审核级别。",
             },
             {
               name: "response_format",
@@ -1404,7 +1408,8 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "moderation",
               requirement: "可选",
-              description: "auto 或 low。",
+              description:
+                "auto 或 low；作为向上游图像接口传递的编辑参数，不会修改平台集中管理的内容审核级别。",
             },
             {
               name: "response_format",
@@ -1599,7 +1604,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "Authorization",
               requirement: "必填 header",
-              description: "Bearer <本站 API Key>。",
+              description: "Bearer <本站 API 密钥>。",
             },
             {
               name: "task_id",
@@ -1646,7 +1651,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
           ],
           notes: [
             "任务为进程内内存对象，30 分钟后过期；服务重启或多实例切换会导致未完成任务返回 404 无法继续查询，但 callback_url 已发送的回调不受影响。",
-            "只能查询属于当前 API Key 所属用户自己创建的任务。",
+            "只能查询属于当前 API 密钥所属用户自己创建的任务。",
             "返回结构与 callback_url 回调 POST 的任务对象完全一致。",
           ],
         },
@@ -1656,7 +1661,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
           path: "/v1/videos/generations",
           contentType: "application/json",
           description:
-            "本站扩展：Adobe Firefly 视频生成。固定路由到 Adobe（Firefly）后端，是长任务，返回 OpenAI Images 风格结构，data[].url 为产物视频 URL。鉴权与其他 v1 接口一致（外部 API Key）。视频是长任务，强烈建议异步：传 async:true（或 ?async=true）立即返回 task_... 任务对象、后台生成，凭 GET /v1/videos/{id} 轮询或 callback_url 完成回调；不传则同步 keep-alive 撑住连接直到出片。",
+            "本站扩展：Adobe Firefly 视频生成。固定路由到 Adobe（Firefly）后端，是长任务，返回 OpenAI Images 风格结构，data[].url 为产物视频 URL。鉴权与其他 v1 接口一致（API 密钥）。视频是长任务，强烈建议异步：传 async:true（或 ?async=true）立即返回 task_... 任务对象、后台生成，凭 GET /v1/videos/{id} 轮询或 callback_url 完成回调；不传则同步 keep-alive 撑住连接直到出片。",
           example: `# 1. 文生视频；model 为完整 Firefly 视频 id
 curl https://gpt2image.superapi.buzz/v1/videos/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -1770,7 +1775,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
           path: "/v1/videos/{id}",
           contentType: "无请求体",
           description:
-            "本站扩展：按 ID 查询一次视频生成。路径参数可传两类 ID：（1）async=true 创建的 task_...（进程内内存任务对象，30 分钟后过期、服务重启或多实例切换即查不到）；（2）任意同步/异步响应返回的 generation_id（gen_...，从数据库持久取回，跨重启/多实例都可查）。先查内存任务，未命中再按 generation_id 查库。仅返回归属本人的记录；仅需有效 API Key，无套餐门槛。",
+            "本站扩展：按 ID 查询一次视频生成。路径参数可传两类 ID：（1）async=true 创建的 task_...（进程内内存任务对象，30 分钟后过期、服务重启或多实例切换即查不到）；（2）任意同步/异步响应返回的 generation_id（gen_...，从数据库持久取回，跨重启/多实例都可查）。先查内存任务，未命中再按 generation_id 查库。仅返回归属本人的记录；仅需有效 API 密钥，无套餐门槛。",
           example: `curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY"`,
           responseExample: `{
@@ -1802,7 +1807,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
             {
               name: "Authorization",
               requirement: "必填 header",
-              description: "Bearer <本站 API Key>。",
+              description: "Bearer <本站 API 密钥>。",
             },
             {
               name: "id",
@@ -1856,7 +1861,7 @@ curl https://gpt2image.superapi.buzz/v1/videos/task_... \\
           notes: [
             "该接口是本站扩展，不是 OpenAI 官方接口；/api/v1/videos/{id} 是同一 handler 的别名。",
             "内存任务 30 分钟后过期；服务重启或多实例切换会使未完成任务返回 404 Video task not found or expired.，但 callback_url 已发送的回调不受影响。需持久查询请用 generation_id。",
-            "只能查询属于当前 API Key 所属用户自己创建的任务；响应 Cache-Control: no-store。",
+            "只能查询属于当前 API 密钥所属用户自己创建的任务；响应 Cache-Control: no-store。",
             "返回结构与 callback_url 回调 POST 的任务对象完全一致。",
           ],
         },
@@ -2034,7 +2039,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               name: "moderation",
               requirement: "可选",
               description:
-                "auto 或 low；作为 Agent 内 image_generation 工具运行参数。",
+                "auto 或 low；作为 Agent 内 image_generation 工具的上游生成参数，不会修改平台集中管理的内容审核级别。",
             },
             {
               name: "output_format",
@@ -2289,7 +2294,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
               requirement: "可选",
               custom: true,
               description:
-                "本站便捷字段：作为本次生图 moderation 运行参数使用。",
+                "本站便捷字段：作为本次生图的上游 moderation 参数使用，不会修改平台集中管理的内容审核级别。",
             },
             {
               name: "output_format",
@@ -2487,7 +2492,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path. Default deployments enable self-use mode: public registration is closed and the first startup creates a super admin from environment credentials.",
     flow: {
       title: "Request Routing Diagram",
-      note: "For ordinary image/chat/responses requests, user custom API keeps the highest priority for now. When it wins, FluxMedia does not charge account credits or external API key quota. Agent and explicitly Codex/Responses-only entries ignore user custom API. External endpoints do not call internal /api/images/* routes.",
+      note: "For ordinary image/chat/responses requests, user custom API keeps the highest priority for now. When it wins, FluxMedia does not charge account credits or API key quota. Agent and explicitly Codex/Responses-only entries ignore user custom API. External endpoints do not call internal /api/images/* routes.",
       entryTitle: "Entry",
       resolverTitle: "Unified Handler",
       groupTitle: "Group Selection",
@@ -2555,14 +2560,14 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         },
       ],
       resolver: [
-        "Validate session or external API key",
+        "Validate session or API key",
         "Convert page forms or OpenAI-compatible requests into unified run parameters",
         "Calculate credits and moderation cost",
         "Call runImageGenerationForUser for the shared generation path",
       ],
       groups: [
-        "External API key bound group first",
-        "Unbound external API keys use the platform default group",
+        "API key bound group first",
+        "Unbound API keys use the platform default group",
         "Page creation is the only path that uses the user's selected image backend group",
         "Group checks plan access, enabled state, and content safety setting",
       ],
@@ -2777,11 +2782,13 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "All external endpoints require Authorization: Bearer <FluxMedia API key>.",
         "Chat Completions, image generation, and image edits require Starter or higher; Responses requires Pro or higher; Agent image runs require Ultra by default. The exact gates can be changed with externalApi.* in the Plan Capability Matrix.",
         "/api/v1/* and /v1/* use the same handlers; they are path aliases.",
+        "All API key requests use the normal persistence path and write generation history, object storage, usage records, and continuation state as supported by each endpoint. There is no no-record mode.",
+        "Platform content-moderation levels are centrally managed by administrators: a user override wins, otherwise the global default applies, and missing or invalid values fall back to high. Callers cannot change this policy through an API key or request field. low, medium, and high only change Aliyun thresholds; the OpenAI moderation provider is unchanged by these levels.",
         "response_format controls URL vs base64; output_format controls the image file format. They are different fields.",
         "Error responses use an OpenAI-style error object. FluxMedia may also return generation_id, generationId, and credits_consumed for debugging and reconciliation.",
-        "A backend group bound to the external API key wins first. Otherwise the platform default group is used, then the enabled fallback group. Page creation still uses the user's selected default group.",
+        "A backend group bound to the API key wins first. Otherwise the platform default group is used, then the enabled fallback group. Page creation still uses the user's selected default group.",
         "Images use fixed 1024, 1K, 2K, and 4K tiers selected from actual output pixels. Pricing resolves the selected group's model override, then the global model price, then the generic tier price, and finally adds runtime review fees. Videos use a fixed per-second price for each model family. Neither path uses group multipliers.",
-        "External API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
+        "API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
         "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and FluxMedia does not charge account credits or API key quota.",
         "/v1/agents/images and page features that require Codex/Responses capability ignore user custom API and are billed through the platform or external backend pool.",
         "Image endpoint web_first / webFirst / force_web / forceWeb (chat: mix_web_first) is a Web-first preference route, not hard Web-only, and is on by default. When on (omitted or explicit true) it uses the Web-first pixel range (IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS, default 0.66MP-2MP): only sizes inside the range prefer Web (fall back to Codex/Responses on failure), sizes outside (e.g. 4K) use normal scheduling, auto or unparseable sizes may prefer Web; explicit false disables it. It only applies to mixed backend groups (no effect for Web-only / Codex-Responses-only groups) and never overrides user custom API; agent always uses Codex/Responses and is unaffected.",
@@ -3068,7 +3075,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               name: "moderation",
               requirement: "Optional",
               description:
-                "auto or low. Used as a runtime Chat image parameter.",
+                "auto or low. Passed upstream as a runtime Chat image parameter; it does not change FluxMedia's centrally managed content-moderation level.",
             },
             {
               name: "stream",
@@ -3382,7 +3389,8 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "moderation",
               requirement: "Optional",
-              description: "auto or low.",
+              description:
+                "auto or low. Passed upstream as an image-generation parameter; it does not change FluxMedia's centrally managed content-moderation level.",
             },
             {
               name: "response_format",
@@ -3699,7 +3707,8 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "moderation",
               requirement: "Optional",
-              description: "auto or low.",
+              description:
+                "auto or low. Passed upstream as an image-edit parameter; it does not change FluxMedia's centrally managed content-moderation level.",
             },
             {
               name: "response_format",
@@ -3932,7 +3941,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
           path: "/v1/videos/generations",
           contentType: "application/json",
           description:
-            "FluxMedia extension: Adobe Firefly video generation. It always routes to the Adobe (Firefly) backend, is a long-running job, and returns an OpenAI Images-style shape where data[].url is the produced video URL. Auth matches other v1 endpoints (external API key). Video is long-running, so async is strongly recommended: pass async:true (or ?async=true) to return a task_... object immediately and generate in the background, then poll GET /v1/videos/{id} or use callback_url; otherwise it runs synchronously, holding the connection with keep-alive until the video is ready.",
+            "FluxMedia extension: Adobe Firefly video generation. It always routes to the Adobe (Firefly) backend, is a long-running job, and returns an OpenAI Images-style shape where data[].url is the produced video URL. Auth matches other v1 endpoints (API key). Video is long-running, so async is strongly recommended: pass async:true (or ?async=true) to return a task_... object immediately and generate in the background, then poll GET /v1/videos/{id} or use callback_url; otherwise it runs synchronously, holding the connection with keep-alive until the video is ready.",
           example: `# 1. Text-to-video. model is a full Firefly video id.
 curl https://gpt2image.superapi.buzz/v1/videos/generations \\
   -H "Authorization: Bearer $GPT2IMAGE_API_KEY" \\
@@ -4313,7 +4322,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               name: "moderation",
               requirement: "Optional",
               description:
-                "auto or low. Used as a runtime image_generation parameter inside Agent.",
+                "auto or low. Passed upstream as an image_generation parameter inside Agent; it does not change FluxMedia's centrally managed content-moderation level.",
             },
             {
               name: "output_format",
@@ -4571,7 +4580,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
               requirement: "Optional",
               custom: true,
               description:
-                "Convenience field used as the run-time image moderation setting.",
+                "Convenience field passed upstream as the runtime image moderation setting. It does not change FluxMedia's centrally managed content-moderation level.",
             },
             {
               name: "output_format",

@@ -1,5 +1,11 @@
+---
+superseded_by: docs/plans/2026-07-23-001-feat-api-key-management-moderation-plan.md
+---
+
 # 纯中转 API Key（Relay-Only / Passthrough）实现计划
 
+> **替代说明（2026-07-23）：** 本计划已被 `docs/plans/2026-07-23-001-feat-api-key-management-moderation-plan.md` 取代。所有 API 密钥现统一走普通历史、对象存储、使用记录与续承路径；下文仅保留历史实现和审查背景，不代表现行产品能力。
+>
 > 2026-05-30。基于多 Agent 探查（`docs/` 工作流结论）。分支 `dev`。
 > **状态：已实现并通过对抗式审查。** 提交：7c6da21 / bec842a / 8400260 / 48b717d / 6210de4 / e957f48 / 80be167。
 > 4 包 typecheck 通过；154 测试（shared 45 + web 109）全过。对抗式审查 = 17 误报 + 2 低危确认（均已修复于 80be167）。

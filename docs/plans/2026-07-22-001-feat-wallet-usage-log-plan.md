@@ -14,6 +14,8 @@ superseded_by: docs/plans/2026-07-22-002-feat-unified-history-records-plan.md
 # 钱包与使用日志重构 - Plan
 
 > 独立“使用日志”用户界面及其退款行、请求级活动表要求已被 `docs/plans/2026-07-22-002-feat-unified-history-records-plan.md` 取代；本文的钱包、支付兼容和保留在 UOL 的计费用量能力仍有效。
+>
+> **API 密钥治理替代说明（2026-07-23）：** 本文关于 `relayOnly` 排除、拒绝和不可见性的设计前提已被 `docs/plans/2026-07-23-001-feat-api-key-management-moderation-plan.md` 取代。所有 API 密钥请求现统一走普通持久化与使用记录路径；正文中的相关表述仅保留为历史决策背景，不得指导新实现。
 
 ## Goal Capsule
 

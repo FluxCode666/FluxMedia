@@ -468,7 +468,7 @@
           "batch": "Up to 10 images per batch",
           "fileSize": "Uploads: 20MB per image, 75MB total",
           "queue": "Up to 5 concurrent generations",
-          "externalApi": "External API key calls",
+          "externalApi": "API key calls",
           "customApi": "Custom OpenAI-compatible API",
           "export": "Download & share",
           "history": "Gallery history saved forever",
@@ -494,7 +494,7 @@
           "queue": "Priority queue, up to 15 concurrent generations",
           "export": "Download & share",
           "history": "Gallery history saved forever",
-          "externalApi": "External API key calls",
+          "externalApi": "API key calls",
           "customApi": "Custom OpenAI-compatible API",
           "support": "Priority support"
         }
@@ -519,7 +519,7 @@
           "queue": "Highest priority queue, up to 50 concurrent generations",
           "export": "Download & share",
           "history": "Gallery history saved forever",
-          "externalApi": "External API key calls",
+          "externalApi": "API key calls",
           "customApi": "Custom OpenAI-compatible API",
           "support": "Dedicated support"
         }
@@ -545,7 +545,7 @@
           "enterpriseResourcePackUnlimited": "Unlimited enterprise resource pack purchases by quantity",
           "export": "Download & share",
           "history": "Gallery history saved forever",
-          "externalApi": "External API key calls",
+          "externalApi": "API key calls",
           "customApi": "Custom OpenAI-compatible API",
           "support": "Dedicated support"
         }

@@ -12,6 +12,8 @@ execution: code
 
 # 用户控制台统计重构 - Plan
 
+> **替代说明（2026-07-23）：** 本文关于 `relayOnly` 请求不进入统计的设计前提已被 `docs/plans/2026-07-23-001-feat-api-key-management-moderation-plan.md` 取代。所有 API 密钥请求现统一走普通持久化与统计路径；正文中的相关表述仅保留为历史决策背景，不得指导新实现。
+
 ## Goal Capsule
 
 - **Objective:** 将普通用户控制台重做为分析优先首页，让用户快速了解今日与累计产出，并按有限时间范围查看生图、生视频趋势和任务类型分布。
