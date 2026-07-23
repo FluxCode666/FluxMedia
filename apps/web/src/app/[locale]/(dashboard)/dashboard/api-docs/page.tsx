@@ -31,5 +31,5 @@ export default async function DashboardApiDocsPage() {
     redirect(`/${locale}/sign-in`);
   }
 
-  return <ApiIntegrationDocs locale={locale} />;
+  return <ApiIntegrationDocs embedded locale={locale} />;
 }

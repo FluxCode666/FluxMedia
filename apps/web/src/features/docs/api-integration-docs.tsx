@@ -1,5 +1,5 @@
 /**
- * 公开 API 接入文档的展示层。
+ * 公开页与控制台镜像共用的 API 接入文档展示层。
  *
  * 使用 @repo/ui 原语渲染参数表、响应表和代码示例，并把滚动高亮交给独立客户端
  * 电梯；数据与视图分离，确保公开页不会意外展示扩展字段。
@@ -7,6 +7,7 @@
 import { Badge } from "@repo/ui/components/badge";
 import { Card, CardContent } from "@repo/ui/components/card";
 import { CodeBlock } from "@repo/ui/components/code-block";
+import { cn } from "@repo/ui/utils";
 import { KeyRound, Link2 } from "lucide-react";
 
 import { ApiDocsElevator } from "./api-docs-elevator";
@@ -184,16 +185,28 @@ function EndpointSection({
 }
 
 /**
- * 渲染公开 API 接入页。
+ * 渲染可独立展示或嵌入控制台的 API 接入文档。
  *
  * @param locale - 当前路由语言。
+ * @param embedded - 是否嵌入已有横向内边距的控制台内容区。
  * @returns 双语、响应式且只包含公开兼容参数的文档页面。
  */
-export function ApiIntegrationDocs({ locale }: { locale?: string }) {
+export function ApiIntegrationDocs({
+  embedded = false,
+  locale,
+}: {
+  embedded?: boolean;
+  locale?: string;
+}) {
   const content = getApiIntegrationDocs(locale);
 
   return (
-    <div className="container mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16 lg:px-8">
+    <div
+      className={cn(
+        "mx-auto w-full max-w-[1600px] py-12 md:py-16",
+        embedded ? "px-0" : "px-4 sm:px-6 lg:px-8"
+      )}
+    >
       <header className="max-w-4xl animate-in fade-in slide-in-from-bottom-2 duration-400 motion-reduce:animate-none">
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
           {content.eyebrow}
