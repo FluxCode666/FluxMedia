@@ -65,11 +65,18 @@ import {
   updateExternalApiKeyQuota,
 } from "../actions/external-api-key";
 import {
+  canApplyExternalApiKeyFullListLoad,
+  createExternalApiKeyActivityState,
   createExternalApiKeyListState,
   type ExternalApiKeyRowMutation,
+  finishExternalApiKeyFullListLoad,
+  finishExternalApiKeyMutation,
   getExternalApiKeyDeleteFocusTarget,
   isExternalApiKeyRowLocked,
   reduceExternalApiKeyListState,
+  restoreExternalApiKeyDeleteFocus,
+  tryStartExternalApiKeyFullListLoad,
+  tryStartExternalApiKeyMutation,
 } from "./external-api-key-list-state";
 
 const DEFAULT_GROUP_VALUE = "default";
@@ -124,6 +131,8 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   const createHeadingRef = useRef<HTMLHeadingElement>(null);
   const rowTriggerRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingRowsRef = useRef(new Set<string>());
+  const activityRef = useRef(createExternalApiKeyActivityState());
+  const createMutationActiveRef = useRef(false);
   const newKeyInputRef = useRef<HTMLInputElement>(null);
 
   const [listState, setListState] = useState(() =>
@@ -149,6 +158,9 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
     () => new Set(editableGroups.map((group) => group.id)),
     [editableGroups]
   );
+  const isFullListLoading = loadStatus === "loading" || isRefreshing;
+  const hasActiveMutation =
+    isCreating || Object.keys(listState.pendingByKeyId).length > 0;
 
   /** 用服务端摘要重建列表和编辑草稿；只在完整加载成功时调用。 */
   const applyLoadedList = useCallback((data: ExternalApiKeyListResult) => {
@@ -175,23 +187,34 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   /** 初次加载或人工重试列表；加载失败永不降级为空态。 */
   const loadKeys = useCallback(
     async (initial: boolean) => {
+      const loadToken = tryStartExternalApiKeyFullListLoad(activityRef.current);
+      if (!loadToken) return;
       if (initial) {
         setLoadStatus("loading");
       } else {
         setIsRefreshing(true);
       }
       setLoadError("");
-      const result = await getExternalApiKeys();
-      if (result?.data) {
-        applyLoadedList(result.data);
-        setLoadStatus("ready");
-      } else if (initial) {
-        setLoadStatus("error");
-        setLoadError(getActionError(result, t("errors.load")));
-      } else {
-        toast.error(getActionError(result, t("errors.load")));
+      try {
+        const result = await getExternalApiKeys();
+        if (
+          !canApplyExternalApiKeyFullListLoad(activityRef.current, loadToken)
+        ) {
+          return;
+        }
+        if (result?.data) {
+          applyLoadedList(result.data);
+          setLoadStatus("ready");
+        } else if (initial) {
+          setLoadStatus("error");
+          setLoadError(getActionError(result, t("errors.load")));
+        } else {
+          toast.error(getActionError(result, t("errors.load")));
+        }
+      } finally {
+        finishExternalApiKeyFullListLoad(activityRef.current, loadToken);
+        setIsRefreshing(false);
       }
-      setIsRefreshing(false);
     },
     [applyLoadedList, t]
   );
@@ -223,6 +246,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   const startRowMutation = useCallback(
     (keyId: string, operation: ExternalApiKeyRowMutation): boolean => {
       if (pendingRowsRef.current.has(keyId)) return false;
+      if (!tryStartExternalApiKeyMutation(activityRef.current)) return false;
       pendingRowsRef.current.add(keyId);
       dispatchListAction({
         type: "mutation-started",
@@ -237,6 +261,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
   /** 释放同步行锁；纯 reducer 的 pending 状态由成功/失败 action 同步清理。 */
   const finishRowMutation = useCallback((keyId: string): void => {
     pendingRowsRef.current.delete(keyId);
+    finishExternalApiKeyMutation(activityRef.current);
   }, []);
 
   /** mutation 失败后只取目标行真实状态；若行已消失则采用完整服务端列表。 */
@@ -285,39 +310,47 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
       toast.error(t("errors.quotaInvalid"));
       return;
     }
+    if (createMutationActiveRef.current) return;
+    if (!tryStartExternalApiKeyMutation(activityRef.current)) return;
+    createMutationActiveRef.current = true;
     setIsCreating(true);
-    const result = await createExternalApiKey({
-      name: keyName.trim() || undefined,
-      generationGroupId:
-        newKeyGroupId === DEFAULT_GROUP_VALUE ? null : newKeyGroupId,
-      creditLimit,
-    });
-    setIsCreating(false);
-    if (!result?.data) {
-      toast.error(
-        `${getActionError(result, t("errors.create"))} ${t("errors.createNoRetry")}`
-      );
-      return;
+    try {
+      const result = await createExternalApiKey({
+        name: keyName.trim() || undefined,
+        generationGroupId:
+          newKeyGroupId === DEFAULT_GROUP_VALUE ? null : newKeyGroupId,
+        creditLimit,
+      });
+      if (!result?.data) {
+        toast.error(
+          `${getActionError(result, t("errors.create"))} ${t("errors.createNoRetry")}`
+        );
+        return;
+      }
+      setNewKey(result.data.apiKey);
+      setNewKeyCreditLimit("");
+      setListState((current) => ({
+        ...current,
+        items: [result.data.key, ...current.items],
+      }));
+      setGroupDrafts((current) => ({
+        ...current,
+        [result.data.key.id]:
+          result.data.key.generationGroupId || DEFAULT_GROUP_VALUE,
+      }));
+      setQuotaDrafts((current) => ({
+        ...current,
+        [result.data.key.id]:
+          result.data.key.creditLimit === null
+            ? ""
+            : String(result.data.key.creditLimit),
+      }));
+      toast.success(t("success.created"));
+    } finally {
+      createMutationActiveRef.current = false;
+      setIsCreating(false);
+      finishExternalApiKeyMutation(activityRef.current);
     }
-    setNewKey(result.data.apiKey);
-    setNewKeyCreditLimit("");
-    setListState((current) => ({
-      ...current,
-      items: [result.data.key, ...current.items],
-    }));
-    setGroupDrafts((current) => ({
-      ...current,
-      [result.data.key.id]:
-        result.data.key.generationGroupId || DEFAULT_GROUP_VALUE,
-    }));
-    setQuotaDrafts((current) => ({
-      ...current,
-      [result.data.key.id]:
-        result.data.key.creditLimit === null
-          ? ""
-          : String(result.data.key.creditLimit),
-    }));
-    toast.success(t("success.created"));
   };
 
   /** 复制一次性明文；失败时聚焦并选中文本，允许用户手工复制。 */
@@ -439,11 +472,11 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
     });
     finishRowMutation(keyId);
     window.requestAnimationFrame(() => {
-      if (focusTarget.type === "row") {
-        rowTriggerRefs.current.get(focusTarget.keyId)?.focus();
-      } else {
-        createHeadingRef.current?.focus();
-      }
+      restoreExternalApiKeyDeleteFocus(
+        focusTarget,
+        rowTriggerRefs.current,
+        createHeadingRef.current
+      );
     });
     toast.success(t("success.deleted"));
   };
@@ -532,7 +565,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
               value={keyName}
               onChange={(event) => setKeyName(event.target.value)}
               placeholder={t("namePlaceholder")}
-              disabled={!canManageKeys || isCreating}
+              disabled={!canManageKeys || isCreating || isFullListLoading}
             />
           </div>
           <div className="space-y-1.5">
@@ -542,7 +575,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
             <Select
               value={newKeyGroupId}
               onValueChange={setNewKeyGroupId}
-              disabled={!canManageKeys || isCreating}
+              disabled={!canManageKeys || isCreating || isFullListLoading}
             >
               <SelectTrigger id="external-api-key-group" className="w-full">
                 <SelectValue />
@@ -571,13 +604,13 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
               value={newKeyCreditLimit}
               onChange={(event) => setNewKeyCreditLimit(event.target.value)}
               placeholder={t("quota.createPlaceholder")}
-              disabled={!canManageKeys || isCreating}
+              disabled={!canManageKeys || isCreating || isFullListLoading}
             />
           </div>
           <Button
             type="button"
             onClick={() => void handleCreateKey()}
-            disabled={!canManageKeys || isCreating}
+            disabled={!canManageKeys || isCreating || isFullListLoading}
           >
             {isCreating ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -600,7 +633,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
             variant="outline"
             size="icon"
             onClick={() => void loadKeys(false)}
-            disabled={isRefreshing || loadStatus === "loading"}
+            disabled={isFullListLoading || hasActiveMutation}
             aria-label={t("refresh")}
           >
             <RefreshCw
@@ -679,7 +712,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                               else rowTriggerRefs.current.delete(key.id);
                             }}
                             type="button"
-                            disabled={isLocked}
+                            disabled={isLocked || isRefreshing}
                             className="grid min-w-0 flex-1 cursor-pointer grid-cols-1 gap-3 px-4 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-wait disabled:opacity-70 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-center md:gap-4"
                             aria-label={
                               isExpanded
@@ -754,7 +787,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  disabled={isLocked}
+                                  disabled={isLocked || isRefreshing}
                                 >
                                   {pendingOperation === "revoke" ? (
                                     <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -791,7 +824,7 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                                   variant="outline"
                                   size="sm"
                                   className="text-destructive"
-                                  disabled={isLocked}
+                                  disabled={isLocked || isRefreshing}
                                 >
                                   {pendingOperation === "delete" ? (
                                     <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -851,7 +884,9 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                                         [key.id]: value,
                                       }))
                                     }
-                                    disabled={isLocked || !canManageKeys}
+                                    disabled={
+                                      isLocked || isRefreshing || !canManageKeys
+                                    }
                                   >
                                     <SelectTrigger
                                       id={`external-key-group-${key.id}`}
@@ -886,7 +921,9 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                                     type="button"
                                     variant="outline"
                                     onClick={() => void handleSaveGroup(key.id)}
-                                    disabled={isLocked || !canManageKeys}
+                                    disabled={
+                                      isLocked || isRefreshing || !canManageKeys
+                                    }
                                   >
                                     {pendingOperation === "update-group" ? (
                                       <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
@@ -917,13 +954,17 @@ export function ExternalApiKeySection({ timeZone }: { timeZone?: string }) {
                                       }))
                                     }
                                     placeholder={t("quota.placeholder")}
-                                    disabled={isLocked || !canManageKeys}
+                                    disabled={
+                                      isLocked || isRefreshing || !canManageKeys
+                                    }
                                   />
                                   <Button
                                     type="button"
                                     variant="outline"
                                     onClick={() => void handleSaveQuota(key.id)}
-                                    disabled={isLocked || !canManageKeys}
+                                    disabled={
+                                      isLocked || isRefreshing || !canManageKeys
+                                    }
                                   >
                                     {pendingOperation === "update-quota" ? (
                                       <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />

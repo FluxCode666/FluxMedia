@@ -4,13 +4,20 @@
  * 覆盖独立展开、按行操作锁、操作结果归并，以及删除后的键盘焦点目标，
  * 保证这些交互规则不依赖 React 或数据库即可验证。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  canApplyExternalApiKeyFullListLoad,
+  createExternalApiKeyActivityState,
   createExternalApiKeyListState,
+  finishExternalApiKeyFullListLoad,
+  finishExternalApiKeyMutation,
   getExternalApiKeyDeleteFocusTarget,
   isExternalApiKeyRowLocked,
   reduceExternalApiKeyListState,
+  restoreExternalApiKeyDeleteFocus,
+  tryStartExternalApiKeyFullListLoad,
+  tryStartExternalApiKeyMutation,
 } from "./external-api-key-list-state";
 
 type TestKey = {
@@ -25,6 +32,22 @@ const keys: readonly [TestKey, TestKey, TestKey] = [
   { id: "key-b", name: "B", isActive: true, creditLimit: 200 },
   { id: "key-c", name: "C", isActive: false, creditLimit: null },
 ];
+
+type Deferred<TValue> = {
+  readonly promise: Promise<TValue>;
+  readonly resolve: (value: TValue) => void;
+};
+
+/** 创建可由测试显式决定完成顺序的 Promise。 */
+function createDeferred<TValue>(): Deferred<TValue> {
+  let resolvePromise: (value: TValue) => void = () => {
+    throw new Error("Deferred Promise 尚未初始化");
+  };
+  const promise = new Promise<TValue>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
+}
 
 describe("API 密钥列表状态", () => {
   it("允许多行独立展开，并仅切换目标行", () => {
@@ -173,6 +196,72 @@ describe("API 密钥列表状态", () => {
   });
 });
 
+describe("完整列表加载与 mutation 协调", () => {
+  it("刷新先开始时拒绝 mutation，并允许当前刷新响应落状态", async () => {
+    const activity = createExternalApiKeyActivityState();
+    const refreshResponse = createDeferred<readonly TestKey[]>();
+    const refreshToken = tryStartExternalApiKeyFullListLoad(activity);
+    if (!refreshToken) {
+      throw new Error("首次刷新应成功取得活动令牌");
+    }
+    const appliedResponse = refreshResponse.promise.then((items) => ({
+      items,
+      canApply: canApplyExternalApiKeyFullListLoad(activity, refreshToken),
+    }));
+
+    expect(tryStartExternalApiKeyMutation(activity)).toBe(false);
+    refreshResponse.resolve(keys);
+
+    await expect(appliedResponse).resolves.toEqual({
+      items: keys,
+      canApply: true,
+    });
+    finishExternalApiKeyFullListLoad(activity, refreshToken);
+  });
+
+  it("mutation 先开始时拒绝刷新，mutation 返回后才允许新刷新", async () => {
+    const activity = createExternalApiKeyActivityState();
+    const mutationResponse = createDeferred<TestKey>();
+    expect(tryStartExternalApiKeyMutation(activity)).toBe(true);
+    const completedMutation = mutationResponse.promise.then((item) => {
+      finishExternalApiKeyMutation(activity);
+      return item;
+    });
+
+    expect(tryStartExternalApiKeyFullListLoad(activity)).toBeNull();
+    mutationResponse.resolve(keys[0]);
+    await expect(completedMutation).resolves.toEqual(keys[0]);
+
+    const refreshToken = tryStartExternalApiKeyFullListLoad(activity);
+    expect(refreshToken).not.toBeNull();
+    if (refreshToken) {
+      expect(canApplyExternalApiKeyFullListLoad(activity, refreshToken)).toBe(
+        true
+      );
+      finishExternalApiKeyFullListLoad(activity, refreshToken);
+    }
+  });
+
+  it("拒绝已被后续 mutation revision 淘汰的刷新响应", async () => {
+    const activity = createExternalApiKeyActivityState();
+    const staleRefreshResponse = createDeferred<readonly TestKey[]>();
+    const staleToken = tryStartExternalApiKeyFullListLoad(activity);
+    if (!staleToken) {
+      throw new Error("首次刷新应成功取得活动令牌");
+    }
+    finishExternalApiKeyFullListLoad(activity, staleToken);
+    expect(tryStartExternalApiKeyMutation(activity)).toBe(true);
+    finishExternalApiKeyMutation(activity);
+
+    const appliedResponse = staleRefreshResponse.promise.then(() =>
+      canApplyExternalApiKeyFullListLoad(activity, staleToken)
+    );
+    staleRefreshResponse.resolve(keys);
+
+    await expect(appliedResponse).resolves.toBe(false);
+  });
+});
+
 describe("删除后的焦点目标", () => {
   it("删除首行或中间行后聚焦下一行", () => {
     expect(getExternalApiKeyDeleteFocusTarget(keys, "key-a")).toEqual({
@@ -196,5 +285,20 @@ describe("删除后的焦点目标", () => {
     expect(getExternalApiKeyDeleteFocusTarget([keys[0]], "key-a")).toEqual({
       type: "create",
     });
+  });
+
+  it("并发删除卸载预选相邻行后回退聚焦创建区", () => {
+    const focusTarget = getExternalApiKeyDeleteFocusTarget(keys, "key-a");
+    const focusCreate = vi.fn();
+    const rowTargets = new Map<string, { focus: () => void }>([
+      ["key-b", { focus: vi.fn() }],
+    ]);
+    rowTargets.delete("key-b");
+
+    restoreExternalApiKeyDeleteFocus(focusTarget, rowTargets, {
+      focus: focusCreate,
+    });
+
+    expect(focusCreate).toHaveBeenCalledOnce();
   });
 });
