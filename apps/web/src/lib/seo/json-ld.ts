@@ -1,12 +1,21 @@
+/**
+ * 站点结构化数据的纯生成器。
+ *
+ * 使用方：SEO JSON-LD React 组件与 Vitest；统一站点 URL、品牌、本地化描述和
+ * schema 结构，不负责渲染 script，也不读取请求输入。
+ */
 import { siteConfig } from "@repo/shared/config";
 
 type LocaleType = "en" | "zh";
 
-// Base URL helper
+/** 返回站点配置中的公开 Base URL。 */
 const getBaseUrl = () => siteConfig.url;
 
 /**
- * WebSite Schema - for site-wide search/branding
+ * 生成站点级搜索与品牌 schema。
+ *
+ * @param locale - 当前页面语言。
+ * @returns 本地化 WebSite 结构化数据。
  */
 export function generateWebSiteSchema(locale: LocaleType) {
   return {
@@ -16,8 +25,8 @@ export function generateWebSiteSchema(locale: LocaleType) {
     url: getBaseUrl(),
     description:
       locale === "en"
-        ? "AI-powered chat-to-image generation platform. Transform your words into stunning visuals through natural conversation."
-        : "AI驱动的对话生图平台，通过自然对话将你的想法转化为精美视觉图片。",
+        ? "Create visual work with natural language, explore current runtime model categories, and integrate FluxMedia through its existing API."
+        : "用自然语言创作视觉作品，浏览当前运行时模型分类，并通过现有 API 集成 FluxMedia。",
     inLanguage: locale === "en" ? "en-US" : "zh-CN",
     potentialAction: {
       "@type": "SearchAction",
@@ -31,12 +40,14 @@ export function generateWebSiteSchema(locale: LocaleType) {
 }
 
 /**
- * Organization Schema - for brand identity
+ * 生成品牌组织 schema。
+ *
+ * @returns Organization 结构化数据；所有社媒地址为空时省略 sameAs。
  */
 export function generateOrganizationSchema() {
-  const sameAs = [siteConfig.links.twitter, siteConfig.links.github].filter(
-    Boolean
-  );
+  const sameAs = [siteConfig.links.twitter, siteConfig.links.github]
+    .map((link) => link.trim())
+    .filter((link) => link.length > 0);
 
   return {
     "@context": "https://schema.org",
@@ -54,7 +65,7 @@ export function generateOrganizationSchema() {
 }
 
 /**
- * Article Schema Input
+ * 文章 schema 输入。
  */
 export interface ArticleSchemaInput {
   title: string;
@@ -69,7 +80,10 @@ export interface ArticleSchemaInput {
 }
 
 /**
- * Article Schema - for blog posts
+ * 生成博客文章 schema。
+ *
+ * @param input - 已由调用方校验的文章公开字段。
+ * @returns Article 结构化数据；可选图片与标签为空时省略对应字段。
  */
 export function generateArticleSchema(input: ArticleSchemaInput) {
   const {
@@ -116,7 +130,7 @@ export function generateArticleSchema(input: ArticleSchemaInput) {
 }
 
 /**
- * FAQ Item type
+ * FAQ 公开问答字段。
  */
 export interface FAQItem {
   question: string;
@@ -124,9 +138,12 @@ export interface FAQItem {
 }
 
 /**
- * FAQ Schema - for FAQ sections
+ * 生成 FAQ 区块 schema。
+ *
+ * @param faqs - 与页面可见内容共用的问答列表。
+ * @returns 按输入顺序生成的 FAQPage 结构化数据。
  */
-export function generateFAQSchema(faqs: FAQItem[]) {
+export function generateFAQSchema(faqs: readonly FAQItem[]) {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -142,7 +159,7 @@ export function generateFAQSchema(faqs: FAQItem[]) {
 }
 
 /**
- * Breadcrumb Item type
+ * 面包屑公开字段。
  */
 export interface BreadcrumbItem {
   name: string;
@@ -150,7 +167,10 @@ export interface BreadcrumbItem {
 }
 
 /**
- * Breadcrumb Schema - for navigation
+ * 生成导航面包屑 schema。
+ *
+ * @param items - 已排序的面包屑列表。
+ * @returns BreadcrumbList 结构化数据；相对路径自动拼接站点 URL。
  */
 export function generateBreadcrumbSchema(items: BreadcrumbItem[]) {
   return {
@@ -168,7 +188,10 @@ export function generateBreadcrumbSchema(items: BreadcrumbItem[]) {
 }
 
 /**
- * SoftwareApplication Schema - for the product itself
+ * 生成首页软件产品 schema。
+ *
+ * @param locale - 当前页面语言。
+ * @returns 不含报价或价格信息的本地化 SoftwareApplication 结构化数据。
  */
 export function generateSoftwareApplicationSchema(locale: LocaleType) {
   return {
@@ -180,13 +203,7 @@ export function generateSoftwareApplicationSchema(locale: LocaleType) {
     url: getBaseUrl(),
     description:
       locale === "en"
-        ? "AI-powered chat-to-image generation platform for creating stunning visuals from natural conversation"
-        : "AI驱动的对话生图平台，通过自然对话创建精美视觉图片",
-    offers: {
-      "@type": "Offer",
-      price: "0",
-      priceCurrency: "CNY",
-      description: locale === "en" ? "Free tier available" : "提供免费版本",
-    },
+        ? "Create visual work with natural language, explore current runtime model categories, and connect through the existing API integration."
+        : "用自然语言创作视觉作品，浏览当前运行时模型分类，并通过现有 API 完成集成。",
   };
 }

@@ -12,7 +12,11 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/routing";
 
 import { HOMEPAGE_ARTWORKS, type HomepageArtwork } from "./homepage-artworks";
-import { HomepageFaq, parseHomepageFaqItems } from "./homepage-faq";
+import {
+  HomepageFaq,
+  type HomepageFaqItem,
+  parseHomepageFaqItems,
+} from "./homepage-faq";
 import { HomepageFooter } from "./homepage-footer";
 import { HomepageIntegration } from "./homepage-integration";
 import { HomepageModelCatalog } from "./homepage-model-catalog";
@@ -40,12 +44,14 @@ function getArtworkAspectClassName(layout: HomepageArtwork["layout"]): string {
 export async function HomepageContent({
   locale,
   data,
+  faqItems,
 }: {
   locale: string;
   data: HomepagePageData;
+  faqItems?: readonly HomepageFaqItem[];
 }) {
   const t = await getTranslations({ locale, namespace: "Homepage" });
-  const faqItems = parseHomepageFaqItems(t.raw("faq.items"));
+  const visibleFaqItems = faqItems ?? parseHomepageFaqItems(t.raw("faq.items"));
   const integrationCatalog =
     data.catalog.status === "ready"
       ? { status: "ready" as const, image: data.catalog.image }
@@ -243,7 +249,7 @@ export async function HomepageContent({
       <HomepageFaq
         description={t("faq.description")}
         eyebrow={t("faq.eyebrow")}
-        items={faqItems}
+        items={visibleFaqItems}
         title={t("faq.title")}
       />
 

@@ -75,7 +75,7 @@ export function ArticleJsonLd(props: ArticleSchemaInput) {
  * @param faqs - FAQ 条目；空数组不输出脚本。
  * @returns FAQ JSON-LD 脚本或 null；无外部副作用。
  */
-export function FAQJsonLd({ faqs }: { faqs: FAQItem[] }) {
+export function FAQJsonLd({ faqs }: { faqs: readonly FAQItem[] }) {
   if (!faqs || faqs.length === 0) return null;
   return <JsonLdScript data={generateFAQSchema(faqs)} />;
 }
@@ -113,7 +113,7 @@ export function HomePageJsonLd({
   faqs,
 }: {
   locale: LocaleType;
-  faqs?: FAQItem[];
+  faqs?: readonly FAQItem[];
 }) {
   return (
     <>
