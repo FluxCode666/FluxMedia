@@ -50,7 +50,7 @@ export async function HomepageContent({
     <HomepageMotion>
       <section
         aria-labelledby="homepage-hero-title"
-        className="relative isolate overflow-hidden border-b border-border px-4 py-12 sm:px-6 sm:py-16 lg:min-h-[calc(100svh-4rem)] lg:px-8 lg:py-20"
+        className="relative isolate overflow-hidden border-b border-border px-4 py-6 sm:px-6 sm:py-10 lg:min-h-[calc(100svh-4rem)] lg:px-8 lg:py-12"
         data-homepage-motion="hero"
       >
         <div
@@ -58,8 +58,8 @@ export async function HomepageContent({
           className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_86%_14%,color-mix(in_oklab,var(--destructive)_7%,transparent),transparent_28%),linear-gradient(to_bottom,color-mix(in_oklab,var(--muted)_35%,transparent),transparent_55%)]"
         />
         <div className="mx-auto w-full max-w-7xl">
-          <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
-            <div>
+          <div className="grid overflow-hidden rounded-3xl border border-border/80 bg-card/70 shadow-whisper backdrop-blur-sm lg:grid-cols-[0.94fr_1.06fr] lg:items-stretch">
+            <div className="relative z-10 flex flex-col justify-center px-6 py-10 sm:px-10 sm:py-12 lg:px-12 lg:py-14">
               <p
                 className="font-mono text-xs uppercase tracking-[0.24em] text-destructive"
                 data-homepage-motion="hero-copy"
@@ -67,7 +67,7 @@ export async function HomepageContent({
                 {t("hero.eyebrow")}
               </p>
               <h1
-                className="mt-5 max-w-4xl font-serif text-4xl font-medium leading-[1.02] tracking-[-0.03em] sm:text-5xl lg:text-5xl"
+                className="mt-5 max-w-3xl font-serif text-4xl font-medium leading-[0.98] tracking-[-0.035em] sm:text-5xl lg:text-[clamp(3.25rem,4.3vw,4rem)]"
                 data-homepage-motion="hero-copy"
                 id="homepage-hero-title"
               >
@@ -76,67 +76,69 @@ export async function HomepageContent({
                   {t("hero.titleAccent")}
                 </span>
               </h1>
+              <p
+                className="mt-6 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base"
+                data-homepage-motion="hero-copy"
+              >
+                {t("hero.description")}
+              </p>
+              <div
+                className="mt-8 flex flex-wrap gap-3"
+                data-homepage-motion="hero-copy"
+              >
+                <Button asChild className="rounded-full px-6" size="lg">
+                  <Link href={data.ctaHref}>
+                    {t("hero.cta")}
+                    <ArrowUpRight className="size-4" />
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  className="rounded-full px-6"
+                  size="lg"
+                  variant="outline"
+                >
+                  <Link href="/#work">
+                    {t("hero.workLink")}
+                    <ArrowDown className="size-4" />
+                  </Link>
+                </Button>
+              </div>
             </div>
-            <p
-              className="max-w-xl text-sm leading-7 text-muted-foreground lg:justify-self-end"
-              data-homepage-motion="hero-copy"
-            >
-              {t("hero.description")}
-            </p>
-          </div>
 
-          <figure
-            className="relative mt-10 border border-border bg-muted/20 p-2 sm:p-3"
-            data-homepage-motion="hero-artwork"
-          >
-            <div
-              className="relative overflow-hidden"
-              data-homepage-motion="hero-parallax"
+            <figure
+              className="relative min-h-[22rem] border-t border-border/70 bg-muted/25 p-2 sm:min-h-[26rem] sm:p-3 lg:min-h-[calc(100svh-10rem)] lg:border-l lg:border-t-0"
+              data-homepage-motion="hero-artwork"
             >
-              <Image
-                alt={t("artworks.alts.mountain")}
-                className="aspect-[16/9] w-full object-cover sm:aspect-[16/7]"
-                height={900}
-                loading="eager"
-                priority
-                sizes="(max-width: 1280px) 94vw, 1216px"
-                src="/cinema/wall/w02.webp"
-                width={1600}
-              />
-              <figcaption className="relative mx-3 -mt-8 max-w-xl bg-[#11100f] p-5 text-[#f6f1e7] shadow-menu sm:absolute sm:inset-x-auto sm:bottom-6 sm:left-6 sm:m-0 sm:p-6 lg:max-w-2xl">
-                <div className="flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
-                  <span>{t("hero.promptLabel")} / 01</span>
-                  <span>{t("hero.artworkFormat")}</span>
-                </div>
-                <p className="mt-5 font-serif text-xl leading-snug sm:text-2xl">
-                  {t("hero.prompt")}
-                </p>
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Button
-                    asChild
-                    className="rounded-none bg-[#f6f1e7] text-[#11100f] hover:bg-white"
-                    size="lg"
-                  >
-                    <Link href={data.ctaHref}>
-                      {t("hero.cta")}
-                      <ArrowUpRight className="size-4" />
-                    </Link>
-                  </Button>
-                  <Button
-                    asChild
-                    className="rounded-none border-white/25 bg-transparent text-white hover:bg-white/10 hover:text-white"
-                    size="lg"
-                    variant="outline"
-                  >
-                    <Link href="/#work">
-                      {t("hero.workLink")}
-                      <ArrowDown className="size-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </figcaption>
-            </div>
-          </figure>
+              <div
+                className="relative h-full min-h-[21rem] overflow-hidden rounded-3xl sm:min-h-[24.5rem] lg:min-h-[calc(100svh-11.5rem)]"
+                data-homepage-motion="hero-parallax"
+              >
+                <Image
+                  alt={t("artworks.alts.mountain")}
+                  className="object-cover"
+                  fill
+                  loading="eager"
+                  priority
+                  sizes="(max-width: 1023px) 94vw, 58vw"
+                  src="/cinema/wall/w02.webp"
+                />
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-white/5"
+                />
+                <figcaption className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/10 bg-[#11100f]/90 p-4 text-[#f6f1e7] shadow-menu backdrop-blur-md sm:inset-x-auto sm:bottom-6 sm:left-6 sm:max-w-lg sm:p-5">
+                  <div className="flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
+                    <span>{t("hero.promptLabel")} / 01</span>
+                    <span>{t("hero.artworkFormat")}</span>
+                  </div>
+                  <p className="mt-4 font-serif text-lg leading-snug sm:text-xl">
+                    {t("hero.prompt")}
+                  </p>
+                </figcaption>
+              </div>
+            </figure>
+          </div>
         </div>
       </section>
 
