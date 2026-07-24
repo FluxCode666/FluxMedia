@@ -201,13 +201,13 @@ export async function HomepageContent({
           <div className="mt-12 grid grid-cols-2 gap-3 border-t border-white/25 pt-8 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
             {HOMEPAGE_ARTWORKS.slice(0, 6).map((artwork) => (
               <figure
-                className="group min-w-0"
+                className="min-w-0"
                 data-homepage-motion="artwork"
                 key={artwork.src}
               >
                 <Image
                   alt={t(artwork.altKey)}
-                  className="aspect-[3/4] w-full rounded-sm border border-white/15 object-cover grayscale-[0.18] transition-[filter,transform] duration-500 group-hover:-translate-y-1 group-hover:grayscale-0 motion-reduce:transition-none"
+                  className="aspect-[3/4] w-full rounded-sm border border-white/15 object-cover grayscale-[0.18]"
                   height={960}
                   sizes="(max-width: 640px) 46vw, (max-width: 1024px) 30vw, 15vw"
                   src={artwork.src}
