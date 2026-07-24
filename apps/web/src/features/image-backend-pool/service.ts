@@ -14,7 +14,6 @@ import {
   imageBackendSchedulerMetric,
   imageBackendStickyBinding,
   systemSetting,
-  userImageBackendPreference,
 } from "@repo/database/schema";
 import {
   canAdobeBackendServeModel,
@@ -2249,14 +2248,6 @@ async function resolveRequestedGroup(
     return { groupId: await getDefaultGroupId(), explicit: false };
   }
 
-  const preferenceGroupId = await getUserImageBackendPreference(
-    options.userId,
-    plan
-  );
-  if (preferenceGroupId) {
-    return { groupId: preferenceGroupId, explicit: true };
-  }
-
   return { groupId: await getDefaultGroupId(), explicit: false };
 }
 
@@ -3967,61 +3958,19 @@ export async function listImageBackendGroupOptions(options?: {
     }));
 }
 
-export async function listSelectableImageBackendGroups(
-  plan?: SubscriptionPlan
-) {
-  if (plan && !(await canUsePlanCapability(plan, "backendGroups.select"))) {
-    return [];
-  }
-  return await listImageBackendGroupOptions({ userSelectableOnly: true, plan });
-}
-
-export async function getUserImageBackendPreference(
-  userId: string,
-  plan?: SubscriptionPlan
-) {
-  const [preference] = await db
-    .select({ groupId: userImageBackendPreference.groupId })
-    .from(userImageBackendPreference)
-    .where(eq(userImageBackendPreference.userId, userId))
-    .limit(1);
-  if (!preference?.groupId) return null;
-
-  const [group] = await db
-    .select({
-      id: imageBackendGroup.id,
-      isEnabled: imageBackendGroup.isEnabled,
-      isUserSelectable: imageBackendGroup.isUserSelectable,
-      metadata: imageBackendGroup.metadata,
-    })
-    .from(imageBackendGroup)
-    .where(eq(imageBackendGroup.id, preference.groupId))
-    .limit(1);
-
-  return group?.id === preference.groupId &&
-    group.isEnabled &&
-    group.isUserSelectable &&
-    (!plan || canUseBackendGroupForPlan(group.metadata, plan))
-    ? preference.groupId
-    : null;
-}
-
 /**
- * 取得站内创作实际使用的计费分组上下文。
+ * 取得平台默认生图分组的计费上下文。
  *
- * @param userId - 当前登录用户 ID。
  * @param plan - 当前套餐，用于过滤无权使用的分组。
- * @returns 用户偏好分组；未设置偏好时返回平台默认分组；无可用分组时返回 null。
+ * @returns 平台默认分组；无可用分组时返回 null。
  *
- * WHY: 创作页预估必须与调度器使用同一个“偏好分组，否则默认分组”规则，否则
- * 默认分组不可由用户选择时，前端会漏掉该分组的模型固定价格和审核开关。
+ * WHY: 创作页和账单的预估必须与调度器在无显式请求分组时的默认路由一致，
+ * 否则会漏掉默认分组的模型固定价格和审核开关。
  */
-export async function getEffectiveImageBackendGroupForUser(
-  userId: string,
+export async function getEffectiveDefaultImageBackendGroup(
   plan: SubscriptionPlan
 ) {
-  const preferenceGroupId = await getUserImageBackendPreference(userId, plan);
-  const groupId = preferenceGroupId ?? (await getDefaultGroupId());
+  const groupId = await getDefaultGroupId();
   const group = await ensureGroupUsable(groupId, plan);
   if (!group) return null;
 
@@ -4033,54 +3982,6 @@ export async function getEffectiveImageBackendGroupForUser(
     contentSafetyEnabled: group.contentSafetyEnabled,
     imageCreditOverrides: getGroupImageCreditOverrides(group.metadata),
   };
-}
-
-export async function setUserImageBackendPreference(
-  userId: string,
-  groupId: string | null,
-  plan: SubscriptionPlan
-) {
-  if (groupId && !(await canUsePlanCapability(plan, "backendGroups.select"))) {
-    throw new Error("当前套餐不可手动选择生图分组");
-  }
-  if (groupId) {
-    const [group] = await db
-      .select({
-        id: imageBackendGroup.id,
-        metadata: imageBackendGroup.metadata,
-      })
-      .from(imageBackendGroup)
-      .where(
-        and(
-          eq(imageBackendGroup.id, groupId),
-          eq(imageBackendGroup.isEnabled, true),
-          eq(imageBackendGroup.isUserSelectable, true)
-        )
-      )
-      .limit(1);
-    if (!group || !canUseBackendGroupForPlan(group.metadata, plan)) {
-      throw new Error("生图分组不存在、不可选择或当前套餐不可用");
-    }
-  }
-
-  const [existing] = await db
-    .select({ id: userImageBackendPreference.id })
-    .from(userImageBackendPreference)
-    .where(eq(userImageBackendPreference.userId, userId))
-    .limit(1);
-
-  if (existing) {
-    await db
-      .update(userImageBackendPreference)
-      .set({ groupId, updatedAt: new Date() })
-      .where(eq(userImageBackendPreference.id, existing.id));
-  } else {
-    await db.insert(userImageBackendPreference).values({
-      id: nanoid(),
-      userId,
-      groupId,
-    });
-  }
 }
 
 type UpsertGroupInput = {

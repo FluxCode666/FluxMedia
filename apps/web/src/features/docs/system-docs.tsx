@@ -22,7 +22,7 @@ const sections = {
       "这里按当前代码真实链路说明：页面入口和外接入口都是协议适配层，不互相 HTTP 调用，最终统一进入同一套生成、扣费、调度和存储链路。默认部署启用自用模式：关闭公开注册，首次启动使用环境变量中的凭据创建超管。",
     flow: {
       title: "请求路由图",
-      note: "普通 image/chat/responses 请求中，用户自接 API 目前仍保留最高优先级；命中用户自接 API 时不扣本站积分，也不占用本站 API 密钥额度。Agent 或明确要求 Codex/Responses 的入口会忽略用户自接 API。外接接口不会反向请求站内 /api/images/*。",
+      note: "所有 image/chat/responses 请求统一由平台后端池调度并按平台积分结算。外接接口不会反向请求站内 /api/images/*。",
       entryTitle: "入口",
       resolverTitle: "统一处理",
       groupTitle: "分组选择",
@@ -118,11 +118,6 @@ const sections = {
       ],
       backends: [
         {
-          title: "用户自接 API",
-          description:
-            "如果用户设置了自己的 OpenAI 兼容 API，普通 image/chat/responses 请求会先直接使用它；命中时 useCredits=false，不扣本站余额，也不增加本站 API 密钥已用额度。",
-        },
-        {
           title: "Web 账号池",
           description:
             "通过 ChatGPT Web 链路承接页面文生图、图生图和对话生图。",
@@ -217,7 +212,7 @@ const sections = {
           "OpenAI Responses",
           "/v1/responses",
           "responses",
-          "无 tools 时平台补 image_generation；显式传 tools 时必须包含 image_generation。用户自接 API 可用时仍优先；否则按 responses 类型调度 Codex/Responses 分组或外接 /responses API。",
+          "无 tools 时平台补 image_generation；显式传 tools 时必须包含 image_generation。按 responses 类型调度 Codex/Responses 分组或外接 /responses API。",
         ],
         [
           "FluxMedia Agent image run",
@@ -327,9 +322,8 @@ const sections = {
         "API 密钥绑定的后端分组优先；未绑定时使用平台默认分组，再回退默认启用分组。页面创作才使用用户选择的默认分组。",
         "图片按实际输出像素归入 1024、1K、2K、4K 固定档位；价格依次读取所选分组的模型覆盖、全局模型价格和通用档位价格，再加运行时审核费。图片和视频均不使用分组倍率。",
         "API 密钥可设置独立积分限额；GET /v1/credits 可查询密钥限额、已用额度和账户余额。",
-        "用户已启用“接入其他站 API”时，普通 /v1/chat/completions、/v1/images/generations、/v1/images/edits 和 /v1/responses 仍优先使用用户自接 API；命中时 credits_consumed 为 0，不扣本站余额，也不增加本站 API 密钥已用额度。",
-        "/v1/agents/images 和需要 Codex/Responses 能力的页面功能会忽略用户自接 API，按平台后端池或外接后端池结算本站积分。",
-        "image 接口的 web_first / webFirst / force_web / forceWeb（chat 对应 mix_web_first）是 Web-first 优先路由，不是硬性只走 Web，且默认开启。开启时（不传或显式 true）按 Web-first 像素区间（IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS，默认 0.66MP-2MP）判定：尺寸落在区间内才优先 Web、失败回退 Codex/Responses，超出区间（如 4K）则走正常调度；auto 或无法解析的尺寸视为可优先 Web。显式传 false 则不优先 Web。该路由只对 mixed 后端分组生效（纯 Web / 纯 Codex-Responses 分组无此概念），不会覆盖用户自接 API；agent 始终走 Codex/Responses，不受此项影响。",
+        "所有页面和外接 API 请求都使用平台后端池，并按平台积分与 API 密钥额度结算。",
+        "image 接口的 web_first / webFirst / force_web / forceWeb（chat 对应 mix_web_first）是 Web-first 优先路由，不是硬性只走 Web，且默认开启。开启时（不传或显式 true）按 Web-first 像素区间（IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS，默认 0.66MP-2MP）判定：尺寸落在区间内才优先 Web、失败回退 Codex/Responses，超出区间（如 4K）则走正常调度；auto 或无法解析的尺寸视为可优先 Web。显式传 false 则不优先 Web。该路由只对 mixed 后端分组生效（纯 Web / 纯 Codex-Responses 分组无此概念）；agent 始终走 Codex/Responses，不受此项影响。",
         "Adobe（Firefly）后端：作为特殊成员按 priority 挂入分组同池调度——firefly-* 模型或 force_firefly=true 会把候选收敛到仅 Adobe；普通请求则只有当组内 web/codex/api 限流、耗尽或可切换失败时才兜底到 Adobe（取决于 Adobe 是否在该组及其优先级，priority 越大越靠后）。图片使用模型四档固定价加运行时审核费，视频使用模型族每秒固定价格；两者都不乘 Adobe 或分组倍率。路由兜底详见 /docs/adobe-firefly-routing，兼容转换详见 /docs/adobe-firefly-compat。",
         "异步任务（async）：body async:true 或 URL ?async=true（等价、不能与 stream 同用）会立即返回 task_... 任务，需用 GET /v1/images/{task_id} 轮询；task_... 为进程内内存对象，30 分钟后过期，服务重启或多实例切换即无法再查询。若需持久查询，改用响应里的 generation_id（gen_...）作为 GET /v1/images/{id} 的路径参数——它从数据库取回，跨重启/多实例都可查（同步请求也可用此方式按 generation_id 复查）。callback_url 是可选的完成回调 webhook——任务结束时服务端把任务对象 POST 到该公网地址，已发出的回调不受过期/重启影响。视频同理：/v1/videos/generations 传 async:true（或 ?async=true）即立即返回 task_...，用 GET /v1/videos/{id} 轮询（task_... 30 分钟过期，或用响应里的 generation_id 持久查），或用 callback_url 完成回调——视频是长任务，强烈建议异步，以免同步连接被中途掐断丢产物。",
       ],
@@ -468,7 +462,6 @@ const sections = {
           ],
           notes: [
             "API 密钥限额只限制该密钥自身；走本站平台计费路径时仍必须有足够账户积分。",
-            "命中用户自接 API 时不扣本站账户积分，也不增加 Key 已用额度。",
             "api_key 对象还含 id / name / key_prefix / last_four / is_active / last_used_at / created_at 等字段（示例从略）。",
             "生成失败退款、审核拦截结算和实际尺寸后修正会同步修正 Key 已用额度。",
           ],
@@ -827,7 +820,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
               requirement: "可选",
               custom: true,
               description:
-                "本站扩展：强制本次 Chat 走 Codex/Responses 能力，不走 Web；开启时同时忽略用户自接 API（等同 agent 行为），按平台/外接后端池结算本站积分。",
+                "本站扩展：强制本次 Chat 走 Codex/Responses 能力，不走 Web，并按平台后端池结算本站积分。",
             },
           ],
           responses: [
@@ -851,7 +844,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 FluxMedia 结算积分（Chat 轮次加图片输出）；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分（Chat 轮次加图片输出）；批量请求返回合计值。",
               custom: true,
             },
             {
@@ -870,7 +863,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             "选择 chat_completions 后，本站 /v1/chat/completions 会请求命中上游的 /chat/completions；这更适合纯聊天兼容，但是否能返回图片取决于上游实现。Agent 和 /v1/responses 不受该配置影响。",
             "OpenAI 官方 Chat Completions 并不定义“生成图片”的标准返回字段；本站为了兼容对话生图，在 Chat Completions 外形上扩展 choices[].message.images、顶层 images，并在 content 中追加 Markdown 图片链接。严格按官方生图协议接入时，建议使用 /v1/images/generations、/v1/images/edits 或 /v1/responses。",
             "该接口走页面 Chat 的非 Agent 模式，不会注入 web_search、continue_generation，也不会展示 Agent 多轮任务卡。",
-            "调度类型是 chat，可命中 Web 账号、Codex/Responses 账号或支持 /responses 的外接 API 后端；用户自接 API 可用时仍保持最高优先级。",
+            "调度类型是 chat，可命中 Web 账号、Codex/Responses 账号或支持 /responses 的外接 API 后端。",
             "计费等同页面 Chat：先收 Chat 每轮基础积分，再按最终图片实际尺寸和数量追加模型固定价与运行时审核费；图片费用不乘分组倍率。",
           ],
         },
@@ -1182,7 +1175,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               requirement: "可选",
               custom: true,
               description:
-                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
+                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
             },
           ],
           responses: [
@@ -1207,7 +1200,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值。",
               custom: true,
             },
             {
@@ -1231,7 +1224,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             "background=transparent 并非所有模型都支持；OpenAI 官方文档当前列出 gpt-image-1.5、gpt-image-1、gpt-image-1-mini 支持透明背景，且通常还要求 png 或 webp 输出。不支持的上游可能直接返回 HTTP 400，而不是自动降级。",
             "async 任务当前为进程内状态，30 分钟后过期；服务重启或多实例切换会导致未完成任务无法继续查询，callback 已发送的结果不受影响。",
             "如果实际生成尺寸与请求尺寸不一致，本站会按检测到的实际尺寸修正记录和计费。",
-            "官方 Images API 可能返回 usage；本站当前 usage 通常为 null，但会通过顶层 credits_consumed、错误对象或流式完成事件返回本站结算积分。命中用户自接 API 时不扣本站积分。",
+            "官方 Images API 可能返回 usage；本站当前 usage 通常为 null，但会通过顶层 credits_consumed、错误对象或流式完成事件返回本站结算积分。",
           ],
         },
         {
@@ -1530,7 +1523,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "可选",
               custom: true,
               description:
-                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。用户自接 API 优先时忽略；进入平台账号池、命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
+                "仅 image 接口支持。推荐使用 web_first / webFirst；force_web / forceWeb 保留兼容，但实际语义同样是 Web-first 优先路由，不是硬性只走 Web。命中的后端分组为 mixed，且请求尺寸总像素在 IMAGE_FORCE_WEB_MIN_PIXELS 到 IMAGE_FORCE_WEB_MAX_PIXELS 之间时，优先调度 Web 账号。Web 不可用、失败或耗尽后会降级 Codex/Responses。默认区间为 0.66MP-2MP；非 mixed 或不在区间内会忽略该字段。",
             },
           ],
           responses: [
@@ -1547,7 +1540,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "credits_consumed",
               description:
-                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值；命中用户自接 API 时为 0。",
+                "本站扩展字段。本次请求 FluxMedia 结算积分；批量请求返回合计值。",
               custom: true,
             },
             {
@@ -1650,7 +1643,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             },
             {
               name: "credits_consumed",
-              description: "完成后结算的本站积分；命中用户自接 API 时为 0。",
+              description: "完成后结算的本站积分。",
             },
           ],
           notes: [
@@ -2114,7 +2107,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
             {
               name: "credits_consumed",
               description:
-                "本站结算积分。Agent 接口固定走 Codex/Responses 能力，不使用用户自接 API；计费 = Agent 每轮基础积分 + 最终图片固定价 + 运行时审核费，图片费用不乘分组倍率。",
+                "本站结算积分。Agent 接口固定走 Codex/Responses 能力；计费 = Agent 每轮基础积分 + 最终图片固定价 + 运行时审核费，图片费用不乘分组倍率。",
               custom: true,
             },
             {
@@ -2350,8 +2343,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             },
             {
               name: "metadata.generation_id / credits_consumed / size",
-              description:
-                "本站生成记录、结算积分和尺寸信息；命中用户自接 API 时 credits_consumed 为 0。",
+              description: "本站生成记录、结算积分和尺寸信息。",
               custom: true,
             },
             {
@@ -2496,7 +2488,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
       "Page endpoints and external endpoints are protocol adapters. They do not call each other over HTTP; they enter the same generation, billing, scheduling, and storage path. Default deployments enable self-use mode: public registration is closed and the first startup creates a super admin from environment credentials.",
     flow: {
       title: "Request Routing Diagram",
-      note: "For ordinary image/chat/responses requests, user custom API keeps the highest priority for now. When it wins, FluxMedia does not charge account credits or API key quota. Agent and explicitly Codex/Responses-only entries ignore user custom API. External endpoints do not call internal /api/images/* routes.",
+      note: "All image/chat/responses requests use the platform backend pool and settle through platform credits. External endpoints do not call internal /api/images/* routes.",
       entryTitle: "Entry",
       resolverTitle: "Unified Handler",
       groupTitle: "Group Selection",
@@ -2576,11 +2568,6 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "Group checks plan access, enabled state, and content safety setting",
       ],
       backends: [
-        {
-          title: "User Custom API",
-          description:
-            "If the user configured an OpenAI-compatible API, ordinary image/chat/responses requests use it first. When it wins, useCredits=false, so FluxMedia account balance and API key quota are not charged.",
-        },
         {
           title: "Web Account Pool",
           description:
@@ -2686,7 +2673,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           "OpenAI Responses",
           "/v1/responses",
           "responses",
-          "Adds the image_generation tool when tools are omitted; explicit tools must include image_generation. User custom API still wins when available; otherwise responses routing selects Codex/Responses groups or external /responses API backends.",
+          "Adds the image_generation tool when tools are omitted; explicit tools must include image_generation. Responses routing selects Codex/Responses groups or external /responses API backends.",
         ],
         [
           "FluxMedia Agent image run",
@@ -2796,9 +2783,8 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
         "A backend group bound to the API key wins first. Otherwise the platform default group is used, then the enabled fallback group. Page creation still uses the user's selected default group.",
         "Images use fixed 1024, 1K, 2K, and 4K tiers selected from actual output pixels. Pricing resolves the selected group's model override, then the global model price, then the generic tier price, and finally adds runtime review fees. Videos use a fixed per-second price for each model family. Neither path uses group multipliers.",
         "API keys can have independent credit limits. GET /v1/credits returns key quota, used credits, and account balance.",
-        "If the user has enabled a custom upstream API, ordinary /v1/chat/completions, /v1/images/generations, /v1/images/edits, and /v1/responses still use that custom API first. When it wins, credits_consumed is 0 and FluxMedia does not charge account credits or API key quota.",
-        "/v1/agents/images and page features that require Codex/Responses capability ignore user custom API and are billed through the platform or external backend pool.",
-        "Image endpoint web_first / webFirst / force_web / forceWeb (chat: mix_web_first) is a Web-first preference route, not hard Web-only, and is on by default. When on (omitted or explicit true) it uses the Web-first pixel range (IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS, default 0.66MP-2MP): only sizes inside the range prefer Web (fall back to Codex/Responses on failure), sizes outside (e.g. 4K) use normal scheduling, auto or unparseable sizes may prefer Web; explicit false disables it. It only applies to mixed backend groups (no effect for Web-only / Codex-Responses-only groups) and never overrides user custom API; agent always uses Codex/Responses and is unaffected.",
+        "All page and external API requests use the platform backend pool and settle through platform credits and API key quotas.",
+        "Image endpoint web_first / webFirst / force_web / forceWeb (chat: mix_web_first) is a Web-first preference route, not hard Web-only, and is on by default. When on (omitted or explicit true) it uses the Web-first pixel range (IMAGE_FORCE_WEB_MIN_PIXELS / IMAGE_FORCE_WEB_MAX_PIXELS, default 0.66MP-2MP): only sizes inside the range prefer Web (fall back to Codex/Responses on failure), sizes outside (e.g. 4K) use normal scheduling, auto or unparseable sizes may prefer Web; explicit false disables it. It only applies to mixed backend groups (no effect for Web-only / Codex-Responses-only groups); agent always uses Codex/Responses and is unaffected.",
         "Adobe (Firefly) backend joins the group as a special pool member ranked by priority. A firefly-* model or force_firefly=true narrows candidates to Adobe only; ordinary requests only fall back to Adobe after the group's web/codex/api members are rate-limited, exhausted, or fail with a switchable error. Images use fixed model-tier prices plus runtime review fees, while videos use fixed model-family prices per second. Neither path applies Adobe or group multipliers. See /docs/adobe-firefly-routing and /docs/adobe-firefly-compat.",
         "Async tasks (async): body async:true or URL ?async=true (equivalent, and cannot be combined with stream) returns a task_... object immediately; poll GET /v1/images/{task_id} for the result. Tasks are in-memory objects that expire after 30 minutes and become unavailable after a restart or multi-instance switch. For persistent lookups, use the generation_id (gen_...) from the response as the GET /v1/images/{id} path parameter — it is read from the DB and survives restarts / multi-instance switches (sync requests can re-query by generation_id this way too). callback_url is an optional completion webhook — when the task finishes the server POSTs the task object to that public URL, and an already-sent callback is unaffected by expiry or restart. Video works the same way: POST /v1/videos/generations with async:true (or ?async=true) returns a task_... immediately; poll GET /v1/videos/{id} (task_... expires after 30 minutes, or use the generation_id for persistent lookups) or rely on callback_url — video is long-running, so async is strongly recommended to avoid a synchronous connection being cut mid-way and losing the output.",
       ],
@@ -2938,7 +2924,6 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
           ],
           notes: [
             "The API key quota only limits this key. Calls through the FluxMedia-billed platform path still require enough account credits.",
-            "When a user custom upstream API wins, FluxMedia does not charge account credits or key quota.",
             "Failed-generation refunds, moderation settlement, and actual-size corrections also update key usage.",
             "The api_key object also includes id / name / key_prefix / last_four / is_active / last_used_at / created_at (omitted from the example).",
           ],
@@ -3172,7 +3157,7 @@ data: {"id":"chatcmpl_...","object":"chat.completion.chunk","choices":[{"index":
             {
               name: "credits_consumed",
               description:
-                "FluxMedia extension. FluxMedia-billed credits for this request (Chat round plus image output); batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request (Chat round plus image output); batch requests return the aggregate.",
               custom: true,
             },
             {
@@ -3482,7 +3467,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
               requirement: "Optional",
               custom: true,
               description:
-                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
+                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
             },
           ],
           responses: [
@@ -3508,7 +3493,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             {
               name: "credits_consumed",
               description:
-                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate.",
               custom: true,
             },
             {
@@ -3532,7 +3517,7 @@ curl https://gpt2image.superapi.buzz/v1/images/task_... \\
             "background=transparent is not universally supported. OpenAI's official docs currently list gpt-image-1.5, gpt-image-1, and gpt-image-1-mini as supporting transparent backgrounds, and png or webp output is usually required. Unsupported upstream models may reject the request with HTTP 400 instead of silently falling back.",
             "async tasks are process-local and expire after 30 minutes. A restart or multi-instance switch can make unfinished tasks unavailable for polling; already-sent callbacks are unaffected.",
             "If the actual generated dimensions differ from the requested size, FluxMedia records and bills using the detected actual size.",
-            "The official Images API may return usage. FluxMedia usually returns usage: null, but FluxMedia-billed credits are returned through top-level credits_consumed, error payloads, or streaming completion events. When a user custom upstream API wins, FluxMedia does not charge credits.",
+            "The official Images API may return usage. FluxMedia usually returns usage: null, but FluxMedia-billed credits are returned through top-level credits_consumed, error payloads, or streaming completion events.",
           ],
         },
         {
@@ -3811,7 +3796,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
               requirement: "Optional",
               custom: true,
               description:
-                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Ignored when a user custom upstream API takes priority; after routing enters the platform pool, mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
+                "Only supported by image endpoints. Prefer web_first / webFirst; force_web / forceWeb are compatibility aliases with the same Web-first preference semantics, not hard Web-only routing. Mixed backend groups prefer Web accounts when the requested total pixels are between IMAGE_FORCE_WEB_MIN_PIXELS and IMAGE_FORCE_WEB_MAX_PIXELS. If Web is unavailable, fails, or is exhausted, routing falls back to Codex/Responses. The default range is 0.66MP-2MP; non-mixed or out-of-range requests ignore this field.",
             },
           ],
           responses: [
@@ -3828,7 +3813,7 @@ data: {"type":"image_edit.completed","index":0,"generation_id":"...","generation
             {
               name: "credits_consumed",
               description:
-                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate; this is 0 when a user custom upstream API wins.",
+                "FluxMedia extension. FluxMedia-billed credits for this request; batch requests return the aggregate.",
               custom: true,
             },
             {
@@ -4402,7 +4387,7 @@ data: {"type":"agent.completed","generation_id":"...","generationId":"...","agen
               name: "credits_consumed",
               custom: true,
               description:
-                "FluxMedia-billed credits. Agent always requires Codex/Responses capability and does not use user custom API. Billing = Agent base round credits + final image fixed prices + runtime review fees; image charges do not use group multipliers.",
+                "FluxMedia-billed credits. Agent always requires Codex/Responses capability. Billing = Agent base round credits + final image fixed prices + runtime review fees; image charges do not use group multipliers.",
             },
             {
               name: "agent_round_count",
@@ -4642,7 +4627,7 @@ data: {"type":"response.completed","response":{"id":"resp_...","object":"respons
             {
               name: "metadata.generation_id / credits_consumed / size",
               description:
-                "FluxMedia generation record, billed credits, and size metadata. credits_consumed is 0 when a user custom upstream API wins.",
+                "FluxMedia generation record, billed credits, and size metadata.",
               custom: true,
             },
             {

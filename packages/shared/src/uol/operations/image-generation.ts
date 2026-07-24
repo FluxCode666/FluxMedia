@@ -422,49 +422,15 @@ defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 10. image.getUserApiConfig - 用户 API 配置解析（getUserApiConfig）
-// 包含 customApi 校验 + SSRF DNS 检测 + 池选号
-// ---------------------------------------------------------------------------
-defineOperation({
-  name: "image.getUserApiConfig",
-  domain: "image-generation",
-  title: "获取用户 API 配置",
-  description:
-    "解析用户的图像生成后端配置：自定义 API 校验（含 SSRF DNS 检测）、" +
-    "后端池选号等。解析幂等但池选号非确定性。",
-  input: z.object({
-    userId: z.string(),
-    model: z.string().optional(),
-    backendGroupId: z.string().optional(),
-  }),
-  output: z.object({
-    apiEndpoint: z.string(),
-    apiKey: z.string(),
-    model: z.string(),
-    isCustom: z.boolean(),
-    backendAccountId: z.string().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  }),
-  access: { kind: "protected" },
-  readOnly: true,
-  destructive: false,
-  idempotency: { kind: "natural" },
-  sideEffects: ["external-call"],
-  execute: async () => {
-    throw new Error("Not yet wired: image.getUserApiConfig");
-  },
-});
-
-// ---------------------------------------------------------------------------
-// 11. image.getEffectiveConfig - 有效配置解析（getEffectiveConfig）
-// 合并系统默认、用户偏好、请求参数后的最终配置
+// 10. image.getEffectiveConfig - 有效配置解析（getEffectiveConfig）
+// 合并平台默认与请求参数后的最终配置
 // ---------------------------------------------------------------------------
 defineOperation({
   name: "image.getEffectiveConfig",
   domain: "image-generation",
   title: "获取有效生成配置",
   description:
-    "合并系统默认配置、用户偏好、请求参数后的最终生效配置。" +
+    "合并平台默认配置、请求参数后的最终生效配置。" +
     "用于前端展示当前生效参数。解析幂等（池选号非确定）。",
   input: z.object({
     userId: z.string(),

@@ -10,7 +10,7 @@ import { getRuntimeSettingNumber } from "@repo/shared/system-settings";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import { redirect } from "next/navigation";
 import { getLocale } from "next-intl/server";
-import { getEffectiveImageBackendGroupForUser } from "@/features/image-backend-pool/service";
+import { getEffectiveDefaultImageBackendGroup } from "@/features/image-backend-pool/service";
 import { CreatePageClient } from "@/features/image-generation/components/create-page-client";
 import {
   getRuntimeImageBaseCreditPricing,
@@ -18,7 +18,6 @@ import {
   getRuntimeImageModerationCreditPricing,
 } from "@/features/image-generation/pricing-settings";
 import { getUserRecentGenerations } from "@/features/image-generation/queries";
-import { getUserApiConfig } from "@/features/image-generation/service";
 import { getVideoPricingForUser } from "@/features/image-generation/video-operations";
 import { hasLayeredMeta } from "@/features/psd-export/layered-meta";
 
@@ -30,18 +29,16 @@ export default async function CreatePage() {
   const locale = await getLocale();
   if (!user) redirect(`/${locale}/sign-in`);
 
-  const [creditsData, recentGenerations, plan, userApiConfig, timeZone] =
-    await Promise.all([
-      getCreditsBalance(user.id),
-      getUserRecentGenerations(user.id, 6),
-      getUserPlan(user.id),
-      getUserApiConfig(user.id),
-      getUserTimeZone(user.id),
-    ]);
+  const [creditsData, recentGenerations, plan, timeZone] = await Promise.all([
+    getCreditsBalance(user.id),
+    getUserRecentGenerations(user.id, 6),
+    getUserPlan(user.id),
+    getUserTimeZone(user.id),
+  ]);
   const [uploadLimits, activeBackendGroup, moderationEnabled] =
     await Promise.all([
       getPlanUploadLimits(plan.plan),
-      getEffectiveImageBackendGroupForUser(user.id, plan.plan),
+      getEffectiveDefaultImageBackendGroup(plan.plan),
       isContentModerationEnabled(),
     ]);
   const [
@@ -98,7 +95,7 @@ export default async function CreatePage() {
       uploadLimits={uploadLimits}
       backendGroups={activeBackendGroup ? [activeBackendGroup] : []}
       selectedBackendGroupId={activeBackendGroup?.id ?? null}
-      customApiActive={Boolean(userApiConfig)}
+      customApiActive={false}
       moderationEnabled={moderationEnabled}
       imageBasePricing={imageBasePricing}
       imageModelPricing={imageModelPricing}

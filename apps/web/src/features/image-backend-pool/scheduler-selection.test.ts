@@ -165,10 +165,6 @@ const schemaMock = vi.hoisted(() => {
       "updatedAt",
     ]),
     systemSetting: table("system_setting", ["key", "value"]),
-    userImageBackendPreference: table("user_image_backend_preference", [
-      "userId",
-      "groupId",
-    ]),
   };
 });
 
@@ -1340,11 +1336,9 @@ describe("image backend pool scheduler selection", () => {
     expect(update?.values).toMatchObject({ status: "active", lastError: null });
   });
 
-  it("selects a multi-group API from each of its groups", async () => {
-    // 同一个 API 经 image_backend_api_group 同时挂在 group-a 与 group-b 两个分组。
-    // 分别以两个分组为活动分组发起请求，都应能选中该 API，且 result.groupId 命中
-    // 当前活动分组（matchedGroupId）。镜像账号多分组：DB-free 下 innerJoin 为 no-op，
-    // 故由 matchedGroupId 表征本次命中的分组。
+  it("routes unscoped requests to the platform default group", async () => {
+    // group-b 同样可用，但没有用户偏好这一持久化维度后，未显式指定分组的请求
+    // 必须始终使用 group-a（平台默认）。
     dbMock.state.groups = [
       {
         id: "group-a",
@@ -1375,9 +1369,9 @@ describe("image backend pool scheduler selection", () => {
     ];
     dbMock.state.accounts = [];
     const baseApi = {
-      id: "api-multi",
+      id: "api-default",
       groupId: "group-a",
-      name: "Multi-group API",
+      name: "Default-group API",
       baseUrl: "https://api.example.test/v1",
       apiKey: "key",
       model: null,
@@ -1401,18 +1395,8 @@ describe("image backend pool scheduler selection", () => {
       requestKind: "image_generation",
     });
     expect(fromGroupA?.memberType).toBe("api");
-    expect(fromGroupA?.memberId).toBe("api-multi");
+    expect(fromGroupA?.memberId).toBe("api-default");
     expect(fromGroupA?.groupId).toBe("group-a");
-
-    dbMock.state.userPreferences = [{ userId: "user-a", groupId: "group-b" }];
-    dbMock.state.apis = [{ ...baseApi, matchedGroupId: "group-b" }];
-    const fromGroupB = await resolveImageBackendPoolConfig({
-      userId: "user-a",
-      requestKind: "image_generation",
-    });
-    expect(fromGroupB?.memberType).toBe("api");
-    expect(fromGroupB?.memberId).toBe("api-multi");
-    expect(fromGroupB?.groupId).toBe("group-b");
   });
 
   it("keeps account backend cooldown behavior unchanged", async () => {

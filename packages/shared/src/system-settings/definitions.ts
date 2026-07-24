@@ -243,7 +243,6 @@ const PLAN_CAPABILITY_MATRIX_EXAMPLE = {
     "export.psd": "free",
     "promptOptimization.control": "pro",
     "models.gpt55": "ultra",
-    "customApi.configure": "starter",
     "backendGroups.select": "free",
     "externalApi.keys.manage": "starter",
     "externalApi.models.list": "starter",

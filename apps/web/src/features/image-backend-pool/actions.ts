@@ -15,7 +15,6 @@ import {
   imageBackendPoolViewerAction,
   protectedAction,
 } from "@repo/shared/safe-action";
-import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
   getRuntimeSettingNumber,
@@ -39,13 +38,11 @@ import {
   deleteImageBackendGroup,
   deleteImageBackendMembers,
   deleteSub2ApiAutoSyncTask,
-  getUserImageBackendPreference,
   importImageBackendAccountsFromRefreshTokens,
   importImageBackendWebAccountsFromAccessTokens,
   isSub2ApiPostgresConfigured,
   listAdminImageBackendPool,
   listImageBackendGroupOptions,
-  listSelectableImageBackendGroups,
   listSub2ApiAutoSyncTasksForAdmin,
   listSub2ApiSourceGroups,
   probeImageBackendApi,
@@ -61,7 +58,6 @@ import {
   setImageBackendApiEnabled,
   setSub2ApiAutoSyncTaskEnabled,
   setSub2ApiAutoSyncTaskOverwriteLocalUnavailableState,
-  setUserImageBackendPreference,
   syncImageBackendAccountsFromSub2Api,
   updateSub2ApiAutoSyncTaskOptions,
   upsertImageBackendAccount,
@@ -115,34 +111,6 @@ const withImageBackendPoolAdminAction = (name: string) =>
 
 const withImageBackendPoolViewerAction = (name: string) =>
   imageBackendPoolViewerAction.metadata({ action: `imageBackendPool.${name}` });
-
-export const getSelectableImageBackendGroupsAction = protectedAction
-  .metadata({ action: "imageBackendPool.selectableGroups" })
-  .action(async ({ ctx }) => {
-    const plan = await getUserPlan(ctx.userId);
-    const [groups, selectedGroupId] = await Promise.all([
-      listSelectableImageBackendGroups(plan.plan),
-      getUserImageBackendPreference(ctx.userId, plan.plan),
-    ]);
-    return { groups, selectedGroupId };
-  });
-
-export const setUserImageBackendPreferenceAction = protectedAction
-  .metadata({ action: "imageBackendPool.setPreference" })
-  .schema(
-    z.object({
-      groupId: nullableGroupIdSchema,
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    const plan = await getUserPlan(ctx.userId);
-    await setUserImageBackendPreference(
-      ctx.userId,
-      parsedInput.groupId,
-      plan.plan
-    );
-    return { success: true };
-  });
 
 export const getAdminImageBackendPoolAction = withImageBackendPoolViewerAction(
   "list"

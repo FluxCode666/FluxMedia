@@ -402,8 +402,7 @@
           "support": "邮件支持",
           "creditsValidity": "积分按套餐周期有效",
           "batch": "批量生图",
-          "externalApi": "可创建多个外接 API Key",
-          "customApi": "可配置自接 OpenAI 兼容 API"
+          "externalApi": "可创建多个外接 API Key"
         }
       },
       "pro": {
@@ -427,8 +426,7 @@
           "batch": "批量生图",
           "chat": "对话生图与编辑模式",
           "promptOptimization": "可自定义提示词优化开关",
-          "externalApi": "可创建多个外接 API Key",
-          "customApi": "可配置自接 OpenAI 兼容 API"
+          "externalApi": "可创建多个外接 API Key"
         }
       },
       "ultra": {
@@ -455,8 +453,7 @@
           "moderationSettlement": "审核拦截仅结算审核成本",
           "moderationLowControl": "可选择放开 low 级审核拦截",
           "promptOptimization": "可自定义提示词优化开关",
-          "externalApi": "可创建多个外接 API Key",
-          "customApi": "可配置自接 OpenAI 兼容 API"
+          "externalApi": "可创建多个外接 API Key"
         }
       },
       "enterprise": {
@@ -482,7 +479,6 @@
           "export": "下载与分享",
           "history": "画廊历史永久保存",
           "externalApi": "可创建多个外接 API Key",
-          "customApi": "可配置自接 OpenAI 兼容 API",
           "support": "专属支持"
         }
       }
@@ -623,36 +619,7 @@
       "security": "安全",
       "billing": "账单",
       "usage": "用量",
-      "profile": "个人资料",
-      "advanced": "高级"
-    },
-    "advanced": {
-      "title": "高级设置",
-      "description": "面向高级用户的配置选项。"
-    },
-    "apiConfig": {
-      "warning": {
-        "title": "高级配置",
-        "description": "配置你自己的 OpenAI 兼容 API 端点。启用后，图片生成将使用你的 API 密钥，不消耗平台积分。"
-      },
-      "customEndpoint": "自定义 API 端点",
-      "enabled": "使用自定义 API",
-      "enabledDescription": "启用后将绕过平台积分计费",
-      "baseUrl": "API 地址",
-      "apiKey": "API 密钥",
-      "model": "模型（可选）",
-      "modelHint": "留空则使用默认模型",
-      "save": "保存配置",
-      "remove": "删除",
-      "docsLink": "API 文档",
-      "paidOnly": "自接 API 需要入门版或更高套餐。",
-      "requiresPaid": "自接 API 需要入门版或更高套餐。",
-      "saveFailed": "保存配置失败",
-      "saved": "配置已保存",
-      "removed": "配置已删除",
-      "updateFailed": "更新配置失败",
-      "useStream": "流式输出",
-      "useStreamDescription": "启用后，网页 API 在支持时返回流式增量结果。"
+      "profile": "个人资料"
     },
     "general": {
       "title": "基本信息",

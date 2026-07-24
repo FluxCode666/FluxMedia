@@ -1034,30 +1034,6 @@ export const ticketMessage = pgTable("ticket_message", {
 });
 
 // ============================================
-// User API Configuration
-// ============================================
-export const userApiConfig = pgTable("user_api_config", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .unique()
-    .references(() => user.id, { onDelete: "cascade" }),
-  baseUrl: text("base_url").notNull(),
-  apiKey: text("api_key").notNull(),
-  model: text("model"),
-  useStream: boolean("use_stream").notNull().default(false),
-  chatCompletionsUpstreamMode: text("chat_completions_upstream_mode")
-    .notNull()
-    .default("responses"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export type UserApiConfig = typeof userApiConfig.$inferSelect;
-export type NewUserApiConfig = typeof userApiConfig.$inferInsert;
-
-// ============================================
 // Image Backend Pool
 // ============================================
 export const imageBackendGroup = pgTable("image_backend_group", {
@@ -1649,22 +1625,6 @@ export const imageBackendSchedulerMetric = pgTable(
   ]
 );
 
-export const userImageBackendPreference = pgTable(
-  "user_image_backend_preference",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id")
-      .notNull()
-      .unique()
-      .references(() => user.id, { onDelete: "cascade" }),
-    groupId: text("group_id").references(() => imageBackendGroup.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  }
-);
-
 export type ImageBackendGroup = typeof imageBackendGroup.$inferSelect;
 export type NewImageBackendGroup = typeof imageBackendGroup.$inferInsert;
 export type ImageBackendAccount = typeof imageBackendAccount.$inferSelect;
@@ -1693,11 +1653,6 @@ export type ImageBackendSchedulerMetric =
   typeof imageBackendSchedulerMetric.$inferSelect;
 export type NewImageBackendSchedulerMetric =
   typeof imageBackendSchedulerMetric.$inferInsert;
-export type UserImageBackendPreference =
-  typeof userImageBackendPreference.$inferSelect;
-export type NewUserImageBackendPreference =
-  typeof userImageBackendPreference.$inferInsert;
-
 // ============================================
 // External API Keys
 // ============================================

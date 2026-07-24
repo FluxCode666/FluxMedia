@@ -827,7 +827,6 @@ bindEditableFile("file.generatePsd");
 // TODO: image.getUserRecentGenerations - 最近生成查询
 // TODO: image.getGenerationById - 单条查询
 // TODO: image.getGenerationStats - 管理员统计
-// TODO: image.getUserApiConfig - getUserApiConfig 逻辑
 // TODO: image.getEffectiveConfig - getEffectiveConfig 逻辑
 // TODO: image.selectWebCandidate - selectChatGptWebImageCandidate 逻辑
 

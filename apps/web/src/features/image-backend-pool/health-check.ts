@@ -55,8 +55,8 @@ export interface ImageApiHealthCheckInput {
   imagesUpstreamMode?: ImagesUpstreamMode;
   chatCompletionsUpstreamMode?: ChatCompletionsUpstreamMode;
   parameterMappings?: RequestParameterMapping[];
-  /** 后端类型：后台池成员用 "pool-api"，用户自配 API 用 "user-api"。 */
-  backendType?: "pool-api" | "user-api";
+  /** 后端类型：仅支持后台池 API 成员。 */
+  backendType?: "pool-api";
   timeoutMs?: number;
   signal?: AbortSignal;
 }

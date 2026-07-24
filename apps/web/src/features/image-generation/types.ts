@@ -299,7 +299,7 @@ export interface ApiConfig {
   contentSafetyEnabled?: boolean;
   headers?: Record<string, string>;
   backend?: {
-    type: "platform" | "pool-api" | "pool-account" | "pool-adobe" | "user-api";
+    type: "platform" | "pool-api" | "pool-account" | "pool-adobe";
     id?: string;
     groupId?: string | null;
     // 解析到的【目标分组】backendType。供换号重试循环判定是否为混合分组——web→codex

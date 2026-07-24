@@ -21,60 +21,6 @@ const videoModelCreditsPerSecondMapSchema = z.record(
 );
 
 // ---------------------------------------------------------------------------
-// 1. pool.getSelectableGroups - 获取当前用户可选的后端组列表
-// ---------------------------------------------------------------------------
-export const getSelectableGroups = defineOperation({
-  name: "pool.getSelectableGroups",
-  domain: "image-backend-pool",
-  title: "获取可选后端组",
-  description:
-    "获取当前用户可选择的图像后端组列表，结合用户套餐能力判定可见组。",
-  input: z.object({}),
-  output: z.object({
-    groups: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        description: z.string().optional(),
-        isDefault: z.boolean(),
-      })
-    ),
-  }),
-  access: { kind: "protected" },
-  readOnly: true,
-  destructive: false,
-  idempotency: { kind: "natural" },
-  sideEffects: [],
-  execute: async () => {
-    throw new Error("Not yet wired: pool.getSelectableGroups");
-  },
-});
-
-// ---------------------------------------------------------------------------
-// 2. pool.setPreference - 设置用户后端偏好
-// ---------------------------------------------------------------------------
-export const setPreference = defineOperation({
-  name: "pool.setPreference",
-  domain: "image-backend-pool",
-  title: "设置用户后端偏好",
-  description: "设置当前用户的图像后端组偏好（upsert）。",
-  input: z.object({
-    groupId: z.string().nullable(),
-  }),
-  output: z.object({
-    success: z.boolean(),
-  }),
-  access: { kind: "protected" },
-  readOnly: false,
-  destructive: false,
-  idempotency: { kind: "natural" },
-  sideEffects: ["audit"],
-  execute: async () => {
-    throw new Error("Not yet wired: pool.setPreference");
-  },
-});
-
-// ---------------------------------------------------------------------------
 // 3. pool.getGroupOptions - 获取后端组选项列表
 // ---------------------------------------------------------------------------
 export const getGroupOptions = defineOperation({

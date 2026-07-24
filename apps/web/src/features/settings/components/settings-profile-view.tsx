@@ -1,15 +1,17 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Camera, Loader2 } from "lucide-react";
-import { useParams, useSearchParams } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
-import { useAction } from "next-safe-action/hooks";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
-import { toast } from "sonner";
-import type { z } from "zod";
-
+import { signOut } from "@repo/shared/auth/client";
+import {
+  ALLOWED_IMAGE_TYPES,
+  generateAvatarKey,
+  getAvatarUrl,
+  getSignedUploadUrlAction,
+  MAX_FILE_SIZE,
+} from "@repo/shared/storage";
+import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
+import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
+import { USER_TIME_ZONE_OPTIONS } from "@repo/shared/time-zone";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -48,27 +50,22 @@ import {
   TabsList,
   TabsTrigger,
 } from "@repo/ui/components/tabs";
-import { USER_TIME_ZONE_OPTIONS } from "@repo/shared/time-zone";
+import { Camera, Loader2 } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { useAction } from "next-safe-action/hooks";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import type { z } from "zod";
 import {
   deleteAccountAction,
   updateProfileAction,
   updateTimeZoneAction,
 } from "@/features/settings/actions";
 import { updateProfileSchema } from "@/features/settings/schemas";
-import {
-  ALLOWED_IMAGE_TYPES,
-  generateAvatarKey,
-  getAvatarUrl,
-  getSignedUploadUrlAction,
-  MAX_FILE_SIZE,
-} from "@repo/shared/storage";
 import { usePathname, useRouter } from "@/i18n/routing";
-import { signOut } from "@repo/shared/auth/client";
-import { getMyPlanAction } from "@repo/shared/subscription/actions/get-user-plan";
-import type { PlanCapabilitySnapshot } from "@repo/shared/subscription/services/plan-capabilities";
-import { ImageBackendPreferenceSection } from "@/features/image-backend-pool";
 
-import { ApiConfigForm } from "./api-config-form";
 import {
   isAvatarFileSizeAllowed,
   resolveAvatarMaxFileSizeBytes,
@@ -133,12 +130,7 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
     MAX_FILE_SIZE
   );
   const normalizeTab = useCallback((value: string | null) => {
-    if (
-      value === "security" ||
-      value === "backend" ||
-      value === "advanced" ||
-      value === "account"
-    ) {
+    if (value === "security" || value === "account") {
       return value;
     }
     return "account";
@@ -386,12 +378,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
             </TabsTrigger>
             <TabsTrigger value="security" className={tabTriggerClass}>
               {tTabs("security")}
-            </TabsTrigger>
-            <TabsTrigger value="backend" className={tabTriggerClass}>
-              {tTabs("backend")}
-            </TabsTrigger>
-            <TabsTrigger value="advanced" className={tabTriggerClass}>
-              {tTabs("advanced")}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -680,36 +666,6 @@ export function SettingsProfileView({ user }: SettingsProfileViewProps) {
           className="mt-8 animate-in fade-in duration-300 motion-reduce:animate-none"
         >
           <SecuritySection />
-        </TabsContent>
-
-        <TabsContent
-          value="backend"
-          className="mt-8 space-y-6 animate-in fade-in duration-300 motion-reduce:animate-none"
-        >
-          <div className="space-y-2">
-            <div className="border-b border-border/60 pb-2">
-              <h3 className={sectionTitleClass}>{t("backend.title")}</h3>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t("backend.description")}
-            </p>
-          </div>
-          <ImageBackendPreferenceSection />
-        </TabsContent>
-
-        <TabsContent
-          value="advanced"
-          className="mt-8 space-y-6 animate-in fade-in duration-300 motion-reduce:animate-none"
-        >
-          <div className="space-y-2">
-            <div className="border-b border-border/60 pb-2">
-              <h3 className={sectionTitleClass}>{t("advanced.title")}</h3>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t("advanced.description")}
-            </p>
-          </div>
-          <ApiConfigForm />
         </TabsContent>
       </Tabs>
     </div>

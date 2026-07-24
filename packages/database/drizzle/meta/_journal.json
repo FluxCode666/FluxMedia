@@ -407,6 +407,20 @@
       "when": 1784851201000,
       "tag": "0057_admin_history_global_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784851202000,
+      "tag": "0058_remove_user_image_backend_preference",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784851203000,
+      "tag": "0059_remove_user_api_config",
+      "breakpoints": true
     }
   ]
 }

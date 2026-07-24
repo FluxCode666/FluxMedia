@@ -27,7 +27,7 @@
 | withImageGenerationQueue（并发队列） | service-fn | queue.ts:140 | 无（纯调度） | 否 | 进程内可变全局态 | 不适用（单进程内存态） |
 | createImageStreamResponse（SSE 封装） | service-fn | streaming.ts:106 | 无（传输层） | 否 | ReadableStream + keep-alive | 不适用 |
 | getUserGenerations / Count / Recent / ById / Stats（历史/画廊/统计） | service-fn | queries.ts | 查询级无强制鉴权（按 userId 过滤；Stats 全局应仅管理员） | 语义只读 | 多数先调 expireStalePendingGenerations（DB写） | 查询幂等；过期处理幂等收敛 |
-| getUserApiConfig / getEffectiveConfig（后端路由解析） | service-fn | service.ts:3346/3391 | getUserApiConfig 内部校验 customApi.configure + SSRF | 语义只读 | select + SSRF DNS + 池选号 | 解析幂等（池选号非确定） |
+| getEffectiveConfig（后端路由解析） | service-fn | service.ts | 平台后端池按用户套餐与请求参数解析 | 语义只读 | 后端池选号 | 解析幂等（池选号非确定） |
 | runEditableFileForUser（可编辑文件 PPT/PSD 编排） | service-fn | editable-file-operations.ts:89 | protected（userId 必填；只调付费级 web 账号 accountPlanFilter=paid） | 否 | 租号/外呼 ChatGPT Web 代码解释器/存储/扣费 | 扣费层幂等(sourceRef=editable-file:{taskId})；整体非幂等 |
 | file.generatePpt / file.generatePsd（UOL 操作） | uol-operation | uol/operations/editable-file.ts | protected + 能力位 export.ppt/export.psd | 否 | 同 runEditableFileForUser | 必需幂等键 clientRequestId(per-user) |
 | postExternalPptGenerations / PsdGenerations（POST /v1/ppts、/v1/psds） | api-route | editable-file-generations.ts | api-key + 能力位 export.ppt/export.psd；PSD 强校验非空图；支持 async + callback_url | 否 | 同 runEditableFileForUser + keep-alive/异步内存任务 | 非幂等；底层 sourceRef 幂等 |
@@ -139,8 +139,6 @@
 | reportImageBackendResult（上报/冷却调度） | service-fn | service.ts:1669 | service-internal（唯一失败转移出口） | 否 | 更新 success/failCount/status/cooldown；web 扣远端额度 | 非幂等（计数自增，覆盖式） |
 | acquire/releaseImageBackendInflight（在途并发计数） | service-fn | service.ts:426/435 | service-internal | 否 | 进程内 Map 增减 | 非幂等（单进程内存态） |
 | isImageBackendSwitchableError（错误分类纯函数） | service-fn | service.ts:558 | public/无 | 是 | 无 | 幂等 |
-| getSelectableImageBackendGroups | server-action | actions.ts:94 | protected | 是 | 读 + getUserPlan 能力判定 | 幂等 |
-| setUserImageBackendPreference | server-action | actions.ts:105 | protected | 否 | upsert preference | 幂等 |
 | getImageBackendGroupOptions | server-action | actions.ts:591 | protected（未限管理员） | 是 | DB读 | 幂等 |
 | getAdminImageBackendPool（池总览） | server-action | actions.ts:122 | imageBackendPoolViewer | 是 | DB读 | 幂等 |
 | saveImageBackendGroup（增删改组/子组/倍率） | server-action | actions.ts:223 | admin | 否 | upsert group；isDefault 互斥 | id 指定幂等；无 id 非幂等 |

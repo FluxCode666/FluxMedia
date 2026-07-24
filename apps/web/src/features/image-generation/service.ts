@@ -1,5 +1,3 @@
-import { db } from "@repo/database";
-import { userApiConfig } from "@repo/database/schema";
 import {
   applyRequestParameterMappings,
   normalizeRequestParameterMappings,
@@ -18,15 +16,11 @@ import {
   parseAdobeMediaResult,
 } from "@repo/shared/adobe";
 import { logError, logWarn } from "@repo/shared/logger";
-import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
-import { getUserPlan } from "@repo/shared/subscription/services/user-plan";
 import {
   getRuntimeSettingBoolean,
   getRuntimeSettingNumber,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
-import { eq } from "drizzle-orm";
-import { assertPublicApiBaseUrl } from "@/features/external-api/safe-image-fetch";
 import { imageBackendApiUsesResponsesEndpoint } from "@/features/image-backend-pool/api-interface-mode";
 import {
   acquireImageBackendInflight,
@@ -3837,76 +3831,24 @@ async function parseImageResponse(
   return withRetryMetadata(result, responseRetryMetadata);
 }
 
-export async function getUserApiConfig(
-  userId: string
-): Promise<ApiConfig | null> {
-  const plan = await getUserPlan(userId);
-  if (!(await canUsePlanCapability(plan.plan, "customApi.configure"))) {
-    return null;
-  }
-
-  const config = await db
-    .select()
-    .from(userApiConfig)
-    .where(eq(userApiConfig.userId, userId))
-    .limit(1);
-
-  const row = config[0];
-  if (!row?.isActive || !row.baseUrl || !row.apiKey) {
-    return null;
-  }
-
-  // 请求时复检自定义 baseUrl 指向公网（弥补"仅保存时校验"的 TOCTOU：
-  // 例如保存后 DNS 变更 / 指向内网）。指向内网或不可解析则丢弃该配置、回落平台后端。
-  try {
-    await assertPublicApiBaseUrl(row.baseUrl);
-  } catch (error) {
-    logWarn("Rejected user API base URL failing SSRF re-check", {
-      userId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-
-  const result: ApiConfig = { baseUrl: row.baseUrl, apiKey: row.apiKey };
-  const normalizedModel = normalizeImageModel(row.model);
-  if (normalizedModel) result.model = normalizedModel;
-  if (row.useStream) result.useStream = true;
-  result.contentSafetyEnabled = true;
-  result.backend = {
-    type: "user-api",
-    chatCompletionsUpstreamMode: row.chatCompletionsUpstreamMode as
-      | "responses"
-      | "chat_completions",
-  };
-  return result;
-}
-
-export async function getEffectiveConfig(
-  userConfig: ApiConfig | null,
-  options?: {
-    userId?: string;
-    apiKeyId?: string;
-    requestKind?: ImageBackendRequestKind;
-    requestedModel?: string;
-    preferredMemberId?: string;
-    preferredMemberType?: "api" | "account" | "adobe";
-    stickyPreviousResponseId?: string;
-    stickySessionKey?: string;
-    accountBackendPreference?: ImageBackendAccountBackend;
-    accountBackendPreferenceMode?: ImageBackendPreferenceMode;
-    // force_firefly：强制把候选收敛到 adobe（firefly）后端，对任意模型生效。
-    forceFirefly?: boolean;
-    ignoreUserConfig?: boolean;
-    allowAnyResponsesBackend?: boolean;
-  }
-): Promise<{
+export async function getEffectiveConfig(options?: {
+  userId?: string;
+  apiKeyId?: string;
+  requestKind?: ImageBackendRequestKind;
+  requestedModel?: string;
+  preferredMemberId?: string;
+  preferredMemberType?: "api" | "account" | "adobe";
+  stickyPreviousResponseId?: string;
+  stickySessionKey?: string;
+  accountBackendPreference?: ImageBackendAccountBackend;
+  accountBackendPreferenceMode?: ImageBackendPreferenceMode;
+  // force_firefly：强制把候选收敛到 adobe（firefly）后端，对任意模型生效。
+  forceFirefly?: boolean;
+  allowAnyResponsesBackend?: boolean;
+}): Promise<{
   config: ApiConfig;
   useCredits: boolean;
 }> {
-  if (userConfig && !options?.ignoreUserConfig) {
-    return { config: userConfig, useCredits: false };
-  }
   if (options?.userId && options.requestKind) {
     let poolConfig: Awaited<ReturnType<typeof resolveImageBackendPoolConfig>>;
     try {

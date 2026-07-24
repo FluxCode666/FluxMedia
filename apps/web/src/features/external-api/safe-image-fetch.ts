@@ -116,20 +116,6 @@ export async function assertPublicImageUrl(url: URL): Promise<void> {
 }
 
 /**
- * 校验用户自定义 API base URL 指向公网（请求时复检，弥补"仅保存时校验"的 TOCTOU）。
- * 仅校验主机；不发起请求。无法解析或指向内网即抛出。
- */
-export async function assertPublicApiBaseUrl(baseUrl: string): Promise<void> {
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    throw new SafeImageFetchError("API base URL is invalid.");
-  }
-  await assertPublicImageUrl(parsed);
-}
-
-/**
  * 校验异步任务回调 URL 指向公网且使用 https。
  *
  * 复用 isPrivateIpAddress / assertPublicImageUrl 的内网黑名单（避免各处粘贴副本漂移），

@@ -6051,7 +6051,7 @@ export function CreatePageClient({
     );
     const pendingCredits = batchActiveRequestsRef.current * creditsPerRequest;
     const requiredCredits = creditsPerRequest * loadSize + pendingCredits;
-    if (!customApiActive && balance < requiredCredits) {
+    if (balance < requiredCredits) {
       showGenerationError("Insufficient credits");
       return;
     }
@@ -6496,8 +6496,6 @@ export function CreatePageClient({
       return;
     }
 
-    const requiresResponsesForReference =
-      hasPromptImageReference(currentPrompt);
     const attachments = chatAttachments.map((item) => ({
       ...item,
       file: cloneFile(item.file),
@@ -6513,7 +6511,7 @@ export function CreatePageClient({
       ? chatCustomEditSizeCheck
       : sizeCheck;
 
-    if ((!customApiActive || requiresResponsesForReference) && balance < cost) {
+    if (balance < cost) {
       showGenerationError("Insufficient credits");
       return;
     }

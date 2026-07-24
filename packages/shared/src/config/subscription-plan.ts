@@ -291,13 +291,6 @@ export function canUseExternalApi(plan: SubscriptionPlan): boolean {
 }
 
 /**
- * 是否允许配置自己的 OpenAI 兼容 API
- */
-export function canUseCustomApi(plan: SubscriptionPlan): boolean {
-  return isPlanAtLeast(plan, "starter");
-}
-
-/**
  * 是否允许使用对话生图
  */
 export function canUseChat(plan: SubscriptionPlan): boolean {

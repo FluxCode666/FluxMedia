@@ -177,12 +177,11 @@ export async function runAdobeVideoGenerationForUser(
   // 按 Firefly 或裸 Veo/Kling 模型 ID 解析 Adobe 直连后端。
   let config: Awaited<ReturnType<typeof getEffectiveConfig>>["config"];
   try {
-    const effective = await getEffectiveConfig(null, {
+    const effective = await getEffectiveConfig({
       userId: input.userId,
       ...(input.apiKeyId ? { apiKeyId: input.apiKeyId } : {}),
       requestKind: "image_generation",
       requestedModel: input.model,
-      ignoreUserConfig: true,
     });
     config = effective.config;
   } catch (error) {

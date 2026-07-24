@@ -97,7 +97,6 @@ import {
   generateImage,
   getEffectiveConfig,
   getResponsesModel,
-  getUserApiConfig,
   poolBackendMemberType,
   repairModerationBlockedPromptWithResponses,
 } from "./service";
@@ -1465,11 +1464,10 @@ export async function runImageGenerationForUser(
       async () => {
         let leasedConfig: ApiConfig | null = null;
         try {
-          const userConfig = await getUserApiConfig(input.userId);
           let effectiveConfig: Awaited<ReturnType<typeof getEffectiveConfig>>;
           try {
             try {
-              effectiveConfig = await getEffectiveConfig(userConfig, {
+              effectiveConfig = await getEffectiveConfig({
                 userId: input.userId,
                 apiKeyId: input.apiKeyId,
                 requestKind: backendRequestKind,
@@ -1487,7 +1485,6 @@ export async function runImageGenerationForUser(
                   ? "mixed-only"
                   : undefined,
                 forceFirefly: input.forceFirefly,
-                ignoreUserConfig: requiresResponsesBackend,
               });
             } catch (error) {
               if (
@@ -1496,7 +1493,7 @@ export async function runImageGenerationForUser(
               ) {
                 throw error;
               }
-              effectiveConfig = await getEffectiveConfig(userConfig, {
+              effectiveConfig = await getEffectiveConfig({
                 userId: input.userId,
                 apiKeyId: input.apiKeyId,
                 requestKind: backendRequestKind,
@@ -1510,7 +1507,6 @@ export async function runImageGenerationForUser(
                   ? "mixed-only"
                   : undefined,
                 forceFirefly: input.forceFirefly,
-                ignoreUserConfig: requiresResponsesBackend,
               });
             }
           } catch (error) {
@@ -2131,12 +2127,11 @@ async function runQueuedImageGenerationForUser({
     let repairConfig: Awaited<ReturnType<typeof getEffectiveConfig>> | null =
       null;
     try {
-      repairConfig = await getEffectiveConfig(null, {
+      repairConfig = await getEffectiveConfig({
         userId: input.userId,
         apiKeyId: input.apiKeyId,
         requestKind: "responses",
         accountBackendPreference: "responses",
-        ignoreUserConfig: true,
         allowAnyResponsesBackend: true,
       });
       const repaired = await repairModerationBlockedPromptWithResponses(

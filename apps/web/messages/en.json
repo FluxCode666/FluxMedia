@@ -426,17 +426,7 @@
       "billing": "Billing & Usage",
       "usage": "Usage",
       "externalApi": "API Keys",
-      "backend": "Backend",
-      "profile": "Profile",
-      "advanced": "Advanced"
-    },
-    "backend": {
-      "title": "Image backend",
-      "description": "Choose the default system backend account-pool group for web generation. This does not affect external API calls; API keys choose their own group in the key list, and unbound keys use the platform default group."
-    },
-    "advanced": {
-      "title": "Advanced Settings",
-      "description": "Configuration options for power users."
+      "profile": "Profile"
     },
     "externalApi": {
       "title": "API Keys",
@@ -517,38 +507,6 @@
         "quota": "Failed to update API key quota",
         "quotaInvalid": "Enter a credit limit greater than or equal to 0, or leave it empty for unlimited"
       }
-    },
-    "apiConfig": {
-      "warning": {
-        "title": "Advanced Configuration",
-        "description": "Configure your own OpenAI-compatible API endpoint. When active, image generation will use your API key instead of platform credits."
-      },
-      "customEndpoint": "Custom API Endpoint",
-      "enabled": "Use Custom API",
-      "enabledDescription": "When enabled, bypasses platform credits",
-      "baseUrl": "API Base URL",
-      "apiKey": "API Key",
-      "model": "Model (optional)",
-      "modelHint": "Leave blank to use the default model",
-      "useStream": "Stream responses",
-      "useStreamDescription": "Send stream=true and accept New API image event streams.",
-      "save": "Save Configuration",
-      "remove": "Remove",
-      "docsLink": "API Documentation",
-      "paidOnly": "Custom API configuration is available on Starter and higher plans.",
-      "saveFailed": "Failed to save",
-      "saved": "API configuration saved",
-      "removed": "API configuration removed",
-      "updateFailed": "Failed to update",
-      "requiresPaid": "Custom API requires Starter plan or higher",
-      "test": "Test image",
-      "testing": "Testing…",
-      "testNeedsInput": "Enter the API base URL and key first",
-      "testOk": "Health check passed: image returned ({latency}ms)",
-      "testNoImage": "Connected but no image returned (model may not support image generation)",
-      "testAuthFailed": "API key rejected",
-      "testError": "Image generation failed",
-      "testUnreachable": "Endpoint unreachable or timed out"
     },
     "general": {
       "title": "General",

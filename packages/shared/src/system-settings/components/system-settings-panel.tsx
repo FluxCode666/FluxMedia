@@ -132,11 +132,6 @@ const FEATURE_ROWS = [
     description: "允许选择旗舰模型",
   },
   {
-    key: "customApi.configure",
-    label: "接入其他站 API",
-    description: "用户配置自己的上游 API",
-  },
-  {
     key: "backendGroups.select",
     label: "选择后端分组",
     description: "允许选择平台后端分组",

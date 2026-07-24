@@ -426,17 +426,7 @@
       "billing": "账单与用量",
       "usage": "用量",
       "externalApi": "API 密钥",
-      "backend": "后端",
-      "profile": "个人资料",
-      "advanced": "高级"
-    },
-    "backend": {
-      "title": "生图后端",
-      "description": "选择网页端创作默认使用的系统后端账号池分组。该设置不影响外部 API 调用；API 密钥请在密钥列表里单独指定分组，未指定时使用平台默认分组。"
-    },
-    "advanced": {
-      "title": "高级设置",
-      "description": "面向高级用户的配置选项。"
+      "profile": "个人资料"
     },
     "externalApi": {
       "title": "API 密钥",
@@ -517,38 +507,6 @@
         "quota": "更新 API 密钥限额失败",
         "quotaInvalid": "请输入大于等于 0 的积分限额，或留空表示不限额"
       }
-    },
-    "apiConfig": {
-      "warning": {
-        "title": "高级配置",
-        "description": "配置你自己的 OpenAI 兼容 API 端点。启用后，图片生成将使用你的 API 密钥，不消耗平台积分。"
-      },
-      "customEndpoint": "自定义 API 端点",
-      "enabled": "使用自定义 API",
-      "enabledDescription": "启用后将绕过平台积分计费",
-      "baseUrl": "API 地址",
-      "apiKey": "API 密钥",
-      "model": "模型（可选）",
-      "modelHint": "留空则使用默认模型",
-      "useStream": "流式响应",
-      "useStreamDescription": "发送 stream=true，并兼容 New API 的图像事件流。",
-      "save": "保存配置",
-      "remove": "删除",
-      "docsLink": "API 文档",
-      "paidOnly": "自定义 API 配置仅对入门版及以上套餐开放。",
-      "saveFailed": "保存失败",
-      "saved": "API 配置已保存",
-      "removed": "API 配置已删除",
-      "updateFailed": "更新失败",
-      "requiresPaid": "自定义 API 需要入门版或更高套餐",
-      "test": "测试出图",
-      "testing": "测试中…",
-      "testNeedsInput": "请先填写 API 地址和密钥",
-      "testOk": "测活通过：成功返回图片（{latency}ms）",
-      "testNoImage": "连接成功但未返回图片（可能模型不支持出图）",
-      "testAuthFailed": "密钥被拒绝",
-      "testError": "出图失败",
-      "testUnreachable": "无法连接或超时"
     },
     "general": {
       "title": "基本信息",
