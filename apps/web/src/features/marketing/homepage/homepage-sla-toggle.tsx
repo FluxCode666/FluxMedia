@@ -19,12 +19,15 @@ import { useRouter } from "@/i18n/routing";
  * 提交首页 SLA 展示状态并在成功后刷新服务端真相。
  *
  * @param props.initiallyEnabled - 服务端已读取并收窄的当前布尔状态。
+ * @param props.onDark - 是否渲染在深色背景上；启用时显式提供可读的前景色。
  * @returns 管理员专用按钮；请求期间禁用，成功和失败都有可感知反馈。
  */
 export function HomepageSlaToggle({
   initiallyEnabled,
+  onDark = false,
 }: {
   initiallyEnabled: boolean;
+  onDark?: boolean;
 }) {
   const t = useTranslations("Homepage.reliability.toggle");
   const router = useRouter();
@@ -43,6 +46,11 @@ export function HomepageSlaToggle({
 
   return (
     <Button
+      className={
+        onDark
+          ? "self-start rounded-full border-background/20 bg-background text-foreground hover:bg-background/90 hover:text-foreground"
+          : "self-start rounded-full"
+      }
       disabled={isPending}
       onClick={() => execute({ enabled: !initiallyEnabled })}
       size="sm"

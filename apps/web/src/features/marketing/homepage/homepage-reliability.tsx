@@ -103,53 +103,89 @@ export function HomepageReliability({
             </p>
           </div>
           {canToggle && state.visibility === "enabled" && (
-            <HomepageSlaToggle initiallyEnabled />
+            <HomepageSlaToggle initiallyEnabled onDark />
           )}
         </div>
 
         {state.visibility === "unavailable" ||
         stats.status === "unavailable" ? (
-          <p className="mt-12 border-l-2 border-[#a63d33] py-2 pl-4 text-sm text-background/65">
-            {copy.unavailable}
-          </p>
+          <div
+            className="mt-12 flex items-start gap-3 rounded-3xl border border-[#a63d33]/45 bg-[#a63d33]/10 px-5 py-5 text-sm leading-6 text-background/70"
+            role="status"
+          >
+            <span
+              aria-hidden="true"
+              className="mt-2 size-2 shrink-0 rounded-full bg-[#d2776d]"
+            />
+            <p>{copy.unavailable}</p>
+          </div>
         ) : stats.status === "insufficient" ? (
-          <p className="mt-12 border-l-2 border-background/30 py-2 pl-4 text-sm text-background/65">
-            {copy.insufficient}
-          </p>
+          <div
+            className="mt-12 flex items-start gap-3 rounded-3xl border border-background/20 bg-background/[0.04] px-5 py-5 text-sm leading-6 text-background/70"
+            role="status"
+          >
+            <span
+              aria-hidden="true"
+              className="mt-2 size-2 shrink-0 rounded-full bg-background/45"
+            />
+            <p>{copy.insufficient}</p>
+          </div>
         ) : (
-          <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-background/20 bg-background/20 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="bg-foreground p-6">
-              <p className="font-serif text-4xl">
+          <div className="mt-12 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
+            <div className="flex min-h-80 flex-col justify-between rounded-3xl border border-background/20 bg-background/[0.04] p-6 sm:p-8">
+              <div className="flex items-center justify-between gap-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-background/55">
+                  {copy.availability}
+                </p>
+                <span
+                  aria-hidden="true"
+                  className="size-2 rounded-full bg-[#d2776d] shadow-[0_0_0_5px_rgba(210,119,109,0.12)]"
+                />
+              </div>
+              <p className="font-serif text-6xl leading-none tracking-[-0.045em] sm:text-7xl lg:text-8xl">
                 {formatPercent(stats.data.successRate, locale)}
               </p>
-              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-background/55">
-                {copy.availability}
-              </p>
+              <div
+                aria-label={copy.availability}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={Math.round(stats.data.successRate * 100)}
+                className="h-2 overflow-hidden rounded-full bg-background/15"
+                role="progressbar"
+              >
+                <div
+                  className="h-full rounded-full bg-[#d2776d]"
+                  style={{ width: `${stats.data.successRate * 100}%` }}
+                />
+              </div>
             </div>
-            <div className="bg-foreground p-6">
-              <p className="font-serif text-4xl">
-                {formatCount(stats.data.sampleSize, locale)}
-              </p>
-              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-background/55">
-                {copy.sample}
-              </p>
-            </div>
-            <div className="bg-foreground p-6">
-              <p className="font-serif text-4xl">
-                {formatCount(stats.data.completed, locale)}
-              </p>
-              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-background/55">
-                {copy.completed}
-              </p>
-            </div>
-            <div className="bg-foreground p-6">
-              <p className="font-serif text-4xl text-[#d2776d]">
-                {formatCount(stats.data.platformErrors, locale)}
-              </p>
-              <p className="mt-2 text-xs uppercase tracking-[0.18em] text-background/55">
-                {copy.platformErrors}
-              </p>
-            </div>
+
+            <dl className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
+                <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
+                  {copy.sample}
+                </dt>
+                <dd className="font-serif text-4xl leading-none">
+                  {formatCount(stats.data.sampleSize, locale)}
+                </dd>
+              </div>
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
+                <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
+                  {copy.completed}
+                </dt>
+                <dd className="font-serif text-4xl leading-none">
+                  {formatCount(stats.data.completed, locale)}
+                </dd>
+              </div>
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-[#a63d33]/45 bg-[#a63d33]/10 p-5 lg:min-h-0">
+                <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
+                  {copy.platformErrors}
+                </dt>
+                <dd className="font-serif text-4xl leading-none text-[#d2776d]">
+                  {formatCount(stats.data.platformErrors, locale)}
+                </dd>
+              </div>
+            </dl>
           </div>
         )}
       </div>
