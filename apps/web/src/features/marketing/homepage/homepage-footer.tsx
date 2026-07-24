@@ -46,23 +46,23 @@ export function HomepageFooter({
       className="scroll-mt-24 bg-[#11100f] px-4 text-[#f6f1e7] sm:px-6 lg:px-8"
       id="create"
     >
-      <div className="mx-auto flex min-h-[30rem] w-full max-w-7xl flex-col justify-center py-20 lg:py-28">
-        <p className="font-mono text-xs uppercase tracking-[0.24em] text-[#f6f1e7]/50">
-          {copy.eyebrow}
-        </p>
-        <h2
-          className="mt-5 max-w-4xl font-serif text-4xl font-medium leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl"
-          id="homepage-create-title"
-        >
-          {copy.title}
-        </h2>
-        <div className="mt-8 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <p className="max-w-xl text-base leading-7 text-[#f6f1e7]/60">
+      <div className="mx-auto flex min-h-[calc(100svh-4rem)] w-full max-w-7xl items-center justify-center border-b border-white/15 py-20 text-center lg:py-28">
+        <div className="flex max-w-5xl flex-col items-center">
+          <p className="font-mono text-xs uppercase tracking-[0.24em] text-[#f6f1e7]/50">
+            {copy.eyebrow}
+          </p>
+          <h2
+            className="mt-5 max-w-5xl font-serif text-5xl font-medium leading-[0.98] tracking-[-0.035em] sm:text-7xl lg:text-8xl"
+            id="homepage-create-title"
+          >
+            {copy.title}
+          </h2>
+          <p className="mt-7 max-w-xl text-base leading-7 text-[#f6f1e7]/55">
             {copy.description}
           </p>
           <Button
             asChild
-            className="rounded-none bg-[#a63d33] px-6 text-white hover:bg-[#92342c]"
+            className="mt-9 rounded-none bg-[#f6f1e7] px-7 text-[#11100f] hover:bg-white"
             size="lg"
           >
             <Link href={ctaHref}>
@@ -73,8 +73,8 @@ export function HomepageFooter({
         </div>
       </div>
 
-      <footer className="mx-auto w-full max-w-7xl border-t border-white/15 py-10">
-        <div className="grid gap-10 lg:grid-cols-[1fr_0.7fr_0.7fr]">
+      <footer className="mx-auto w-full max-w-7xl py-10">
+        <div className="grid gap-10 sm:grid-cols-[1.4fr_0.7fr_0.7fr]">
           <div>
             <Link className="inline-flex items-center gap-2" href="/">
               <Image

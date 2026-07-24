@@ -74,26 +74,6 @@ function clearHomepageMotionStyles(targets: Iterable<HTMLElement>): void {
   }
 }
 
-/** 判断根作用域事件是否来自模型分类按钮。 */
-function isHomepageModelTabEventTarget(
-  target: EventTarget | null,
-  root: HTMLElement
-): boolean {
-  if (!(target instanceof Element)) return false;
-  const tab = target.closest("[data-model-preview]");
-  return tab !== null && root.contains(tab);
-}
-
-/** 判断按键是否会切换模型分类并改变模型区布局。 */
-function isHomepageModelTabNavigationKey(key: string): boolean {
-  return (
-    key === "ArrowLeft" ||
-    key === "ArrowRight" ||
-    key === "Home" ||
-    key === "End"
-  );
-}
-
 /**
  * 为服务端首页增加受约束的短动效。
  *
@@ -144,23 +124,6 @@ export function HomepageMotion({ children }: { children: ReactNode }) {
       /** 图片完成解码并改变局部布局时安排一次合并刷新。 */
       const handleImageLoad = contextSafe((event: Event) => {
         if (event.target instanceof HTMLImageElement) scheduleRefresh();
-      });
-
-      /** 鼠标或键盘激活模型分类后，在 React 提交后的下一帧刷新布局。 */
-      const handleModelTabClick = contextSafe((event: Event) => {
-        if (isHomepageModelTabEventTarget(event.target, root)) {
-          scheduleRefresh();
-        }
-      });
-
-      /** 方向键与边界键切换模型分类后安排一次合并刷新。 */
-      const handleModelTabKeyDown = contextSafe((event: KeyboardEvent) => {
-        if (
-          isHomepageModelTabNavigationKey(event.key) &&
-          isHomepageModelTabEventTarget(event.target, root)
-        ) {
-          scheduleRefresh();
-        }
       });
 
       try {
@@ -308,16 +271,10 @@ export function HomepageMotion({ children }: { children: ReactNode }) {
       }
 
       root.addEventListener("load", handleImageLoad, true);
-      root.addEventListener("click", handleModelTabClick);
-      root.addEventListener("keydown", handleModelTabKeyDown);
-      // 模型目录 hydration 后会从 SSR 全分类收窄到当前 tab；复用同一帧合并器，
-      // 在客户端增强完成后只校准一次。
       scheduleRefresh();
 
       return () => {
         root.removeEventListener("load", handleImageLoad, true);
-        root.removeEventListener("click", handleModelTabClick);
-        root.removeEventListener("keydown", handleModelTabKeyDown);
         if (refreshFrame !== null) view.cancelAnimationFrame(refreshFrame);
         motionMedia?.revert();
         clearHomepageMotionStyles(allOwnedTargets);

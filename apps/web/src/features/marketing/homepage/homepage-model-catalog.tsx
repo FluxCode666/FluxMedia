@@ -1,29 +1,22 @@
-"use client";
-
 /**
- * 官网首页运行时模型目录渐进增强组件。
+ * 官网首页图像模型目录。
  *
- * 使用方：首页连续内容；同一 `HomepageModelCatalogState` 同时驱动速览带和完整三分类，
- * SSR 直接输出全部模型与空状态，hydration 后才增强为可访问分类 tabs。
+ * 使用方：首页连续内容；把完整运行时目录投影为官网当前公开的图像模型，并以编辑式
+ * 大卡片展示。视频、对话与 Firefly 前缀只在展示层隐藏，不修改系统运行时配置。
  */
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { isFireflyModel } from "@/features/image-generation/resolution";
 
 import type {
   HomepageModelCatalogState,
   HomepageModelItem,
 } from "./homepage-page-data";
 
-/** 模型分类的稳定键。 */
-export type HomepageModelCategory = "image" | "video" | "conversation";
+/** 首页公开展示所需的最小目录状态。 */
+export type HomepageVisibleModelCatalogState =
+  | { status: "ready"; image: HomepageModelItem[] }
+  | { status: "unavailable" };
 
-/** 单个模型分类的本地化可见文案。 */
-export type HomepageModelCategoryCopy = {
-  label: string;
-  description: string;
-  empty: string;
-};
-
-/** 模型目录区的完整本地化文案。 */
+/** 首页图像模型区的本地化文案。 */
 export type HomepageModelCatalogCopy = {
   eyebrow: string;
   title: string;
@@ -32,243 +25,131 @@ export type HomepageModelCatalogCopy = {
   countLabel: string;
   unavailable: string;
   supportedLabel: string;
-  categories: Record<HomepageModelCategory, HomepageModelCategoryCopy>;
+  image: {
+    label: string;
+    description: string;
+    empty: string;
+  };
 };
 
-const MODEL_CATEGORIES: readonly HomepageModelCategory[] = [
-  "image",
-  "video",
-  "conversation",
-];
-
-/** tabs 支持的方向键与边界键。 */
-export type HomepageModelTabKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
-
 /**
- * 计算键盘操作后的模型分类，左右方向循环，Home/End 跳到边界。
+ * 将完整运行时目录投影为官网可见图像目录。
  *
- * @param current - 当前选中的分类。
- * @param key - 已收窄的 tabs 导航键。
- * @returns 下一分类；无副作用，供客户端事件和 DB-free 测试共用。
+ * @param catalog - 已由首页数据层校验的完整运行时目录。
+ * @returns 仅含非 Firefly 图像模型的目录；依赖失败状态原样保留。
+ * @sideEffects 无；不会修改传入数组或底层运行时配置。
  */
-export function getNextHomepageModelTab(
-  current: HomepageModelCategory,
-  key: HomepageModelTabKey
-): HomepageModelCategory {
-  if (key === "Home") return "image";
-  if (key === "End") return "conversation";
-  const currentIndex = MODEL_CATEGORIES.indexOf(current);
-  const offset = key === "ArrowRight" ? 1 : -1;
-  const nextIndex =
-    (currentIndex + offset + MODEL_CATEGORIES.length) % MODEL_CATEGORIES.length;
-  return MODEL_CATEGORIES[nextIndex] ?? current;
-}
+export function getHomepageVisibleModelCatalog(
+  catalog: HomepageModelCatalogState
+): HomepageVisibleModelCatalogState {
+  if (catalog.status === "unavailable") return catalog;
 
-/** 将任意键盘值收窄为本组件支持的导航键。 */
-function isHomepageModelTabKey(key: string): key is HomepageModelTabKey {
-  return (
-    key === "ArrowLeft" ||
-    key === "ArrowRight" ||
-    key === "Home" ||
-    key === "End"
-  );
-}
-
-/** 从目录状态读取指定分类；失败态不会伪装成空数组。 */
-function getCategoryModels(
-  catalog: HomepageModelCatalogState,
-  category: HomepageModelCategory
-): readonly HomepageModelItem[] | null {
-  return catalog.status === "ready" ? catalog[category] : null;
-}
-
-/** 渲染完整分类中的模型卡或对应诚实状态。 */
-function ModelCategory({
-  category,
-  catalog,
-  copy,
-  hidden,
-}: {
-  category: HomepageModelCategory;
-  catalog: HomepageModelCatalogState;
-  copy: HomepageModelCatalogCopy;
-  hidden: boolean;
-}) {
-  const models = getCategoryModels(catalog, category);
-  const categoryCopy = copy.categories[category];
-
-  return (
-    <article
-      aria-labelledby={`homepage-model-tab-${category}`}
-      className="border-t border-border py-8 first:border-t-0 lg:grid lg:grid-cols-[0.62fr_1.38fr] lg:gap-12"
-      data-model-category={category}
-      hidden={hidden}
-      id={`homepage-model-panel-${category}`}
-      role="tabpanel"
-    >
-      <div>
-        <div className="flex items-baseline justify-between gap-4">
-          <h3 className="font-serif text-2xl font-medium">
-            {categoryCopy.label}
-          </h3>
-          {models && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {models.length} {copy.countLabel}
-            </span>
-          )}
-        </div>
-        <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-          {categoryCopy.description}
-        </p>
-      </div>
-
-      <div className="mt-6 lg:mt-0">
-        {models === null ? (
-          <p className="border-l-2 border-destructive/70 py-2 pl-4 text-sm text-muted-foreground">
-            {copy.unavailable}
-          </p>
-        ) : models.length === 0 ? (
-          <p className="border-l-2 border-border py-2 pl-4 text-sm text-muted-foreground">
-            {categoryCopy.empty}
-          </p>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {models.map((model) => (
-              <li
-                className="flex min-w-0 items-center justify-between gap-3 border border-border bg-background px-4 py-3"
-                key={model.id}
-              >
-                <code className="min-w-0 break-all font-mono text-sm">
-                  {model.id}
-                </code>
-                <span className="shrink-0 text-[10px] uppercase tracking-[0.18em] text-destructive">
-                  {copy.supportedLabel}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </article>
-  );
+  return {
+    status: "ready",
+    image: catalog.image
+      .map((model) => ({ id: model.id.trim() }))
+      .filter((model) => model.id && !isFireflyModel(model.id)),
+  };
 }
 
 /**
- * 服务端渲染模型速览和完整三分类。
+ * 渲染单一图像模型目录与诚实降级状态。
  *
- * @param props - 同一运行时目录状态与双语文案。
- * @returns 无 JavaScript 也含 image/video/conversation 分类和全部模型的 HTML。
+ * @param props - 已投影的可见目录和双语文案。
+ * @returns 无 JavaScript 也完整可读的图像模型大卡片网格。
  */
 export function HomepageModelCatalog({
   catalog,
   copy,
 }: {
-  catalog: HomepageModelCatalogState;
+  catalog: HomepageVisibleModelCatalogState;
   copy: HomepageModelCatalogCopy;
 }) {
-  const [enhanced, setEnhanced] = useState(false);
-  const [selectedCategory, setSelectedCategory] =
-    useState<HomepageModelCategory>("image");
-  const tabButtonRefs = useRef<
-    Partial<Record<HomepageModelCategory, HTMLButtonElement | null>>
-  >({});
-
-  useEffect(() => {
-    setEnhanced(true);
-  }, []);
-
-  /** 更新分类并通过组件局部 ref 聚焦对应 tab，不查询全局 DOM。 */
-  const selectAndFocus = (category: HomepageModelCategory) => {
-    setSelectedCategory(category);
-    tabButtonRefs.current[category]?.focus();
-  };
-
-  /** 处理 ARIA tabs 的循环方向键与 Home/End 导航。 */
-  const handleTabKeyDown = (
-    event: KeyboardEvent<HTMLButtonElement>,
-    category: HomepageModelCategory
-  ) => {
-    if (!isHomepageModelTabKey(event.key)) return;
-    event.preventDefault();
-    selectAndFocus(getNextHomepageModelTab(category, event.key));
-  };
+  const models = catalog.status === "ready" ? catalog.image : null;
 
   return (
     <section
       aria-labelledby="homepage-models-title"
-      className="scroll-mt-24 border-y border-border bg-muted/15"
+      className="scroll-mt-24 border-y border-border bg-background px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
       id="models"
     >
-      <div className="border-b border-border px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
-            {copy.previewLabel}
-          </p>
-          <div
-            aria-label={copy.previewLabel}
-            className="flex flex-wrap gap-2"
-            role="tablist"
-          >
-            {MODEL_CATEGORIES.map((category) => {
-              const models = getCategoryModels(catalog, category);
-              const selected = selectedCategory === category;
-              return (
-                <button
-                  aria-controls={`homepage-model-panel-${category}`}
-                  aria-selected={selected}
-                  className="inline-flex items-baseline gap-2 border border-border bg-background px-3 py-2 text-left transition-colors hover:border-foreground/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 aria-selected:border-foreground aria-selected:text-foreground"
-                  data-model-preview={category}
-                  id={`homepage-model-tab-${category}`}
-                  key={category}
-                  onClick={() => setSelectedCategory(category)}
-                  onKeyDown={(event) => handleTabKeyDown(event, category)}
-                  ref={(node) => {
-                    tabButtonRefs.current[category] = node;
-                  }}
-                  role="tab"
-                  tabIndex={selected ? 0 : -1}
-                  type="button"
-                >
-                  <span className="text-sm">
-                    {copy.categories[category].label}
-                  </span>
-                  <span className="font-mono text-xs text-destructive">
-                    {models === null ? "—" : models.length}
-                  </span>
-                </button>
-              );
-            })}
+      <div className="mx-auto w-full max-w-7xl">
+        <div className="grid gap-8 border-b border-foreground/70 pb-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
+              {copy.eyebrow}
+            </p>
+            <h2
+              className="mt-4 max-w-4xl font-serif text-4xl font-medium leading-[1.04] tracking-[-0.025em] sm:text-5xl"
+              id="homepage-models-title"
+            >
+              {copy.title}
+            </h2>
           </div>
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-        <div className="max-w-3xl">
-          <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
-            {copy.eyebrow}
-          </p>
-          <h2
-            className="mt-4 font-serif text-3xl font-medium tracking-tight sm:text-5xl"
-            id="homepage-models-title"
-          >
-            {copy.title}
-          </h2>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
+          <p className="max-w-xl text-sm leading-7 text-muted-foreground lg:justify-self-end">
             {copy.description}
           </p>
         </div>
 
-        <div className="mt-14">
-          {MODEL_CATEGORIES.map((category) => (
-            <ModelCategory
-              catalog={catalog}
-              category={category}
-              copy={copy}
-              hidden={enhanced && selectedCategory !== category}
-              key={category}
-            />
-          ))}
+        <div className="mt-8 flex items-center justify-between gap-6">
+          <div className="inline-flex items-baseline gap-3 border border-foreground bg-foreground px-4 py-2 text-background">
+            <span className="text-sm">{copy.image.label}</span>
+            <span className="font-mono text-xs">
+              {models === null ? "—" : `${models.length} ${copy.countLabel}`}
+            </span>
+          </div>
+          <p className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground sm:block">
+            {copy.previewLabel}
+          </p>
         </div>
+
+        <article
+          aria-labelledby="homepage-models-title"
+          className="mt-5"
+          data-model-category="image"
+        >
+          {models === null ? (
+            <p className="border-l-2 border-destructive/70 py-3 pl-4 text-sm text-muted-foreground">
+              {copy.unavailable}
+            </p>
+          ) : models.length === 0 ? (
+            <p className="border-l-2 border-border py-3 pl-4 text-sm text-muted-foreground">
+              {copy.image.empty}
+            </p>
+          ) : (
+            <ul className="grid border-l border-t border-border sm:grid-cols-2 lg:grid-cols-3">
+              {models.map((model, index) => (
+                <li
+                  className="group flex min-h-64 min-w-0 flex-col justify-between border-b border-r border-border bg-background p-5 transition-colors duration-300 hover:bg-muted/35 motion-reduce:transition-none sm:p-6"
+                  key={model.id}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {String(index + 1).padStart(2, "0")} / {copy.image.label}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="size-5 rotate-45 border border-muted-foreground/60 transition-transform duration-300 group-hover:rotate-90 motion-reduce:transition-none"
+                    />
+                  </div>
+                  <div>
+                    <code className="block break-words font-serif text-2xl leading-tight tracking-[-0.02em] sm:text-3xl">
+                      {model.id}
+                    </code>
+                    <div className="mt-6 flex items-center justify-between gap-4 border-t border-border pt-4">
+                      <span className="text-xs text-muted-foreground">
+                        {copy.image.description}
+                      </span>
+                      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.16em] text-destructive">
+                        {copy.supportedLabel}
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
       </div>
     </section>
   );

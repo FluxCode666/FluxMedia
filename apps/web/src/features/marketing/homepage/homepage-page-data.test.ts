@@ -96,7 +96,6 @@ vi.mock("next-intl/server", async () => {
 });
 
 import { HomepageContent } from "./homepage-content";
-import { getNextHomepageModelTab } from "./homepage-model-catalog";
 import {
   type HomepagePageData,
   type HomepagePageDataLoaders,
@@ -143,29 +142,6 @@ function createDeferred<T>() {
   });
   return { promise, resolve: resolvePromise };
 }
-
-/** 从静态 HTML 中读取指定 id 元素的开始标签。 */
-function getOpeningTag(html: string, id: string): string {
-  const idIndex = html.indexOf(`id="${id}"`);
-  if (idIndex < 0) return "";
-  const start = html.lastIndexOf("<", idIndex);
-  const end = html.indexOf(">", idIndex);
-  return start >= 0 && end >= 0 ? html.slice(start, end + 1) : "";
-}
-
-describe("getNextHomepageModelTab", () => {
-  it.each([
-    ["image", "ArrowRight", "video"],
-    ["video", "ArrowRight", "conversation"],
-    ["conversation", "ArrowRight", "image"],
-    ["image", "ArrowLeft", "conversation"],
-    ["conversation", "ArrowLeft", "video"],
-    ["video", "Home", "image"],
-    ["image", "End", "conversation"],
-  ] as const)("%s + %s 切换到 %s", (current, key, expected) => {
-    expect(getNextHomepageModelTab(current, key)).toBe(expected);
-  });
-});
 
 describe("loadHomepagePageData", () => {
   it("三个生产 loader 初始化 UOL 后以独立 system reason 并行调用 operation", async () => {
@@ -517,38 +493,37 @@ function createRenderablePageData(
 }
 
 describe("HomepageContent 服务端完成态", () => {
-  it("无 JavaScript HTML 直接包含三类模型、集成、作品、统计、FAQ、CTA 与 Footer", async () => {
+  it("首页只输出非 Firefly 图像目录，并用过滤后的首个模型生成集成示例", async () => {
     const element = await HomepageContent({
       locale: "zh",
-      data: createRenderablePageData(),
+      data: createRenderablePageData({
+        catalog: {
+          status: "ready",
+          image: [
+            { id: " firefly-image-4-ultra " },
+            { id: "FIREFLY-image-3" },
+            { id: "gpt-image-2" },
+            { id: "imagen-4" },
+          ],
+          video: [{ id: "video-model-canary" }],
+          conversation: [{ id: "conversation-model-canary" }],
+        },
+      }),
     });
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain('data-model-category="image"');
-    expect(html).toContain('data-model-category="video"');
-    expect(html).toContain('data-model-category="conversation"');
-    expect(html.match(/role="tab"/g)?.length).toBe(3);
-    expect(html.match(/role="tabpanel"/g)?.length).toBe(3);
-    expect(html).toContain('role="tablist"');
-    expect(html.match(/aria-selected="true"/g)?.length).toBe(1);
-    for (const category of ["image", "video", "conversation"] as const) {
-      const tabId = `homepage-model-tab-${category}`;
-      const panelId = `homepage-model-panel-${category}`;
-      const tab = getOpeningTag(html, tabId);
-      const panel = getOpeningTag(html, panelId);
-      expect(tab).toContain(`aria-controls="${panelId}"`);
-      expect(tab).toContain(
-        category === "image" ? 'tabindex="0"' : 'tabindex="-1"'
-      );
-      expect(panel).toContain(`aria-labelledby="${tabId}"`);
-      expect(panel).toContain('role="tabpanel"');
-      expect(panel).not.toMatch(/\shidden(?:=|\s|>)/);
-    }
-    expect(html).toContain("image-alpha");
-    expect(html).toContain("video-alpha");
-    expect(html).toContain("chat-alpha");
+    expect(html).not.toContain('data-model-category="video"');
+    expect(html).not.toContain('data-model-category="conversation"');
+    expect(html).not.toMatch(/role="(?:tab|tablist|tabpanel)"/);
+    expect(html).not.toMatch(/firefly-/i);
+    expect(html).toContain("gpt-image-2");
+    expect(html).toContain("imagen-4");
+    expect(html).not.toContain("video-model-canary");
+    expect(html).not.toContain("conversation-model-canary");
     expect(html).toContain("快速集成");
     expect(html).toContain("/v1/images/generations");
+    expect(html).toContain("&quot;model&quot;:&quot;gpt-image-2&quot;");
     expect(html).toContain("%2Fcinema%2Fwall%2Fw01.webp");
     expect(html).toContain("96.00%");
     expect(html).toContain("为什么有时看不到可靠性百分比？");
@@ -560,7 +535,7 @@ describe("HomepageContent 服务端完成态", () => {
     expect(html).not.toContain("把模型、作品和下一步放在一起");
   });
 
-  it("英文失败与空目录完成态保留三分类、双语 alt、注册 CTA 和诚实状态", async () => {
+  it("英文空目录完成态只保留图像空状态、双语 alt、注册 CTA 和诚实状态", async () => {
     const element = await HomepageContent({
       locale: "en",
       data: createRenderablePageData({
@@ -580,8 +555,8 @@ describe("HomepageContent 服务端完成态", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("No public image model is currently available");
-    expect(html).toContain("No public video model is currently available");
-    expect(html).toContain(
+    expect(html).not.toContain("No public video model is currently available");
+    expect(html).not.toContain(
       "No public conversation model is currently available"
     );
     expect(html).toContain("Reliability statistics are currently unavailable");
@@ -591,6 +566,40 @@ describe("HomepageContent 服务端完成态", () => {
     expect(html.match(/href="\/sign-up"/g)?.length).toBe(2);
     expect(html).toContain("© 2026 FluxMedia. All rights reserved.");
     expect(html).not.toMatch(/subscription|pricing|credit pack/i);
+  });
+
+  it.each([
+    {
+      name: "所有图像都被 Firefly 前缀过滤",
+      catalog: {
+        status: "ready" as const,
+        image: [{ id: " firefly-image-4 " }, { id: "FIREFLY-image-3" }],
+        video: [{ id: "video-model-canary" }],
+        conversation: [{ id: "conversation-model-canary" }],
+      },
+      unavailableMessage: "当前没有公开可展示的图像模型",
+    },
+    {
+      name: "运行时目录不可用",
+      catalog: { status: "unavailable" as const },
+      unavailableMessage: "当前无法读取运行时模型目录",
+    },
+  ])("$name 时不生成 cURL 并保持诚实降级", async ({
+    catalog,
+    unavailableMessage,
+  }) => {
+    const element = await HomepageContent({
+      locale: "zh",
+      data: createRenderablePageData({ catalog }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain(unavailableMessage);
+    expect(html).toContain("示例暂不可用");
+    expect(html).not.toContain("curl ");
+    expect(html).not.toMatch(
+      /firefly-|video-model-canary|conversation-model-canary/i
+    );
   });
 
   it("统计关闭时访客不见百分比，管理员仍得到服务端管理入口", async () => {

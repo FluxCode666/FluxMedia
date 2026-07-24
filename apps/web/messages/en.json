@@ -5,6 +5,8 @@
       "titleLead": "Begin with language.",
       "titleAccent": "Let the work emerge.",
       "description": "FluxMedia brings the generation models supported by the current system into one creative entry point, so a sentence can reliably become work you can keep using.",
+      "promptLabel": "Prompt",
+      "prompt": "Distant mountains unfolding through mist, drawn from language into ink.",
       "cta": "Start Creating",
       "workLink": "Explore the Work",
       "mainAlt": "FluxMedia-generated artwork of a bold ink circle on open rice paper",
@@ -17,8 +19,8 @@
     "models": {
       "previewLabel": "Current runtime models",
       "eyebrow": "MODEL CATALOG",
-      "title": "Models supported by the system running now.",
-      "description": "This catalog shows the public model categories the platform can currently serve. For any account, the models callable by an API Key are always determined by its GET /v1/models response.",
+      "title": "Image models available now.",
+      "description": "This catalog comes from the running configuration and only shows public image models the platform can currently serve. For any account, the models callable by an API Key are always determined by its GET /v1/models response.",
       "countLabel": "models",
       "unavailable": "The runtime model catalog is currently unavailable. Please try again later.",
       "supportedLabel": "Connected",
@@ -83,11 +85,11 @@
       "items": [
         {
           "question": "Which models does FluxMedia currently support?",
-          "answer": "The homepage catalog reads the current runtime configuration and groups models into image, video, and conversation. Configuration changes appear on following requests. Models callable by a specific account still come from GET /v1/models with that API Key."
+          "answer": "The homepage catalog reads the current runtime image configuration. Configuration changes appear on following requests. Models callable by a specific account still come from GET /v1/models with that API Key."
         },
         {
-          "question": "How do image, video, and conversation models relate?",
-          "answer": "They represent different serving capabilities: image models produce still visuals, video models handle enabled video paths, and conversation models power conversation and Responses features. An empty category only means there is no corresponding public model to display now."
+          "question": "Why does the homepage only show image models?",
+          "answer": "The public site currently focuses on image generation, so both the model catalog and quick integration example only use runtime image models available for public display."
         },
         {
           "question": "How do I integrate image generation through the API?",
