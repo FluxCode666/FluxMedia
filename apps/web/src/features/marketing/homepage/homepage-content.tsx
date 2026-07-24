@@ -50,7 +50,7 @@ export async function HomepageContent({
     <HomepageMotion>
       <section
         aria-labelledby="homepage-hero-title"
-        className="relative isolate overflow-hidden border-b border-border px-4 py-6 sm:px-6 sm:py-10 lg:min-h-[calc(100svh-4rem)] lg:px-8 lg:py-12"
+        className="relative isolate overflow-hidden border-b border-border px-4 py-10 sm:px-6 sm:py-14 lg:flex lg:min-h-[calc(100svh-4rem)] lg:items-center lg:px-8 lg:py-16"
         data-homepage-motion="hero"
       >
         <div
@@ -58,8 +58,8 @@ export async function HomepageContent({
           className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_86%_14%,color-mix(in_oklab,var(--destructive)_7%,transparent),transparent_28%),linear-gradient(to_bottom,color-mix(in_oklab,var(--muted)_35%,transparent),transparent_55%)]"
         />
         <div className="mx-auto w-full max-w-7xl">
-          <div className="grid overflow-hidden rounded-3xl border border-border/80 bg-card/70 shadow-whisper backdrop-blur-sm lg:grid-cols-[0.94fr_1.06fr] lg:items-stretch">
-            <div className="relative z-10 flex flex-col justify-center px-6 py-10 sm:px-10 sm:py-12 lg:px-12 lg:py-14">
+          <div className="grid gap-12 lg:grid-cols-[minmax(22.5rem,0.82fr)_minmax(34rem,1.18fr)] lg:items-center lg:gap-[clamp(2.75rem,6vw,6.5rem)]">
+            <div className="relative z-10 min-w-0">
               <p
                 className="font-mono text-xs uppercase tracking-[0.24em] text-destructive"
                 data-homepage-motion="hero-copy"
@@ -67,7 +67,7 @@ export async function HomepageContent({
                 {t("hero.eyebrow")}
               </p>
               <h1
-                className="mt-5 max-w-3xl font-serif text-4xl font-medium leading-[0.98] tracking-[-0.035em] sm:text-5xl lg:text-[clamp(3.25rem,4.3vw,4rem)]"
+                className="mt-5 max-w-3xl font-serif text-4xl font-medium leading-[0.94] tracking-[-0.055em] sm:text-5xl lg:text-[clamp(3.75rem,5.3vw,4.75rem)]"
                 data-homepage-motion="hero-copy"
                 id="homepage-hero-title"
               >
@@ -104,14 +104,20 @@ export async function HomepageContent({
                   </Link>
                 </Button>
               </div>
+              <p
+                className="mt-10 border-t border-border pt-4 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+                data-homepage-motion="hero-copy"
+              >
+                Prompt → Model → Result / One continuous flow
+              </p>
             </div>
 
             <figure
-              className="relative min-h-[22rem] border-t border-border/70 bg-muted/25 p-2 sm:min-h-[26rem] sm:p-3 lg:min-h-[calc(100svh-10rem)] lg:border-l lg:border-t-0"
+              className="relative min-w-0 pb-8 lg:top-10 lg:pb-0"
               data-homepage-motion="hero-artwork"
             >
               <div
-                className="relative h-full min-h-[21rem] overflow-hidden rounded-3xl sm:min-h-[24.5rem] lg:min-h-[calc(100svh-11.5rem)]"
+                className="relative aspect-[4/5] overflow-hidden rounded-3xl border border-border/80 bg-muted/25 shadow-whisper sm:aspect-[5/4] lg:rounded-[2rem]"
                 data-homepage-motion="hero-parallax"
               >
                 <Image
@@ -120,23 +126,23 @@ export async function HomepageContent({
                   fill
                   loading="eager"
                   priority
-                  sizes="(max-width: 1023px) 94vw, 58vw"
+                  sizes="(max-width: 1023px) 94vw, 55vw"
                   src="/cinema/wall/w02.webp"
                 />
                 <div
                   aria-hidden="true"
                   className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-white/5"
                 />
-                <figcaption className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/10 bg-[#11100f]/90 p-4 text-[#f6f1e7] shadow-menu backdrop-blur-md sm:inset-x-auto sm:bottom-6 sm:left-6 sm:max-w-lg sm:p-5">
-                  <div className="flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
-                    <span>{t("hero.promptLabel")} / 01</span>
-                    <span>{t("hero.artworkFormat")}</span>
-                  </div>
-                  <p className="mt-4 font-serif text-lg leading-snug sm:text-xl">
-                    {t("hero.prompt")}
-                  </p>
-                </figcaption>
               </div>
+              <figcaption className="absolute inset-x-4 bottom-12 rounded-2xl border border-white/10 bg-[#11100f]/92 p-4 text-[#f6f1e7] shadow-menu backdrop-blur-md sm:inset-x-6 sm:bottom-14 lg:-left-[4.5rem] lg:right-auto lg:bottom-10 lg:w-[54%]">
+                <div className="flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
+                  <span>{t("hero.promptLabel")} / 01</span>
+                  <span>{t("hero.artworkFormat")}</span>
+                </div>
+                <p className="mt-2 font-serif text-sm leading-snug sm:text-base">
+                  {t("hero.prompt")}
+                </p>
+              </figcaption>
             </figure>
           </div>
         </div>
