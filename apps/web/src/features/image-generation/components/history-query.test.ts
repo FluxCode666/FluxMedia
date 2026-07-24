@@ -32,6 +32,7 @@ describe("history query", () => {
       model: "gpt-image-2",
       status: "completed",
       type: null,
+      userEmail: null,
     });
   });
 
@@ -45,6 +46,12 @@ describe("history query", () => {
     ).toMatchObject({ cursor: null, model: null, status: null });
   });
 
+  it("个人历史路径忽略用户邮箱参数", () => {
+    expect(
+      parseHistorySearchParams({ userEmail: "member@example.com" }).userEmail
+    ).toBeNull();
+  });
+
   it("构造不带 locale 的筛选 URL", () => {
     expect(
       buildHistoryHref({
@@ -54,6 +61,7 @@ describe("history query", () => {
         model: "firefly-image-4",
         status: "failed",
         type: "image",
+        userEmail: null,
       })
     ).toBe(
       "/dashboard/history?createdFrom=2026-07-01&createdTo=2026-07-22&model=firefly-image-4&status=failed&type=image"
@@ -82,5 +90,19 @@ describe("history query", () => {
     expect(
       hasActiveHistoryFilters({ ...cursorOnly, status: "processing" })
     ).toBe(true);
+  });
+
+  it("为管理端保留用户邮箱筛选并使用指定路由", () => {
+    const state = parseHistorySearchParams(
+      {
+        userEmail: "member@example.com",
+        type: "image",
+      },
+      { allowUserEmail: true }
+    );
+    expect(buildHistoryHref(state, { path: "/dashboard/admin/history" })).toBe(
+      "/dashboard/admin/history?type=image&userEmail=member%40example.com"
+    );
+    expect(hasActiveHistoryFilters(state)).toBe(true);
   });
 });

@@ -39,6 +39,9 @@ import {
 type HistoryFiltersProps = {
   modelOptions: string[];
   state: HistoryQueryState;
+  historyPath?: string;
+  showUserEmailFilter?: boolean;
+  userOptions?: Array<{ id: string; email: string }>;
 };
 
 const ALL_VALUE = "all";
@@ -50,7 +53,13 @@ const ALL_VALUE = "all";
  * @returns 可访问、响应式筛选控件；不会自行请求数据。
  * @sideEffects 应用或清空筛选时触发同源客户端导航。
  */
-export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
+export function HistoryFilters({
+  modelOptions,
+  state,
+  historyPath,
+  showUserEmailFilter = false,
+  userOptions = [],
+}: HistoryFiltersProps) {
   const locale = useLocale();
   const isZh = locale === "zh";
   const copy = (en: string, zh: string) => (isZh ? zh : en);
@@ -63,8 +72,11 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
     state.status
   );
   const [type, setType] = useState<HistoryTypeFilter | null>(state.type);
+  const [userEmail, setUserEmail] = useState(state.userEmail ?? "");
   const [modelSearch, setModelSearch] = useState("");
   const [isModelOpen, setIsModelOpen] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [isUserOpen, setIsUserOpen] = useState(false);
   const [dateError, setDateError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,6 +85,7 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
     setModel(state.model ?? "");
     setStatus(state.status);
     setType(state.type);
+    setUserEmail(state.userEmail ?? "");
     setDateError(null);
   }, [state]);
 
@@ -91,6 +104,22 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
         option.toLocaleLowerCase(locale).includes(normalizedModelSearch)
       )
     : sortedModels;
+  const sortedUsers = useMemo(() => {
+    const usersByEmail = new Map<string, { id: string; email: string }>();
+    for (const user of userOptions) {
+      const email = user.email.trim();
+      if (email) usersByEmail.set(email, { id: user.id, email });
+    }
+    return [...usersByEmail.values()].sort((left, right) =>
+      left.email.localeCompare(right.email, locale)
+    );
+  }, [locale, userOptions]);
+  const normalizedUserSearch = userSearch.trim().toLocaleLowerCase(locale);
+  const visibleUsers = normalizedUserSearch
+    ? sortedUsers.filter((user) =>
+        user.email.toLocaleLowerCase(locale).includes(normalizedUserSearch)
+      )
+    : sortedUsers;
 
   /** 以新筛选替换 URL；筛选变化后必须从 keyset 首屏重新开始。 */
   function navigateWithFilters(next: {
@@ -99,17 +128,22 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
     model: string;
     status: HistoryStatusFilter | null;
     type: HistoryTypeFilter | null;
+    userEmail: string;
   }): void {
     startTransition(() => {
       router.push(
-        buildHistoryHref({
-          createdFrom: next.createdFrom || null,
-          createdTo: next.createdTo || null,
-          cursor: null,
-          model: next.model.trim() || null,
-          status: next.status,
-          type: next.type,
-        })
+        buildHistoryHref(
+          {
+            createdFrom: next.createdFrom || null,
+            createdTo: next.createdTo || null,
+            cursor: null,
+            model: next.model.trim() || null,
+            status: next.status,
+            type: next.type,
+            userEmail: next.userEmail.trim() || null,
+          },
+          { path: historyPath }
+        )
       );
     });
   }
@@ -126,7 +160,14 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
       return;
     }
     setDateError(null);
-    navigateWithFilters({ createdFrom, createdTo, model, status, type });
+    navigateWithFilters({
+      createdFrom,
+      createdTo,
+      model,
+      status,
+      type,
+      userEmail,
+    });
   }
 
   /** 清空全部业务筛选并返回使用记录首屏。 */
@@ -136,6 +177,8 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
     setModel("");
     setStatus(null);
     setType(null);
+    setUserEmail("");
+    setUserSearch("");
     setDateError(null);
     navigateWithFilters({
       createdFrom: "",
@@ -143,6 +186,7 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
       model: "",
       status: null,
       type: null,
+      userEmail: "",
     });
   }
 
@@ -151,7 +195,14 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
       aria-label={copy("Usage records filters", "使用记录筛选")}
       className="rounded-lg border border-border bg-background p-4"
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.4fr)_minmax(190px,1fr)_150px_140px_auto] xl:items-end">
+      <div
+        className={cn(
+          "grid gap-3 md:grid-cols-2 xl:items-end",
+          showUserEmailFilter
+            ? "xl:grid-cols-[minmax(220px,1.2fr)_minmax(190px,1fr)_minmax(220px,1fr)_150px_140px_auto]"
+            : "xl:grid-cols-[minmax(280px,1.4fr)_minmax(190px,1fr)_150px_140px_auto]"
+        )}
+      >
         <HistoryDateRangePicker
           createdFrom={createdFrom}
           createdTo={createdTo}
@@ -262,6 +313,107 @@ export function HistoryFilters({ modelOptions, state }: HistoryFiltersProps) {
             </PopoverContent>
           </Popover>
         </div>
+
+        {showUserEmailFilter ? (
+          <div className="grid min-w-0 gap-2 text-xs font-medium text-muted-foreground">
+            <span id="history-user-filter-label">
+              {copy("User email", "用户邮箱")}
+            </span>
+            <Popover onOpenChange={setIsUserOpen} open={isUserOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-expanded={isUserOpen}
+                  aria-labelledby="history-user-filter-label"
+                  className="min-w-0 justify-between font-normal text-foreground"
+                  disabled={isNavigating}
+                  type="button"
+                  variant="outline"
+                >
+                  <span className="truncate">
+                    {userEmail || copy("All users", "全部用户")}
+                  </span>
+                  <ChevronsUpDown className="text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] min-w-72 p-0"
+              >
+                <div className="flex items-center gap-2 border-b border-border px-3">
+                  <Search className="size-4 shrink-0 text-muted-foreground" />
+                  <input
+                    aria-label={copy("Search user emails", "搜索用户邮箱")}
+                    className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    onChange={(event) => setUserSearch(event.target.value)}
+                    placeholder={copy("Search user emails", "搜索用户邮箱")}
+                    type="search"
+                    value={userSearch}
+                  />
+                  {userSearch ? (
+                    <button
+                      aria-label={copy(
+                        "Clear user email search",
+                        "清空用户邮箱搜索"
+                      )}
+                      className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setUserSearch("")}
+                      type="button"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+                <div
+                  aria-label={copy("Available users", "可选用户")}
+                  className="max-h-64 overflow-y-auto p-1"
+                  role="listbox"
+                >
+                  <button
+                    aria-selected={!userEmail}
+                    className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => {
+                      setUserEmail("");
+                      setIsUserOpen(false);
+                      setUserSearch("");
+                    }}
+                    role="option"
+                    type="button"
+                  >
+                    <span>{copy("All users", "全部用户")}</span>
+                    <Check className={cn("size-4", userEmail && "invisible")} />
+                  </button>
+                  {visibleUsers.map((user) => (
+                    <button
+                      aria-selected={userEmail === user.email}
+                      className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      key={user.id}
+                      onClick={() => {
+                        setUserEmail(user.email);
+                        setIsUserOpen(false);
+                        setUserSearch("");
+                      }}
+                      role="option"
+                      type="button"
+                    >
+                      <span className="min-w-0 truncate">{user.email}</span>
+                      <Check
+                        className={cn(
+                          "size-4 shrink-0",
+                          userEmail !== user.email && "invisible"
+                        )}
+                      />
+                    </button>
+                  ))}
+                  {visibleUsers.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                      {copy("No matching users", "没有匹配的用户")}
+                    </p>
+                  ) : null}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        ) : null}
 
         <div className="grid gap-2 text-xs font-medium text-muted-foreground">
           <span id="history-status-filter-label">{copy("Status", "状态")}</span>

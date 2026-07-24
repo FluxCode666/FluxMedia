@@ -1,8 +1,8 @@
 /**
  * 统一生成历史的共享 UOL 契约。
  *
- * 使用方：历史记录 UOL、Web 查询服务和历史页。调用方只能提交筛选与分页参数，
- * 用户身份始终来自 Principal；图片和视频通过 kind 判别，避免混用专属字段。
+ * 使用方：个人与管理端历史记录 UOL、Web 查询服务和页面。调用方只能提交筛选与
+ * 分页参数，查询作用域始终来自 Principal；图片和视频通过 kind 判别，避免混用专属字段。
  */
 
 import { z } from "zod";
@@ -16,6 +16,9 @@ export const historyRecordStatusSchema = z.enum([
   "completed",
   "failed",
 ]);
+
+/** 管理端精确筛选历史所属用户时使用的邮箱值。 */
+export const adminHistoryUserEmailSchema = z.string().trim().email().max(320);
 
 /** 校验 YYYY-MM-DD 同时确实是有效公历日期。 */
 function isValidDateOnly(value: string): boolean {
@@ -57,6 +60,21 @@ export const historyCursorFiltersSchema = z
 
 /** 本人历史列表输入；userId 等只读身份字段会被 strict 拒绝。 */
 export const historyListInputSchema = historyCursorFiltersSchema
+  .safeExtend({
+    cursor: z.string().min(1).max(4096).nullable().default(null),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict();
+
+/** 管理端 cursor 绑定的完整筛选，额外包含精确用户邮箱。 */
+export const adminHistoryCursorFiltersSchema = historyCursorFiltersSchema
+  .safeExtend({
+    userEmail: adminHistoryUserEmailSchema.nullable().default(null),
+  })
+  .strict();
+
+/** 管理员全局历史列表输入；数据作用域和管理员身份不允许由调用方声明。 */
+export const adminHistoryListInputSchema = adminHistoryCursorFiltersSchema
   .safeExtend({
     cursor: z.string().min(1).max(4096).nullable().default(null),
     limit: z.number().int().min(1).max(50).default(20),
@@ -147,12 +165,54 @@ export const historyRecordSchema = z.discriminatedUnion("kind", [
   videoHistoryRecordSchema,
 ]);
 
+/** 管理端图片记录，附带所属用户的受控身份字段。 */
+export const adminImageHistoryRecordSchema = imageHistoryRecordSchema
+  .safeExtend({
+    userId: z.string().min(1).max(512),
+    userEmail: adminHistoryUserEmailSchema,
+  })
+  .strict();
+
+/** 管理端视频记录，附带所属用户的受控身份字段。 */
+export const adminVideoHistoryRecordSchema = videoHistoryRecordSchema
+  .safeExtend({
+    userId: z.string().min(1).max(512),
+    userEmail: adminHistoryUserEmailSchema,
+  })
+  .strict();
+
+/** 管理端统一历史记录判别联合。 */
+export const adminHistoryRecordSchema = z.discriminatedUnion("kind", [
+  adminImageHistoryRecordSchema,
+  adminVideoHistoryRecordSchema,
+]);
+
+/** 管理端邮箱筛选下拉的最小安全用户标识。 */
+export const adminHistoryUserOptionSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    email: adminHistoryUserEmailSchema,
+  })
+  .strict();
+
 /** 有界 keyset 列表输出，并携带用户历史中真实出现过的模型选项。 */
 export const historyListOutputSchema = z
   .object({
     asOf: isoDateTimeSchema,
     records: z.array(historyRecordSchema).max(50),
     modelOptions: z.array(z.string().min(1).max(240)).max(200),
+    nextCursor: z.string().min(1).max(4096).nullable(),
+    previousCursor: z.string().min(1).max(4096).nullable(),
+  })
+  .strict();
+
+/** 管理端全局历史输出；仅管理员 UOL 可返回用户邮箱和 ID。 */
+export const adminHistoryListOutputSchema = z
+  .object({
+    asOf: isoDateTimeSchema,
+    records: z.array(adminHistoryRecordSchema).max(50),
+    modelOptions: z.array(z.string().min(1).max(240)).max(200),
+    userOptions: z.array(adminHistoryUserOptionSchema).max(200),
     nextCursor: z.string().min(1).max(4096).nullable(),
     previousCursor: z.string().min(1).max(4096).nullable(),
   })
@@ -166,3 +226,11 @@ export type HistoryCursorFilters = z.infer<typeof historyCursorFiltersSchema>;
 export type HistoryListInput = z.input<typeof historyListInputSchema>;
 export type HistoryRecord = z.infer<typeof historyRecordSchema>;
 export type HistoryListOutput = z.infer<typeof historyListOutputSchema>;
+export type AdminHistoryListInput = z.input<typeof adminHistoryListInputSchema>;
+export type AdminHistoryRecord = z.infer<typeof adminHistoryRecordSchema>;
+export type AdminHistoryListOutput = z.infer<
+  typeof adminHistoryListOutputSchema
+>;
+export type AdminHistoryUserOption = z.infer<
+  typeof adminHistoryUserOptionSchema
+>;

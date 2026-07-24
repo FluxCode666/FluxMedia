@@ -62,6 +62,8 @@ type HistoryRecordBase = {
   model: string;
   prompt: string;
   status: HistoryRecordStatus;
+  userEmail?: string;
+  userId?: string;
 };
 
 export type HistoryImageRecord = HistoryRecordBase & {
@@ -87,12 +89,16 @@ export type HistoryVideoRecord = HistoryRecordBase &
 export type HistoryRecord = HistoryImageRecord | HistoryVideoRecord;
 
 export type HistoryClientProps = {
+  canDeleteImages?: boolean;
+  historyPath?: string;
   modelOptions: string[];
   nextCursor: string | null;
   previousCursor: string | null;
   queryState: HistoryQueryState;
   records: HistoryRecord[];
+  showUserColumns?: boolean;
   timeZone: string;
+  userOptions?: Array<{ id: string; email: string }>;
 };
 
 /** 返回与可见状态文字配套的语义徽标样式。 */
@@ -179,12 +185,16 @@ function toLightboxGeneration(record: HistoryImageRecord): LightboxGeneration {
  * @sideEffects 删除图片成功后仅从当前客户端页移除对应记录。
  */
 export function HistoryClient({
+  canDeleteImages = true,
+  historyPath,
   modelOptions,
   nextCursor,
   previousCursor,
   queryState,
   records,
+  showUserColumns = false,
   timeZone,
+  userOptions = [],
 }: HistoryClientProps) {
   const locale = useLocale();
   const isZh = locale === "zh";
@@ -206,6 +216,9 @@ export function HistoryClient({
     ) ?? null;
   const hasPreviousPage = Boolean(previousCursor);
   const hasNextPage = Boolean(nextCursor);
+  const desktopGridColumns = showUserColumns
+    ? "lg:grid-cols-[minmax(200px,1fr)_minmax(160px,0.8fr)_228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px]"
+    : "lg:grid-cols-[228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px]";
 
   useEffect(() => {
     setItems(records);
@@ -222,7 +235,13 @@ export function HistoryClient({
 
   return (
     <div className="space-y-4">
-      <HistoryFilters modelOptions={modelOptions} state={queryState} />
+      <HistoryFilters
+        historyPath={historyPath}
+        modelOptions={modelOptions}
+        showUserEmailFilter={showUserColumns}
+        state={queryState}
+        userOptions={userOptions}
+      />
 
       {items.length === 0 ? (
         <div
@@ -262,8 +281,20 @@ export function HistoryClient({
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-background">
           <div className="overflow-x-auto">
-            <div className="lg:min-w-[1180px]">
-              <div className="hidden grid-cols-[228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px] items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground lg:grid">
+            <div
+              className={
+                showUserColumns ? "lg:min-w-[1550px]" : "lg:min-w-[1180px]"
+              }
+            >
+              <div
+                className={`hidden items-center gap-3 border-b border-border bg-muted/30 px-4 py-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground lg:grid ${desktopGridColumns}`}
+              >
+                {showUserColumns ? (
+                  <>
+                    <div>{copy("User email", "用户邮箱")}</div>
+                    <div>{copy("User ID", "用户 ID")}</div>
+                  </>
+                ) : null}
                 <div>{copy("Date", "日期")}</div>
                 <div>{copy("Preview", "预览")}</div>
                 <div>{copy("Prompt", "提示词")}</div>
@@ -281,12 +312,28 @@ export function HistoryClient({
                   return (
                     <li key={`${item.kind}-${item.id}`}>
                       <button
-                        className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[228px_64px_minmax(220px,1fr)_76px_160px_124px_104px_96px] lg:items-center"
+                        className={`grid w-full grid-cols-[56px_minmax(0,1fr)] items-start gap-3 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${desktopGridColumns} lg:items-center`}
                         onClick={() =>
                           setSelectedKey({ id: item.id, kind: item.kind })
                         }
                         type="button"
                       >
+                        {showUserColumns ? (
+                          <>
+                            <div
+                              className="hidden min-w-0 truncate text-xs text-foreground lg:block"
+                              title={item.userEmail}
+                            >
+                              {item.userEmail ?? "—"}
+                            </div>
+                            <div
+                              className="hidden min-w-0 truncate font-mono text-xs text-foreground lg:block"
+                              title={item.userId}
+                            >
+                              {item.userId ?? "—"}
+                            </div>
+                          </>
+                        ) : null}
                         <div className="col-span-2 flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground lg:col-span-1">
                           <Clock className="size-3 shrink-0" />
                           <time dateTime={item.createdAt}>
@@ -334,6 +381,14 @@ export function HistoryClient({
                             </p>
                           ) : null}
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground lg:hidden">
+                            {showUserColumns && item.userEmail ? (
+                              <>
+                                <span className="max-w-full truncate">
+                                  {item.userEmail}
+                                </span>
+                                <span>·</span>
+                              </>
+                            ) : null}
                             <span>
                               {item.kind === "image"
                                 ? copy("Image", "图片")
@@ -352,6 +407,11 @@ export function HistoryClient({
                               {statusLabel(item.status)}
                             </Badge>
                           </div>
+                          {showUserColumns && item.userId ? (
+                            <p className="mt-1 break-all font-mono text-[10px] leading-tight text-muted-foreground lg:hidden">
+                              {copy("User ID", "用户 ID")}: {item.userId}
+                            </p>
+                          ) : null}
                           <p className="mt-1 text-[11px] leading-tight text-muted-foreground lg:hidden">
                             {formatCredits(item.creditsConsumed)}
                             {summary ? ` · ${summary}` : ""}
@@ -418,7 +478,9 @@ export function HistoryClient({
             >
               {hasPreviousPage && previousCursor ? (
                 <Link
-                  href={buildPreviousHistoryHref(queryState, previousCursor)}
+                  href={buildPreviousHistoryHref(queryState, previousCursor, {
+                    path: historyPath,
+                  })}
                 >
                   <ChevronLeft />
                   {copy("Previous", "上一页")}
@@ -437,7 +499,11 @@ export function HistoryClient({
               variant="outline"
             >
               {hasNextPage && nextCursor ? (
-                <Link href={buildNextHistoryHref(queryState, nextCursor)}>
+                <Link
+                  href={buildNextHistoryHref(queryState, nextCursor, {
+                    path: historyPath,
+                  })}
+                >
                   {copy("Next", "下一页")}
                   <ChevronRight />
                 </Link>
@@ -457,7 +523,7 @@ export function HistoryClient({
           generation={toLightboxGeneration(selected)}
           imageUrl={selected.imageUrl}
           onClose={() => setSelectedKey(null)}
-          onDelete={handleDelete}
+          onDelete={canDeleteImages ? handleDelete : undefined}
           open={selectedKey !== null}
           timeZone={timeZone}
         />

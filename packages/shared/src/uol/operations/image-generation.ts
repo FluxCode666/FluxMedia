@@ -16,6 +16,8 @@
 import { z } from "zod";
 
 import {
+  adminHistoryListInputSchema,
+  adminHistoryListOutputSchema,
   historyListInputSchema,
   historyListOutputSchema,
 } from "../../image-generation/history-contract";
@@ -205,7 +207,30 @@ defineOperation({
 });
 
 // ---------------------------------------------------------------------------
-// 5. image.getUserGenerations - 用户生成历史（分页）
+// 6. image.listAdminHistoryRecords - 管理员全局图片/视频统一历史
+// ---------------------------------------------------------------------------
+defineOperation({
+  name: "image.listAdminHistoryRecords",
+  domain: "image-generation",
+  title: "获取全局统一生成历史",
+  description:
+    "按创建日期、用户邮箱、模型、状态与产物类型读取全站图片/视频历史。" +
+    "仅人工管理员可调用，返回受控的所属用户邮箱与 ID、模型选项和双向 keyset cursor。",
+  input: adminHistoryListInputSchema,
+  output: adminHistoryListOutputSchema,
+  access: { kind: "roles", roles: ["admin", "super_admin"] },
+  agentExposure: "human-only",
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    throw new Error("Not yet wired: image.listAdminHistoryRecords");
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 7. image.getUserGenerations - 用户生成历史（分页）
 // 语义只读，可能触发过期 pending 清理（维护性写入）
 // ---------------------------------------------------------------------------
 defineOperation({

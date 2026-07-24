@@ -9,10 +9,12 @@
 
 import { getUserRoleById } from "@repo/shared/auth/role-server";
 import {
+  type AdminHistoryListOutput,
+  adminHistoryListInputSchema,
   type HistoryListOutput,
   historyListInputSchema,
 } from "@repo/shared/image-generation/history-contract";
-import { protectedAction } from "@repo/shared/safe-action";
+import { adminAction, protectedAction } from "@repo/shared/safe-action";
 import { invokeOperation } from "@repo/shared/uol";
 
 import { ensureUolInitialized } from "@/server/uol-init";
@@ -28,5 +30,18 @@ export const getMyHistoryRecordsAction = protectedAction
       "image.listMyHistoryRecords",
       parsedInput,
       { type: "user", userId: ctx.userId, role }
+    );
+  });
+
+/** 读取管理员可见的一页全局图片/视频统一历史。 */
+export const getAdminHistoryRecordsAction = adminAction
+  .metadata({ action: "image.listAdminHistoryRecords" })
+  .schema(adminHistoryListInputSchema)
+  .action(async ({ parsedInput, ctx }): Promise<AdminHistoryListOutput> => {
+    await ensureUolInitialized();
+    return invokeOperation<AdminHistoryListOutput>(
+      "image.listAdminHistoryRecords",
+      parsedInput,
+      { type: "user", userId: ctx.userId, role: ctx.role }
     );
   });

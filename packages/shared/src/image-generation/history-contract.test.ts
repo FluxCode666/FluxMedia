@@ -7,6 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  adminHistoryListInputSchema,
+  adminHistoryListOutputSchema,
   historyListInputSchema,
   historyListOutputSchema,
 } from "./history-contract";
@@ -54,6 +56,20 @@ describe("history contract", () => {
     expect(historyListInputSchema.safeParse({ limit: 51 }).success).toBe(false);
     expect(
       historyListInputSchema.safeParse({ status: "running" }).success
+    ).toBe(false);
+  });
+
+  it("keeps the global user email filter exclusive to the admin contract", () => {
+    expect(
+      historyListInputSchema.safeParse({ userEmail: "member@example.com" })
+        .success
+    ).toBe(false);
+    expect(
+      adminHistoryListInputSchema.parse({ userEmail: " member@example.com " })
+    ).toMatchObject({ userEmail: "member@example.com", limit: 20 });
+    expect(
+      adminHistoryListInputSchema.safeParse({ userEmail: "not-an-email" })
+        .success
     ).toBe(false);
   });
 
@@ -113,5 +129,52 @@ describe("history contract", () => {
         ],
       }).success
     ).toBe(false);
+  });
+
+  it("requires user email and ID only in the admin history output", () => {
+    const record = {
+      kind: "image" as const,
+      id: "record-1",
+      prompt: "prompt",
+      revisedPrompt: null,
+      model: "model-1",
+      size: "1024x1024",
+      status: "completed" as const,
+      creditsConsumed: 10,
+      creditDetails: null,
+      promptRepairNotice: null,
+      referenceImages: [],
+      isLayered: false,
+      error: null,
+      imageUrl: null,
+      createdAt: "2026-07-22T01:00:00.000Z",
+      completedAt: null,
+    };
+    expect(
+      adminHistoryListOutputSchema.safeParse({
+        asOf: "2026-07-22T02:00:00.000Z",
+        records: [record],
+        modelOptions: [],
+        userOptions: [],
+        nextCursor: null,
+        previousCursor: null,
+      }).success
+    ).toBe(false);
+    expect(
+      adminHistoryListOutputSchema.parse({
+        asOf: "2026-07-22T02:00:00.000Z",
+        records: [
+          {
+            ...record,
+            userId: "user-1",
+            userEmail: "member@example.com",
+          },
+        ],
+        modelOptions: [],
+        userOptions: [{ id: "user-1", email: "member@example.com" }],
+        nextCursor: null,
+        previousCursor: null,
+      }).records[0]?.userEmail
+    ).toBe("member@example.com");
   });
 });

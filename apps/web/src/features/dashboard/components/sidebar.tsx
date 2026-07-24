@@ -24,6 +24,7 @@ import {
   Activity,
   BookOpen,
   ChevronsUpDown,
+  History,
   LogOut,
   Megaphone,
   Server,
@@ -119,6 +120,9 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
       Support: t("nav.support"),
       "New Ticket": t("nav.newTicket"),
       "User Management": t("nav.userManagement"),
+      "Global Usage Records": t("nav.globalUsageRecords"),
+      Administration: t("nav.administration"),
+      User: t("nav.user"),
     };
     return titleMap[title] || title;
   };
@@ -159,6 +163,72 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
 
   const localizedHref = (href: string) =>
     href.startsWith("/") ? `/${locale}${href}` : href;
+
+  /**
+   * 管理员先看系统管理入口，随后才是与普通用户相同的个人功能。
+   *
+   * WHY：管理员在处理系统状态、用户和公告时不必穿过个人菜单；普通用户仍完整保持
+   * dashboardConfig 的原有分组和顺序。观察管理员只显示其已获授权的管理功能。
+   */
+  const navigationGroups = (() => {
+    const adminItems = isAdmin
+      ? [
+          {
+            title: "System Docs",
+            href: "/dashboard/backend-help",
+            icon: BookOpen,
+          },
+          {
+            title: "Global Status",
+            href: "/dashboard/admin/status",
+            icon: Activity,
+          },
+          {
+            title: "User Management",
+            href: "/dashboard/admin/users",
+            icon: Users,
+          },
+          {
+            title: "Global Usage Records",
+            href: "/dashboard/admin/history",
+            icon: History,
+          },
+          {
+            title: "Announcement Management",
+            href: "/dashboard/admin/announcements",
+            icon: Megaphone,
+          },
+          {
+            title: "System Settings",
+            href: "/dashboard/admin/settings",
+            icon: Shield,
+          },
+        ]
+      : isObserverAdmin
+        ? [
+            {
+              title: "Global Status",
+              href: "/dashboard/admin/status",
+              icon: Activity,
+            },
+            {
+              title: "Image Backend Pool",
+              href: "/dashboard/admin/settings",
+              icon: Server,
+            },
+          ]
+        : [];
+
+    if (adminItems.length === 0) return dashboardConfig.sidebarNav;
+
+    return [
+      { title: "Administration", items: adminItems },
+      {
+        title: "User",
+        items: dashboardConfig.sidebarNav.flatMap((group) => group.items),
+      },
+    ];
+  })();
 
   /**
    * 渲染侧边栏内容（桌面和移动端共用）
@@ -205,7 +275,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
 
         {/* 导航菜单 */}
         <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-          {dashboardConfig.sidebarNav.map((group) => (
+          {navigationGroups.map((group) => (
             <div key={group.title}>
               {/* Group Label - 折叠时隐藏 */}
               {!collapsed && (
@@ -214,51 +284,7 @@ export function DashboardSidebar({ initialSession }: DashboardSidebarProps) {
                 </p>
               )}
               <div className="space-y-0.5">
-                {[
-                  ...group.items,
-                  ...(isAdmin
-                    ? [
-                        {
-                          title: "System Docs",
-                          href: "/dashboard/backend-help",
-                          icon: BookOpen,
-                        },
-                        {
-                          title: "Global Status",
-                          href: "/dashboard/admin/status",
-                          icon: Activity,
-                        },
-                        {
-                          title: "User Management",
-                          href: "/dashboard/admin/users",
-                          icon: Users,
-                        },
-                        {
-                          title: "Announcement Management",
-                          href: "/dashboard/admin/announcements",
-                          icon: Megaphone,
-                        },
-                        {
-                          title: "System Settings",
-                          href: "/dashboard/admin/settings",
-                          icon: Shield,
-                        },
-                      ]
-                    : isObserverAdmin
-                      ? [
-                          {
-                            title: "Global Status",
-                            href: "/dashboard/admin/status",
-                            icon: Activity,
-                          },
-                          {
-                            title: "Image Backend Pool",
-                            href: "/dashboard/admin/settings",
-                            icon: Server,
-                          },
-                        ]
-                      : []),
-                ].map((item) => {
+                {group.items.map((item) => {
                   // 去掉 locale 前缀后比较路径
                   const normalizedPath = pathname.replace(/^\/[a-z]{2}\//, "/");
                   const isActive =

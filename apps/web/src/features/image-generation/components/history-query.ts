@@ -27,10 +27,20 @@ export type HistoryQueryState = {
   model: string | null;
   status: HistoryStatusFilter | null;
   type: HistoryTypeFilter | null;
+  userEmail: string | null;
 };
 
 const MAX_CURSOR_LENGTH = 4096;
 const MAX_MODEL_LENGTH = 240;
+const MAX_USER_EMAIL_LENGTH = 320;
+
+export type HistoryHrefOptions = {
+  path?: string;
+};
+
+export type HistoryParseOptions = {
+  allowUserEmail?: boolean;
+};
 
 /** 判断输入是否为真实存在的 ISO 日历日期。 */
 function isIsoCalendarDate(value: string): boolean {
@@ -42,6 +52,11 @@ function isIsoCalendarDate(value: string): boolean {
     date.getUTCMonth() === (month ?? 0) - 1 &&
     date.getUTCDate() === day
   );
+}
+
+/** 判断公开 URL 值是否是有界、可交由服务端二次校验的邮箱格式。 */
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 /** 从不可信查询参数读取一个有界字符串；数组值不会隐式取首项。 */
@@ -68,7 +83,8 @@ function isOneOf<const T extends readonly string[]>(
  * @returns 非法字段被忽略后的规范化状态；反向日期交给表单显示错误。
  */
 export function parseHistorySearchParams(
-  searchParams: HistorySearchParams
+  searchParams: HistorySearchParams,
+  options?: HistoryParseOptions
 ): HistoryQueryState {
   const createdFrom = readScalar(searchParams.createdFrom, 10);
   const createdTo = readScalar(searchParams.createdTo, 10);
@@ -76,6 +92,8 @@ export function parseHistorySearchParams(
     readScalar(searchParams.model, MAX_MODEL_LENGTH)?.trim() || null;
   const status = readScalar(searchParams.status, 20);
   const type = readScalar(searchParams.type, 20);
+  const userEmail =
+    readScalar(searchParams.userEmail, MAX_USER_EMAIL_LENGTH)?.trim() || null;
 
   return {
     createdFrom:
@@ -85,42 +103,59 @@ export function parseHistorySearchParams(
     model,
     status: isOneOf(HISTORY_STATUS_FILTERS, status) ? status : null,
     type: isOneOf(HISTORY_TYPE_FILTERS, type) ? type : null,
+    userEmail:
+      options?.allowUserEmail && userEmail && isEmail(userEmail)
+        ? userEmail
+        : null,
   };
 }
 
 /** 将筛选和 keyset 状态构造成 next-intl 可接收的无语言前缀 URL。 */
-export function buildHistoryHref(state: HistoryQueryState): string {
+export function buildHistoryHref(
+  state: HistoryQueryState,
+  options?: HistoryHrefOptions
+): string {
   const searchParams = new URLSearchParams();
   if (state.createdFrom) searchParams.set("createdFrom", state.createdFrom);
   if (state.createdTo) searchParams.set("createdTo", state.createdTo);
   if (state.model) searchParams.set("model", state.model);
   if (state.status) searchParams.set("status", state.status);
   if (state.type) searchParams.set("type", state.type);
+  if (state.userEmail) searchParams.set("userEmail", state.userEmail);
   if (state.cursor) searchParams.set("cursor", state.cursor);
   const query = searchParams.toString();
-  return query ? `/dashboard/history?${query}` : "/dashboard/history";
+  const path = options?.path ?? "/dashboard/history";
+  return query ? `${path}?${query}` : path;
 }
 
 /** 构造下一页 URL；cursor 方向和边界由服务端签名。 */
 export function buildNextHistoryHref(
   state: HistoryQueryState,
-  nextCursor: string
+  nextCursor: string,
+  options?: HistoryHrefOptions
 ): string {
-  return buildHistoryHref({
-    ...state,
-    cursor: nextCursor,
-  });
+  return buildHistoryHref(
+    {
+      ...state,
+      cursor: nextCursor,
+    },
+    options
+  );
 }
 
 /** 构造上一页 URL；previousCursor 由服务端针对当前结果页签发。 */
 export function buildPreviousHistoryHref(
   state: HistoryQueryState,
-  previousCursor: string
+  previousCursor: string,
+  options?: HistoryHrefOptions
 ): string {
-  return buildHistoryHref({
-    ...state,
-    cursor: previousCursor,
-  });
+  return buildHistoryHref(
+    {
+      ...state,
+      cursor: previousCursor,
+    },
+    options
+  );
 }
 
 /** 判断当前状态是否包含用户可见筛选，不把分页 cursor 视为筛选。 */
@@ -130,6 +165,7 @@ export function hasActiveHistoryFilters(state: HistoryQueryState): boolean {
       state.createdTo ||
       state.model ||
       state.status ||
-      state.type
+      state.type ||
+      state.userEmail
   );
 }

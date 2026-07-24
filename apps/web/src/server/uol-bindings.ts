@@ -43,6 +43,8 @@ import {
   type ModerationImageInput,
 } from "@repo/shared/moderation";
 import {
+  type AdminHistoryListOutput,
+  adminHistoryListOutputSchema,
   type HistoryListOutput,
   historyListOutputSchema,
 } from "@repo/shared/image-generation/history-contract";
@@ -80,6 +82,11 @@ import {
   upsertImageBackendGroup,
   upsertImageBackendParameterMappingTemplate,
 } from "@/features/image-backend-pool/service";
+import { databaseAdminHistoryRepository } from "@/features/image-generation/admin-history-repository";
+import {
+  AdminHistoryServiceError,
+  loadAdminHistoryRecords,
+} from "@/features/image-generation/admin-history-service";
 import { createEditableFileCreditOperation } from "@/features/image-generation/credit-operation-context";
 import { runEditableFileForUser } from "@/features/image-generation/editable-file-operations";
 import { databaseHistoryRepository } from "@/features/image-generation/history-repository";
@@ -248,6 +255,40 @@ bindExecute(
       );
     } catch (error) {
       if (error instanceof HistoryServiceError) {
+        throw new OperationError(error.code, error.message);
+      }
+      throw error;
+    }
+  }
+);
+
+/** 绑定管理员全局统一生成历史；仅真实 admin/super_admin 可读取受控用户身份字段。 */
+bindExecute(
+  "image.listAdminHistoryRecords",
+  async (
+    input: unknown,
+    principal: Principal
+  ): Promise<AdminHistoryListOutput> => {
+    if (
+      principal.type !== "user" ||
+      (principal.role !== "admin" && principal.role !== "super_admin")
+    ) {
+      throw new OperationError("forbidden", "Admin access required");
+    }
+    try {
+      const timeZone = await getUserTimeZone(principal.userId);
+      return adminHistoryListOutputSchema.parse(
+        await loadAdminHistoryRecords(
+          {
+            actorUserId: principal.userId,
+            timeZone,
+            input,
+          },
+          { repository: databaseAdminHistoryRepository }
+        )
+      );
+    } catch (error) {
+      if (error instanceof AdminHistoryServiceError) {
         throw new OperationError(error.code, error.message);
       }
       throw error;

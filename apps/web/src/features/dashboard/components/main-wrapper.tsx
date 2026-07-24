@@ -30,6 +30,7 @@ function getPageTitleKey(pathname: string): string {
     "/dashboard/wallet": "wallet",
     "/dashboard/settings": "settings",
     "/dashboard/admin/users": "userManagement",
+    "/dashboard/admin/history": "globalUsageRecords",
     "/dashboard/admin/announcements": "announcementManagement",
     "/dashboard/admin/settings": "systemSettings",
     "/dashboard/admin/status": "globalStatus",
