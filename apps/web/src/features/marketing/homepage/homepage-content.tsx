@@ -206,7 +206,7 @@ export async function HomepageContent({
               >
                 <Image
                   alt={t(artwork.altKey)}
-                  className="aspect-[3/4] w-full rounded-2xl border border-white/15 object-cover grayscale-[0.18] transition-[filter,transform] duration-500 group-hover:-translate-y-1 group-hover:grayscale-0 motion-reduce:transition-none"
+                  className="aspect-[3/4] w-full rounded-sm border border-white/15 object-cover grayscale-[0.18] transition-[filter,transform] duration-500 group-hover:-translate-y-1 group-hover:grayscale-0 motion-reduce:transition-none"
                   height={960}
                   sizes="(max-width: 640px) 46vw, (max-width: 1024px) 30vw, 15vw"
                   src={artwork.src}
