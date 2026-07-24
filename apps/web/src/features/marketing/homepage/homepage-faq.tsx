@@ -51,10 +51,10 @@ export function HomepageFaq({
   return (
     <section
       aria-labelledby="homepage-faq-title"
-      className="bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
+      className="bg-background px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
       id="faq"
     >
-      <div className="mx-auto grid w-full max-w-7xl gap-10 rounded-[2rem] border border-border/80 bg-card/60 px-6 py-12 shadow-whisper sm:px-10 sm:py-16 lg:grid-cols-[0.8fr_1.2fr] lg:px-12 lg:py-20">
+      <div className="mx-auto grid w-full max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
             {eyebrow}

@@ -70,10 +70,10 @@ export function HomepageModelCatalog({
   return (
     <section
       aria-labelledby="homepage-models-title"
-      className="scroll-mt-24 bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
+      className="scroll-mt-24 bg-background px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
       id="models"
     >
-      <div className="mx-auto w-full max-w-7xl rounded-[2rem] border border-border/80 bg-card/60 px-6 py-12 shadow-whisper sm:px-10 sm:py-16 lg:px-12 lg:py-20">
+      <div className="mx-auto w-full max-w-7xl">
         <div className="grid gap-8 border-b border-foreground/70 pb-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
