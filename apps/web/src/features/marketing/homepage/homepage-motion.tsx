@@ -28,6 +28,7 @@ const MOTION_SELECTORS = {
   heroParallax: '[data-homepage-motion="hero-parallax"]',
   model: '[data-homepage-motion="model"]',
   reveal: '[data-homepage-motion="reveal"]',
+  artwork: '[data-homepage-motion="artwork"]',
 } as const;
 
 let homepageGsapAvailable = false;
@@ -147,6 +148,7 @@ export function HomepageMotion({ children }: { children: ReactNode }) {
           );
           const model = select<HTMLElement>(MOTION_SELECTORS.model)[0];
           const revealTargets = select<HTMLElement>(MOTION_SELECTORS.reveal);
+          const artworkTargets = select<HTMLElement>(MOTION_SELECTORS.artwork);
 
           rememberHomepageMotionTargets(introTargets, heroCopy);
           rememberHomepageMotionTargets(introTargets, heroArtwork);
@@ -243,6 +245,38 @@ export function HomepageMotion({ children }: { children: ReactNode }) {
                   },
                   y: 0,
                 });
+              }
+
+              rememberHomepageMotionTargets(branchTargets, artworkTargets);
+              rememberHomepageMotionTargets(allOwnedTargets, artworkTargets);
+
+              // 交错方向只制造轻微纵深，不改变文档流，也不与图片悬停 transform 竞争。
+              for (const [index, target] of artworkTargets.entries()) {
+                const setArtworkWillChange = () => {
+                  setHomepageWillChange([target], "transform");
+                };
+                const clearArtworkWillChange = () => {
+                  clearHomepageWillChange([target]);
+                };
+
+                gsap.fromTo(
+                  target,
+                  { yPercent: index % 2 === 0 ? 7 : -3 },
+                  {
+                    ease: "none",
+                    scrollTrigger: {
+                      end: "bottom top",
+                      onEnter: setArtworkWillChange,
+                      onEnterBack: setArtworkWillChange,
+                      onLeave: clearArtworkWillChange,
+                      onLeaveBack: clearArtworkWillChange,
+                      scrub: 0.6,
+                      start: "top bottom",
+                      trigger: target,
+                    },
+                    yPercent: index % 2 === 0 ? -7 : 4,
+                  }
+                );
               }
             }
           } catch {

@@ -201,7 +201,8 @@ export async function HomepageContent({
           <div className="mt-12 grid grid-cols-2 gap-3 border-t border-white/25 pt-8 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
             {HOMEPAGE_ARTWORKS.slice(0, 6).map((artwork) => (
               <figure
-                className="group min-w-0 even:lg:translate-y-6"
+                className="group min-w-0"
+                data-homepage-motion="artwork"
                 key={artwork.src}
               >
                 <Image
