@@ -1,20 +1,23 @@
 "use client";
 
 import {
+  ADOBE_VIDEO_PRICING_FAMILIES,
+  DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+} from "@repo/shared/adobe";
+import {
   ADOBE_IMAGE_MODEL_IDS,
   normalizeAdobeEnabledModelIds,
 } from "@repo/shared/adobe/enabled-models";
 import type { SubscriptionPlan } from "@repo/shared/config/subscription-plan";
 import {
-  DEFAULT_IMAGE_CREDIT_PRICING,
-  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
+  createDefaultGlobalImageCreditOverrides,
   type ImageCreditOverrides,
   normalizeImagePricingModelId,
-  type ResolvedImageCreditPricing,
   resolveImageCreditPricing,
 } from "@repo/shared/image-backend/group-image-pricing";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
 import { normalizeSupportedModelIds } from "@repo/shared/image-backend/supported-models";
+import { getGlobalModelPricingAction } from "@repo/shared/system-settings/actions";
 import { formatDateInTimeZone } from "@repo/shared/time-zone";
 import { Badge } from "@repo/ui/components/badge";
 import { Button } from "@repo/ui/components/button";
@@ -86,7 +89,6 @@ import {
   deleteSub2ApiAutoSyncTaskAction,
   getAdminImageBackendPoolAction,
   getImageBackendParameterMappingTemplatesAction,
-  getImagePricingConfigAction,
   getSub2ApiAutoSyncTasksAction,
   getSub2ApiSourceGroupsAction,
   getSub2ApiSyncProgressAction,
@@ -111,7 +113,6 @@ import {
   setImageBackendAdobeEnabledAction,
   setImageBackendApiAlwaysActiveAction,
   setImageBackendApiEnabledAction,
-  setImagePricingConfigAction,
   setSub2ApiAutoSyncTaskEnabledAction,
   setSub2ApiAutoSyncTaskOverwriteLocalUnavailableStateAction,
   testImageBackendApiAction,
@@ -131,6 +132,13 @@ import type {
   ImageBackendGroupBackendType,
   ImagesUpstreamMode,
 } from "./types";
+import {
+  updateVideoCreditPricingDraft,
+  type VideoCreditPricingDraft,
+  VideoCreditPricingEditor,
+  videoCreditOverridesToDraft,
+  videoCreditPricingDraftToOverrides,
+} from "./video-credit-pricing-editor";
 
 type Group = {
   id: string;
@@ -143,6 +151,7 @@ type Group = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   imageCreditOverrides: ImageCreditOverrides;
+  videoCreditOverrides: Record<string, number>;
   childGroupIds: string[];
   priority: number;
   apiCount: number;
@@ -363,45 +372,6 @@ const DEFAULT_IMAGE_PRICING_MODELS = ADOBE_IMAGE_MODEL_IDS.flatMap(
     return normalized ? [normalized] : [];
   }
 );
-const ADOBE_VIDEO_PRICING_FAMILIES = [
-  "sora2",
-  "sora2-pro",
-  "veo31",
-  "veo31-ref",
-  "veo31-fast",
-  "kling-o3",
-  "kling3",
-] as const;
-
-/** 把 family→每秒积分的 map 转成输入框草稿；缺省或非正值显示为空。 */
-function creditsPerSecondToDraft(
-  families: readonly string[],
-  map: Record<string, number>
-): Record<string, string> {
-  const draft: Record<string, string> = {};
-  for (const family of families) {
-    const value = map[family];
-    draft[family] =
-      typeof value === "number" && Number.isFinite(value) && value > 0
-        ? String(value)
-        : "";
-  }
-  return draft;
-}
-
-/** 把输入框草稿收窄为 family→正数每秒积分；非法项不写入并回退通用基价。 */
-function draftToCreditsPerSecond(
-  draft: Record<string, string>
-): Record<string, number> {
-  const map: Record<string, number> = {};
-  for (const [family, raw] of Object.entries(draft)) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    const numeric = Number(trimmed);
-    if (Number.isFinite(numeric) && numeric > 0) map[family] = numeric;
-  }
-  return map;
-}
 
 type BulkAccountForm = {
   selectionGroupId: string;
@@ -894,6 +864,8 @@ export function ImageBackendPoolAdminPanel({
   });
   const [groupImagePricingDraft, setGroupImagePricingDraft] =
     useState<ImageCreditPricingDraft>({});
+  const [groupVideoPricingDraft, setGroupVideoPricingDraft] =
+    useState<VideoCreditPricingDraft>({});
   const [accountForm, setAccountForm] = useState({
     id: "",
     groupId: "default",
@@ -1215,6 +1187,7 @@ export function ImageBackendPoolAdminPanel({
       priority: 50,
     });
     setGroupImagePricingDraft({});
+    setGroupVideoPricingDraft({});
   };
 
   const resetAccountForm = () =>
@@ -1323,6 +1296,12 @@ export function ImageBackendPoolAdminPanel({
     });
     setGroupImagePricingDraft(
       imageCreditOverridesToDraft(group.imageCreditOverrides)
+    );
+    setGroupVideoPricingDraft(
+      videoCreditOverridesToDraft(
+        ADOBE_VIDEO_PRICING_FAMILIES,
+        group.videoCreditOverrides
+      )
     );
   };
 
@@ -1800,56 +1779,26 @@ export function ImageBackendPoolAdminPanel({
   const [adobeAccounts, setAdobeAccounts] = useState<AdobeAccountRow[]>([]);
   const [adobeCookieInput, setAdobeCookieInput] = useState("");
 
-  // ===== 图像模型固定价格与视频模型族每秒积分 =====
-  const [imagePricingDraft, setImagePricingDraft] =
-    useState<ImageCreditPricingDraft>({});
-  const [imagePricingFallback, setImagePricingFallback] =
-    useState<ResolvedImageCreditPricing>(DEFAULT_IMAGE_CREDIT_PRICING);
-  const [imageModerationPricing, setImageModerationPricing] = useState<{
-    textModerationCredits: number;
-    imageModerationCredits: number;
-  }>({ ...DEFAULT_IMAGE_MODERATION_CREDIT_PRICING });
-  const [videoCreditsPerSecondDraft, setVideoCreditsPerSecondDraft] = useState<
-    Record<string, string>
-  >(() => creditsPerSecondToDraft(ADOBE_VIDEO_PRICING_FAMILIES, {}));
-
-  const { execute: loadImagePricingConfig } = useAction(
-    getImagePricingConfigAction,
+  // ===== 全局模型价格只读加载，供分组覆盖表展示继承值 =====
+  const [globalImageCreditOverrides, setGlobalImageCreditOverrides] =
+    useState<ImageCreditOverrides>(() =>
+      createDefaultGlobalImageCreditOverrides()
+    );
+  const [globalVideoCreditsPerSecond, setGlobalVideoCreditsPerSecond] =
+    useState<Record<string, number>>(() => ({
+      ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+    }));
+  const { execute: loadGlobalModelPricing } = useAction(
+    getGlobalModelPricingAction,
     {
       onSuccess: ({ data }) => {
-        setImagePricingDraft(
-          imageCreditOverridesToDraft(
-            data?.image ?? { version: 1, byModel: {} }
-          )
-        );
-        setImagePricingFallback(data?.fallback ?? DEFAULT_IMAGE_CREDIT_PRICING);
-        setImageModerationPricing(
-          data?.moderation ?? DEFAULT_IMAGE_MODERATION_CREDIT_PRICING
-        );
-        setVideoCreditsPerSecondDraft(
-          creditsPerSecondToDraft(
-            ADOBE_VIDEO_PRICING_FAMILIES,
-            data?.videoCreditsPerSecond ?? {}
-          )
-        );
+        if (!data) return;
+        setGlobalImageCreditOverrides(data.image);
+        setGlobalVideoCreditsPerSecond(data.videoCreditsPerSecond);
       },
       onError: ({ error }) =>
-        toast.error(error.serverError || "加载模型计费配置失败"),
+        toast.error(error.serverError || "加载全局模型计费配置失败"),
     }
-  );
-
-  const { execute: saveImagePricingConfig, isPending: isSavingImagePricing } =
-    useAction(setImagePricingConfigAction, {
-      onSuccess: () => {
-        toast.success("模型计费配置已保存");
-        loadImagePricingConfig();
-      },
-      onError: ({ error }) =>
-        toast.error(error.serverError || "保存模型计费配置失败"),
-    });
-  const globalImageCreditOverrides = useMemo(
-    () => imageCreditPricingDraftToOverrides(imagePricingDraft),
-    [imagePricingDraft]
   );
   const imagePricingModels = useMemo(() => {
     const knownModels = new Set(DEFAULT_IMAGE_PRICING_MODELS);
@@ -1859,7 +1808,6 @@ export function ImageBackendPoolAdminPanel({
       if (model && !knownModels.has(model)) extraModels.add(model);
     };
 
-    for (const model of Object.keys(imagePricingDraft)) addModel(model);
     for (const model of Object.keys(groupImagePricingDraft)) addModel(model);
     for (const api of apis) {
       addModel(api.model);
@@ -1869,7 +1817,7 @@ export function ImageBackendPoolAdminPanel({
       for (const model of adobe.enabledModels ?? []) addModel(model);
     }
     return [...knownModels, ...Array.from(extraModels).sort()];
-  }, [adobes, apis, groupImagePricingDraft, imagePricingDraft]);
+  }, [adobes, apis, groupImagePricingDraft]);
   const [adobeAccountName, setAdobeAccountName] = useState("");
 
   const { execute: loadAdobeAccounts } = useAction(listAdobeAccountsAction, {
@@ -2491,14 +2439,14 @@ export function ImageBackendPoolAdminPanel({
     if (!readOnly) {
       loadSub2ApiSyncStatus();
       loadSub2ApiSyncTasks();
-      loadImagePricingConfig();
+      loadGlobalModelPricing();
       loadParameterMappingTemplates();
     }
   }, [
     loadPool,
     loadSub2ApiSyncStatus,
     loadSub2ApiSyncTasks,
-    loadImagePricingConfig,
+    loadGlobalModelPricing,
     loadParameterMappingTemplates,
     readOnly,
   ]);
@@ -2806,7 +2754,6 @@ export function ImageBackendPoolAdminPanel({
                     resolveInheritedPricing={(model) =>
                       resolveImageCreditPricing({
                         model,
-                        fallback: imagePricingFallback,
                         global: globalImageCreditOverrides,
                       })
                     }
@@ -2818,6 +2765,28 @@ export function ImageBackendPoolAdminPanel({
                           field,
                           value
                         )
+                      )
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>视频模型每秒积分覆盖</Label>
+                  <p className="text-xs text-muted-foreground">
+                    留空时继承全局视频模型每秒积分。视频基础积分按实际时长计算，
+                    不再使用分组倍率。
+                  </p>
+                  <VideoCreditPricingEditor
+                    families={ADOBE_VIDEO_PRICING_FAMILIES}
+                    draft={groupVideoPricingDraft}
+                    inheritanceLabel="继承全局模型价格"
+                    resolveInheritedPrice={(family) =>
+                      globalVideoCreditsPerSecond[family] ??
+                      DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND[family] ??
+                      30
+                    }
+                    onChange={(family, value) =>
+                      setGroupVideoPricingDraft((current) =>
+                        updateVideoCreditPricingDraft(current, family, value)
                       )
                     }
                   />
@@ -2846,6 +2815,9 @@ export function ImageBackendPoolAdminPanel({
                       ...groupForm,
                       imageCreditOverrides: imageCreditPricingDraftToOverrides(
                         groupImagePricingDraft
+                      ),
+                      videoCreditOverrides: videoCreditPricingDraftToOverrides(
+                        groupVideoPricingDraft
                       ),
                     })
                   }
@@ -5201,99 +5173,6 @@ export function ImageBackendPoolAdminPanel({
                 </CardContent>
               </Card>
             ))}
-
-            {!readOnly && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">模型计费价格</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-xs text-muted-foreground">
-                    图像最终积分 = 按实际输出像素命中的模型固定价格 + 审核费用。
-                    图像质量、分组和后端倍率不再参与图像扣费。
-                  </p>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">
-                      图像模型 1024 / 1K / 2K / 4K 固定价格
-                    </Label>
-                    <ImageCreditPricingEditor
-                      models={imagePricingModels}
-                      draft={imagePricingDraft}
-                      inheritanceLabel="使用通用档位价格"
-                      resolveInheritedPricing={() => imagePricingFallback}
-                      onChange={(model, field, value) =>
-                        setImagePricingDraft((current) =>
-                          updateImageCreditPricingDraft(
-                            current,
-                            model,
-                            field,
-                            value
-                          )
-                        )
-                      }
-                    />
-                    <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                      当前审核附加：文本{" "}
-                      {imageModerationPricing.textModerationCredits} 积分/次，
-                      输入图片 {imageModerationPricing.imageModerationCredits}{" "}
-                      积分/张。两项均可在系统设置的内容审核分类设为 0；
-                      关闭内容审核总开关后不执行审核且不收费。
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">
-                      视频模型族每秒积分
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      按模型族设置每生成一秒视频的积分。留空时回退系统设置中的视频每秒基础积分。
-                    </p>
-                    <div className="space-y-2">
-                      {ADOBE_VIDEO_PRICING_FAMILIES.map((family) => (
-                        <div
-                          key={family}
-                          className="grid grid-cols-[1fr_120px] items-center gap-2"
-                        >
-                          <span className="truncate text-sm">{family}</span>
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            min="0.01"
-                            max="100000"
-                            step="0.01"
-                            placeholder="回退基础价"
-                            value={videoCreditsPerSecondDraft[family] ?? ""}
-                            onChange={(event) =>
-                              setVideoCreditsPerSecondDraft((current) => ({
-                                ...current,
-                                [family]: event.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <Button
-                    size="sm"
-                    disabled={isSavingImagePricing}
-                    onClick={() =>
-                      saveImagePricingConfig({
-                        image:
-                          imageCreditPricingDraftToOverrides(imagePricingDraft),
-                        videoCreditsPerSecond: draftToCreditsPerSecond(
-                          videoCreditsPerSecondDraft
-                        ),
-                      })
-                    }
-                  >
-                    {isSavingImagePricing ? "保存中…" : "保存模型计费配置"}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </TabsContent>
 

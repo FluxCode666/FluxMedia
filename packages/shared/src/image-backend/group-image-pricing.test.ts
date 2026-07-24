@@ -4,30 +4,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getImageModelCreditPricing,
+  createDefaultGlobalImageCreditOverrides,
   getGroupImageCreditOverrides,
+  getImageModelCreditPricing,
   imageCreditOverridesSchema,
   parseImageCreditOverrides,
   resolveImageCreditPricing,
 } from "./group-image-pricing";
 
-const fallback = {
-  base1024Credits: 1,
-  base1kCredits: 2,
-  base2kCredits: 4,
-  base4kCredits: 8,
-};
-
 describe("group image pricing", () => {
-  it("按分组、全局模型、通用价格的顺序逐档继承", () => {
+  it("按分组、全局模型的顺序逐档继承", () => {
     expect(
       resolveImageCreditPricing({
         model: "firefly-nano-banana-pro-2k-1x1",
-        fallback,
         global: {
           version: 1,
           byModel: {
-            "nano-banana-pro": { base1kCredits: 3, base2kCredits: 6 },
+            "nano-banana-pro": {
+              base1024Credits: 1,
+              base1kCredits: 3,
+              base2kCredits: 6,
+              base4kCredits: 8,
+            },
           },
         },
         group: {
@@ -52,12 +50,40 @@ describe("group image pricing", () => {
     ).toEqual({ base4kCredits: 9 });
   });
 
-  it("允许自定义 API 模型使用固定价格", () => {
+  it("允许未预置模型使用固定价格", () => {
     expect(
       getImageModelCreditPricing("custom-image-v3", {
         "custom-image-v3": { base1024Credits: 2.5 },
       })
     ).toEqual({ base1024Credits: 2.5 });
+  });
+
+  it("自定义 API 模型按分组覆盖、全局默认价格逐档继承", () => {
+    const global = createDefaultGlobalImageCreditOverrides();
+    global.byModel.default = {
+      base1024Credits: 2,
+      base1kCredits: 3,
+      base2kCredits: 6,
+      base4kCredits: 11,
+    };
+
+    expect(
+      resolveImageCreditPricing({
+        model: "vendor-custom-image-v3",
+        global,
+        group: {
+          version: 1,
+          byModel: {
+            "vendor-custom-image-v3": { base2kCredits: 4.5 },
+          },
+        },
+      })
+    ).toEqual({
+      base1024Credits: 2,
+      base1kCredits: 3,
+      base2kCredits: 4.5,
+      base4kCredits: 11,
+    });
   });
 
   it("拒绝零、负数、超大价格和空模型配置", () => {

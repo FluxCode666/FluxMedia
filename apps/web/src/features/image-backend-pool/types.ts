@@ -30,6 +30,7 @@ export type ImageBackendGroupSummary = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   imageCreditOverrides: ImageCreditOverrides;
+  videoCreditOverrides: Record<string, number>;
   childGroupIds: string[];
   priority: number;
   apiCount: number;

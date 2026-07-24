@@ -8,23 +8,32 @@
  * execute 函数接入实际 service 层实现。
  */
 import { z } from "zod";
-
-import { defineOperation } from "../registry";
-import { getPrincipalUserId } from "../principal";
+import {
+  DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+  globalVideoModelCreditsPerSecondSchema,
+} from "../../adobe/video-pricing";
 import {
   destroyGenerationPhotosByMaxCount,
   shouldRunMaxCountCleanupOnSettingsChange,
 } from "../../generation-maintenance";
-import { logError } from "../../logger";
 import {
-  getAdminSystemSettingsSnapshot,
-  setSystemSettings,
-  importSystemSettingsFromEnv,
-  initializeMissingSystemSettingsDefaults,
-  getSystemSettingValue,
-} from "../../system-settings/index";
+  createDefaultGlobalImageCreditOverrides,
+  globalImageCreditOverridesSchema,
+} from "../../image-backend/group-image-pricing";
+import { logError } from "../../logger";
 import { bootstrapSystemSettingsEnv } from "../../system-settings/bootstrap";
 import { syncSystemSettingsToEnvFiles } from "../../system-settings/env-file";
+import {
+  getAdminSystemSettingsSnapshot,
+  getRuntimeSettingJson,
+  getSystemSettingValue,
+  importSystemSettingsFromEnv,
+  initializeMissingSystemSettingsDefaults,
+  setGlobalModelPricing,
+  setSystemSettings,
+} from "../../system-settings/index";
+import { getPrincipalUserId } from "../principal";
+import { defineOperation } from "../registry";
 
 /**
  * settings.getSnapshot - 获取管理后台设置快照
@@ -71,8 +80,7 @@ export const settingsUpdate = defineOperation({
   name: "settings.update",
   domain: "system-settings",
   title: "Update System Settings",
-  description:
-    "超级管理员更新系统设置项（如站点名称、功能开关、限额等）。",
+  description: "超级管理员更新系统设置项（如站点名称、功能开关、限额等）。",
   input: z.object({
     updates: z.record(z.string(), z.unknown()),
   }),
@@ -113,6 +121,83 @@ export const settingsUpdate = defineOperation({
       success: true,
       updatedKeys,
     };
+  },
+});
+
+const globalModelPricingInputSchema = z
+  .object({
+    image: globalImageCreditOverridesSchema,
+    videoCreditsPerSecond: globalVideoModelCreditsPerSecondSchema,
+  })
+  .strict();
+
+const globalModelPricingOutputSchema = globalModelPricingInputSchema;
+
+/**
+ * settings.getModelPricing - 读取全局模型计费配置。
+ *
+ * 不从后端账号池读取任何价格；全局缺失或历史稀疏值统一回退开发默认值，确保管理端始终
+ * 拿到可完整编辑的必填价格矩阵。
+ */
+export const settingsGetModelPricing = defineOperation({
+  name: "settings.getModelPricing",
+  domain: "system-settings",
+  title: "读取全局模型计费配置",
+  description:
+    "读取图像模型四档固定价格与视频模型族每秒价格，供管理员查看继承价格。",
+  input: z.object({}),
+  output: globalModelPricingOutputSchema,
+  access: { kind: "admin" },
+  agentExposure: "human-only",
+  readOnly: true,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: [],
+  execute: async () => {
+    const [imageRaw, videoRaw] = await Promise.all([
+      getRuntimeSettingJson("IMAGE_MODEL_CREDIT_PRICES"),
+      getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND"),
+    ]);
+    const image = globalImageCreditOverridesSchema.safeParse(imageRaw);
+    const video = globalVideoModelCreditsPerSecondSchema.safeParse(videoRaw);
+    return {
+      image: image.success
+        ? image.data
+        : createDefaultGlobalImageCreditOverrides(),
+      videoCreditsPerSecond: video.success
+        ? video.data
+        : { ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND },
+    };
+  },
+});
+
+/**
+ * settings.updateModelPricing - 更新全局模型计费配置。
+ *
+ * 输入 schema 强制每个内置模型填满全部价格；分组覆盖不在此操作写入，避免破坏“分组 >
+ * 全局”的单一职责边界。
+ */
+export const settingsUpdateModelPricing = defineOperation({
+  name: "settings.updateModelPricing",
+  domain: "system-settings",
+  title: "更新全局模型计费配置",
+  description:
+    "保存必填的图像模型四档固定价格与视频模型族每秒价格，并使运行时缓存立即失效。",
+  input: globalModelPricingInputSchema,
+  output: z.object({ success: z.boolean() }),
+  access: { kind: "superAdmin" },
+  agentExposure: "human-only",
+  readOnly: false,
+  destructive: false,
+  idempotency: { kind: "natural" },
+  sideEffects: ["cache", "audit"],
+  execute: async (input, principal) => {
+    await setGlobalModelPricing({
+      image: input.image,
+      videoCreditsPerSecond: input.videoCreditsPerSecond,
+      updatedBy: getPrincipalUserId(principal) ?? "system",
+    });
+    return { success: true };
   },
 });
 
@@ -183,8 +268,9 @@ export const settingsInitializeDefaults = defineOperation({
   hasMaintenanceWrite: true,
   execute: async (_input, principal, _ctx) => {
     const userId = getPrincipalUserId(principal) ?? "system";
-    const initializedKeys =
-      await initializeMissingSystemSettingsDefaults({ updatedBy: userId });
+    const initializedKeys = await initializeMissingSystemSettingsDefaults({
+      updatedBy: userId,
+    });
     return {
       initializedCount: initializedKeys.length,
       initializedKeys,

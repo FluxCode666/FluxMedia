@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND } from "../adobe/video-pricing";
+import { createDefaultGlobalImageCreditOverrides } from "../image-backend/group-image-pricing";
 import { DEFAULT_DASHBOARD_SUPPORT_CONFIG } from "../support/dashboard-config";
 import {
   clearSystemSettingsCache,
@@ -11,6 +13,7 @@ import {
   importSystemSettingsFromEnv,
   resetBootstrappedProcessSettingsForTests,
   setBootstrappedProcessSetting,
+  setGlobalModelPricing,
   setSystemSettings,
 } from "./index";
 
@@ -217,14 +220,14 @@ describe("setSystemSettings", () => {
 
   it("coerces number values and rejects non-numeric (coerceValue, C-L25)", async () => {
     await setSystemSettings(
-      [{ key: "IMAGE_BASE_CREDITS_1024", value: "2.5" }],
+      [{ key: "REGISTRATION_BONUS_CREDITS", value: "2.5" }],
       "admin"
     );
-    expect(store.get("IMAGE_BASE_CREDITS_1024")?.value).toBe(2.5);
+    expect(store.get("REGISTRATION_BONUS_CREDITS")?.value).toBe(2.5);
 
     await expect(
       setSystemSettings(
-        [{ key: "IMAGE_BASE_CREDITS_1024", value: "not-a-number" }],
+        [{ key: "REGISTRATION_BONUS_CREDITS", value: "not-a-number" }],
         "admin"
       )
     ).rejects.toThrow(/必须是有效数字/);
@@ -381,7 +384,7 @@ describe("setSystemSettings", () => {
         [{ key: "CONTENT_MODERATION_BLOCK_RISK_LEVEL", value: "low" }],
         "admin"
       )
-    ).rejects.toThrow(/专用审核策略入口/);
+    ).rejects.toThrow(/专用配置入口/);
     await expect(
       setSystemSettings(
         [
@@ -393,10 +396,34 @@ describe("setSystemSettings", () => {
         ],
         "admin"
       )
-    ).rejects.toThrow(/专用审核策略入口/);
+    ).rejects.toThrow(/专用配置入口/);
     expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
       "high"
     );
+  });
+
+  it("通过专用入口原子保存完整的全局模型价格", async () => {
+    const image = createDefaultGlobalImageCreditOverrides();
+    const videoCreditsPerSecond = {
+      ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+    };
+
+    await setGlobalModelPricing({
+      image,
+      videoCreditsPerSecond,
+      updatedBy: "super-admin-1",
+    });
+
+    expect(store.get("IMAGE_MODEL_CREDIT_PRICES")).toMatchObject({
+      value: image,
+      isSecret: false,
+      updatedBy: "super-admin-1",
+    });
+    expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")).toMatchObject({
+      value: videoCreditsPerSecond,
+      isSecret: false,
+      updatedBy: "super-admin-1",
+    });
   });
 });
 

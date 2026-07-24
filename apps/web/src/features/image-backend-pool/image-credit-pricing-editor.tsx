@@ -10,8 +10,8 @@ import {
   IMAGE_CREDIT_PRICE_FIELDS,
   type ImageCreditOverrides,
   type ImageCreditPriceField,
-  type ResolvedImageCreditPricing,
   normalizeImagePricingModelId,
+  type ResolvedImageCreditPricing,
 } from "@repo/shared/image-backend/group-image-pricing";
 import { Input } from "@repo/ui/components/input";
 import { Label } from "@repo/ui/components/label";
@@ -90,12 +90,14 @@ export function ImageCreditPricingEditor({
   models,
   draft,
   inheritanceLabel,
+  getModelLabel,
   resolveInheritedPricing,
   onChange,
 }: {
   models: readonly string[];
   draft: ImageCreditPricingDraft;
   inheritanceLabel: string;
+  getModelLabel?: (model: string) => string;
   resolveInheritedPricing: (model: string) => ResolvedImageCreditPricing;
   onChange: (
     model: string,
@@ -110,7 +112,9 @@ export function ImageCreditPricingEditor({
         return (
           <div key={model} className="space-y-2 rounded-md border p-3">
             <div>
-              <p className="truncate text-sm font-medium">{model}</p>
+              <p className="truncate text-sm font-medium">
+                {getModelLabel?.(model) ?? model}
+              </p>
               <p className="text-xs text-muted-foreground">
                 留空时{inheritanceLabel}
               </p>

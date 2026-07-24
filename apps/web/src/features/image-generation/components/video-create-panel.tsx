@@ -120,8 +120,7 @@ export function VideoCreatePanel({
   // 之前无条件调用（React hooks 规则），故对 family 用可选链兜底。
   const creditsPerSecond = resolveVideoCreditsPerSecond(
     family?.family,
-    pricing.creditsPerSecond,
-    pricing.basePerSecond
+    pricing.creditsPerSecond
   );
   const estimatedCredits = useMemo(() => {
     return getVideoCreditCost({
@@ -138,8 +137,7 @@ export function VideoCreatePanel({
       families.map((item) => {
         const creditsPerSecond = resolveVideoCreditsPerSecond(
           item.family,
-          pricing.creditsPerSecond,
-          pricing.basePerSecond
+          pricing.creditsPerSecond
         );
         return {
           family: item.family,
@@ -427,9 +425,8 @@ export function VideoCreatePanel({
             </tbody>
           </table>
           <p className="mt-1">
-            计费口径：模型族每秒积分 × 时长；未配置模型族时使用全局每秒
-            {pricing.basePerSecond} 积分，与实际扣费一致；比例 /
-            分辨率不影响积分。
+            计费口径：模型族每秒积分 × 时长；未配置分组覆盖时继承全局模型价格，
+            与实际扣费一致；比例 / 分辨率不影响积分。
           </p>
         </div>
       </details>

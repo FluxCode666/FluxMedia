@@ -143,6 +143,7 @@ export const saveGroup = defineOperation({
     backendType: z.enum(["mixed", "web", "responses"]),
     minPlan: z.enum(["free", "starter", "pro", "ultra", "enterprise"]),
     imageCreditOverrides: imageCreditOverridesSchema,
+    videoCreditOverrides: videoModelCreditsPerSecondMapSchema,
     childGroupIds: z.array(z.string().trim().min(1)).max(100),
     priority: z.number().int().min(0).max(10_000),
   }),
@@ -156,63 +157,6 @@ export const saveGroup = defineOperation({
   sideEffects: ["audit"],
   execute: async () => {
     throw new Error("Not yet wired: pool.saveGroup");
-  },
-});
-
-// ---------------------------------------------------------------------------
-// pool.getImagePricingConfig - 读取图像固定价格和视频模型每秒积分
-// ---------------------------------------------------------------------------
-export const getImagePricingConfig = defineOperation({
-  name: "pool.getImagePricingConfig",
-  domain: "image-backend-pool",
-  title: "读取模型计费配置",
-  description:
-    "读取图像模型四档固定价格、通用回退价格、审核费用及视频模型每秒积分。",
-  input: z.object({}),
-  output: z.object({
-    image: imageCreditOverridesSchema,
-    fallback: z.object({
-      base1024Credits: z.number().positive(),
-      base1kCredits: z.number().positive(),
-      base2kCredits: z.number().positive(),
-      base4kCredits: z.number().positive(),
-    }),
-    moderation: z.object({
-      textModerationCredits: z.number().nonnegative(),
-      imageModerationCredits: z.number().nonnegative(),
-    }),
-    videoCreditsPerSecond: videoModelCreditsPerSecondMapSchema,
-  }),
-  access: { kind: "admin" },
-  readOnly: true,
-  destructive: false,
-  idempotency: { kind: "natural" },
-  sideEffects: [],
-  execute: async () => {
-    throw new Error("Not yet wired: pool.getImagePricingConfig");
-  },
-});
-
-// ---------------------------------------------------------------------------
-// pool.updateImagePricingConfig - 更新图像固定价格和视频模型每秒积分
-// ---------------------------------------------------------------------------
-export const updateImagePricingConfig = defineOperation({
-  name: "pool.updateImagePricingConfig",
-  domain: "image-backend-pool",
-  title: "更新模型计费配置",
-  description: "更新图像模型四档固定价格和视频模型每秒积分。",
-  input: z.object({
-    image: imageCreditOverridesSchema,
-    videoCreditsPerSecond: videoModelCreditsPerSecondMapSchema,
-  }),
-  output: z.object({ success: z.boolean() }),
-  access: { kind: "admin" },
-  readOnly: false,
-  destructive: false,
-  idempotency: { kind: "natural" },
-  sideEffects: ["cache", "audit"],
-  execute: async () => {
-    throw new Error("Not yet wired: pool.updateImagePricingConfig");
   },
 });
 

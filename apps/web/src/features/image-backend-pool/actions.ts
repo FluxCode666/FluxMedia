@@ -1,15 +1,12 @@
 "use server";
 
+import { videoModelCreditsPerSecondMapSchema } from "@repo/shared/adobe";
 import { adobeEnabledModelIdsSchema } from "@repo/shared/adobe/enabled-models";
 import {
   isSubscriptionPlan,
   type SubscriptionPlan,
 } from "@repo/shared/config/subscription-plan";
-import {
-  type ImageCreditOverrides,
-  imageCreditOverridesSchema,
-  type ResolvedImageCreditPricing,
-} from "@repo/shared/image-backend/group-image-pricing";
+import { imageCreditOverridesSchema } from "@repo/shared/image-backend/group-image-pricing";
 import { requestParameterMappingsSchema } from "@repo/shared/image-backend/request-parameter-mapping";
 import { supportedModelIdsSchema } from "@repo/shared/image-backend/supported-models";
 
@@ -276,6 +273,7 @@ export const saveImageBackendGroupAction = withImageBackendPoolAdminAction(
         version: 1,
         byModel: {},
       }),
+      videoCreditOverrides: videoModelCreditsPerSecondMapSchema.default({}),
       childGroupIds: z.array(z.string().trim().min(1)).max(100).default([]),
       priority: z.coerce.number().int().min(0).max(10000).default(50),
     })
@@ -704,54 +702,6 @@ export const setImageBackendAdobeAlwaysActiveAction =
       await setImageBackendAdobeAlwaysActive(parsedInput);
       return { success: true };
     });
-
-// ===== 图像模型固定价格与视频模型族每秒积分 =====
-
-// family → 正数每秒积分的 map。空 map 表示全部回退通用每秒基价。非正/非有限值由前端过滤，
-// 此处再以 schema 兜底，杜绝脏值落库（财务语义键须为正有限数）。
-const modelCreditsPerSecondMapSchema = z.record(
-  z.string().trim().min(1),
-  z.number().finite().positive().max(100_000)
-);
-
-/** 通过 UOL 读取图像固定价格和视频模型族每秒积分。 */
-export const getImagePricingConfigAction = withImageBackendPoolAdminAction(
-  "getImagePricingConfig"
-).action(async ({ ctx }) => {
-  await ensureUolInitialized();
-  return await invokeOperation<{
-    image: ImageCreditOverrides;
-    fallback: ResolvedImageCreditPricing;
-    moderation: {
-      textModerationCredits: number;
-      imageModerationCredits: number;
-    };
-    videoCreditsPerSecond: Record<string, number>;
-  }>(
-    "pool.getImagePricingConfig",
-    {},
-    { type: "user", userId: ctx.userId, role: ctx.role }
-  );
-});
-
-/** 通过 UOL 保存图像模型固定价格和视频模型族每秒积分。 */
-export const setImagePricingConfigAction = withImageBackendPoolAdminAction(
-  "updateImagePricingConfig"
-)
-  .schema(
-    z.object({
-      image: imageCreditOverridesSchema,
-      videoCreditsPerSecond: modelCreditsPerSecondMapSchema,
-    })
-  )
-  .action(async ({ parsedInput, ctx }) => {
-    await ensureUolInitialized();
-    return await invokeOperation<{ success: boolean }>(
-      "pool.updateImagePricingConfig",
-      parsedInput,
-      { type: "user", userId: ctx.userId, role: ctx.role }
-    );
-  });
 
 // ===== Adobe 直连账号管理（mode=direct）=====
 

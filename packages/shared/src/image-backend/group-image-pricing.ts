@@ -6,6 +6,9 @@
  */
 import { z } from "zod";
 
+import { ADOBE_IMAGE_MODEL_IDS } from "../adobe/enabled-models";
+import { parseVideoModelCreditsPerSecond } from "../adobe/video-pricing";
+
 export const IMAGE_CREDIT_PRICE_FIELDS = [
   "base1024Credits",
   "base1kCredits",
@@ -26,6 +29,14 @@ export const DEFAULT_IMAGE_CREDIT_PRICING: ResolvedImageCreditPricing = {
   base2kCredits: 5.07,
   base4kCredits: 10,
 };
+
+/** 未列入内置目录的 API 图像模型统一继承此全局必填价格。 */
+export const GLOBAL_DEFAULT_IMAGE_PRICING_MODEL = "default";
+
+const REQUIRED_GLOBAL_IMAGE_PRICING_MODELS = [
+  GLOBAL_DEFAULT_IMAGE_PRICING_MODEL,
+  ...ADOBE_IMAGE_MODEL_IDS.map((model) => model.slice("firefly-".length)),
+];
 
 export const DEFAULT_IMAGE_MODERATION_CREDIT_PRICING = {
   textModerationCredits: 0.04,
@@ -64,6 +75,68 @@ export const imageCreditOverridesSchema = z
   .strict();
 
 export type ImageCreditOverrides = z.infer<typeof imageCreditOverridesSchema>;
+
+/**
+ * 生成完整的全局模型价格默认值。
+ *
+ * 全局价格是计费的唯一兜底层，不能出现空模型或空档位；分组配置才允许保持稀疏以继承
+ * 全局价格。每次调用返回新对象，避免表单草稿意外修改共享常量。
+ */
+export function createDefaultGlobalImageCreditOverrides(): ImageCreditOverrides {
+  return {
+    version: 1,
+    byModel: Object.fromEntries(
+      REQUIRED_GLOBAL_IMAGE_PRICING_MODELS.map((model) => [
+        model,
+        { ...DEFAULT_IMAGE_CREDIT_PRICING },
+      ])
+    ),
+  };
+}
+
+/**
+ * 全局模型价格契约。
+ *
+ * 内置图像模型必须逐档给出正数价格；额外模型同样必须填满四档，避免运行时再落入第三层
+ * 通用价格，确保计费优先级严格只有“分组 > 全局”。
+ */
+export const globalImageCreditOverridesSchema = imageCreditOverridesSchema
+  .superRefine((value, ctx) => {
+    for (const model of REQUIRED_GLOBAL_IMAGE_PRICING_MODELS) {
+      const pricing = value.byModel[model];
+      if (!pricing) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["byModel", model],
+          message: "Global pricing is required for every built-in image model",
+        });
+        continue;
+      }
+      for (const field of IMAGE_CREDIT_PRICE_FIELDS) {
+        if (typeof pricing[field] === "number") continue;
+        ctx.addIssue({
+          code: "custom",
+          path: ["byModel", model, field],
+          message: "Every global image price tier is required",
+        });
+      }
+    }
+    for (const [model, pricing] of Object.entries(value.byModel)) {
+      for (const field of IMAGE_CREDIT_PRICE_FIELDS) {
+        if (typeof pricing[field] === "number") continue;
+        ctx.addIssue({
+          code: "custom",
+          path: ["byModel", model, field],
+          message: "Every configured global image price tier is required",
+        });
+      }
+    }
+  })
+  .transform((value) => parseImageCreditOverrides(value));
+
+export type GlobalImageCreditOverrides = z.infer<
+  typeof globalImageCreditOverridesSchema
+>;
 
 export const EMPTY_IMAGE_CREDIT_OVERRIDES: ImageCreditOverrides = {
   version: 1,
@@ -119,6 +192,17 @@ export function getGroupImageCreditOverrides(
 }
 
 /**
+ * 从后端组 metadata 读取视频模型族每秒价格覆盖。
+ *
+ * 分组视频价格与图像价格一样保持稀疏：没有该模型族的条目就由调用方回退全局价格。
+ */
+export function getGroupVideoCreditOverrides(
+  metadata: Record<string, unknown> | null | undefined
+): Record<string, number> {
+  return parseVideoModelCreditsPerSecond(metadata?.videoCreditOverrides);
+}
+
+/**
  * 在模型价格表中查找请求模型对应的最长前缀配置。
  *
  * @param model - 实际生图模型，可包含 Firefly、分辨率和宽高比后缀。
@@ -149,24 +233,28 @@ export function getImageModelCreditPricing(
 }
 
 /**
- * 合并通用价格、全局模型价格和分组模型覆盖。
+ * 合并全局模型价格和分组模型覆盖。
  *
  * @param input.model - 实际生图模型。
- * @param input.fallback - 四档通用价格。
  * @param input.global - 全局模型价格配置。
  * @param input.group - 用户所选分组的稀疏覆盖配置。
- * @returns 完整四档价格，优先级为分组、全局模型、通用价格。
+ * @returns 完整四档价格，优先级为分组、全局模型。仅历史脏数据才回落代码默认值。
  */
 export function resolveImageCreditPricing(input: {
   model: string | null | undefined;
-  fallback: ResolvedImageCreditPricing;
-  global?: ImageCreditOverrides | null;
+  /**
+   * 仅用于兼容尚未完成迁移的旧调用方；运行时不会读取该值，不能形成第三层价格。
+   */
+  fallback?: ResolvedImageCreditPricing;
+  global: ImageCreditOverrides;
   group?: ImageCreditOverrides | null;
 }): ResolvedImageCreditPricing {
   const globalPricing = getImageModelCreditPricing(
     input.model,
-    input.global?.byModel ?? {}
+    input.global.byModel
   );
+  const globalDefaultPricing =
+    input.global.byModel[GLOBAL_DEFAULT_IMAGE_PRICING_MODEL] ?? {};
   const groupPricing = getImageModelCreditPricing(
     input.model,
     input.group?.byModel ?? {}
@@ -175,18 +263,22 @@ export function resolveImageCreditPricing(input: {
     base1024Credits:
       groupPricing.base1024Credits ??
       globalPricing.base1024Credits ??
-      input.fallback.base1024Credits,
+      globalDefaultPricing.base1024Credits ??
+      DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits,
     base1kCredits:
       groupPricing.base1kCredits ??
       globalPricing.base1kCredits ??
-      input.fallback.base1kCredits,
+      globalDefaultPricing.base1kCredits ??
+      DEFAULT_IMAGE_CREDIT_PRICING.base1kCredits,
     base2kCredits:
       groupPricing.base2kCredits ??
       globalPricing.base2kCredits ??
-      input.fallback.base2kCredits,
+      globalDefaultPricing.base2kCredits ??
+      DEFAULT_IMAGE_CREDIT_PRICING.base2kCredits,
     base4kCredits:
       groupPricing.base4kCredits ??
       globalPricing.base4kCredits ??
-      input.fallback.base4kCredits,
+      globalDefaultPricing.base4kCredits ??
+      DEFAULT_IMAGE_CREDIT_PRICING.base4kCredits,
   };
 }

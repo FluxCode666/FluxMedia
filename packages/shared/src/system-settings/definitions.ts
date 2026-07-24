@@ -1,3 +1,5 @@
+import { DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND } from "../adobe/video-pricing";
+import { createDefaultGlobalImageCreditOverrides } from "../image-backend/group-image-pricing";
 import { DEFAULT_DASHBOARD_SUPPORT_CONFIG } from "../support/dashboard-config";
 
 export type SettingCategory =
@@ -1401,51 +1403,51 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "IMAGE_BASE_CREDITS_1024",
-    label: "1024 档基础生图积分",
+    label: "历史 1024 档基础生图积分",
     description:
-      "未配置模型价格时使用的 1024 档基础价格。输出最长边小于 1248px 时归入此档，不含审核费用。",
+      "仅供旧数据迁移时补齐全局模型价格；当前运行时计费和管理页面均不读取或编辑此键。",
     category: "credits",
     valueType: "number",
     // WHY: 生图基础积分价格直接决定每次扣费，必须为正；上限拦截误填的异常巨大值，
     // 避免单次扣费失控。
     min: 0.01,
     max: 100_000,
-    defaultValue: 1.27,
+    managedByDedicatedOperation: true,
   },
   {
     key: "IMAGE_BASE_CREDITS_1K",
-    label: "1K 档基础生图积分",
+    label: "历史 1K 档基础生图积分",
     description:
-      "未配置模型价格时使用的 1K 档基础价格。输出最长边达到 1248px、但小于 2048px 时归入此档，不含审核费用。",
+      "仅供旧数据迁移时补齐全局模型价格；当前运行时计费和管理页面均不读取或编辑此键。",
     category: "credits",
     valueType: "number",
     min: 0.01,
     max: 100_000,
-    defaultValue: 1.27,
+    managedByDedicatedOperation: true,
   },
   {
     key: "IMAGE_BASE_CREDITS_2K",
-    label: "2K 档基础生图积分",
+    label: "历史 2K 档基础生图积分",
     description:
-      "不含文本/图片审核成本的 2K 档生图基础价格。最长边达到 2048px、但小于 3840px 的输出均按此固定价格计费。",
+      "仅供旧数据迁移时补齐全局模型价格；当前运行时计费和管理页面均不读取或编辑此键。",
     category: "credits",
     valueType: "number",
     // WHY: 固定档位直接决定用户扣费，必须限制为正的合理数值。
     min: 0.01,
     max: 100_000,
-    defaultValue: 5.07,
+    managedByDedicatedOperation: true,
   },
   {
     key: "IMAGE_BASE_CREDITS_4K",
-    label: "4K 基础生图积分",
+    label: "历史 4K 基础生图积分",
     description:
-      "不含文本/图片审核成本的 4K 档生图基础价格。最长边达到或超过 3840px 的输出均按此固定价格计费。",
+      "仅供旧数据迁移时补齐全局模型价格；当前运行时计费和管理页面均不读取或编辑此键。",
     category: "credits",
     valueType: "number",
     // WHY: 同 IMAGE_BASE_CREDITS_1024，4K 基础价格须为正并设上限。
     min: 0.01,
     max: 100_000,
-    defaultValue: 10,
+    managedByDedicatedOperation: true,
   },
   {
     key: "IMAGE_SUPER_RESOLUTION_ENABLED",
@@ -1509,10 +1511,11 @@ export const SYSTEM_SETTING_DEFINITIONS = [
     key: "IMAGE_MODEL_CREDIT_PRICES",
     label: "图像模型固定价格",
     description:
-      "按模型配置 1024、1K、2K、4K 固定基础积分。分组可逐档覆盖，未配置时回退本配置，再回退通用档位价格。请优先在生图后端池的模型定价表中编辑。",
+      "按模型配置必填的 1024、1K、2K、4K 固定基础积分。分组可以逐档覆盖；未覆盖时始终使用本全局模型价格。请在独立的“模型计费”页签编辑。",
     category: "credits",
     valueType: "json",
-    defaultValue: { version: 1, byModel: {} },
+    defaultValue: createDefaultGlobalImageCreditOverrides(),
+    managedByDedicatedOperation: true,
   },
   {
     key: "IMAGE_TEXT_MODERATION_CREDITS",
@@ -1538,24 +1541,25 @@ export const SYSTEM_SETTING_DEFINITIONS = [
   },
   {
     key: "VIDEO_BASE_CREDITS_PER_SECOND",
-    label: "视频每秒基础积分",
+    label: "历史视频每秒基础积分",
     description:
-      "Adobe Firefly 视频生成的通用回退价格（每秒积分）。未配置模型族专属价格时，一次视频成本 = 此每秒基价 × 时长(秒)。",
+      "仅供旧倍率与稀疏视频价格迁移时补齐全局模型价格；当前运行时计费和管理页面均不读取或编辑此键。",
     category: "credits",
     valueType: "number",
     // WHY: 视频计费基价须为正；上限拦截误填的异常巨大值，避免单次扣费失控。
     min: 0.01,
     max: 100_000,
-    defaultValue: 30,
+    managedByDedicatedOperation: true,
   },
   {
     key: "VIDEO_MODEL_CREDITS_PER_SECOND",
     label: "视频模型族每秒积分",
     description:
-      '按视频模型族设置每秒积分的 JSON（family → 积分）。未配置的模型族回退「视频每秒基础积分」。例：{"sora2-pro":60,"veo31-fast":15}。',
+      "按视频模型族设置必填的每秒积分。分组可为模型族设置覆盖价格；未覆盖时使用本全局模型价格。请在独立的“模型计费”页签编辑。",
     category: "credits",
     valueType: "json",
-    exampleValue: '{"sora2": 30, "sora2-pro": 60, "veo31": 45}',
+    defaultValue: { ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND },
+    managedByDedicatedOperation: true,
   },
   {
     key: "CREDIT_PACKAGE_MATRIX",

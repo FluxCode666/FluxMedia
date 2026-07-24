@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND,
   getVideoCreditCost,
+  resolveEffectiveVideoCreditsPerSecond,
   resolveVideoCreditsPerSecond,
 } from "./video-pricing";
 
@@ -22,6 +23,25 @@ describe("resolveVideoCreditsPerSecond", () => {
     expect(resolveVideoCreditsPerSecond("sora2", null, 0)).toBe(
       DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
     );
+  });
+});
+
+describe("resolveEffectiveVideoCreditsPerSecond", () => {
+  it("分组覆盖优先于全局模型每秒价格", () => {
+    expect(
+      resolveEffectiveVideoCreditsPerSecond({
+        family: "sora2",
+        global: { sora2: 30 },
+        group: { sora2: 42 },
+      })
+    ).toBe(42);
+    expect(
+      resolveEffectiveVideoCreditsPerSecond({
+        family: "sora2",
+        global: { sora2: 30 },
+        group: {},
+      })
+    ).toBe(30);
   });
 });
 

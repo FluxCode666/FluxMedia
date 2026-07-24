@@ -1779,14 +1779,6 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
       ) {
         continue;
       }
-      // 图像模型固定价格与视频模型每秒积分由 Adobe 后端 tab 的专用表格编辑，系统设置
-      // 面板里隐藏，避免同一份财务配置出现两个入口。
-      if (
-        setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
-        setting.key === "VIDEO_MODEL_CREDITS_PER_SECOND"
-      ) {
-        continue;
-      }
       // 注册机相关配置（moemail、代理、IP 刷新、号池维持）统一在生图池后端的
       // 「注册机」tab 内编辑，系统设置面板里隐藏，避免双入口。
       if (setting.key.startsWith("CHATGPT_REGISTER_")) {
@@ -1804,13 +1796,6 @@ export function SystemSettingsPanel({ timeZone }: { timeZone: string }) {
         if (
           setting.managedByDedicatedOperation ||
           setting.key === "CONTENT_MODERATION_BLOCK_RISK_LEVEL"
-        ) {
-          continue;
-        }
-        // 见上：专用模型计费配置不在本面板编辑，避免覆盖 Adobe tab 的改动。
-        if (
-          setting.key === "IMAGE_MODEL_CREDIT_PRICES" ||
-          setting.key === "VIDEO_MODEL_CREDITS_PER_SECOND"
         ) {
           continue;
         }

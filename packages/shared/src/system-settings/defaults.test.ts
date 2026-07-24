@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND } from "../adobe/video-pricing";
 import {
   CREDIT_PACKAGE_MATRIX_SETTING_KEY,
   getRuntimeCreditPackages,
 } from "../credits/packages";
+import { createDefaultGlobalImageCreditOverrides } from "../image-backend/group-image-pricing";
 import { DEFAULT_PLAN_CAPABILITY_MATRIX } from "../subscription/services/plan-capabilities";
 import { DEFAULT_DASHBOARD_SUPPORT_CONFIG } from "../support/dashboard-config";
 import {
@@ -36,9 +38,11 @@ const dbMock = vi.hoisted(() => {
       Promise.resolve(readRows()).then(resolve, reject)
     ),
   };
+  let pendingRows: StoredSetting[] = [];
   const insertBuilder = {
     values: vi.fn((values: StoredSetting | StoredSetting[]) => {
-      for (const value of Array.isArray(values) ? values : [values]) {
+      pendingRows = Array.isArray(values) ? values : [values];
+      for (const value of pendingRows) {
         if (!store.has(value.key)) {
           store.set(value.key, { ...value });
         }
@@ -46,7 +50,11 @@ const dbMock = vi.hoisted(() => {
       return insertBuilder;
     }),
     onConflictDoNothing: vi.fn(async () => undefined),
-    onConflictDoUpdate: vi.fn(async () => undefined),
+    onConflictDoUpdate: vi.fn(async () => {
+      for (const value of pendingRows) {
+        store.set(value.key, { ...value });
+      }
+    }),
   };
   const deleteBuilder = {
     where: vi.fn(async (keys: unknown) => {
@@ -129,10 +137,10 @@ describe("system setting default initialization", () => {
     expect(initializedKeys).toContain("GENERATION_IMAGE_RETENTION_MODE");
     expect(initializedKeys).toContain("GENERATION_IMAGE_MAX_COUNT");
     expect(initializedKeys).toContain("IMAGE_GENERATION_GLOBAL_CONCURRENCY");
-    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1024");
-    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_1K");
-    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_2K");
-    expect(initializedKeys).toContain("IMAGE_BASE_CREDITS_4K");
+    expect(initializedKeys).not.toContain("IMAGE_BASE_CREDITS_1024");
+    expect(initializedKeys).not.toContain("IMAGE_BASE_CREDITS_1K");
+    expect(initializedKeys).not.toContain("IMAGE_BASE_CREDITS_2K");
+    expect(initializedKeys).not.toContain("IMAGE_BASE_CREDITS_4K");
     expect(initializedKeys).toContain("IMAGE_MODEL_CREDIT_PRICES");
     expect(initializedKeys).toContain("IMAGE_TEXT_MODERATION_CREDITS");
     expect(initializedKeys).toContain("IMAGE_INPUT_MODERATION_CREDITS");
@@ -166,14 +174,16 @@ describe("system setting default initialization", () => {
     expect(store.get("GENERATION_IMAGE_MAX_COUNT")?.value).toBe(10000);
     expect(store.get("CREDITS_EXPIRY_DAYS")?.value).toBe(0);
     expect(store.get("IMAGE_GENERATION_GLOBAL_CONCURRENCY")?.value).toBe(500);
-    expect(store.get("IMAGE_BASE_CREDITS_1024")?.value).toBe(1.27);
-    expect(store.get("IMAGE_BASE_CREDITS_1K")?.value).toBe(1.27);
-    expect(store.get("IMAGE_BASE_CREDITS_2K")?.value).toBe(5.07);
-    expect(store.get("IMAGE_BASE_CREDITS_4K")?.value).toBe(10);
-    expect(store.get("IMAGE_MODEL_CREDIT_PRICES")?.value).toEqual({
-      version: 1,
-      byModel: {},
-    });
+    expect(store.get("IMAGE_BASE_CREDITS_1024")).toBeUndefined();
+    expect(store.get("IMAGE_BASE_CREDITS_1K")).toBeUndefined();
+    expect(store.get("IMAGE_BASE_CREDITS_2K")).toBeUndefined();
+    expect(store.get("IMAGE_BASE_CREDITS_4K")).toBeUndefined();
+    expect(store.get("IMAGE_MODEL_CREDIT_PRICES")?.value).toEqual(
+      createDefaultGlobalImageCreditOverrides()
+    );
+    expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")?.value).toEqual(
+      DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND
+    );
     expect(store.get("IMAGE_TEXT_MODERATION_CREDITS")?.value).toBe(0.04);
     expect(store.get("IMAGE_INPUT_MODERATION_CREDITS")?.value).toBe(0.06);
     expect(store.get("CONTENT_MODERATION_BLOCK_RISK_LEVEL")?.value).toBe(
@@ -223,6 +233,12 @@ describe("system setting default initialization", () => {
     await initializeMissingSystemSettingsDefaults({ updatedBy: "admin-1" });
 
     expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")?.value).toEqual({
+      ...Object.fromEntries(
+        Object.keys(DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND).map((family) => [
+          family,
+          30,
+        ])
+      ),
       "sora2-pro": 60,
       "veo31-fast": 15,
     });
@@ -242,9 +258,60 @@ describe("system setting default initialization", () => {
     await initializeMissingSystemSettingsDefaults();
 
     expect(store.get("VIDEO_MODEL_CREDITS_PER_SECOND")?.value).toEqual({
+      ...Object.fromEntries(
+        Object.keys(DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND).map((family) => [
+          family,
+          30,
+        ])
+      ),
       sora2: 48,
     });
     expect(store.has("VIDEO_MODEL_MULTIPLIERS")).toBe(false);
+  });
+
+  it("补齐历史稀疏图像价格为全局必填矩阵", async () => {
+    store.set("IMAGE_BASE_CREDITS_1024", {
+      key: "IMAGE_BASE_CREDITS_1024",
+      value: 2,
+    });
+    store.set("IMAGE_BASE_CREDITS_1K", {
+      key: "IMAGE_BASE_CREDITS_1K",
+      value: 3,
+    });
+    store.set("IMAGE_BASE_CREDITS_2K", {
+      key: "IMAGE_BASE_CREDITS_2K",
+      value: 6,
+    });
+    store.set("IMAGE_BASE_CREDITS_4K", {
+      key: "IMAGE_BASE_CREDITS_4K",
+      value: 11,
+    });
+    store.set("IMAGE_MODEL_CREDIT_PRICES", {
+      key: "IMAGE_MODEL_CREDIT_PRICES",
+      value: {
+        version: 1,
+        byModel: { "gpt-image-2": { base2kCredits: 8 } },
+      },
+    });
+
+    await initializeMissingSystemSettingsDefaults({ updatedBy: "admin-1" });
+
+    const expected = createDefaultGlobalImageCreditOverrides();
+    for (const model of Object.keys(expected.byModel)) {
+      expected.byModel[model] = {
+        base1024Credits: 2,
+        base1kCredits: 3,
+        base2kCredits: 6,
+        base4kCredits: 11,
+      };
+    }
+    expected.byModel["gpt-image-2"] = {
+      base1024Credits: 2,
+      base1kCredits: 3,
+      base2kCredits: 8,
+      base4kCredits: 11,
+    };
+    expect(store.get("IMAGE_MODEL_CREDIT_PRICES")?.value).toEqual(expected);
   });
 
   it("migrates legacy moderation public URL and removes legacy Aliyun controls", async () => {

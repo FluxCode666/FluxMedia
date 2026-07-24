@@ -14,9 +14,11 @@
 import { db } from "@repo/database";
 import { videoGeneration } from "@repo/database/schema";
 import {
-  DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND,
+  ADOBE_VIDEO_PRICING_FAMILIES,
+  DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
   getVideoCreditCost,
-  resolveVideoCreditsPerSecond,
+  globalVideoModelCreditsPerSecondSchema,
+  resolveEffectiveVideoCreditsPerSecond,
 } from "@repo/shared/adobe";
 import { resolveFireflyVideoModel } from "@repo/shared/adobe/firefly-direct";
 import { consumeCredits } from "@repo/shared/credits/core";
@@ -25,7 +27,6 @@ import { logError } from "@repo/shared/logger";
 import { getStorageProvider } from "@repo/shared/storage/providers";
 import {
   getRuntimeSettingJson,
-  getRuntimeSettingNumber,
   getRuntimeSettingString,
 } from "@repo/shared/system-settings";
 import { eq } from "drizzle-orm";
@@ -67,23 +68,21 @@ export type VideoGenerationResult =
     }
   | { error: string; videoGenerationId?: string };
 
-/** 把系统设置里的每秒积分 JSON 收窄成 family→正数 的 map。 */
-function parseCreditsPerSecond(value: unknown): Record<string, number> {
-  if (!value || typeof value !== "object") return {};
-  const out: Record<string, number> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw === "number" && Number.isFinite(raw)) out[key] = raw;
-  }
-  return out;
-}
-
 /** 创作页视频价格预估所需的定价输入（前端据此按 family×时长 实时算价）。 */
 export type VideoPricingInfo = {
-  /** 每秒基价（VIDEO_BASE_CREDITS_PER_SECOND，缺省 30）。 */
-  basePerSecond: number;
-  /** 模型族每秒积分 map（VIDEO_MODEL_CREDITS_PER_SECOND）。 */
+  /** 已按“分组 > 全局”解析完成的模型族每秒积分 map。 */
   creditsPerSecond: Record<string, number>;
 };
+
+/** 读取必填全局视频模型价格；历史脏值只回退开发默认值。 */
+async function getRuntimeGlobalVideoPricing(): Promise<Record<string, number>> {
+  const parsed = globalVideoModelCreditsPerSecondSchema.safeParse(
+    await getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND")
+  );
+  return parsed.success
+    ? parsed.data
+    : { ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND };
+}
 
 /**
  * 取视频定价输入（模型族每秒积分 + 全局回退基价），供创作页前端实时预估。
@@ -92,18 +91,22 @@ export type VideoPricingInfo = {
 export async function getVideoPricingForUser(input: {
   userId: string;
   apiKeyId?: string | null;
+  group?: Record<string, number> | null;
 }): Promise<VideoPricingInfo> {
-  void input;
-  const [basePerSecond, creditsPerSecondJson] = await Promise.all([
-    getRuntimeSettingNumber(
-      "VIDEO_BASE_CREDITS_PER_SECOND",
-      DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
-    ),
-    getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND"),
-  ]);
+  void input.userId;
+  void input.apiKeyId;
+  const global = await getRuntimeGlobalVideoPricing();
   return {
-    basePerSecond,
-    creditsPerSecond: parseCreditsPerSecond(creditsPerSecondJson),
+    creditsPerSecond: Object.fromEntries(
+      ADOBE_VIDEO_PRICING_FAMILIES.map((family) => [
+        family,
+        resolveEffectiveVideoCreditsPerSecond({
+          family,
+          global,
+          group: input.group,
+        }),
+      ])
+    ),
   };
 }
 
@@ -143,22 +146,7 @@ export async function runAdobeVideoGenerationForUser(
     return { error: `不支持的视频模型: ${input.model}` };
   }
 
-  // 算价：模型族每秒积分 × 时长；未配置模型族回退全局每秒基价。
-  const basePerSecond = await getRuntimeSettingNumber(
-    "VIDEO_BASE_CREDITS_PER_SECOND",
-    DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
-  );
-  const creditsPerSecond = parseCreditsPerSecond(
-    await getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND")
-  );
-  const billedCost = getVideoCreditCost({
-    durationSeconds: conf.duration,
-    creditsPerSecond: resolveVideoCreditsPerSecond(
-      conf.family,
-      creditsPerSecond,
-      basePerSecond
-    ),
-  });
+  const globalVideoPricing = await getRuntimeGlobalVideoPricing();
 
   const videoId = input.videoGenerationId || nanoid();
   // 扣费/退款幂等键：派生自服务端 videoId，全局唯一。
@@ -204,6 +192,17 @@ export async function runAdobeVideoGenerationForUser(
     );
     return { error: "无可用 Adobe 视频后端", videoGenerationId: videoId };
   }
+
+  // WHY: 先完成分组调度，才能取得本次计费分组的稀疏覆盖；随后按“分组 > 全局”计算
+  // 实扣，避免视频继续绕过分组价格。
+  const billedCost = getVideoCreditCost({
+    durationSeconds: conf.duration,
+    creditsPerSecond: resolveEffectiveVideoCreditsPerSecond({
+      family: conf.family,
+      global: globalVideoPricing,
+      group: config.backend?.videoCreditOverrides,
+    }),
+  });
 
   // getEffectiveConfig 已为命中成员获取 inflight 租约(进程内计数 + DB 租约)。视频管线
   // 必须在所有退出路径释放——否则进程内 inflight 只增不减,堆到 concurrency 上限后该后端

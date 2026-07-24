@@ -3,6 +3,17 @@ import { createHash } from "node:crypto";
 import { db } from "@repo/database";
 import { systemSetting } from "@repo/database/schema";
 import { eq, inArray, sql } from "drizzle-orm";
+import {
+  DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+  globalVideoModelCreditsPerSecondSchema,
+  parseVideoModelCreditsPerSecond,
+} from "../adobe/video-pricing";
+import {
+  createDefaultGlobalImageCreditOverrides,
+  DEFAULT_IMAGE_CREDIT_PRICING,
+  globalImageCreditOverridesSchema,
+  parseImageCreditOverrides,
+} from "../image-backend/group-image-pricing";
 import { dashboardSupportConfigSchema } from "../support/dashboard-config";
 import {
   clearLocalSystemSettingsCache,
@@ -363,6 +374,7 @@ export async function initializeMissingSystemSettingsDefaults(options?: {
   await migrateLegacyModerationSettings(now, options?.updatedBy);
   await migrateLegacySub2ApiAutoSyncSettings(now, options?.updatedBy);
   await migrateLegacyVideoModelPricing(now, options?.updatedBy);
+  await migrateLegacyGlobalModelPricing(now, options?.updatedBy);
 
   const rows = await db
     .select({
@@ -474,6 +486,145 @@ async function migrateLegacyVideoModelPricing(now: Date, updatedBy?: string) {
     await tx
       .delete(systemSetting)
       .where(inArray(systemSetting.key, [legacyKey]));
+  });
+  await invalidateSystemSettingsCache();
+}
+
+/**
+ * 把历史稀疏模型价格补齐为全局必填矩阵。
+ *
+ * 旧版允许图像价格逐档缺失、视频模型族缺失并回退到通用基价。新规则只允许“分组 >
+ * 全局”，因此迁移将历史显式值保留，并用原通用档位/开发默认值补齐缺失价格。迁移只在
+ * 当前全局配置不满足完整契约时写入，避免每次启动重复改写管理员配置。
+ */
+async function migrateLegacyGlobalModelPricing(now: Date, updatedBy?: string) {
+  const imageKey = "IMAGE_MODEL_CREDIT_PRICES";
+  const videoKey = "VIDEO_MODEL_CREDITS_PER_SECOND";
+  const imageBaseKeys = [
+    "IMAGE_BASE_CREDITS_1024",
+    "IMAGE_BASE_CREDITS_1K",
+    "IMAGE_BASE_CREDITS_2K",
+    "IMAGE_BASE_CREDITS_4K",
+  ];
+  const videoBaseKey = "VIDEO_BASE_CREDITS_PER_SECOND";
+  const rows = await db
+    .select({ key: systemSetting.key, value: systemSetting.value })
+    .from(systemSetting)
+    .where(
+      inArray(systemSetting.key, [
+        imageKey,
+        videoKey,
+        videoBaseKey,
+        ...imageBaseKeys,
+      ])
+    );
+  const stored = new Map(
+    rows
+      .map((row) => [row.key, normalizeStoredValue(row.value)] as const)
+      .filter(([, value]) => value !== undefined)
+  );
+  const imageRaw = stored.get(imageKey);
+  const videoRaw = stored.get(videoKey);
+  const imageNeedsMigration =
+    imageRaw !== undefined &&
+    !globalImageCreditOverridesSchema.safeParse(imageRaw).success;
+  const videoNeedsMigration =
+    videoRaw !== undefined &&
+    !globalVideoModelCreditsPerSecondSchema.safeParse(videoRaw).success;
+  if (!imageNeedsMigration && !videoNeedsMigration) return;
+
+  const readPositive = (key: string, fallback: number) => {
+    const value = stored.get(key);
+    return typeof value === "number" && Number.isFinite(value) && value > 0
+      ? value
+      : fallback;
+  };
+  const imageFallback = {
+    base1024Credits: readPositive(
+      "IMAGE_BASE_CREDITS_1024",
+      DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits
+    ),
+    base1kCredits: readPositive(
+      "IMAGE_BASE_CREDITS_1K",
+      DEFAULT_IMAGE_CREDIT_PRICING.base1kCredits
+    ),
+    base2kCredits: readPositive(
+      "IMAGE_BASE_CREDITS_2K",
+      DEFAULT_IMAGE_CREDIT_PRICING.base2kCredits
+    ),
+    base4kCredits: readPositive(
+      "IMAGE_BASE_CREDITS_4K",
+      DEFAULT_IMAGE_CREDIT_PRICING.base4kCredits
+    ),
+  };
+  const image = createDefaultGlobalImageCreditOverrides();
+  for (const model of Object.keys(image.byModel)) {
+    image.byModel[model] = { ...imageFallback };
+  }
+  for (const [model, pricing] of Object.entries(
+    parseImageCreditOverrides(imageRaw).byModel
+  )) {
+    image.byModel[model] = {
+      base1024Credits: pricing.base1024Credits ?? imageFallback.base1024Credits,
+      base1kCredits: pricing.base1kCredits ?? imageFallback.base1kCredits,
+      base2kCredits: pricing.base2kCredits ?? imageFallback.base2kCredits,
+      base4kCredits: pricing.base4kCredits ?? imageFallback.base4kCredits,
+    };
+  }
+  const videoBase = readPositive(
+    videoBaseKey,
+    DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND.sora2 ?? 30
+  );
+  const video = {
+    ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+    ...Object.fromEntries(
+      Object.keys(DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND).map((family) => [
+        family,
+        videoBase,
+      ])
+    ),
+    ...parseVideoModelCreditsPerSecond(videoRaw),
+  };
+
+  await db.transaction(async (tx) => {
+    if (imageNeedsMigration) {
+      await tx
+        .insert(systemSetting)
+        .values({
+          key: imageKey,
+          value: image,
+          isSecret: false,
+          ...(updatedBy ? { updatedBy } : {}),
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: systemSetting.key,
+          set: {
+            value: image,
+            ...(updatedBy ? { updatedBy } : {}),
+            updatedAt: now,
+          },
+        });
+    }
+    if (videoNeedsMigration) {
+      await tx
+        .insert(systemSetting)
+        .values({
+          key: videoKey,
+          value: video,
+          isSecret: false,
+          ...(updatedBy ? { updatedBy } : {}),
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: systemSetting.key,
+          set: {
+            value: video,
+            ...(updatedBy ? { updatedBy } : {}),
+            updatedAt: now,
+          },
+        });
+    }
   });
   await invalidateSystemSettingsCache();
 }
@@ -692,7 +843,7 @@ export async function setSystemSettings(
       }
 
       if (definition.managedByDedicatedOperation) {
-        throw new Error(`${definition.label}只能通过专用审核策略入口修改`);
+        throw new Error(`${definition.label}只能通过专用配置入口修改`);
       }
 
       if (entry.clear) {
@@ -738,6 +889,57 @@ export async function setSystemSettings(
 
   await invalidateSystemSettingsCache();
   return changedKeys;
+}
+
+/**
+ * 通过独立模型计费入口原子保存全局图像与视频价格。
+ *
+ * @param input.image - 覆盖全部内置图像模型与四个档位的完整价格矩阵。
+ * @param input.videoCreditsPerSecond - 覆盖全部内置视频模型族的每秒价格。
+ * @param input.updatedBy - 发起修改的超级管理员用户 ID。
+ * @returns 无返回值；校验失败或数据库写入失败时抛出异常，两个价格键不会部分保存。
+ */
+export async function setGlobalModelPricing(input: {
+  image: unknown;
+  videoCreditsPerSecond: unknown;
+  updatedBy: string;
+}): Promise<void> {
+  const image = globalImageCreditOverridesSchema.parse(input.image);
+  const videoCreditsPerSecond = globalVideoModelCreditsPerSecondSchema.parse(
+    input.videoCreditsPerSecond
+  );
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    for (const entry of [
+      { key: "IMAGE_MODEL_CREDIT_PRICES", value: image },
+      {
+        key: "VIDEO_MODEL_CREDITS_PER_SECOND",
+        value: videoCreditsPerSecond,
+      },
+    ] as const) {
+      await tx
+        .insert(systemSetting)
+        .values({
+          key: entry.key,
+          value: entry.value,
+          isSecret: false,
+          updatedBy: input.updatedBy,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: systemSetting.key,
+          set: {
+            value: entry.value,
+            isSecret: false,
+            updatedBy: input.updatedBy,
+            updatedAt: now,
+          },
+        });
+    }
+  });
+
+  await invalidateSystemSettingsCache();
 }
 
 export async function getAdminSystemSettingsSnapshot() {

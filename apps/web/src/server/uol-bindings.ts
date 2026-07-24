@@ -36,13 +36,8 @@ import {
   usageEventDetailSchema,
   usageEventListOutputSchema,
 } from "@repo/shared/credits/usage-log-contract";
+import type { ImageCreditOverrides } from "@repo/shared/image-backend/group-image-pricing";
 import type { RequestParameterMapping } from "@repo/shared/image-backend/request-parameter-mapping";
-import {
-  DEFAULT_IMAGE_CREDIT_PRICING,
-  DEFAULT_IMAGE_MODERATION_CREDIT_PRICING,
-  type ImageCreditOverrides,
-  parseImageCreditOverrides,
-} from "@repo/shared/image-backend/group-image-pricing";
 import {
   moderateContent,
   type ModerationImageInput,
@@ -55,11 +50,6 @@ import { checkRateLimit } from "@repo/shared/rate-limit";
 import { purchasablePlansOutputSchema } from "@repo/shared/subscription/purchase-contract";
 import { subscriptionCheckoutOutputSchema } from "@repo/shared/subscription/checkout-contract";
 import { canUsePlanCapability } from "@repo/shared/subscription/services/plan-capabilities";
-import {
-  getRuntimeSettingJson,
-  getRuntimeSettingNumber,
-  setSystemSettings,
-} from "@repo/shared/system-settings";
 import { getUserTimeZone } from "@repo/shared/time-zone/server";
 import type { OperationContext, Principal } from "@repo/shared/uol";
 import {
@@ -122,26 +112,6 @@ import {
 import {
   bindPlatformModelCatalogOperation,
 } from "@/server/platform-model-catalog-binding";
-
-/** 将未知 JSON 收窄为可用于视频计费的正数每秒积分表。 */
-function parseVideoModelCreditsPerSecond(
-  value: unknown
-): Record<string, number> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const creditsPerSecond: Record<string, number> = {};
-  for (const [model, credits] of Object.entries(value)) {
-    if (
-      model.trim() &&
-      typeof credits === "number" &&
-      Number.isFinite(credits) &&
-      credits > 0 &&
-      credits <= 100_000
-    ) {
-      creditsPerSecond[model] = credits;
-    }
-  }
-  return creditsPerSecond;
-}
 
 // ---------------------------------------------------------------------------
 // image-generation 域
@@ -858,6 +828,7 @@ bindExecute(
       backendType: "mixed" | "web" | "responses";
       minPlan: SubscriptionPlan;
       imageCreditOverrides: ImageCreditOverrides;
+      videoCreditOverrides: Record<string, number>;
       childGroupIds: string[];
       priority: number;
     },
@@ -875,103 +846,13 @@ bindExecute(
       backendType: input.backendType,
       minPlan: input.minPlan,
       imageCreditOverrides: input.imageCreditOverrides,
+      videoCreditOverrides: input.videoCreditOverrides,
       childGroupIds: input.childGroupIds,
       priority: input.priority,
     }),
   })
 );
 
-/** 读取图像四档固定价格、审核费用与视频模型族每秒积分。 */
-bindExecute(
-  "pool.getImagePricingConfig",
-  async (
-    _input: Record<string, never>,
-    _principal: Principal,
-    _ctx: OperationContext
-  ) => {
-    const [imageRaw, videoRaw, base1024, base1k, base2k, base4k, text, image] =
-      await Promise.all([
-        getRuntimeSettingJson("IMAGE_MODEL_CREDIT_PRICES"),
-        getRuntimeSettingJson("VIDEO_MODEL_CREDITS_PER_SECOND"),
-        getRuntimeSettingNumber(
-          "IMAGE_BASE_CREDITS_1024",
-          DEFAULT_IMAGE_CREDIT_PRICING.base1024Credits,
-          { positive: true }
-        ),
-        getRuntimeSettingNumber(
-          "IMAGE_BASE_CREDITS_1K",
-          DEFAULT_IMAGE_CREDIT_PRICING.base1kCredits,
-          { positive: true }
-        ),
-        getRuntimeSettingNumber(
-          "IMAGE_BASE_CREDITS_2K",
-          DEFAULT_IMAGE_CREDIT_PRICING.base2kCredits,
-          { positive: true }
-        ),
-        getRuntimeSettingNumber(
-          "IMAGE_BASE_CREDITS_4K",
-          DEFAULT_IMAGE_CREDIT_PRICING.base4kCredits,
-          { positive: true }
-        ),
-        getRuntimeSettingNumber(
-          "IMAGE_TEXT_MODERATION_CREDITS",
-          DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.textModerationCredits
-        ),
-        getRuntimeSettingNumber(
-          "IMAGE_INPUT_MODERATION_CREDITS",
-          DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits
-        ),
-      ]);
-    return {
-      image: parseImageCreditOverrides(imageRaw),
-      fallback: {
-        base1024Credits: base1024,
-        base1kCredits: base1k,
-        base2kCredits: base2k,
-        base4kCredits: base4k,
-      },
-      moderation: {
-        textModerationCredits:
-          Number.isFinite(text) && text >= 0
-            ? text
-            : DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.textModerationCredits,
-        imageModerationCredits:
-          Number.isFinite(image) && image >= 0
-            ? image
-            : DEFAULT_IMAGE_MODERATION_CREDIT_PRICING.imageModerationCredits,
-      },
-      videoCreditsPerSecond: parseVideoModelCreditsPerSecond(videoRaw),
-    };
-  }
-);
-
-/** 保存图像模型固定价格与视频模型族每秒积分。 */
-bindExecute(
-  "pool.updateImagePricingConfig",
-  async (
-    input: {
-      image: ImageCreditOverrides;
-      videoCreditsPerSecond: Record<string, number>;
-    },
-    principal: Principal,
-    _ctx: OperationContext
-  ) => {
-    await setSystemSettings(
-      [
-        { key: "IMAGE_MODEL_CREDIT_PRICES", value: input.image },
-        {
-          key: "VIDEO_MODEL_CREDITS_PER_SECOND",
-          value: input.videoCreditsPerSecond,
-        },
-      ],
-      getPrincipalUserId(principal) ?? "system"
-    );
-    return { success: true };
-  }
-);
-
-// TODO: pool.getSelectableGroups - getSelectableImageBackendGroupsAction 逻辑
-// TODO: pool.setPreference - setUserImageBackendPreferenceAction 逻辑
 // TODO: pool.getGroupOptions - getImageBackendGroupOptionsAction 逻辑
 // TODO: pool.deleteGroup - deleteImageBackendGroupAction 逻辑
 // TODO: pool.saveAccount - saveImageBackendAccountAction 逻辑

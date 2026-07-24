@@ -2,13 +2,16 @@
  * 生图后端池 UOL 计费配置契约测试。
  */
 import { describe, expect, it } from "vitest";
-
 import {
-  saveAdobe,
-  saveApi,
-  saveGroup,
-  updateImagePricingConfig,
-} from "./image-backend-pool";
+  DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+  globalVideoModelCreditsPerSecondSchema,
+} from "../../adobe/video-pricing";
+import {
+  createDefaultGlobalImageCreditOverrides,
+  globalImageCreditOverridesSchema,
+} from "../../image-backend/group-image-pricing";
+
+import { saveAdobe, saveApi, saveGroup } from "./image-backend-pool";
 
 const validGroup = {
   name: "默认组",
@@ -19,6 +22,7 @@ const validGroup = {
   backendType: "mixed" as const,
   minPlan: "free" as const,
   imageCreditOverrides: { version: 1 as const, byModel: {} },
+  videoCreditOverrides: {},
   childGroupIds: [],
   priority: 50,
 };
@@ -32,6 +36,7 @@ describe("image backend pool pricing operations", () => {
           version: 1,
           byModel: { "custom-image-v3": { base2kCredits: 6 } },
         },
+        videoCreditOverrides: { sora2: 42 },
       }).success
     ).toBe(true);
   });
@@ -47,34 +52,41 @@ describe("image backend pool pricing operations", () => {
         },
       }).success
     ).toBe(false);
+    expect(
+      saveGroup.input.safeParse({
+        ...validGroup,
+        videoCreditOverrides: { sora2: 0 },
+      }).success
+    ).toBe(false);
   });
 
   it("全局图像固定价格与视频模型每秒积分使用不同契约", () => {
     expect(
-      updateImagePricingConfig.input.safeParse({
-        image: {
-          version: 1,
-          byModel: { "gpt-image-2": { base4kCredits: 10 } },
-        },
-        videoCreditsPerSecond: { "sora2-pro": 60 },
-      }).success
+      globalImageCreditOverridesSchema.safeParse(
+        createDefaultGlobalImageCreditOverrides()
+      ).success
     ).toBe(true);
     expect(
-      updateImagePricingConfig.input.safeParse({
-        image: { version: 1, byModel: { "gpt-image-2": {} } },
-        videoCreditsPerSecond: { "sora2-pro": 60 },
+      globalVideoModelCreditsPerSecondSchema.safeParse(
+        DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND
+      ).success
+    ).toBe(true);
+    expect(
+      globalImageCreditOverridesSchema.safeParse({
+        version: 1,
+        byModel: { "gpt-image-2": {} },
       }).success
     ).toBe(false);
     expect(
-      updateImagePricingConfig.input.safeParse({
-        image: { version: 1, byModel: {} },
-        videoCreditsPerSecond: { sora2: 0 },
+      globalVideoModelCreditsPerSecondSchema.safeParse({
+        ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+        sora2: 0,
       }).success
     ).toBe(false);
     expect(
-      updateImagePricingConfig.input.safeParse({
-        image: { version: 1, byModel: {} },
-        videoCreditsPerSecond: { sora2: 100_001 },
+      globalVideoModelCreditsPerSecondSchema.safeParse({
+        ...DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND,
+        sora2: 100_001,
       }).success
     ).toBe(false);
   });

@@ -31,6 +31,7 @@ import {
 } from "@repo/shared/config/subscription-plan";
 import {
   getGroupImageCreditOverrides,
+  getGroupVideoCreditOverrides,
   type ImageCreditOverrides,
 } from "@repo/shared/image-backend/group-image-pricing";
 import { validateNestedGroupConfig } from "@repo/shared/image-backend/nested-groups";
@@ -3148,6 +3149,8 @@ function toResolvedPoolConfig(
   const groupBackendType = getGroupBackendType(billingGroupMetadata);
   const imageCreditOverrides =
     getGroupImageCreditOverrides(billingGroupMetadata);
+  const videoCreditOverrides =
+    getGroupVideoCreditOverrides(billingGroupMetadata);
 
   if (member.type === "api") {
     return {
@@ -3174,6 +3177,7 @@ function toResolvedPoolConfig(
           adobeSourced: member.adobeSourced,
           billingGroupId: fallbackGroupId,
           imageCreditOverrides,
+          videoCreditOverrides,
           reportResult: true,
           inflightLease: true,
           inflightLeaseId: member.leaseId,
@@ -3210,6 +3214,7 @@ function toResolvedPoolConfig(
           adobeSupportsVideo: member.supportsVideo,
           billingGroupId: fallbackGroupId,
           imageCreditOverrides,
+          videoCreditOverrides,
           reportResult: true,
           inflightLease: true,
           inflightLeaseId: member.leaseId,
@@ -3259,6 +3264,7 @@ function toResolvedPoolConfig(
         accountBackend: implementationMode,
         billingGroupId: fallbackGroupId,
         imageCreditOverrides,
+        videoCreditOverrides,
         reportResult: true,
         inflightLease: true,
         inflightLeaseId: member.leaseId,
@@ -3956,6 +3962,7 @@ export async function listImageBackendGroupOptions(options?: {
       minPlan: getGroupMinPlan(metadata),
       backendType: getGroupBackendType(metadata),
       imageCreditOverrides: getGroupImageCreditOverrides(metadata),
+      videoCreditOverrides: getGroupVideoCreditOverrides(metadata),
       childGroupIds: getGroupChildGroupIds(metadata),
     }));
 }
@@ -4087,6 +4094,7 @@ type UpsertGroupInput = {
   backendType: ImageBackendGroupBackendType;
   minPlan: SubscriptionPlan;
   imageCreditOverrides: ImageCreditOverrides;
+  videoCreditOverrides: Record<string, number>;
   childGroupIds?: string[];
   priority: number;
 };
@@ -4137,6 +4145,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       minPlan: input.minPlan,
       backendType: input.backendType,
       imageCreditOverrides: input.imageCreditOverrides,
+      videoCreditOverrides: input.videoCreditOverrides,
       childGroupIds,
     };
     await db
@@ -4169,6 +4178,7 @@ export async function upsertImageBackendGroup(input: UpsertGroupInput) {
       minPlan: input.minPlan,
       backendType: input.backendType,
       imageCreditOverrides: input.imageCreditOverrides,
+      videoCreditOverrides: input.videoCreditOverrides,
       childGroupIds,
     },
     priority: input.priority,
@@ -7896,6 +7906,7 @@ export async function listAdminImageBackendPool() {
     backendType: getGroupBackendType(group.metadata),
     minPlan: getGroupMinPlan(group.metadata),
     imageCreditOverrides: getGroupImageCreditOverrides(group.metadata),
+    videoCreditOverrides: getGroupVideoCreditOverrides(group.metadata),
     childGroupIds: getGroupChildGroupIds(group.metadata),
     priority: group.priority,
     apiCount: apiCountMap.get(group.id) ?? 0,

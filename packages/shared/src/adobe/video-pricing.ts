@@ -4,9 +4,65 @@
  * 使用方：视频生成扣费与创作页预估。每个模型族可配置自己的每秒价格；未配置族回退
  * 全局每秒基价。模块不读取 DB 或运行时设置，确保预估和实扣共用同一计算口径。
  */
+import { z } from "zod";
 
 export const DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND = 30;
 export const MAX_VIDEO_CREDITS_PER_SECOND = 100_000;
+
+/** 平台内置视频模型族，顺序同时用于全局与分组价格表展示。 */
+export const ADOBE_VIDEO_PRICING_FAMILIES = [
+  "sora2",
+  "sora2-pro",
+  "veo31",
+  "veo31-ref",
+  "veo31-fast",
+  "kling-o3",
+  "kling3",
+] as const;
+
+/** 全局模型价格的开发默认值；所有模型族均有明确每秒价格。 */
+export const DEFAULT_VIDEO_MODEL_CREDITS_PER_SECOND: Record<string, number> = {
+  sora2: 30,
+  "sora2-pro": 60,
+  veo31: 45,
+  "veo31-ref": 45,
+  "veo31-fast": 30,
+  "kling-o3": 30,
+  kling3: 30,
+};
+
+const videoCreditsPerSecondSchema = z
+  .number()
+  .finite()
+  .positive()
+  .max(MAX_VIDEO_CREDITS_PER_SECOND);
+
+/** 分组视频价格覆盖允许留空，空值继承全局模型每秒价格。 */
+export const videoModelCreditsPerSecondMapSchema = z.record(
+  z.string().trim().min(1).max(120),
+  videoCreditsPerSecondSchema
+);
+
+/** 全局视频价格必须覆盖全部内置模型族。 */
+export const globalVideoModelCreditsPerSecondSchema =
+  videoModelCreditsPerSecondMapSchema.superRefine((value, ctx) => {
+    for (const family of ADOBE_VIDEO_PRICING_FAMILIES) {
+      if (typeof value[family] === "number") continue;
+      ctx.addIssue({
+        code: "custom",
+        path: [family],
+        message: "Global pricing is required for every built-in video family",
+      });
+    }
+  });
+
+/** 把未知持久化值收窄为安全的 family → 每秒积分 map。 */
+export function parseVideoModelCreditsPerSecond(
+  value: unknown
+): Record<string, number> {
+  const parsed = videoModelCreditsPerSecondMapSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
 
 /** 判断每秒积分是否可安全参与计费。 */
 function isValidCreditsPerSecond(value: number): boolean {
@@ -43,6 +99,27 @@ export function resolveVideoCreditsPerSecond(
   return typeof value === "number" && isValidCreditsPerSecond(value)
     ? value
     : safeFallback;
+}
+
+/**
+ * 按分组覆盖优先、全局模型价兜底解析每秒积分。
+ *
+ * 分组覆盖缺失时使用全局值。最后一个参数只服务于历史脏数据的安全恢复，正常配置不会
+ * 触发，因此业务配置层没有第三层可编辑价格。
+ */
+export function resolveEffectiveVideoCreditsPerSecond(input: {
+  family: string | null | undefined;
+  global: Record<string, number>;
+  group?: Record<string, number> | null;
+}): number {
+  return resolveVideoCreditsPerSecond(
+    input.family,
+    {
+      ...input.global,
+      ...input.group,
+    },
+    DEFAULT_VIDEO_BASE_CREDITS_PER_SECOND
+  );
 }
 
 /**

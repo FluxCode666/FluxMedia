@@ -49,7 +49,7 @@ Adobe 后端「Adobe Firefly 直连」字段：
 | 默认 ratio | 1x1 | size 缺省/auto 时回退比例 |
 | 默认 resolution | 2k | size 缺省/auto 时回退分辨率 |
 | gpt_image_quality | high | quality=auto/未选时的 detailLevel 取值依据 |
-| 图像定价 | 固定模型价 | 图像不使用 Adobe 成员或分组倍率；价格按分组模型覆盖 → 全局模型价 → 通用四档回退 |
+| 模型定价 | 固定模型价 | 图像与视频均不使用 Adobe 成员或分组倍率；价格按分组模型覆盖 → 全局模型价 |
 
 图像的四档由**实际输出像素的最长边**决定：小于 1248px 为 1024，1248px 至小于
 2048px 为 1K，2048px 至小于 3840px 为 2K，达到或超过 3840px 为 4K。最终图像积分为

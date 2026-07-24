@@ -334,6 +334,8 @@ export interface ApiConfig {
     adobeGptImageQuality?: string;
     billingGroupId?: string | null;
     imageCreditOverrides?: ImageCreditOverrides;
+    /** 所选计费分组的稀疏视频模型族每秒积分覆盖。 */
+    videoCreditOverrides?: Record<string, number>;
     reportResult?: boolean;
     inflightLease?: boolean;
     inflightLeaseId?: string | null;
