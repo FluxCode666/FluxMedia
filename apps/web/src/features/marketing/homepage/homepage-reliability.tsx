@@ -13,19 +13,12 @@ export type HomepageReliabilityCopy = {
   title: string;
   description: string;
   availability: string;
-  sample: string;
-  completed: string;
-  platformErrors: string;
+  recentSuccessRate: string;
   insufficient: string;
   unavailable: string;
   hiddenTitle: string;
   hiddenDescription: string;
 };
-
-/** 按当前语言格式化整数，不改变统计事实。 */
-function formatCount(value: number, locale: string): string {
-  return new Intl.NumberFormat(locale).format(value);
-}
 
 /** 按当前语言格式化两位百分比，不为失败或零样本生成固定数字。 */
 function formatPercent(value: number, locale: string): string {
@@ -136,36 +129,19 @@ export function HomepageReliability({
           </div>
         ) : (
           <dl className="mt-10 grid gap-x-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              {
-                label: copy.availability,
-                value: formatPercent(stats.data.successRate, locale),
-              },
-              {
-                label: copy.sample,
-                value: formatCount(stats.data.sampleSize, locale),
-              },
-              {
-                label: copy.completed,
-                value: formatCount(stats.data.completed, locale),
-              },
-              {
-                label: copy.platformErrors,
-                value: formatCount(stats.data.platformErrors, locale),
-              },
-            ].map((fact) => (
-              <div
-                className="flex flex-col border-t border-foreground/20 py-[18px]"
-                key={fact.label}
-              >
-                <dt className="order-2 mt-2 text-xs text-muted-foreground">
-                  {fact.label}
-                </dt>
-                <dd className="order-1 font-serif text-[2.625rem] font-medium leading-none tracking-[-0.025em]">
-                  {fact.value}
-                </dd>
-              </div>
-            ))}
+            <div className="border-t border-foreground/20 py-[18px]">
+              <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                {copy.availability}
+              </dt>
+              <dd className="mt-4">
+                <span className="block font-serif text-[2.625rem] font-medium leading-none tracking-[-0.025em]">
+                  {formatPercent(stats.data.successRate, locale)}
+                </span>
+                <span className="mt-2 block text-xs text-muted-foreground">
+                  {copy.recentSuccessRate}
+                </span>
+              </dd>
+            </div>
           </dl>
         )}
       </div>
