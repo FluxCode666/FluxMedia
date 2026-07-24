@@ -120,7 +120,7 @@ export function HomepageModelCatalog({
             <ul
               className={
                 models.length === 1
-                  ? "overflow-hidden rounded-lg border border-border bg-background"
+                  ? "w-full max-w-md overflow-hidden rounded-lg border border-border bg-background"
                   : "grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3"
               }
             >
