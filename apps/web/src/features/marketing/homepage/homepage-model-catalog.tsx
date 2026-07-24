@@ -117,7 +117,13 @@ export function HomepageModelCatalog({
               {copy.image.empty}
             </p>
           ) : (
-            <ul className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+            <ul
+              className={
+                models.length === 1
+                  ? "overflow-hidden rounded-lg border border-border bg-background"
+                  : "grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3"
+              }
+            >
               {models.map((model, index) => (
                 <li
                   className="group flex min-h-64 min-w-0 flex-col justify-between bg-background p-5 transition-colors duration-300 hover:bg-muted/35 motion-reduce:transition-none sm:p-6"
