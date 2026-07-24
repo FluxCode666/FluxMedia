@@ -109,15 +109,15 @@ export function HomepageModelCatalog({
           data-model-category="image"
         >
           {models === null ? (
-            <p className="rounded-2xl border border-destructive/25 bg-destructive/5 px-5 py-4 text-sm text-muted-foreground">
+            <p className="rounded-md border border-destructive/25 bg-destructive/5 px-5 py-4 text-sm text-muted-foreground">
               {copy.unavailable}
             </p>
           ) : models.length === 0 ? (
-            <p className="rounded-2xl border border-border bg-background px-5 py-4 text-sm text-muted-foreground">
+            <p className="rounded-md border border-border bg-background px-5 py-4 text-sm text-muted-foreground">
               {copy.image.empty}
             </p>
           ) : (
-            <ul className="grid gap-px overflow-hidden rounded-3xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
               {models.map((model, index) => (
                 <li
                   className="group flex min-h-64 min-w-0 flex-col justify-between bg-background p-5 transition-colors duration-300 hover:bg-muted/35 motion-reduce:transition-none sm:p-6"

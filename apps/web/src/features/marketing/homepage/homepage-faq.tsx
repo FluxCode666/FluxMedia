@@ -70,7 +70,7 @@ export function HomepageFaq({
           </p>
         </div>
 
-        <div className="divide-y divide-border overflow-hidden rounded-3xl border border-border bg-background">
+        <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background">
           {items.map((item) => (
             <details className="group px-5 py-5 sm:px-6" key={item.question}>
               <summary className="flex cursor-pointer list-none items-start justify-between gap-6 font-medium marker:content-none">

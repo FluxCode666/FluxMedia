@@ -117,7 +117,7 @@ export async function HomepageContent({
               data-homepage-motion="hero-artwork"
             >
               <div
-                className="relative aspect-[4/5] overflow-hidden rounded-3xl border border-border/80 bg-muted/25 shadow-whisper sm:aspect-[5/4] lg:rounded-[2rem]"
+                className="relative aspect-[4/5] overflow-hidden rounded-lg border border-border/80 bg-muted/25 shadow-whisper sm:aspect-[5/4]"
                 data-homepage-motion="hero-parallax"
               >
                 <Image
@@ -134,7 +134,7 @@ export async function HomepageContent({
                   className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-white/5"
                 />
               </div>
-              <figcaption className="absolute inset-x-4 bottom-12 rounded-2xl border border-white/10 bg-[#11100f]/92 p-4 text-[#f6f1e7] shadow-menu backdrop-blur-md sm:inset-x-6 sm:bottom-14 lg:-left-[4.5rem] lg:right-auto lg:bottom-10 lg:w-[54%]">
+              <figcaption className="absolute inset-x-4 bottom-12 rounded-md border border-white/10 bg-[#11100f]/92 p-4 text-[#f6f1e7] shadow-menu backdrop-blur-md sm:inset-x-6 sm:bottom-14 lg:-left-[4.5rem] lg:right-auto lg:bottom-10 lg:w-[54%]">
                 <div className="flex items-center justify-between gap-4 font-mono text-[9px] uppercase tracking-[0.18em] text-white/45">
                   <span>{t("hero.promptLabel")} / 01</span>
                   <span>{t("hero.artworkFormat")}</span>
@@ -177,7 +177,7 @@ export async function HomepageContent({
         className="scroll-mt-24 bg-background px-4 py-6 text-[#f6f1e7] sm:px-6 sm:py-8 lg:px-8 lg:py-10"
         id="work"
       >
-        <div className="mx-auto w-full max-w-7xl rounded-[2rem] bg-[#11100f] px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
+        <div className="mx-auto w-full max-w-7xl rounded-lg bg-[#11100f] px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
           <div
             className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-end"
             data-homepage-motion="reveal"

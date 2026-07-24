@@ -61,7 +61,7 @@ export function HomepageReliability({
         className="bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
         id="reliability"
       >
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 rounded-3xl border border-border bg-muted/20 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 rounded-lg border border-border bg-muted/20 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
             <h2
               className="font-serif text-xl font-medium"
@@ -86,7 +86,7 @@ export function HomepageReliability({
       className="bg-background px-4 py-6 text-background sm:px-6 sm:py-8 lg:px-8 lg:py-10"
       id="reliability"
     >
-      <div className="mx-auto w-full max-w-7xl rounded-[2rem] bg-foreground px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
+      <div className="mx-auto w-full max-w-7xl rounded-lg bg-foreground px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="font-mono text-xs uppercase tracking-[0.22em] text-background/55">
@@ -110,7 +110,7 @@ export function HomepageReliability({
         {state.visibility === "unavailable" ||
         stats.status === "unavailable" ? (
           <div
-            className="mt-12 flex items-start gap-3 rounded-3xl border border-[#a63d33]/45 bg-[#a63d33]/10 px-5 py-5 text-sm leading-6 text-background/70"
+            className="mt-12 flex items-start gap-3 rounded-md border border-[#a63d33]/45 bg-[#a63d33]/10 px-5 py-5 text-sm leading-6 text-background/70"
             role="status"
           >
             <span
@@ -121,7 +121,7 @@ export function HomepageReliability({
           </div>
         ) : stats.status === "insufficient" ? (
           <div
-            className="mt-12 flex items-start gap-3 rounded-3xl border border-background/20 bg-background/[0.04] px-5 py-5 text-sm leading-6 text-background/70"
+            className="mt-12 flex items-start gap-3 rounded-md border border-background/20 bg-background/[0.04] px-5 py-5 text-sm leading-6 text-background/70"
             role="status"
           >
             <span
@@ -132,7 +132,7 @@ export function HomepageReliability({
           </div>
         ) : (
           <div className="mt-12 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
-            <div className="flex min-h-80 flex-col justify-between rounded-3xl border border-background/20 bg-background/[0.04] p-6 sm:p-8">
+            <div className="flex min-h-80 flex-col justify-between rounded-lg border border-background/20 bg-background/[0.04] p-6 sm:p-8">
               <div className="flex items-center justify-between gap-4">
                 <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-background/55">
                   {copy.availability}
@@ -161,7 +161,7 @@ export function HomepageReliability({
             </div>
 
             <dl className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1">
-              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-md border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
                 <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
                   {copy.sample}
                 </dt>
@@ -169,7 +169,7 @@ export function HomepageReliability({
                   {formatCount(stats.data.sampleSize, locale)}
                 </dd>
               </div>
-              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-md border border-background/20 bg-background/[0.04] p-5 lg:min-h-0">
                 <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
                   {copy.completed}
                 </dt>
@@ -177,7 +177,7 @@ export function HomepageReliability({
                   {formatCount(stats.data.completed, locale)}
                 </dd>
               </div>
-              <div className="flex min-h-24 items-end justify-between gap-5 rounded-2xl border border-[#a63d33]/45 bg-[#a63d33]/10 p-5 lg:min-h-0">
+              <div className="flex min-h-24 items-end justify-between gap-5 rounded-md border border-[#a63d33]/45 bg-[#a63d33]/10 p-5 lg:min-h-0">
                 <dt className="text-xs uppercase tracking-[0.16em] text-background/55">
                   {copy.platformErrors}
                 </dt>
