@@ -43,10 +43,10 @@ export function HomepageIntegration({
   return (
     <section
       aria-labelledby="homepage-integration-title"
-      className="scroll-mt-24 border-y border-border bg-background px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
+      className="scroll-mt-24 bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
       id="integration"
     >
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl rounded-[2rem] border border-border/80 bg-card/60 px-6 py-12 shadow-whisper sm:px-10 sm:py-16 lg:px-12 lg:py-20">
         <div className="grid gap-8 border-b border-foreground/70 pb-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
@@ -66,9 +66,9 @@ export function HomepageIntegration({
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-stretch">
           <div className="flex flex-col justify-between">
-            <ol className="divide-y divide-border border-y border-border">
+            <ol className="divide-y divide-border overflow-hidden rounded-3xl border border-border bg-background">
               {content.steps.map((step, index) => (
-                <li className="flex gap-5 py-6" key={step.title}>
+                <li className="flex gap-5 px-5 py-6" key={step.title}>
                   <span className="mt-1 shrink-0 font-mono text-[10px] text-destructive">
                     {String(index + 1).padStart(2, "0")}
                   </span>
@@ -85,13 +85,13 @@ export function HomepageIntegration({
             </ol>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button asChild>
+              <Button asChild className="rounded-full px-6">
                 <Link href={content.links.apiDocs}>
                   {content.linkLabels.apiDocs}
                   <ArrowUpRight className="size-4" />
                 </Link>
               </Button>
-              <Button asChild variant="outline">
+              <Button asChild className="rounded-full px-6" variant="outline">
                 <Link href={content.links.apiKeys}>
                   <KeyRound className="size-4" />
                   {content.linkLabels.apiKeys}
@@ -100,7 +100,7 @@ export function HomepageIntegration({
             </div>
           </div>
 
-          <div className="min-w-0 border border-[#11100f] bg-[#11100f] p-3 shadow-menu sm:p-5">
+          <div className="min-w-0 overflow-hidden rounded-3xl border border-[#11100f] bg-[#11100f] p-3 shadow-menu sm:p-5">
             {example.status === "available" ? (
               <>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-white/15 pb-4 text-xs text-white/50">
@@ -113,7 +113,7 @@ export function HomepageIntegration({
                   </code>
                 </div>
                 <CodeBlock
-                  className="min-h-[28rem] rounded-none border-white/15 bg-[#11100f] shadow-none [&>div]:border-white/15 [&>div]:bg-[#171615] [&_button]:text-white/65 [&_code]:min-w-0 [&_code>span]:break-all [&_code>span]:whitespace-pre-wrap [&_figcaption]:text-white/55 [&_pre]:max-h-none [&_pre]:text-[#f6f1e7]"
+                  className="min-h-[28rem] rounded-2xl border-white/15 bg-[#11100f] shadow-none [&>div]:border-white/15 [&>div]:bg-[#171615] [&_button]:text-white/65 [&_code]:min-w-0 [&_code>span]:break-all [&_code>span]:whitespace-pre-wrap [&_figcaption]:text-white/55 [&_pre]:max-h-none [&_pre]:text-[#f6f1e7]"
                   code={example.curl}
                   labels={content.copyLabels}
                   language="bash"
@@ -122,7 +122,7 @@ export function HomepageIntegration({
                 />
               </>
             ) : (
-              <div className="flex min-h-[28rem] flex-col justify-center border border-dashed border-white/20 bg-white/[0.03] p-6 text-[#f6f1e7]">
+              <div className="flex min-h-[28rem] flex-col justify-center rounded-2xl border border-dashed border-white/20 bg-white/[0.03] p-6 text-[#f6f1e7]">
                 <h3 className="font-serif text-xl font-medium">
                   {content.unavailableTitle}
                 </h3>

@@ -70,10 +70,10 @@ export function HomepageModelCatalog({
   return (
     <section
       aria-labelledby="homepage-models-title"
-      className="scroll-mt-24 border-y border-border bg-background px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
+      className="scroll-mt-24 bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
       id="models"
     >
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl rounded-[2rem] border border-border/80 bg-card/60 px-6 py-12 shadow-whisper sm:px-10 sm:py-16 lg:px-12 lg:py-20">
         <div className="grid gap-8 border-b border-foreground/70 pb-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -92,7 +92,7 @@ export function HomepageModelCatalog({
         </div>
 
         <div className="mt-8 flex items-center justify-between gap-6">
-          <div className="inline-flex items-baseline gap-3 border border-foreground bg-foreground px-4 py-2 text-background">
+          <div className="inline-flex items-baseline gap-3 rounded-full border border-foreground bg-foreground px-4 py-2 text-background">
             <span className="text-sm">{copy.image.label}</span>
             <span className="font-mono text-xs">
               {models === null ? "—" : `${models.length} ${copy.countLabel}`}
@@ -109,18 +109,18 @@ export function HomepageModelCatalog({
           data-model-category="image"
         >
           {models === null ? (
-            <p className="border-l-2 border-destructive/70 py-3 pl-4 text-sm text-muted-foreground">
+            <p className="rounded-2xl border border-destructive/25 bg-destructive/5 px-5 py-4 text-sm text-muted-foreground">
               {copy.unavailable}
             </p>
           ) : models.length === 0 ? (
-            <p className="border-l-2 border-border py-3 pl-4 text-sm text-muted-foreground">
+            <p className="rounded-2xl border border-border bg-background px-5 py-4 text-sm text-muted-foreground">
               {copy.image.empty}
             </p>
           ) : (
-            <ul className="grid border-l border-t border-border sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid gap-px overflow-hidden rounded-3xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
               {models.map((model, index) => (
                 <li
-                  className="group flex min-h-64 min-w-0 flex-col justify-between border-b border-r border-border bg-background p-5 transition-colors duration-300 hover:bg-muted/35 motion-reduce:transition-none sm:p-6"
+                  className="group flex min-h-64 min-w-0 flex-col justify-between bg-background p-5 transition-colors duration-300 hover:bg-muted/35 motion-reduce:transition-none sm:p-6"
                   key={model.id}
                 >
                   <div className="flex items-start justify-between gap-4">

@@ -51,10 +51,10 @@ export function HomepageFaq({
   return (
     <section
       aria-labelledby="homepage-faq-title"
-      className="border-t border-border px-4 py-20 sm:px-6 lg:px-8 lg:py-28"
+      className="bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
       id="faq"
     >
-      <div className="mx-auto grid w-full max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
+      <div className="mx-auto grid w-full max-w-7xl gap-10 rounded-[2rem] border border-border/80 bg-card/60 px-6 py-12 shadow-whisper sm:px-10 sm:py-16 lg:grid-cols-[0.8fr_1.2fr] lg:px-12 lg:py-20">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground">
             {eyebrow}
@@ -70,9 +70,9 @@ export function HomepageFaq({
           </p>
         </div>
 
-        <div className="divide-y divide-border border-y border-border">
+        <div className="divide-y divide-border overflow-hidden rounded-3xl border border-border bg-background">
           {items.map((item) => (
-            <details className="group py-5" key={item.question}>
+            <details className="group px-5 py-5 sm:px-6" key={item.question}>
               <summary className="flex cursor-pointer list-none items-start justify-between gap-6 font-medium marker:content-none">
                 <span>{item.question}</span>
                 <span

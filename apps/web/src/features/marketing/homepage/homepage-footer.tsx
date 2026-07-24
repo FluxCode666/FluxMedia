@@ -43,10 +43,10 @@ export function HomepageFooter({
   return (
     <section
       aria-labelledby="homepage-create-title"
-      className="scroll-mt-24 bg-[#11100f] px-4 text-[#f6f1e7] sm:px-6 lg:px-8"
+      className="mx-auto my-6 w-[calc(100%-2rem)] max-w-7xl scroll-mt-24 overflow-hidden rounded-[2rem] bg-[#11100f] px-6 text-[#f6f1e7] shadow-menu sm:my-8 sm:w-[calc(100%-3rem)] sm:px-10 lg:my-10 lg:w-[calc(100%-4rem)] lg:px-12"
       id="create"
     >
-      <div className="mx-auto flex min-h-[calc(100svh-4rem)] w-full max-w-7xl items-center justify-center border-b border-white/15 py-20 text-center lg:py-28">
+      <div className="flex min-h-[calc(100svh-4rem)] w-full items-center justify-center border-b border-white/15 py-20 text-center lg:py-28">
         <div className="flex max-w-5xl flex-col items-center">
           <p className="font-mono text-xs uppercase tracking-[0.24em] text-[#f6f1e7]/50">
             {copy.eyebrow}
@@ -62,7 +62,7 @@ export function HomepageFooter({
           </p>
           <Button
             asChild
-            className="mt-9 rounded-none bg-[#f6f1e7] px-7 text-[#11100f] hover:bg-white"
+            className="mt-9 rounded-full bg-[#f6f1e7] px-7 text-[#11100f] hover:bg-white"
             size="lg"
           >
             <Link href={ctaHref}>
@@ -73,7 +73,7 @@ export function HomepageFooter({
         </div>
       </div>
 
-      <footer className="mx-auto w-full max-w-7xl py-10">
+      <footer className="w-full py-10">
         <div className="grid gap-10 sm:grid-cols-[1.4fr_0.7fr_0.7fr]">
           <div>
             <Link className="inline-flex items-center gap-2" href="/">

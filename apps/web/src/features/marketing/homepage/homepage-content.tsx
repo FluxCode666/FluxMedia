@@ -174,10 +174,10 @@ export async function HomepageContent({
 
       <section
         aria-labelledby="homepage-work-title"
-        className="scroll-mt-24 bg-[#11100f] px-4 py-20 text-[#f6f1e7] sm:px-6 lg:px-8 lg:py-24"
+        className="scroll-mt-24 bg-background px-4 py-6 text-[#f6f1e7] sm:px-6 sm:py-8 lg:px-8 lg:py-10"
         id="work"
       >
-        <div className="mx-auto w-full max-w-7xl">
+        <div className="mx-auto w-full max-w-7xl rounded-[2rem] bg-[#11100f] px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
           <div
             className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr] lg:items-end"
             data-homepage-motion="reveal"
@@ -206,7 +206,7 @@ export async function HomepageContent({
               >
                 <Image
                   alt={t(artwork.altKey)}
-                  className="aspect-[3/4] w-full border border-white/15 object-cover grayscale-[0.18] transition-[filter,transform] duration-500 group-hover:-translate-y-1 group-hover:grayscale-0 motion-reduce:transition-none"
+                  className="aspect-[3/4] w-full rounded-2xl border border-white/15 object-cover grayscale-[0.18] transition-[filter,transform] duration-500 group-hover:-translate-y-1 group-hover:grayscale-0 motion-reduce:transition-none"
                   height={960}
                   sizes="(max-width: 640px) 46vw, (max-width: 1024px) 30vw, 15vw"
                   src={artwork.src}

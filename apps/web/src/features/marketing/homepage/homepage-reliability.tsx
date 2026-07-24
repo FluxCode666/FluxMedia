@@ -58,10 +58,10 @@ export function HomepageReliability({
     return (
       <section
         aria-labelledby="homepage-reliability-hidden-title"
-        className="border-y border-border bg-muted/20 px-4 py-8 sm:px-6 lg:px-8"
+        className="bg-background px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
         id="reliability"
       >
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 rounded-3xl border border-border bg-muted/20 px-6 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
             <h2
               className="font-serif text-xl font-medium"
@@ -83,10 +83,10 @@ export function HomepageReliability({
   return (
     <section
       aria-labelledby="homepage-reliability-title"
-      className="border-y border-border bg-foreground px-4 py-20 text-background sm:px-6 lg:px-8 lg:py-24"
+      className="bg-background px-4 py-6 text-background sm:px-6 sm:py-8 lg:px-8 lg:py-10"
       id="reliability"
     >
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl rounded-[2rem] bg-foreground px-6 py-14 shadow-menu sm:px-10 sm:py-16 lg:px-12 lg:py-20">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <p className="font-mono text-xs uppercase tracking-[0.22em] text-background/55">
@@ -117,7 +117,7 @@ export function HomepageReliability({
             {copy.insufficient}
           </p>
         ) : (
-          <div className="mt-12 grid gap-px bg-background/20 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-background/20 bg-background/20 sm:grid-cols-2 lg:grid-cols-4">
             <div className="bg-foreground p-6">
               <p className="font-serif text-4xl">
                 {formatPercent(stats.data.successRate, locale)}
